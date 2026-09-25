@@ -5,7 +5,7 @@ include $(THEOS)/makefiles/common.mk
 ARCHS = arm64
 
 BUNDLE_NAME = LockVideoPrefs
-LockVideoPrefs_FILES = LockVideoPrefsListController.m
+LockVideoPrefs_FILES = LockVideoPrefsListController.m LockVideoMaterialCell.m
 LockVideoPrefs_FRAMEWORKS = UIKit
 LockVideoPrefs_PRIVATE_FRAMEWORKS = Preferences
 LockVideoPrefs_CFLAGS = -fobjc-arc
