@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.lockvideo
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm64
 Maintainer: qwr136 <[email protected]>
 Installed-Size: 244
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.lockvideo_1.0.1_iphoneos-arm64.deb
-Size: 7268
-MD5sum: 42e64a4ea695b3e33ccbf84516937ecb
-SHA1: be27ccbe1a2eb67f466176c83d755d6f08a12170
-SHA256: 719f6222204c3b1b27db402985a0c0930723658496f6e7e62da649a2f498acb7
+Filename: debs/com.xiaofei.lockvideo_1.0.2_iphoneos-arm64.deb
+Size: 7574
+MD5sum: 6ca2cc9711284c0f553827ea169222e6
+SHA1: 7e405508d1e9edfc36344df0de147acdaa48a50a
+SHA256: 5238f91b31a0300f843143f6b58c2847018664af153c358547c74191ae1c43c6
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频
 Author: qwr136
-Changelog: 1.0.1 - 修复偏好设置面板：扁平 bundle 结构 + iOS 设置 App 可识别；1.0.0 - 首版
+Changelog: 1.0.2 - 补齐 Info.plist 字段(NSPrincipalClass + APPL)、Root.plist 加 detail、Tweak %ctor 主动注册 prefs bundle；1.0.1 - 修复偏好设置面板：扁平 bundle 结构 + iOS 设置 App 可识别；1.0.0 - 首版
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: LockVideo
