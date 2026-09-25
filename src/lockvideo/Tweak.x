@@ -3,57 +3,63 @@
 #import <objc/runtime.h>
 #import <substrate.h>
 
-#define kLVPrefsID   @"com.xiaofei.notifybgvideo"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
+#define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
+#define kLVVideoDir  @"/var/mobile/通知视频"
 
 static AVPlayer      *gPlayer = nil;
 static AVPlayerLayer *gLayer  = nil;
 static NSString      *gPath   = nil;
 static id             gLoopObserver = nil;
 
-#pragma mark - 读取偏好设置（直接读文件，SpringBoard 里最可靠）
+#pragma mark - 偏好读取（直接读文件，绕开 cfprefsd 缓存）
 
-static NSDictionary *_lvPrefsDict(void) {
-    // SpringBoard 里 CFPreferences 常被 sandbox 挡住读不到 mobile domain，
-    // 所以直接读 plist 文件。roothide / rootless 路径都试一遍。
-    static NSArray *candidates = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        candidates = @[
-            @"/var/mobile/Library/Preferences/" kLVPrefsID @".plist",
-            @"/var/jb/var/mobile/Library/Preferences/" kLVPrefsID @".plist",
-            @"/var/mobile/Library/Preferences/" kLVPrefsID @".plist",
-        ];
-    });
-
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *p in candidates) {
-        if ([fm fileExistsAtPath:p]) {
-            NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
-            if (d) { return d; }
+static NSString *_lvPrefsString(NSString *key) {
+    @try {
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
+        id v = d[key];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            return (NSString *)v;
         }
-    }
+    } @catch (NSException *e) {}
     return nil;
 }
 
 static BOOL _lvEnabled(void) {
     @try {
-        NSDictionary *d = _lvPrefsDict();
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
         id v = d[@"LockVideoEnabled"];
         if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
     } @catch (NSException *e) {}
     return NO;
 }
 
-static NSString *_lvPath(void) {
+#pragma mark - 素材解析：目录扫描 + 偏好里的路径
+
+static NSArray<NSString *> *_lvVideoFiles(void) {
     @try {
-        NSDictionary *d = _lvPrefsDict();
-        id v = d[@"LockVideoPath"];
-        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
-            return (NSString *)v;
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSMutableArray *out = [NSMutableArray array];
+        NSArray *items = [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil];
+        for (NSString *f in items) {
+            NSString *ext = [f pathExtension].lowercaseString;
+            if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
+                [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"]) {
+                [out addObject:[kLVVideoDir stringByAppendingPathComponent:f]];
+            }
         }
+        return [out sortedArrayUsingSelector:@selector(compare:)];
     } @catch (NSException *e) {}
-    return nil;
+    return @[];
+}
+
+static NSString *_lvResolveVideoPath(void) {
+    // 优先用设置里已选的路径；路径失效则按目录排序取第一个
+    NSString *saved = _lvPrefsString(@"LockVideoPath");
+    if (saved && [[NSFileManager defaultManager] fileExistsAtPath:saved]) {
+        return saved;
+    }
+    return _lvVideoFiles().firstObject;
 }
 
 #pragma mark - 播放器管理
@@ -72,19 +78,17 @@ static void _lvTeardown(void) {
     }
 }
 
-static void _lvApplyTo(UIView *view) {
+static void _lvAttachTo(UIView *view) {
     if (!view) { return; }
     @autoreleasepool {
         @try {
-            NSString *path = _lvPath();
-            if (!_lvEnabled() || path.length == 0 ||
-                ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-                _lvTeardown();
+            NSString *path = _lvResolveVideoPath();
+            if (!_lvEnabled() || path.length == 0) {
+                if (gLayer) { _lvTeardown(); }
                 return;
             }
 
             if (!gPlayer || ![path isEqualToString:gPath]) {
-                // 路径变了 -> 重建
                 if (gLoopObserver) {
                     [[NSNotificationCenter defaultCenter] removeObserver:gLoopObserver];
                     gLoopObserver = nil;
@@ -92,13 +96,12 @@ static void _lvApplyTo(UIView *view) {
                 if (gLayer) { [gLayer removeFromSuperlayer]; gLayer = nil; }
 
                 AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
-                if (!item) { NSLog(@"[LockVideo] 无法创建 AVPlayerItem: %@", path); return; }
-
+                if (!item) { return; }
                 gPlayer = [AVPlayer playerWithPlayerItem:item];
                 gPlayer.actionAtItemEnd = AVPlayerActionAtItemEndNone;
                 gPath = path;
+                NSLog(@"[LockVideo] 播放: %@", path);
 
-                // 循环播放：只观察当前 item，避免重复注册
                 __weak AVPlayer *weakPlayer = gPlayer;
                 gLoopObserver = [[NSNotificationCenter defaultCenter]
                     addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
@@ -111,7 +114,7 @@ static void _lvApplyTo(UIView *view) {
                         [p seekToTime:kCMTimeZero
                       toleranceBefore:kCMTimeZero
                        toleranceAfter:kCMTimeZero
-                            completionHandler:^(BOOL finished) { [p play]; }];
+                            completionHandler:^(BOOL done) { [p play]; }];
                     } @catch (NSException *e) {}
                 }];
             }
@@ -119,66 +122,87 @@ static void _lvApplyTo(UIView *view) {
             if (!gLayer) {
                 gLayer = [AVPlayerLayer playerLayerWithPlayer:gPlayer];
                 gLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-                gLayer.frame = view.bounds;
+            }
+            gLayer.frame = view.bounds;
+            if (gLayer.superlayer != view.layer) {
+                [gLayer removeFromSuperlayer];
+                // 插到最底层：盖住壁纸，但不挡时间/通知等控件
                 [view.layer insertSublayer:gLayer atIndex:0];
-            } else {
-                gLayer.frame = view.bounds;
-                if (gLayer.superlayer != view.layer) {
-                    [gLayer removeFromSuperlayer];
-                    [view.layer insertSublayer:gLayer atIndex:0];
-                }
             }
             [gPlayer play];
         } @catch (NSException *e) {
-            NSLog(@"[LockVideo] apply: %@", e);
+            NSLog(@"[LockVideo] attach: %@", e);
         }
     }
 }
 
-#pragma mark - Hook
+#pragma mark - Hooks
 
-%group LVBg
-
-%hook SBLockScreenNotificationBackgroundView
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = %orig;
-    @try { if (self) { _lvApplyTo((UIView *)self); } } @catch (NSException *e) {}
-    return self;
-}
+// iOS 15/16 锁屏壁纸视图 —— 视频替换壁纸（效果最直观）
+%group LVWallpaper
+%hook SBLockScreenWallpaperView
 
 - (void)didMoveToWindow {
     %orig;
-    @try {
-        UIView *v = (UIView *)self;
-        if (v.window) { _lvApplyTo(v); }
-    } @catch (NSException *e) {}
+    @try { if (self.window) { _lvAttachTo((UIView *)self); } } @catch (NSException *e) {}
 }
 
 - (void)layoutSubviews {
     %orig;
     @try {
-        if (gLayer) { gLayer.frame = ((UIView *)self).bounds; }
+        if (gLayer && gLayer.superlayer == ((UIView *)self).layer) {
+            gLayer.frame = ((UIView *)self).bounds;
+        }
     } @catch (NSException *e) {}
 }
 
 %end
+%end
 
+// 通知背景视图 —— 兜底
+%group LVNotifBg
+%hook SBLockScreenNotificationBackgroundView
+
+- (void)didMoveToWindow {
+    %orig;
+    @try { if (self.window) { _lvAttachTo((UIView *)self); } } @catch (NSException *e) {}
+}
+
+- (void)layoutSubviews {
+    %orig;
+    @try {
+        if (gLayer && gLayer.superlayer == ((UIView *)self).layer) {
+            gLayer.frame = ((UIView *)self).bounds;
+        }
+    } @catch (NSException *e) {}
+}
+
+%end
 %end
 
 #pragma mark - ctor
 
 %ctor {
     @try {
-        // 类不存在就完全不 hook，避免 nil class hook 出问题
-        if (objc_getClass("SBLockScreenNotificationBackgroundView") != Nil) {
-            %init(LVBg);
-            NSLog(@"[LockVideo] 已注入 SBLockScreenNotificationBackgroundView");
-        } else {
-            NSLog(@"[LockVideo] 目标类不存在，跳过注入");
+        if (!_lvEnabled()) {
+            NSLog(@"[LockVideo] 当前未启用");
         }
 
-        // 设置改动后重建
+        BOOL hooked = NO;
+        if (objc_getClass("SBLockScreenWallpaperView") != Nil) {
+            %init(LVWallpaper);
+            hooked = YES;
+            NSLog(@"[LockVideo] hook SBLockScreenWallpaperView OK");
+        }
+        if (objc_getClass("SBLockScreenNotificationBackgroundView") != Nil) {
+            %init(LVNotifBg);
+            hooked = YES;
+            NSLog(@"[LockVideo] hook SBLockScreenNotificationBackgroundView OK");
+        }
+        if (!hooked) {
+            NSLog(@"[LockVideo] 没有找到目标类，未注入");
+        }
+
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
                                         (CFNotificationCallback)_lvTeardown,
