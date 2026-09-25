@@ -3,6 +3,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <substrate.h>
+#import <dlfcn.h>
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
@@ -17,10 +18,13 @@ static NSString *gCurrentPlayerPath = nil;
 static id gPlayerLoopObserver = nil;
 static char kLayerKey;
 static char kPlayerLayerKey;
+static char kWallLayerKey;
 static char kTrackedKey;
 static int gActiveNotifCount = 0;
 static int gActivePlayerCount = 0;
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
+static BOOL gVerbose = NO;          // 详细诊断日志（设置里开关，默认关，避免日志爆炸）
+static int  gLastPlayingState = -1; // 播放状态变化才记日志
 
 #pragma mark - 偏好（直接读文件）
 
@@ -186,6 +190,51 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
         [gLoggedClasses addObject:key];
         _lvLog([NSString stringWithFormat:@"%@ -> %@", cls, action]);
     } @catch (NSException *e) {}
+}
+
+#pragma mark - 播放状态检测（是否有 App 正在放音乐/视频）
+
+static BOOL gCanDetectPlayback = NO;   // 拿不到状态就默认一直显示（保证功能不失效）
+static BOOL gMRReady = NO;
+static BOOL gMRPlaying = NO;
+typedef void (*_LVIsPlayingFn)(dispatch_queue_t, void (^)(BOOL));
+static _LVIsPlayingFn gMRIsPlayingFn = NULL;
+
+static void _lvLoadMR(void) {
+    @try {
+        if (gMRIsPlayingFn) { return; }
+        void *sym = dlsym(RTLD_DEFAULT, "MRMediaRemoteGetNowPlayingApplicationIsPlaying");
+        if (!sym) {
+            void *h = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW);
+            if (h) { sym = dlsym(h, "MRMediaRemoteGetNowPlayingApplicationIsPlaying"); }
+        }
+        if (sym) { gMRIsPlayingFn = (_LVIsPlayingFn)sym; }
+    } @catch (NSException *e) {}
+}
+
+// 主判据：SpringBoard 的 SBMediaController；兜底：MediaRemote 私有 API
+static BOOL _lvIsMediaPlaying(void) {
+    @try {
+        _lvLoadMR();
+        if (gMRIsPlayingFn) {
+            gMRReady = YES;
+            gMRIsPlayingFn(dispatch_get_main_queue(), ^(BOOL p) { gMRPlaying = p; });
+        }
+        Class mc = NSClassFromString(@"SBMediaController");
+        if (mc && [mc respondsToSelector:NSSelectorFromString(@"sharedInstance")]) {
+            id c = [mc performSelector:NSSelectorFromString(@"sharedInstance")];
+            if (c) {
+                gCanDetectPlayback = YES;
+                NSNumber *n = nil;
+                @try { n = [c valueForKey:@"isPlaying"]; } @catch (NSException *e) {}
+                if ([n respondsToSelector:@selector(boolValue)] && [n boolValue]) { return YES; }
+                id app = nil;
+                @try { app = [c valueForKey:@"nowPlayingApplication"]; } @catch (NSException *e) {}
+                if (app && gMRPlaying) { return YES; }
+            }
+        }
+    } @catch (NSException *e) {}
+    return gMRPlaying;
 }
 
 #pragma mark - 共享播放器（多视图可同时显示同一视频）
@@ -496,6 +545,67 @@ static void _lvAttachPlayerView(UIView *v) {
     }
 }
 
+#pragma mark - 播放器背景兜底：直接挂到锁屏壁纸视图（不再依赖猜播放器类名）
+
+// 日志证明：这台设备的锁屏窗口里根本没有独立播放器视图（没有 MRU*/CSMedia*/NowPlaying* 任何一个）。
+// 所以改成：只要系统正在播放音频，就把视频铺到锁屏壁纸上，作为锁屏整体背景。
+static BOOL _lvIsWallpaperClassName(NSString *cls) {
+    if (!cls) { return NO; }
+    NSString *low = cls.lowercaseString;
+    if (![low containsString:@"wallpaper"]) { return NO; }
+    if ([low containsString:@"fakeblur"])   { return NO; }
+    if ([low containsString:@"effect"])     { return NO; }
+    return YES;
+}
+
+static UIView *_lvFindWallpaperView(UIView *root) {
+    @try {
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+        int visited = 0;
+        while (stack.count > 0 && visited < 800) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            visited++;
+            CGSize sz = v.bounds.size;
+            if (sz.width > 200.0 && sz.height > 200.0 &&
+                _lvIsWallpaperClassName(NSStringFromClass(v.class))) {
+                return v;
+            }
+            for (UIView *c in v.subviews) { [stack addObject:c]; }
+        }
+    } @catch (NSException *e) {}
+    return nil;
+}
+
+static void _lvUpdateWallpaperBackground(UIView *wall, BOOL show) {
+    @try {
+        AVPlayerLayer *l = objc_getAssociatedObject(wall, &kWallLayerKey);
+        if (!show) {
+            if (l) { l.hidden = YES; }
+            return;
+        }
+        AVPlayer *p = _lvPlayerPlayer();
+        if (!p) { return; }
+        if (!l) {
+            l = [AVPlayerLayer playerLayerWithPlayer:p];
+            l.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            l.masksToBounds = YES;
+            objc_setAssociatedObject(wall, &kWallLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [wall.layer addSublayer:l];
+            _lvLog([NSString stringWithFormat:@"播放器背景: 已挂到 %@ %.0fx%.0f 透明度 %.2f",
+                    NSStringFromClass(wall.class), wall.bounds.size.width,
+                    wall.bounds.size.height, _lvPlayerAlpha()]);
+        }
+        if (l.player != p) { l.player = p; }
+        l.frame = wall.bounds;
+        l.opacity = (float)_lvPlayerAlpha();
+        l.hidden = NO;
+        [p play];
+    } @catch (NSException *e) {
+        _lvLog([NSString stringWithFormat:@"wallpaper attach 异常: %@", e]);
+    }
+}
+
 #pragma mark - iOS 16 锁屏通知显式 hook（直接挂用户可见的卡片本体 NCNotificationShortLookView）
 
 %group LVNotif16
@@ -546,7 +656,7 @@ static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
                 UIWindow *w = self.window;
                 NSString *wcls = NSStringFromClass(w.class);
                 NSString *wlow = wcls.lowercaseString;
-                if ([wlow containsString:@"coversheet"] || [wlow containsString:@"lockscreen"]) {
+                if (gVerbose && ([wlow containsString:@"coversheet"] || [wlow containsString:@"lockscreen"])) {
                     _lvLogOnce(NSStringFromClass(self.class), @"未匹配(锁屏窗口)");
                 }
             }
@@ -713,10 +823,12 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundNotif, BOOL *foundPlayer) 
                     [low containsString:@"album"]   || [low containsString:@"artwork"];
                 // 排除误报：displaying / display 里含 "play" 但不是播放器
                 if ([low containsString:@"display"]) { suspicious = NO; }
-                if (suspicious) {
-                    _lvLogOnce(cls, @"【疑似播放器】请反馈此行");
-                } else {
-                    _lvLogOnce(cls, @"扫描时发现的类");
+                if (gVerbose) {
+                    if (suspicious) {
+                        _lvLogOnce(cls, @"【疑似播放器】请反馈此行");
+                    } else {
+                        _lvLogOnce(cls, @"扫描时发现的类");
+                    }
                 }
             }
             for (UIView *c in v.subviews) { [stack addObject:c]; }
@@ -760,6 +872,7 @@ static void _lvDiagnosticScanAllWindows(NSArray *wins) {
 
 static void _lvPollTick(void) {
     @try {
+        gVerbose = _lvBool(@"LockVideoVerboseLog");
         if (!_lvEnabled() && !_lvPlayerEnabled()) {
             if (gPlayer) { [gPlayer pause]; }
             if (gPlayerPlayer) { [gPlayerPlayer pause]; }
@@ -770,11 +883,13 @@ static void _lvPollTick(void) {
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
         BOOL foundAnyCard = NO;
         BOOL foundAnyPlayer = NO;
+        NSMutableArray<UIWindow *> *lockWins = [NSMutableArray array];
         for (UIWindow *w in wins) {
             NSString *c = NSStringFromClass([w class]);
             if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
                 ![c containsString:@"Banner"]) { continue; }
             if (w.hidden || w.alpha <= 0.01) { continue; }
+            [lockWins addObject:w];
             BOOL foundNotif = NO, foundPlayer = NO;
             _lvScanAndAttach(w, &foundNotif, &foundPlayer);
             if (foundNotif) foundAnyCard = YES;
@@ -783,13 +898,45 @@ static void _lvPollTick(void) {
         if (gPlayer) {
             if (foundAnyCard) { [gPlayer play]; } else { [gPlayer pause]; }
         }
-        if (gPlayerPlayer) {
-            if (foundAnyPlayer) { [gPlayerPlayer play]; } else { [gPlayerPlayer pause]; }
+
+        // 播放器背景：不用找播放器视图，直接挂锁屏壁纸。
+        // 判据是"系统是否正在播放音频"，放歌就显示，停了就隐藏。
+        BOOL showBg = NO;
+        if (_lvPlayerEnabled()) {
+            BOOL playing = _lvIsMediaPlaying();
+            BOOL detectable = (gCanDetectPlayback || gMRReady);
+            showBg = detectable ? playing : YES;   // 检测不到时恒显示，避免功能假死
+            if ((int)playing != gLastPlayingState) {
+                gLastPlayingState = (int)playing;
+                _lvLog([NSString stringWithFormat:@"播放状态: 播放中=%d 可检测=%d MR=%d 显示背景=%d",
+                        playing, detectable, gMRPlaying, showBg]);
+            }
+            BOOL mounted = NO;
+            for (UIWindow *w in lockWins) {
+                UIView *wall = _lvFindWallpaperView(w);
+                if (wall) { _lvUpdateWallpaperBackground(wall, showBg); mounted = YES; }
+            }
+            if (!mounted) {
+                // 锁屏窗口里没壁纸视图：再到壁纸专用窗口找一次
+                for (UIWindow *w in wins) {
+                    NSString *c = NSStringFromClass([w class]).lowercaseString;
+                    if (![c containsString:@"wallpaper"]) { continue; }
+                    if (w.hidden || w.alpha <= 0.01) { continue; }
+                    UIView *wall = _lvFindWallpaperView(w);
+                    if (wall) { _lvUpdateWallpaperBackground(wall, showBg); mounted = YES; break; }
+                }
+            }
+            if (!mounted && gVerbose) {
+                _lvLogOnce(@"播放器背景", @"没找到锁屏壁纸视图(当前不在锁屏?)");
+            }
         }
-        // 没找到播放器时，每 ~15 秒做一次全窗口诊断扫描，
-        // 用来定位播放器视图实际在哪个窗口 / 叫什么类名
+        if (gPlayerPlayer) {
+            if (foundAnyPlayer || showBg) { [gPlayerPlayer play]; } else { [gPlayerPlayer pause]; }
+        }
+
+        // 诊断：仅当设置里打开"详细诊断日志"时才全窗口扫描
         gPollCount++;
-        if (!foundAnyPlayer && _lvPlayerEnabled() && (gPollCount % 10 == 1)) {
+        if (gVerbose && (gPollCount % 10 == 1)) {
             _lvDiagnosticScanAllWindows(wins);
         }
     } @catch (NSException *e) {}
@@ -850,6 +997,8 @@ static void _lvPollTick(void) {
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"播放器: 开关=%d 视频=%@ 透明度=%.2f",
                 _lvPlayerEnabled(), _lvPlayerPath() ?: @"(无)", _lvPlayerAlpha()]);
+        _lvLog([NSString stringWithFormat:@"播放器背景模式: 挂锁屏壁纸(放歌时显示) 详细日志=%d",
+                _lvBool(@"LockVideoVerboseLog")]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
         {
             NSMutableString *s = [NSMutableString string];
@@ -863,7 +1012,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.41 加载完成 =====");
+        _lvLog(@"===== 1.0.42 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
