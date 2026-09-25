@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.12
+Version: 1.0.13
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.12 - 恢复 PreferenceBundle 入口（PreferenceLoader 需要 bundle+isController 才显示入口）；bundle 用 arm64 编译后把 Mach-O cputype 伪装成 arm64e（arm64e 是 arm64 超集，无 PAC 指令的代码在 arm64e 进程合法运行），既通过 dyld 架构校验又避开 Linux 工具链 arm64e PAC ABI 崩溃；1.0.11 - 纯 plist 方案（部分 PreferenceLoader 不支持）；1.0.10 及更早 - 历史版本
+Changelog: 1.0.13 - GitHub Actions macOS 编译：真 Apple 工具链，arm64+arm64e 真 fat binary（PAC ABI 正确），无需 cputype 伪装
