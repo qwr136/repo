@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.36
+Version: 1.0.37
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.36_iphoneos-arm64.deb
-Size: 25322
-MD5sum: 0e5ac19d19173aaed723602c6872e353
-SHA1: 76e96a9b35d83cfe7f51af055833778c46576118
-SHA256: 124293913edc58a90abed14e200c778f2c0b715642488757f29c504aaf5afff4
+Filename: debs/com.xiaofei.notifybgvideo_1.0.37_iphoneos-arm64.deb
+Size: 27786
+MD5sum: 717e60244b46a4ed335a9a40943ba2b8
+SHA1: 81a27075abf4105cb8b96fb8920e9d7c77f9e09e
+SHA256: c2d11823f8cf4c3e43772ff58809cb2b73665339928905b4c31eeb60f49fac08
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.36 - 新增「为锁屏播放器加视频背景」开关；开启后锁屏底部音乐播放器（NowPlaying）也会跟通知卡片一样以视频作为背景，共用同一素材
+Changelog: 1.0.37 - 播放器视频背景独立素材+独立透明度：设置面板新增「选择播放器素材」、「播放器视频透明度」；播放器与通知完全独立，互不干扰
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
