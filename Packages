@@ -35,17 +35,17 @@ Name: 控制中心发光
 
 Package: com.xiaofei.lockvideo
 Version: 1.0.0
-Architecture: iphoneos-arm
+Architecture: iphoneos-arm64
 Maintainer: qwr136 <[email protected]>
-Installed-Size: 340
-Depends: mobilesubstrate
+Installed-Size: 244
+Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.lockvideo_1.0.0_iphoneos-arm.deb
-Size: 8036
-MD5sum: 37cc64f03fdec1a5e58399e86946642b
-SHA1: 1ac9eff3d352d259f875e4cb0a2cd8e5fc1c37c7
-SHA256: 847edc73aa16ef1dd06790c6017da25ee771c5ba0a9270e28fa95d630dd4da8d
-Section: Tweaks
+Filename: debs/com.xiaofei.lockvideo_1.0.0_iphoneos-arm64.deb
+Size: 7122
+MD5sum: 01fce77f0b7f6da69d6da42fc6c72205
+SHA1: 2735c7d65dc2d52d2c521f6af6397e64b87353c9
+SHA256: 2379d9201be9889cad716533420304d881dd084648eb87ab0b3cc8d280cc9da2
+Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频
 Author: qwr136
 Depiction: https://qwr136.github.io/repo/
