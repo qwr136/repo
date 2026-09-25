@@ -305,6 +305,9 @@ static BOOL _lvIsNotificationView(UIView *v) {
     } @catch (NSException *e) { return NO; }
 }
 
+// 前向声明（定义在 _lvIsPlayerClassName 之后）
+static BOOL _lvIsLikelyPlayerClass(NSString *cls);
+
 // 锁屏底部播放器视图（识别类名，避免挂到容器/SB 命名空间过宽的类）
 static BOOL _lvIsPlayerClassName(NSString *cls) {
     if (!cls) return NO;
