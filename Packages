@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.39
+Version: 1.0.40
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.39_iphoneos-arm64.deb
-Size: 28340
-MD5sum: bcbadfe50ab979c91b1ade45f1771f9a
-SHA1: 8820c744cc87848be5327beda0ef10d53323b5be
-SHA256: cc8ef0ca490f4f1c5da2b83c7bbbc60099a40dca1d62b62fa28901bbbf69b957
+Filename: debs/com.xiaofei.notifybgvideo_1.0.40_iphoneos-arm64.deb
+Size: 29184
+MD5sum: 01a9bc214ae020eb65a7e492668db385
+SHA1: d334768505ffef2bbf505c31da3e89be60a6590b
+SHA256: 418179e58a1ea8584ea729eaccc82a25cb11ea9c615fdd4ab8fa185328b2b7f4
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.39 - 轮询扫描也输出类名诊断（可发现常驻播放器视图）；含 media/playing/music/audio/nowplay/album/artwork 关键词的类标记【疑似播放器】；状态日志补充播放器开关与路径
+Changelog: 1.0.40 - 全窗口诊断扫描：未找到播放器时每15秒扫所有窗口并记录类名，可发现播放器在其他窗口的情况；排除 display 类误报
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
