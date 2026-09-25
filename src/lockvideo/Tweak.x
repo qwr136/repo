@@ -908,27 +908,30 @@ static void _lvPollTick(void) {
         BOOL showBg = NO;
         if (_lvPlayerEnabled()) {
             BOOL playing = _lvIsMediaPlaying();
-            BOOL detectable = (gCanDetectPlayback || gMRReady);
-            showBg = detectable ? playing : YES;   // 检测不到时恒显示，避免功能假死
-            if ((int)playing != gLastPlayingState) {
-                gLastPlayingState = (int)playing;
-                _lvLog([NSString stringWithFormat:@"播放状态: 播放中=%d 可检测=%d MR=%d 显示背景=%d",
-                        playing, detectable, gMRPlaying, showBg]);
+            // 去抖：连续2次判定"播放中"才显示；连续3次判定"停止"才隐藏。
+            // SBMediaController.isPlaying 会抖动（日志证实 0/1 反复切），不去抖视频会闪烁。
+            static BOOL gBgShown = NO;
+            static int gBgStreak = 0;
+            if (playing == gBgShown) {
+                gBgStreak = 0;
+            } else {
+                gBgStreak++;
+                if (playing && gBgStreak >= 2)      { gBgShown = YES; gBgStreak = 0; }
+                else if (!playing && gBgStreak >= 3) { gBgShown = NO;  gBgStreak = 0; }
             }
+            BOOL detectable = (gCanDetectPlayback || gMRReady);
+            showBg = detectable ? gBgShown : YES;   // 检测不到时恒显示，避免功能假死
+            if ((int)showBg != gLastPlayingState) {
+                gLastPlayingState = (int)showBg;
+                _lvLog([NSString stringWithFormat:@"播放状态: 播放中=%d 可检测=%d 显示背景=%d",
+                        playing, detectable, showBg]);
+            }
+            // 只挂锁屏窗口里的壁纸视图。
+            // 绝不能挂 _SBWallpaperSecureWindow（主屏幕+锁屏共用壁纸窗口），否则桌面也会出现视频。
             BOOL mounted = NO;
             for (UIWindow *w in lockWins) {
                 UIView *wall = _lvFindWallpaperView(w);
                 if (wall) { _lvUpdateWallpaperBackground(wall, showBg); mounted = YES; }
-            }
-            if (!mounted) {
-                // 锁屏窗口里没壁纸视图：再到壁纸专用窗口找一次
-                for (UIWindow *w in wins) {
-                    NSString *c = NSStringFromClass([w class]).lowercaseString;
-                    if (![c containsString:@"wallpaper"]) { continue; }
-                    if (w.hidden || w.alpha <= 0.01) { continue; }
-                    UIView *wall = _lvFindWallpaperView(w);
-                    if (wall) { _lvUpdateWallpaperBackground(wall, showBg); mounted = YES; break; }
-                }
             }
             if (!mounted && gVerbose) {
                 _lvLogOnce(@"播放器背景", @"没找到锁屏壁纸视图(当前不在锁屏?)");
@@ -1016,7 +1019,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.42 加载完成 =====");
+        _lvLog(@"===== 1.0.43 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
