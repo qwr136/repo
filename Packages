@@ -41,10 +41,10 @@ Installed-Size: 244
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
 Filename: debs/com.xiaofei.lockvideo_1.0.0_iphoneos-arm64.deb
-Size: 7122
-MD5sum: 01fce77f0b7f6da69d6da42fc6c72205
-SHA1: 2735c7d65dc2d52d2c521f6af6397e64b87353c9
-SHA256: 2379d9201be9889cad716533420304d881dd084648eb87ab0b3cc8d280cc9da2
+Size: 7170
+MD5sum: 7b569d62bc0def94fe2505ae85505a14
+SHA1: 2927f23ca7e777da91f0593d6b64175e3db43634
+SHA256: d571d01cc2d784783b4cab73d6ed10b1fa67d02344e09741c596a64da2e68bc8
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频
 Author: qwr136
