@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.19
+Version: 1.0.20
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 380
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.19_iphoneos-arm64.deb
-Size: 20742
-MD5sum: 26946c43c07c191d095eb9d7cf72ed76
-SHA1: 92268f6b357d2ab2e3a11785f5b22fea7ceda530
-SHA256: 3aefb9be476388b7d8022df5067c24b5e07ccd0723bcfa191232d84832c87f09
+Filename: debs/com.xiaofei.notifybgvideo_1.0.20_iphoneos-arm64.deb
+Size: 22072
+MD5sum: 3c1810d27967cea74f70dfc47df61cc8
+SHA1: 0d52c58a98dafdb767d316e0396dd05e72844b22
+SHA256: 3e4c6896d42bbf23b83fb232b85df63bc6514df1af4ffc61fa012448947ca9d5
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.19 - 改成轮询扫描：每 1.5 秒遍历锁屏/横幅窗口的整棵视图树，凡是类名含 notif 且像卡片的视图直接挂视频，不再依赖任何 hook 传播或方法被调用，从根本解决 iOS16 锁屏通知不生效；命中即导出视图树备查
+Changelog: 1.0.20 - 修复根因：设置开关状态读取改为 plist 文件 + 系统偏好存储双通道（任一为开即开），并给所有开关补 defaults；挂载目标精确定为真实卡片类 NCNotificationShortLookView / NCNotificationListCell（排除列表容器与遮罩）；视频层加圆角
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
