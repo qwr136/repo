@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <substrate.h>
 
@@ -379,6 +380,64 @@ static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
     @try { _lvStartDump(); } @catch (NSException *e) {}
 }
 
+#pragma mark - 轮询扫描（不依赖任何 hook 传播：直接遍历锁屏视图树找通知卡片）
+
+static NSTimer *gPollTimer = nil;
+static CFTimeInterval gLastDump = 0;
+
+static BOOL _lvIsCardClass(NSString *cls) {
+    NSString *low = cls.lowercaseString;
+    if (![low containsString:@"notif"]) { return NO; }
+    return [low containsString:@"cell"]     || [low containsString:@"content"] ||
+           [low containsString:@"shortlook"] || [low containsString:@"card"]    ||
+           [low containsString:@"banner"]   || [low containsString:@"list"]    ||
+           [low containsString:@"view"];
+}
+
+static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
+    @try {
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+        int visited = 0;
+        while (stack.count > 0 && visited < 4000) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            visited++;
+            NSString *cls = NSStringFromClass([v class]);
+            if (_lvIsCardClass(cls)) {
+                *foundAny = YES;
+                _lvLogOnce(cls, @"轮询扫描命中");
+                _lvOnMatch(v);          // 挂载视频（幂等）
+            }
+            for (UIView *c in v.subviews) { [stack addObject:c]; }
+        }
+    } @catch (NSException *e) {}
+}
+
+static void _lvPollTick(void) {
+    @try {
+        if (!_lvEnabled()) { return; }
+        id app = [UIApplication sharedApplication];
+        NSArray *wins = nil;
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        for (UIWindow *w in wins) {
+            NSString *c = NSStringFromClass([w class]);
+            // 锁屏（CoverSheet）窗口；iOS16 起锁屏都在这个窗口里
+            if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
+                ![c containsString:@"Banner"]) { continue; }
+            if (w.hidden || w.alpha <= 0.01) { continue; }
+            BOOL found = NO;
+            _lvScanAndAttach(w, &found);
+            if (found) {
+                CFTimeInterval now = CACurrentMediaTime();
+                if (now - gLastDump > 10.0) {      // 最多每 10 秒导出一次
+                    gLastDump = now;
+                    _lvDumpOnce();
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
 #pragma mark - ctor
 
 %ctor {
@@ -410,6 +469,18 @@ static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
         }
 
         // 4) 设置变化：声音即时生效；素材变化重建播放器
+        // 5) 轮询扫描：每 1.5 秒遍历一次锁屏视图树，直接找通知卡片并挂视频
+        //    这样即使目标类不调用 super、hook 传播不到，也一定能命中
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @try {
+                if (gPollTimer) { [gPollTimer invalidate]; gPollTimer = nil; }
+                gPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
+                    @try { _lvPollTick(); } @catch (NSException *e) {}
+                }];
+                _lvLog(@"轮询扫描已启动(每1.5秒)");
+            } @catch (NSException *e) {}
+        });
+
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
                                         _lvPrefsChanged,
@@ -426,7 +497,7 @@ static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 诊断=%d 视频=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvDebug(), _lvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
-        _lvLog(@"===== 1.0.18 加载完成 =====");
+        _lvLog(@"===== 1.0.19 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
