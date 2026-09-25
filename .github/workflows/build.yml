@@ -55,7 +55,7 @@ jobs:
           # 清掉本包旧 deb，放入新 deb
           rm -f debs/com.xiaofei.notifybgvideo_*.deb
           cp src/lockvideo/packages/*.deb debs/          # 重新生成 Packages 索引
-          dpkg-scanpackages --multiversion . /dev/null > Packages
+          dpkg-scanpackages --multiversion debs /dev/null > Packages
           gzip -k -f Packages
           xz -k -f Packages
           git config user.name "github-actions[bot]"
