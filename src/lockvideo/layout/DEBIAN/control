@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.19
+Version: 1.0.20
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.19 - 改成轮询扫描：每 1.5 秒遍历锁屏/横幅窗口的整棵视图树，凡是类名含 notif 且像卡片的视图直接挂视频，不再依赖任何 hook 传播或方法被调用，从根本解决 iOS16 锁屏通知不生效；命中即导出视图树备查
+Changelog: 1.0.20 - 修复根因：设置开关状态读取改为 plist 文件 + 系统偏好存储双通道（任一为开即开），并给所有开关补 defaults；挂载目标精确定为真实卡片类 NCNotificationShortLookView / NCNotificationListCell（排除列表容器与遮罩）；视频层加圆角

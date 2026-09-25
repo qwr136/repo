@@ -20,16 +20,44 @@ static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
 
-static NSDictionary *_lvPrefs(void) {
-    return [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
+static NSArray<NSString *> *_lvSuites(void) {
+    return @[@"com.xiaofei.notifybgvideo", @"com.xiaofei.notifybgvideo.prefs"];
 }
 
+static NSDictionary *_lvPrefs(void) {
+    return [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile] ?: @{};
+}
+
+// 同时读：plist 文件 + 系统偏好存储（两个 suite），任一为 YES 即 YES。
+// 设置面板写入位置和插件读取位置可能不一致，这样保证不会漏。
 static BOOL _lvBool(NSString *key) {
     @try {
         id v = _lvPrefs()[key];
-        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        if ([v respondsToSelector:@selector(boolValue)] && [v boolValue]) { return YES; }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(boolValue)] && [val boolValue]) { return YES; }
+        }
     } @catch (NSException *e) {}
     return NO;
+}
+
+static NSString *_lvString(NSString *key) {
+    @try {
+        id v = _lvPrefs()[key];
+        if ([v isKindOfClass:[NSString class]] && [v length]) { return v; }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val isKindOfClass:[NSString class]] && [val length]) { return val; }
+        }
+    } @catch (NSException *e) {}
+    return nil;
 }
 
 static BOOL _lvEnabled(void) { return _lvBool(@"LockVideoEnabled"); }
@@ -53,7 +81,7 @@ static NSArray<NSString *> *_lvScanFiles(void) {
 }
 
 static NSString *_lvPath(void) {
-    NSString *saved = _lvPrefs()[@"LockVideoPath"];
+    NSString *saved = _lvString(@"LockVideoPath");
     if ([saved isKindOfClass:[NSString class]] &&
         [[NSFileManager defaultManager] fileExistsAtPath:saved]) {
         return saved;
@@ -256,6 +284,8 @@ static void _lvAttach(UIView *v) {
         if (!l) {
             l = [AVPlayerLayer playerLayerWithPlayer:p];
             l.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            l.cornerRadius = 18.0;
+            l.masksToBounds = YES;
             objc_setAssociatedObject(v, &kLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             _lvLogOnce(NSStringFromClass(v.class), @"已挂载视频");
         }
@@ -385,13 +415,18 @@ static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
 static NSTimer *gPollTimer = nil;
 static CFTimeInterval gLastDump = 0;
 
+// 只挂真正的通知卡片，排除整块列表容器和遮罩/标题（否则会盖住整个锁屏）
 static BOOL _lvIsCardClass(NSString *cls) {
     NSString *low = cls.lowercaseString;
     if (![low containsString:@"notif"]) { return NO; }
-    return [low containsString:@"cell"]     || [low containsString:@"content"] ||
-           [low containsString:@"shortlook"] || [low containsString:@"card"]    ||
-           [low containsString:@"banner"]   || [low containsString:@"list"]    ||
-           [low containsString:@"view"];
+    if ([low containsString:@"stackdimming"]) { return NO; }   // 变暗遮罩
+    if ([low containsString:@"header"])       { return NO; }   // 分组标题
+    if ([low containsString:@"listview"])     { return NO; }   // 整个列表容器
+    if ([low containsString:@"sectionlist"])  { return NO; }
+    // 真正要挂的：卡片本体 / 短视图 / 内容视图 / 横幅
+    return [low containsString:@"listcell"]   || [low containsString:@"shortlook"] ||
+           [low containsString:@"content"]    || [low containsString:@"banner"]    ||
+           ([low containsString:@"cell"] && [low containsString:@"notification"]);
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
@@ -497,7 +532,20 @@ static void _lvPollTick(void) {
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 诊断=%d 视频=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvDebug(), _lvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
-        _lvLog(@"===== 1.0.19 加载完成 =====");
+        _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
+        {
+            NSMutableString *s = [NSMutableString string];
+            for (NSString *suite in _lvSuites()) {
+                for (NSString *k in @[@"LockVideoEnabled", @"LockVideoSound", @"LockVideoDebug"]) {
+                    CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+                    CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)k, (__bridge CFStringRef)suite);
+                    id val = cf ? CFBridgingRelease(cf) : nil;
+                    [s appendFormat:@"%@/%@=%@ ", suite, k, val ?: @"(无)"];
+                }
+            }
+            _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
+        }
+        _lvLog(@"===== 1.0.20 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
