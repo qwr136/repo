@@ -33,7 +33,7 @@
             return f;
         }
     }
-    return @"(未选择)";
+    return @"";   // 目录里也没视频时为空，单元格显示空白
 }
 
 // 刷新「选择素材」那一行：选完素材后立即让单元格显示新文件名
@@ -45,9 +45,11 @@
         }
         if (target) {
             NSString *name = [self _currentVideoName];
-            NSString *bracketed = [NSString stringWithFormat:@"（%@）", name];
-            [target setProperty:bracketed forKey:@"detailText"];
-            [target setProperty:bracketed forKey:@"value"];
+            // 没选素材时显示空白（不再显示「未选择」提示字）
+            NSString *display = name.length
+                ? [NSString stringWithFormat:@"（%@）", name] : @"";
+            [target setProperty:display forKey:@"detailText"];
+            [target setProperty:display forKey:@"value"];
 
             // 拿到已显示的 cell 并主动刷新（reloadSpecifier 未必一定触发框架的 refreshCellContentsWithSpecifier:）
             @try {

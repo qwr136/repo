@@ -54,7 +54,7 @@
             id d = [spec propertyForKey:@"detailText"];
             if ([d isKindOfClass:[NSString class]]) txt = d;
         }
-        if (!txt) txt = @"（未选择）";
+        if (!txt) txt = @"";   // 未选素材时显示空白，不带任何提示字
         if (![self.nameLabel.text isEqualToString:txt]) {
             self.nameLabel.text = txt;
         }

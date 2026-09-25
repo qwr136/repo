@@ -533,7 +533,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.34 加载完成 =====");
+        _lvLog(@"===== 1.0.35 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
