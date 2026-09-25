@@ -1,22 +1,5 @@
 Package: com.wkk.ccglow
 Version: 2.0.2
-Architecture: iphoneos-arm64
-Maintainer: Simon
-Installed-Size: 356
-Depends: mobilesubstrate
-Filename: ./debs/com.wkk.ccglow_2.0.2_iphoneos-arm64.deb
-Size: 25136
-MD5sum: 7e1d640139fb8b438c96319c02262b7a
-SHA1: 429b2ca2629b50a03158276fb79689d0b096899e
-SHA256: 851be263bbcc7c2095e8c1e0ec72f53af138dc11bbbcfc2a53eb1a4fe865ffc0
-Section: Tweaks
-Description: 高度自定义控制中心发光。
-Author: Simon
-Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
-Name: 控制中心发光
-
-Package: com.wkk.ccglow
-Version: 2.0.2
 Architecture: iphoneos-arm64e
 Maintainer: Simon
 Installed-Size: 356
@@ -33,27 +16,62 @@ Author: Simon
 Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
 Name: 控制中心发光
 
+Package: com.wkk.ccglow
+Version: 2.0.2
+Architecture: iphoneos-arm64
+Maintainer: Simon
+Installed-Size: 356
+Depends: mobilesubstrate
+Filename: ./debs/com.wkk.ccglow_2.0.2_iphoneos-arm64.deb
+Size: 25136
+MD5sum: 7e1d640139fb8b438c96319c02262b7a
+SHA1: 429b2ca2629b50a03158276fb79689d0b096899e
+SHA256: 851be263bbcc7c2095e8c1e0ec72f53af138dc11bbbcfc2a53eb1a4fe865ffc0
+Section: Tweaks
+Description: 高度自定义控制中心发光。
+Author: Simon
+Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
+Name: 控制中心发光
+
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.3
+Version: 1.0.12
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
-Installed-Size: 148
+Installed-Size: 348
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: ./debs/com.xiaofei.notifybgvideo_1.0.3_iphoneos-arm64.deb
-Size: 7642
-MD5sum: b4e19a2739ed10633949f11559b28cff
-SHA1: d9cdc8b54df2e5e90111baa79b8546b7b8e302a4
-SHA256: c01fa1d3c493a79d3afd6b7e0fbaa5ed9f40191a2a5cfdb21558d3daae9936d3
+Filename: ./src/lockvideo/packages/com.xiaofei.notifybgvideo_1.0.12_iphoneos-arm64.deb
+Size: 11350
+MD5sum: 43b89829525471c1274ab4568a585019
+SHA1: 11eacd6b17588e54732f10af755a21622d9e8480
+SHA256: 436d6d72d7c3b69802eec9af3063696ed62dc125424a8aecf47ba0fb18ccf4df
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.3 - 彻底修复设置面板（Info.plist 改为 binary plist、补齐 iOS 必备字段、改包名 com.xiaofei.notifybgvideo、改作者为小飞、加 Respring 启动入口）；1.0.2 - 补齐 Info.plist 字段；1.0.1 - 扁平化 bundle；1.0.0 - 首版
+Changelog: 1.0.12 - 恢复 PreferenceBundle 入口（PreferenceLoader 需要 bundle+isController 才显示入口）；bundle 用 arm64 编译后把 Mach-O cputype 伪装成 arm64e（arm64e 是 arm64 超集，无 PAC 指令的代码在 arm64e 进程合法运行），既通过 dyld 架构校验又避开 Linux 工具链 arm64e PAC ABI 崩溃；1.0.11 - 纯 plist 方案（部分 PreferenceLoader 不支持）；1.0.10 及更早 - 历史版本
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
 Sileodepiction: https://qwr136.github.io/repo/
 
-dpkg-scanpackages: warning: Packages in archive but missing from override file:
-dpkg-scanpackages: warning:   com.wkk.ccglow com.xiaofei.notifybgvideo
-dpkg-scanpackages: info: Wrote 3 entries to output Packages file.
+Package: com.xiaofei.notifybgvideo
+Version: 1.0.12
+Architecture: iphoneos-arm64
+Maintainer: 小飞 <[email protected]>
+Installed-Size: 348
+Depends: mobilesubstrate | ellekit
+Conflicts: com.example.lockvideobg
+Filename: ./debs/com.xiaofei.notifybgvideo_1.0.12_iphoneos-arm64.deb
+Size: 11350
+MD5sum: 43b89829525471c1274ab4568a585019
+SHA1: 11eacd6b17588e54732f10af755a21622d9e8480
+SHA256: 436d6d72d7c3b69802eec9af3063696ed62dc125424a8aecf47ba0fb18ccf4df
+Section: Tweaks (rootless)
+Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
+Author: 小飞
+Changelog: 1.0.12 - 恢复 PreferenceBundle 入口（PreferenceLoader 需要 bundle+isController 才显示入口）；bundle 用 arm64 编译后把 Mach-O cputype 伪装成 arm64e（arm64e 是 arm64 超集，无 PAC 指令的代码在 arm64e 进程合法运行），既通过 dyld 架构校验又避开 Linux 工具链 arm64e PAC ABI 崩溃；1.0.11 - 纯 plist 方案（部分 PreferenceLoader 不支持）；1.0.10 及更早 - 历史版本
+Depiction: https://qwr136.github.io/repo/
+Icon: https://qwr136.github.io/repo/CydiaIcon.png
+Name: 通知背景视频
+Sileodepiction: https://qwr136.github.io/repo/
+
