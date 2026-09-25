@@ -172,7 +172,7 @@ static void _lvLog(NSString *line) {
         NSString *old = [NSString stringWithContentsOfFile:kLVLogFile
                                                   encoding:NSUTF8StringEncoding
                                                      error:nil] ?: @"";
-        if (old.length > 8192) { old = @""; }   // 防止无限增长
+        if (old.length > 65536) { old = @""; }   // 防止无限增长（64KB）
         NSString *full = [old stringByAppendingFormat:@"%@\n", line];
         [full writeToFile:kLVLogFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
     } @catch (NSException *e) {}
@@ -309,19 +309,25 @@ static BOOL _lvIsNotificationView(UIView *v) {
 static BOOL _lvIsPlayerClassName(NSString *cls) {
     if (!cls) return NO;
     NSString *low = cls.lowercaseString;
-    // 通知类已经被另一个匹配器处理，避免重复挂
     if ([low containsString:@"notification"]) return NO;
-    // iOS 14-15 旧式：SBLockScreenNowPlayingView / SBNowPlayingView / CSNowPlayingView
+    // iOS 14-15
     if ([low containsString:@"sblockscreennowplaying"]) return YES;
+    if ([low containsString:@"sbnowplayingcard"])       return YES;
+    if ([low containsString:@"nowplayingcard"])         return YES;
+    // iOS 16 (CoverSheet 框架)
     if ([low containsString:@"csnowplaying"])           return YES;
-    if ([low containsString:@"nowplaying"])             return YES;
-    // iOS 16+ 锁屏音乐控件：SBMediaControllerView / SBMediaControlsView / MPLockScreenView / SBLockScreenMediaView 等
-    if ([low containsString:@"sbmediacontrollerview"])  return YES;
-    if ([low containsString:@"sbmediacontrolsview"])    return YES;
-    if ([low containsString:@"sbmedialockscreenview"])  return YES;
-    if ([low containsString:@"sblockscreenmediaview"])  return YES;
+    if ([low containsString:@"csmediacontrol"])         return YES;
+    if ([low containsString:@"csmedialock"])            return YES;
+    if ([low containsString:@"cslockscreenmedia"])      return YES;
+    // iOS 17+ (SpringBoard 框架 + CoverSheet 框架混合)
+    if ([low containsString:@"sbmediacontrol"])         return YES;
+    if ([low containsString:@"sbmedialock"])            return YES;
+    if ([low containsString:@"sblockscreenmediacont"])  return YES;
+    if ([low containsString:@"sblockscreenmedia"])      return YES;
+    if ([low containsString:@"sblockscreenmusic"])      return YES;
+    // 通配：lockview + media / media + control
     if ([low containsString:@"lockview"] && [low containsString:@"media"]) return YES;
-    if ([low containsString:@"mediacontrol"])           return YES;
+    if ([low containsString:@"mediaplatter"])           return YES;
     return NO;
 }
 
@@ -494,7 +500,18 @@ static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
         // 识别：通知卡片 OR 播放器视图
         BOOL isNotif  = _lvIsNotificationView(self);
         BOOL isPlayer = !isNotif && _lvIsPlayerClassName(NSStringFromClass(self.class));
-        if (!isNotif && !isPlayer) return;
+        if (!isNotif && !isPlayer) {
+            // 诊断：锁屏窗口下其它视图类名（每个类只打一次），便于发现真实播放器类
+            if (nowInWindow) {
+                UIWindow *w = self.window;
+                NSString *wcls = NSStringFromClass(w.class);
+                NSString *wlow = wcls.lowercaseString;
+                if ([wlow containsString:@"coversheet"] || [wlow containsString:@"lockscreen"]) {
+                    _lvLogOnce(NSStringFromClass(self.class), @"未匹配(锁屏窗口)");
+                }
+            }
+            return;
+        }
 
         BOOL wasTracked = _lvIsTracked(self);
         if (!wasInWindow && nowInWindow) {
@@ -747,7 +764,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.37 加载完成 =====");
+        _lvLog(@"===== 1.0.38 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
