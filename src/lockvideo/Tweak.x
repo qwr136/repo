@@ -440,10 +440,14 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
 
 static void _lvPollTick(void) {
     @try {
-        if (!_lvEnabled()) { return; }
+        if (!_lvEnabled()) {
+            if (gPlayer) { [gPlayer pause]; }
+            return;
+        }
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        BOOL foundAnyCard = NO;
         for (UIWindow *w in wins) {
             NSString *c = NSStringFromClass([w class]);
             // 锁屏（CoverSheet）窗口；iOS16 起锁屏都在这个窗口里
@@ -452,6 +456,13 @@ static void _lvPollTick(void) {
             if (w.hidden || w.alpha <= 0.01) { continue; }
             BOOL found = NO;
             _lvScanAndAttach(w, &found);
+            if (found) { foundAnyCard = YES; }
+        }
+        // 没有通知卡片可见 → 暂停视频播放，避免空闲时也在循环
+        // 有卡片 → 确保继续播放（attach 也会 play，这里再保一次）
+        if (gPlayer) {
+            if (foundAnyCard) { [gPlayer play]; }
+            else { [gPlayer pause]; }
         }
     } @catch (NSException *e) {}
 }
@@ -522,7 +533,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.33 加载完成 =====");
+        _lvLog(@"===== 1.0.34 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

@@ -32,18 +32,33 @@
 
 - (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
     [super refreshCellContentsWithSpecifier:specifier];
+    [self _refreshNameLabel];
+}
 
-    // 优先读 value，再 fallback 到 detailText（与 controller 写入保持一致）
-    NSString *txt = nil;
-    id v = [specifier propertyForKey:PSValueKey]; // @"value"
-    if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
-        txt = v;
-    } else {
-        id d = [specifier propertyForKey:@"detailText"];
-        if ([d isKindOfClass:[NSString class]]) txt = d;
-    }
-    if (!txt) txt = @"（未选择）";
-    self.nameLabel.text = txt;
+// 框架在 reloadSpecifier 时未必调用上面的 refresh，这里兜底
+- (void)setSpecifier:(PSSpecifier *)specifier {
+    [super setSpecifier:specifier];
+    [self _refreshNameLabel];
+}
+
+// 从 specifier 同步当前显示的文件名（多路径保险，保证总是显示最新值）
+- (void)_refreshNameLabel {
+    @try {
+        PSSpecifier *spec = self.specifier;
+        if (!spec) return;
+        NSString *txt = nil;
+        id v = [spec propertyForKey:PSValueKey]; // @"value"
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            txt = v;
+        } else {
+            id d = [spec propertyForKey:@"detailText"];
+            if ([d isKindOfClass:[NSString class]]) txt = d;
+        }
+        if (!txt) txt = @"（未选择）";
+        if (![self.nameLabel.text isEqualToString:txt]) {
+            self.nameLabel.text = txt;
+        }
+    } @catch (NSException *e) {}
 }
 
 - (void)layoutSubviews {
@@ -53,8 +68,8 @@
 
     UILabel *titleLabel = [self titleLabel];
 
-    CGFloat leftPad  = 16.0;   // 与标准 PSLinkCell 一致
-    CGFloat labelW   = 110.0;  // 「选择素材」四个字
+    CGFloat leftPad  = 16.0;
+    CGFloat labelW   = 110.0;
     CGFloat gap      = 8.0;
     CGFloat rightPad = 8.0;
 
@@ -65,6 +80,9 @@
     CGFloat valueW = b.size.width - valueX - rightPad;
     if (valueW < 40.0) valueW = 40.0;
     self.nameLabel.frame = CGRectMake(valueX, 0, valueW, b.size.height);
+
+    // 兜底：每次 layout 都重新同步一次（保命，spec.value 已变更但 label 没刷的情况）
+    [self _refreshNameLabel];
 }
 
 @end

@@ -36,7 +36,7 @@
     return @"(未选择)";
 }
 
-// 刷新「选择素材」那一行的右侧文件名（PSLinkCell 稳定显示 detailText）
+// 刷新「选择素材」那一行：选完素材后立即让单元格显示新文件名
 - (void)_refreshCurrentMaterialRow {
     @try {
         PSSpecifier *target = nil;
@@ -48,6 +48,15 @@
             NSString *bracketed = [NSString stringWithFormat:@"（%@）", name];
             [target setProperty:bracketed forKey:@"detailText"];
             [target setProperty:bracketed forKey:@"value"];
+
+            // 拿到已显示的 cell 并主动刷新（reloadSpecifier 未必一定触发框架的 refreshCellContentsWithSpecifier:）
+            @try {
+                PSTableCell *cached = [self cachedCellForSpecifier:target];
+                if (cached && [cached isKindOfClass:[PSTableCell class]]) {
+                    [cached refreshCellContentsWithSpecifier:target];
+                }
+            } @catch (NSException *e) {}
+
             [self reloadSpecifier:target];
         }
     } @catch (NSException *e) {}
