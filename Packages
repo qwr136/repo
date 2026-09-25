@@ -5,7 +5,7 @@ Maintainer: Simon
 Installed-Size: 356
 Pre-Depends: rootless-compat(>= 0.9)
 Depends: mobilesubstrate
-Filename: ./debs/com.wkk.ccglow_2.0.2_iphoneos-arm64e.deb
+Filename: debs/com.wkk.ccglow_2.0.2_iphoneos-arm64e.deb
 Size: 30710
 MD5sum: c65bbc99d2dc7a142b7d754f20379893
 SHA1: 7d3391bb61a7a6fd1e5d59351c8136724aea7533
@@ -22,7 +22,7 @@ Architecture: iphoneos-arm64
 Maintainer: Simon
 Installed-Size: 356
 Depends: mobilesubstrate
-Filename: ./debs/com.wkk.ccglow_2.0.2_iphoneos-arm64.deb
+Filename: debs/com.wkk.ccglow_2.0.2_iphoneos-arm64.deb
 Size: 25136
 MD5sum: 7e1d640139fb8b438c96319c02262b7a
 SHA1: 429b2ca2629b50a03158276fb79689d0b096899e
@@ -34,42 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.12
+Version: 1.0.13
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 348
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: ./debs/com.xiaofei.notifybgvideo_1.0.12_iphoneos-arm64.deb
-Size: 11350
-MD5sum: 43b89829525471c1274ab4568a585019
-SHA1: 11eacd6b17588e54732f10af755a21622d9e8480
-SHA256: 436d6d72d7c3b69802eec9af3063696ed62dc125424a8aecf47ba0fb18ccf4df
+Filename: debs/com.xiaofei.notifybgvideo_1.0.13_iphoneos-arm64.deb
+Size: 11134
+MD5sum: 0f23d558a8df65117fbc299eeedf9d3e
+SHA1: 3e0242921026e1c43edce1d8b1993fc23833a140
+SHA256: 392211781612082a83d5597fbf215f6e233e67a87dcd3b8f8511a5361a7f8412
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.12 - 恢复 PreferenceBundle 入口（PreferenceLoader 需要 bundle+isController 才显示入口）；bundle 用 arm64 编译后把 Mach-O cputype 伪装成 arm64e（arm64e 是 arm64 超集，无 PAC 指令的代码在 arm64e 进程合法运行），既通过 dyld 架构校验又避开 Linux 工具链 arm64e PAC ABI 崩溃；1.0.11 - 纯 plist 方案（部分 PreferenceLoader 不支持）；1.0.10 及更早 - 历史版本
-Depiction: https://qwr136.github.io/repo/
-Icon: https://qwr136.github.io/repo/CydiaIcon.png
-Name: 通知背景视频
-Sileodepiction: https://qwr136.github.io/repo/
-
-Package: com.xiaofei.notifybgvideo
-Version: 1.0.12
-Architecture: iphoneos-arm64
-Maintainer: 小飞 <[email protected]>
-Installed-Size: 348
-Depends: mobilesubstrate | ellekit
-Conflicts: com.example.lockvideobg
-Filename: ./debs/com.xiaofei.notifybgvideo_1.0.12_iphoneos-arm64.deb
-Size: 11350
-MD5sum: 43b89829525471c1274ab4568a585019
-SHA1: 11eacd6b17588e54732f10af755a21622d9e8480
-SHA256: 436d6d72d7c3b69802eec9af3063696ed62dc125424a8aecf47ba0fb18ccf4df
-Section: Tweaks (rootless)
-Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
-Author: 小飞
-Changelog: 1.0.12 - 恢复 PreferenceBundle 入口（PreferenceLoader 需要 bundle+isController 才显示入口）；bundle 用 arm64 编译后把 Mach-O cputype 伪装成 arm64e（arm64e 是 arm64 超集，无 PAC 指令的代码在 arm64e 进程合法运行），既通过 dyld 架构校验又避开 Linux 工具链 arm64e PAC ABI 崩溃；1.0.11 - 纯 plist 方案（部分 PreferenceLoader 不支持）；1.0.10 及更早 - 历史版本
+Changelog: 1.0.13 - GitHub Actions macOS 编译：真 Apple 工具链，arm64+arm64e 真 fat binary（PAC ABI 正确），无需 cputype 伪�
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
