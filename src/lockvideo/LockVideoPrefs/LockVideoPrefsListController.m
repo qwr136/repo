@@ -36,12 +36,12 @@
     return @"(未选择)";
 }
 
-// 让 PSStaticTextCell 显示最新素材名
+// 在「选择素材」按钮右侧显示当前素材名
 - (void)_refreshCurrentMaterialRow {
     @try {
         PSSpecifier *target = nil;
         for (PSSpecifier *sp in [self specifiers]) {
-            if ([[sp identifier] isEqualToString:@"LockVideoCurrentPath"]) { target = sp; break; }
+            if ([[sp identifier] isEqualToString:@"LockVideoMaterialButton"]) { target = sp; break; }
         }
         if (target) {
             NSString *name = [self _currentVideoName];
