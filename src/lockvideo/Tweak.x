@@ -7,6 +7,8 @@
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
+#define kLVDumpFile  @"/var/mobile/通知视频/视图树.txt"
+#define kLVDumpNotify CFSTR("com.xiaofei.notifybgvideo/DumpHierarchy")
 
 static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
@@ -82,13 +84,73 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
     } @catch (NSException *e) {}
 }
 
+#pragma mark - 锁屏视图树扫描（排查用：把整个窗口层级导出到文件）
+
+static NSTimer *gDumpTimer = nil;
+static int gDumpTicks = 0;
+
+static void _lvDumpView(UIView *v, int depth, NSMutableString *s, int *lines) {
+    if (!v || depth > 14 || *lines > 4000) { return; }
+    @try {
+        NSString *cls = NSStringFromClass([v class]);
+        NSString *mark = ([cls.lowercaseString containsString:@"notification"] ||
+                          [cls.lowercaseString containsString:@"notif"]) ? @" <<< 通知相关" : @"";
+        CGRect f = v.frame;
+        [s appendFormat:@"%@%@ (%.0f,%.0f %.0fx%.0f)%@\n",
+            [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
+            cls, f.origin.x, f.origin.y, f.size.width, f.size.height, mark];
+        (*lines)++;
+        for (UIView *c in v.subviews) { _lvDumpView(c, depth + 1, s, lines); }
+    } @catch (NSException *e) {}
+}
+
+static void _lvDumpOnce(void) {
+    @try {
+        if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
+        NSMutableString *s = [NSMutableString string];
+        [s appendFormat:@"== 第 %d 次扫描 ==\n", gDumpTicks];
+        int lines = 0;
+        id app = [UIApplication sharedApplication];
+        NSArray *wins = nil;
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        for (UIWindow *w in wins) {
+            [s appendFormat:@"\n[WINDOW] %@\n", NSStringFromClass([w class])];
+            _lvDumpView(w, 0, s, &lines);
+        }
+        if (wins.count == 0) { [s appendString:@"(取不到 windows)\n"]; }
+        [s writeToFile:kLVDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    } @catch (NSException *e) {}
+}
+
+static void _lvStartDump(void) {
+    @try {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (gDumpTimer) { [gDumpTimer invalidate]; gDumpTimer = nil; }
+            gDumpTicks = 0;
+            _lvLog(@"开始扫描视图树（90 秒）");
+            gDumpTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
+                gDumpTicks++;
+                _lvDumpOnce();
+                if (gDumpTicks >= 45) {
+                    [t invalidate];
+                    gDumpTimer = nil;
+                    _lvLog(@"扫描结束，请查看 视图树.txt");
+                }
+            }];
+        });
+    } @catch (NSException *e) {}
+}
+
 #pragma mark - 共享播放器（多视图可同时显示同一视频）
 
 static AVPlayer *_lvPlayer(void) {
     @try {
         if (!gPlayer) {
             NSString *path = _lvPath();
-            if (!path) { return nil; }
+            if (!path) {
+                _lvLogOnce(@"扫描结果", [NSString stringWithFormat:@"%@ 里没有找到视频文件", kLVVideoDir]);
+                return nil;
+            }
             AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
             if (!item) { return nil; }
             gPlayer = [AVPlayer playerWithPlayerItem:item];
@@ -207,8 +269,11 @@ static void _lvAttach(UIView *v) {
 }
 
 static void _lvOnMatch(UIView *v) {
-    if (!_lvEnabled()) { return; }
-    if (_lvDebug()) { _lvLogOnce(NSStringFromClass(v.class), @"匹配到通知视图"); }
+    _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");   // 不再依赖诊断模式，必记
+    if (!_lvEnabled()) {
+        _lvLogOnce(@"状态", @"开关「启用」是关闭的，跳过挂载");
+        return;
+    }
     _lvAttach(v);
 }
 
@@ -306,6 +371,14 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
     } @catch (NSException *e) {}
 }
 
+static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
+                                  void *observer,
+                                  CFStringRef name,
+                                  const void *object,
+                                  CFDictionaryRef userInfo) {
+    @try { _lvStartDump(); } @catch (NSException *e) {}
+}
+
 #pragma mark - ctor
 
 %ctor {
@@ -343,8 +416,17 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
                                         kLVNotify,
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvDumpNotifyCallback,
+                                        kLVDumpNotify,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
 
-        _lvLog(@"===== 1.0.17 加载完成 =====");
+        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 诊断=%d 视频=%@ 目录存在=%d",
+                _lvEnabled(), _lvSound(), _lvDebug(), _lvPath() ?: @"(无)",
+                [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
+        _lvLog(@"===== 1.0.18 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

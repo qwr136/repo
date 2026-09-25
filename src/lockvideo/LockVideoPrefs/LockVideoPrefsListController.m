@@ -76,6 +76,20 @@
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+// 让 SpringBoard 开始扫描并导出锁屏视图树（排查用）
+- (void)dumpHierarchy:(id)sender {
+    CFNotificationCenterPostNotification(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        CFSTR("com.xiaofei.notifybgvideo/DumpHierarchy"), NULL, NULL, YES);
+
+    UIAlertController *ok = [UIAlertController
+        alertControllerWithTitle:@"开始扫描"
+        message:@"90 秒内：\n1) 锁屏\n2) 让手机收到一条通知（用另一台设备发消息/微信都行）\n3) 等 1 分钟后解锁\n然后用 Filza 打开 /var/mobile/通知视频/视图树.txt 发给我"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [ok addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:ok animated:YES completion:nil];
+}
+
 - (void)respring:(id)sender {
     char * const argv[] = { (char *)"sbreload", NULL };
     pid_t pid = 0;
