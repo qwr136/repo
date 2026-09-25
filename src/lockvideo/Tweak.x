@@ -13,6 +13,9 @@ static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
+static char kPlayerLayerKey;   // 播放器视图用的独立 layer key
+static char kTrackedKey;       // 防止 didMoveToWindow 重复计数
+static int gActiveCount = 0;   // 通知卡片 + 播放器视图 当前在窗口里的总数
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
@@ -80,6 +83,9 @@ static NSString *_lvString(NSString *key) {
 }
 
 static BOOL _lvEnabled(void) { return _lvBool(@"LockVideoEnabled"); }
+
+// 播放器视频背景：独立开关，默认关闭
+static BOOL _lvPlayerEnabled(void) { return _lvBool(@"LockVideoPlayerEnabled"); }
 
 // 视频声音默认开启（用户没设过时直接出声）；用户显式设为 NO 时尊重选择。
 static BOOL _lvSound(void) {
@@ -218,6 +224,26 @@ static BOOL _lvIsNotificationView(UIView *v) {
     } @catch (NSException *e) { return NO; }
 }
 
+// 锁屏底部播放器视图（识别类名，避免挂到容器/SB 命名空间过宽的类）
+static BOOL _lvIsPlayerClassName(NSString *cls) {
+    if (!cls) return NO;
+    NSString *low = cls.lowercaseString;
+    // 通知类已经被另一个匹配器处理，避免重复挂
+    if ([low containsString:@"notification"]) return NO;
+    // iOS 14-15 旧式：SBLockScreenNowPlayingView / SBNowPlayingView / CSNowPlayingView
+    if ([low containsString:@"sblockscreennowplaying"]) return YES;
+    if ([low containsString:@"csnowplaying"])           return YES;
+    if ([low containsString:@"nowplaying"])             return YES;
+    // iOS 16+ 锁屏音乐控件：SBMediaControllerView / SBMediaControlsView / MPLockScreenView / SBLockScreenMediaView 等
+    if ([low containsString:@"sbmediacontrollerview"])  return YES;
+    if ([low containsString:@"sbmediacontrolsview"])    return YES;
+    if ([low containsString:@"sbmedialockscreenview"])  return YES;
+    if ([low containsString:@"sblockscreenmediaview"])  return YES;
+    if ([low containsString:@"lockview"] && [low containsString:@"media"]) return YES;
+    if ([low containsString:@"mediacontrol"])           return YES;
+    return NO;
+}
+
 #pragma mark - 挂载
 
 // 递归隐藏卡片里所有模糊/背景子视图（UIVisualEffectView 等），让视频能直接当卡片背景，
@@ -305,6 +331,44 @@ static void _lvOnMatch(UIView *v) {
     _lvAttach(v);
 }
 
+// 给锁屏底部播放器视图挂视频背景（共用 gPlayer，但用独立 associated layer key）
+static void _lvAttachPlayerView(UIView *v) {
+    if (!v) return;
+    @try {
+        if (!_lvPlayerEnabled()) {
+            _lvLogOnce(@"状态", @"开关「播放器视频背景」是关闭的，跳过挂载");
+            return;
+        }
+        AVPlayer *p = _lvPlayer();
+        if (!p) return;
+
+        AVPlayerLayer *l = objc_getAssociatedObject(v, &kPlayerLayerKey);
+        if (!l) {
+            l = [AVPlayerLayer playerLayerWithPlayer:p];
+            l.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            l.cornerRadius = 18.0;
+            l.masksToBounds = YES;
+            objc_setAssociatedObject(v, &kPlayerLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            _lvLogOnce(NSStringFromClass(v.class), @"已挂载播放器视频");
+        }
+        if (l.player != p) { l.player = p; }
+
+        // 隐藏播放器卡片自身的模糊背景层（跟通知一样处理）
+        _lvHideBackgroundsRecursive(v);
+        if (l.superlayer != v.layer) {
+            [v.layer insertSublayer:l atIndex:0];
+        }
+        l.frame = v.bounds;
+        l.opacity = (float)_lvAlpha();
+        if (v.window) { [p play]; }
+        _lvLogOnce(NSStringFromClass(v.class),
+                   [NSString stringWithFormat:@"播放器挂载尺寸 %.0fx%.0f 透明度 %.2f",
+                    v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
+    } @catch (NSException *e) {
+        _lvLog([NSString stringWithFormat:@"attach player 异常: %@", e]);
+    }
+}
+
 #pragma mark - iOS 16 锁屏通知显式 hook（直接挂用户可见的卡片本体 NCNotificationShortLookView）
 
 %group LVNotif16
@@ -329,13 +393,47 @@ static void _lvOnMatch(UIView *v) {
 %end
 %end
 
-#pragma mark - 全局 hook（UIView 级别兜底，自动匹配所有通知视图）
+#pragma mark - 全局 hook（UIView 级别兜底，自动匹配所有通知视图 / 播放器视图）
+
+// 给视图打"已跟踪"标记，防止 didMoveToWindow 重复计数
+static inline void _lvMarkTracked(UIView *v) {
+    objc_setAssociatedObject(v, &kTrackedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static inline BOOL _lvIsTracked(UIView *v) {
+    id f = objc_getAssociatedObject(v, &kTrackedKey);
+    return [f respondsToSelector:@selector(boolValue)] && [f boolValue];
+}
 
 static void (*_orig_didMoveToWindow)(UIView *, SEL);
 static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
+    BOOL wasInWindow = (self.window != nil);
     _orig_didMoveToWindow(self, _cmd);
+    BOOL nowInWindow = (self.window != nil);
     @try {
-        if (self.window && _lvIsNotificationView(self)) { _lvOnMatch(self); }
+        // 识别：通知卡片 OR 播放器视图
+        BOOL isNotif  = _lvIsNotificationView(self);
+        BOOL isPlayer = !isNotif && _lvIsPlayerClassName(NSStringFromClass(self.class));
+        if (!isNotif && !isPlayer) return;
+
+        BOOL wasTracked = _lvIsTracked(self);
+        if (!wasInWindow && nowInWindow) {
+            if (!wasTracked) {
+                _lvMarkTracked(self);
+                gActiveCount++;
+                if (isNotif)       _lvOnMatch(self);
+                else if (isPlayer) _lvAttachPlayerView(self);
+            }
+        } else if (wasInWindow && !nowInWindow) {
+            if (wasTracked) {
+                objc_setAssociatedObject(self, &kTrackedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                if (gActiveCount > 0) gActiveCount--;
+            }
+        }
+        // 全局播放/暂停
+        if (gPlayer) {
+            if (gActiveCount > 0) { [gPlayer play]; }
+            else                   { [gPlayer pause]; }
+        }
     } @catch (NSException *e) {}
 }
 
@@ -348,6 +446,16 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
             if (l) {
                 _lvHideBackgroundsRecursive(self);   // 每次布局都重新隐藏背景
                 _lvInsertLayer(self, l);
+                l.frame = self.bounds;
+                if (self.window && gPlayer) { [gPlayer play]; }
+            }
+        } else if (_lvIsPlayerClassName(NSStringFromClass(self.class))) {
+            AVPlayerLayer *l = objc_getAssociatedObject(self, &kPlayerLayerKey);
+            if (l) {
+                _lvHideBackgroundsRecursive(self);
+                if (l.superlayer != self.layer) {
+                    [self.layer insertSublayer:l atIndex:0];
+                }
                 l.frame = self.bounds;
                 if (self.window && gPlayer) { [gPlayer play]; }
             }
@@ -430,8 +538,12 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
             NSString *cls = NSStringFromClass([v class]);
             if (_lvIsCardClass(cls)) {
                 *foundAny = YES;
-                _lvLogOnce(cls, @"轮询扫描命中");
+                _lvLogOnce(cls, @"轮询扫描命中通知");
                 _lvOnMatch(v);          // 挂载视频（幂等）
+            } else if (_lvIsPlayerClassName(cls)) {
+                *foundAny = YES;
+                _lvLogOnce(cls, @"轮询扫描命中播放器");
+                _lvAttachPlayerView(v);
             }
             for (UIView *c in v.subviews) { [stack addObject:c]; }
         }
@@ -440,7 +552,7 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
 
 static void _lvPollTick(void) {
     @try {
-        if (!_lvEnabled()) {
+        if (!_lvEnabled() && !_lvPlayerEnabled()) {
             if (gPlayer) { [gPlayer pause]; }
             return;
         }
@@ -458,8 +570,8 @@ static void _lvPollTick(void) {
             _lvScanAndAttach(w, &found);
             if (found) { foundAnyCard = YES; }
         }
-        // 没有通知卡片可见 → 暂停视频播放，避免空闲时也在循环
-        // 有卡片 → 确保继续播放（attach 也会 play，这里再保一次）
+        // 没有通知卡片 / 播放器可见 → 暂停视频播放，避免空闲时也在循环
+        // 否则确保继续播放
         if (gPlayer) {
             if (foundAnyCard) { [gPlayer play]; }
             else { [gPlayer pause]; }
@@ -533,7 +645,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.35 加载完成 =====");
+        _lvLog(@"===== 1.0.36 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
