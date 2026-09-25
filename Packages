@@ -33,6 +33,23 @@ Author: Simon
 Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
 Name: 控制中心发光
 
-dpkg-scanpackages: warning: Packages in archive but missing from override file:
-dpkg-scanpackages: warning:   com.wkk.ccglow
-dpkg-scanpackages: info: Wrote 2 entries to output Packages file.
+Package: com.xiaofei.lockvideo
+Version: 1.0.0
+Architecture: iphoneos-arm
+Maintainer: qwr136 <[email protected]>
+Installed-Size: 340
+Depends: mobilesubstrate
+Conflicts: com.example.lockvideobg
+Filename: debs/com.xiaofei.lockvideo_1.0.0_iphoneos-arm.deb
+Size: 8036
+MD5sum: 37cc64f03fdec1a5e58399e86946642b
+SHA1: 1ac9eff3d352d259f875e4cb0a2cd8e5fc1c37c7
+SHA256: 847edc73aa16ef1dd06790c6017da25ee771c5ba0a9270e28fa95d630dd4da8d
+Section: Tweaks
+Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频
+Author: qwr136
+Depiction: https://qwr136.github.io/repo/
+Icon: https://qwr136.github.io/repo/CydiaIcon.png
+Name: LockVideo
+Sileodepiction: https://qwr136.github.io/repo/
+

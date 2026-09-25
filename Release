@@ -1,21 +1,21 @@
 Origin: xiaofei
 Label: xiaofei
 Suite: stable
-Version: 1.0
+Version: 1.1
 Codename: xiaofei
 Architectures: iphoneos-arm64 iphoneos-arm64e iphoneos-arm
 Components: main
 Description: xiaofei 的 Sileo 越狱源
-Date: Fri, 25 Sep 2026 13:59:00 +0000
+Date: Fri, 25 Sep 2026 14:16:00 +0000
 MD5Sum:
- 374aa422a6863e07b293dc2b1a13c62d   1328 Packages
- be9df7f270ea8ee815e4dbc6e296bd43    668 Packages.gz
- 655d660e306cee68e194d11dae675412    708 Packages.xz
+ 9b3491e7586865e874ad1db4b9a66341   1839 Packages
+ 2bc1fa487d18f893238d449028fda1eb    889 Packages.gz
+ 57975fcdf15a4591ffe0074a5c197259    896 Packages.xz
 SHA1:
- e57faf69a026f8abcf52584e73e7a561da331fe1   1328 Packages
- e4a18f068ceb45fb94f267a30df8d09ba289bbc4    668 Packages.gz
- b873d89cd138d629946ae1d642497077ff2c4859    708 Packages.xz
+ 9c12fe2b37872be1f70407fc0dd51772edca05d3   1839 Packages
+ c28a3160d5ce65ac4b6d5b4834f237a88f00891d    889 Packages.gz
+ cd22bf49b2a739b6409e05311e4a908198b3c55e    896 Packages.xz
 SHA256:
- e1b62cb805ce6e4df02523f1226fb4f9621b0512b0396b433fc2f2e8bfbc056a   1328 Packages
- 212f662f3adac63f725ab8161e8bac2a48847d23876a323cab879a4577d01034    668 Packages.gz
- 8245ca523b86f6659a34ac439b9ded842c8177f71c1dffdf127fbbc4d1e82c47    708 Packages.xz
+ 8880b32a8b1768458400191cbefb1e9535db8351f8f55f7aa6497707515eca3a   1839 Packages
+ 778aa991e64c082fc4d09f24079ed12a44e388c788a757f20b6ad713bd132ff7    889 Packages.gz
+ 3eb963b19aca315c35df08eeef6e7bc0878a6dbfb63a49654780f4f8baa6d603    896 Packages.xz
