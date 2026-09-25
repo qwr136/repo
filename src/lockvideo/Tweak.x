@@ -625,6 +625,7 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 #pragma mark - 轮询扫描（不依赖任何 hook 传播：直接遍历锁屏视图树找通知卡片）
 
 static NSTimer *gPollTimer = nil;
+static int gPollCount = 0;
 
 // 只挂用户实际看到的通知视图本体（短按卡片 / 横幅 / 长按展开视图），
 // 排除列表容器、遮罩、标题、外层 cell——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后
@@ -670,6 +671,8 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundNotif, BOOL *foundPlayer) 
                     [low containsString:@"music"]   || [low containsString:@"audio"]   ||
                     [low containsString:@"nowplay"] || [low containsString:@"radio"]   ||
                     [low containsString:@"album"]   || [low containsString:@"artwork"];
+                // 排除误报：displaying / display 里含 "play" 但不是播放器
+                if ([low containsString:@"display"]) { suspicious = NO; }
                 if (suspicious) {
                     _lvLogOnce(cls, @"【疑似播放器】请反馈此行");
                 } else {
@@ -677,6 +680,40 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundNotif, BOOL *foundPlayer) 
                 }
             }
             for (UIView *c in v.subviews) { [stack addObject:c]; }
+        }
+    } @catch (NSException *e) {}
+}
+
+// 诊断：扫描全部窗口（不只锁屏窗口），把类名记下来。
+// 用于发现播放器视图实际所在的窗口/类名（_lvLogOnce 去重，不刷屏）
+static void _lvDiagnosticScanAllWindows(NSArray *wins) {
+    @try {
+        int winCount = 0;
+        for (UIWindow *w in wins) {
+            if (winCount++ >= 12) break;
+            if (w.hidden || w.alpha <= 0.01) { continue; }
+            _lvLogOnce(NSStringFromClass(w.class), @"诊断扫描-窗口");
+            NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:w];
+            int visited = 0;
+            while (stack.count > 0 && visited < 1500) {
+                UIView *v = stack.lastObject;
+                [stack removeLastObject];
+                visited++;
+                NSString *cls = NSStringFromClass(v.class);
+                NSString *low = cls.lowercaseString;
+                BOOL suspicious =
+                    [low containsString:@"media"]   || [low containsString:@"playing"] ||
+                    [low containsString:@"music"]   || [low containsString:@"audio"]   ||
+                    [low containsString:@"nowplay"] || [low containsString:@"radio"]   ||
+                    [low containsString:@"album"]   || [low containsString:@"artwork"];
+                if ([low containsString:@"display"]) { suspicious = NO; }
+                if (suspicious) {
+                    _lvLogOnce(cls, @"【疑似播放器】请反馈此行");
+                } else {
+                    _lvLogOnce(cls, @"诊断扫描-类");
+                }
+                for (UIView *c in v.subviews) { [stack addObject:c]; }
+            }
         }
     } @catch (NSException *e) {}
 }
@@ -708,6 +745,12 @@ static void _lvPollTick(void) {
         }
         if (gPlayerPlayer) {
             if (foundAnyPlayer) { [gPlayerPlayer play]; } else { [gPlayerPlayer pause]; }
+        }
+        // 没找到播放器时，每 ~15 秒做一次全窗口诊断扫描，
+        // 用来定位播放器视图实际在哪个窗口 / 叫什么类名
+        gPollCount++;
+        if (!foundAnyPlayer && _lvPlayerEnabled() && (gPollCount % 10 == 1)) {
+            _lvDiagnosticScanAllWindows(wins);
         }
     } @catch (NSException *e) {}
 }
@@ -780,7 +823,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.39 加载完成 =====");
+        _lvLog(@"===== 1.0.40 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
