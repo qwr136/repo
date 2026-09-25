@@ -119,6 +119,38 @@ static NSArray<NSString *> *_lvScanFiles(void) {
     return @[];
 }
 
+// 锁屏播放器的独立路径（为空则跟随 LockVideoPath）
+static NSString *_lvPlayerPath(void) {
+    NSString *saved = _lvString(@"LockVideoPlayerPath");
+    if ([saved isKindOfClass:[NSString class]] &&
+        [[NSFileManager defaultManager] fileExistsAtPath:saved]) {
+        return saved;
+    }
+    return _lvPath();
+}
+
+// 锁屏播放器的独立透明度（默认 0.5）
+static CGFloat _lvPlayerAlpha(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoPlayerAlpha"];
+        if ([v respondsToSelector:@selector(floatValue)]) {
+            CGFloat a = [v floatValue];
+            if (a > 0.05) { return MIN(a, 1.0); }
+        }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoPlayerAlpha"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(floatValue)]) {
+                CGFloat a = [val floatValue];
+                if (a > 0.05) { return MIN(a, 1.0); }
+            }
+        }
+    } @catch (NSException *e) {}
+    return 0.5;
+}
+
 static NSString *_lvPath(void) {
     NSString *saved = _lvString(@"LockVideoPath");
     if ([saved isKindOfClass:[NSString class]] &&
@@ -201,6 +233,51 @@ static void _lvResetPlayer(void) {
         }
         if (gPlayer) { [gPlayer pause]; gPlayer = nil; }
         gCurrentPath = nil;
+    } @catch (NSException *e) {}
+}
+
+#pragma mark - player-player
+
+static AVPlayer *_lvPlayerPlayer(void) {
+    @try {
+        if (!gPlayerPlayer) {
+            NSString *path = _lvPlayerPath();
+            if (!path) { return nil; }
+            AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
+            if (!item) { return nil; }
+            gPlayerPlayer = [AVPlayer playerWithPlayerItem:item];
+            gPlayerPlayer.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+            gPlayerPlayer.muted = !_lvSound();
+            gCurrentPlayerPath = path;
+            __weak AVPlayer *wp = gPlayerPlayer;
+            gPlayerLoopObserver = [[NSNotificationCenter defaultCenter]
+                addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                            object:item
+                             queue:[NSOperationQueue mainQueue]
+                        usingBlock:^(NSNotification *n) {
+                @try {
+                    AVPlayer *p = wp;
+                    if (!p) { return; }
+                    [p seekToTime:kCMTimeZero
+                  toleranceBefore:kCMTimeZero
+                   toleranceAfter:kCMTimeZero
+                        completionHandler:^(BOOL d) { [p play]; }];
+                } @catch (NSException *e) {}
+            }];
+            _lvLog([NSString stringWithFormat:@"player-player create: %@", path]);
+        }
+        return gPlayerPlayer;
+    } @catch (NSException *e) { return nil; }
+}
+
+static void _lvResetPlayerPlayer(void) {
+    @try {
+        if (gPlayerLoopObserver) {
+            [[NSNotificationCenter defaultCenter] removeObserver:gPlayerLoopObserver];
+            gPlayerLoopObserver = nil;
+        }
+        if (gPlayerPlayer) { [gPlayerPlayer pause]; gPlayerPlayer = nil; }
+        gCurrentPlayerPath = nil;
     } @catch (NSException *e) {}
 }
 
@@ -339,7 +416,7 @@ static void _lvAttachPlayerView(UIView *v) {
             _lvLogOnce(@"状态", @"开关「播放器视频背景」是关闭的，跳过挂载");
             return;
         }
-        AVPlayer *p = _lvPlayer();
+        AVPlayer *p = _lvPlayerPlayer();
         if (!p) return;
 
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kPlayerLayerKey);
@@ -359,11 +436,11 @@ static void _lvAttachPlayerView(UIView *v) {
             [v.layer insertSublayer:l atIndex:0];
         }
         l.frame = v.bounds;
-        l.opacity = (float)_lvAlpha();
+        l.opacity = (float)_lvPlayerAlpha();
         if (v.window) { [p play]; }
         _lvLogOnce(NSStringFromClass(v.class),
                    [NSString stringWithFormat:@"播放器挂载尺寸 %.0fx%.0f 透明度 %.2f",
-                    v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
+                    v.bounds.size.width, v.bounds.size.height, _lvPlayerAlpha()]);
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"attach player 异常: %@", e]);
     }
@@ -419,20 +496,32 @@ static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
         if (!wasInWindow && nowInWindow) {
             if (!wasTracked) {
                 _lvMarkTracked(self);
-                gActiveCount++;
-                if (isNotif)       _lvOnMatch(self);
-                else if (isPlayer) _lvAttachPlayerView(self);
+                if (isNotif) {
+                    gActiveNotifCount++;
+                    _lvOnMatch(self);
+                } else if (isPlayer) {
+                    gActivePlayerCount++;
+                    _lvAttachPlayerView(self);
+                }
             }
         } else if (wasInWindow && !nowInWindow) {
             if (wasTracked) {
                 objc_setAssociatedObject(self, &kTrackedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                if (gActiveCount > 0) gActiveCount--;
+                if (isNotif) {
+                    if (gActiveNotifCount > 0) gActiveNotifCount--;
+                } else if (isPlayer) {
+                    if (gActivePlayerCount > 0) gActivePlayerCount--;
+                }
             }
         }
-        // 全局播放/暂停
+        // 各自播放/暂停（独立 player、独立计数）
         if (gPlayer) {
-            if (gActiveCount > 0) { [gPlayer play]; }
-            else                   { [gPlayer pause]; }
+            if (gActiveNotifCount > 0) { [gPlayer play]; }
+            else                         { [gPlayer pause]; }
+        }
+        if (gPlayerPlayer) {
+            if (gActivePlayerCount > 0) { [gPlayerPlayer play]; }
+            else                         { [gPlayerPlayer pause]; }
         }
     } @catch (NSException *e) {}
 }
@@ -457,7 +546,8 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
                     [self.layer insertSublayer:l atIndex:0];
                 }
                 l.frame = self.bounds;
-                if (self.window && gPlayer) { [gPlayer play]; }
+                l.opacity = (float)_lvPlayerAlpha();
+                if (self.window && gPlayerPlayer) { [gPlayerPlayer play]; }
             }
         }
     } @catch (NSException *e) {}
@@ -498,9 +588,15 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
     @try {
         NSString *np = _lvPath();
         if (![np isEqualToString:gCurrentPath]) {
-            _lvResetPlayer();          // 素材变了 -> 重建播放器
+            _lvResetPlayer();
         } else if (gPlayer) {
-            gPlayer.muted = !_lvSound();   // 只改了声音 -> 即时生效
+            gPlayer.muted = !_lvSound();
+        }
+        NSString *npp = _lvPlayerPath();
+        if (![npp isEqualToString:gCurrentPlayerPath]) {
+            _lvResetPlayerPlayer();
+        } else if (gPlayerPlayer) {
+            gPlayerPlayer.muted = !_lvSound();
         }
     } @catch (NSException *e) {}
 }
@@ -527,7 +623,7 @@ static BOOL _lvIsCardClass(NSString *cls) {
            [low containsString:@"longlook"];
 }
 
-static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
+static void _lvScanAndAttach(UIView *root, BOOL *foundNotif, BOOL *foundPlayer) {
     @try {
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         int visited = 0;
@@ -537,11 +633,11 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
             visited++;
             NSString *cls = NSStringFromClass([v class]);
             if (_lvIsCardClass(cls)) {
-                *foundAny = YES;
+                if (foundNotif) *foundNotif = YES;
                 _lvLogOnce(cls, @"轮询扫描命中通知");
-                _lvOnMatch(v);          // 挂载视频（幂等）
+                _lvOnMatch(v);
             } else if (_lvIsPlayerClassName(cls)) {
-                *foundAny = YES;
+                if (foundPlayer) *foundPlayer = YES;
                 _lvLogOnce(cls, @"轮询扫描命中播放器");
                 _lvAttachPlayerView(v);
             }
@@ -554,27 +650,29 @@ static void _lvPollTick(void) {
     @try {
         if (!_lvEnabled() && !_lvPlayerEnabled()) {
             if (gPlayer) { [gPlayer pause]; }
+            if (gPlayerPlayer) { [gPlayerPlayer pause]; }
             return;
         }
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
         BOOL foundAnyCard = NO;
+        BOOL foundAnyPlayer = NO;
         for (UIWindow *w in wins) {
             NSString *c = NSStringFromClass([w class]);
-            // 锁屏（CoverSheet）窗口；iOS16 起锁屏都在这个窗口里
             if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
                 ![c containsString:@"Banner"]) { continue; }
             if (w.hidden || w.alpha <= 0.01) { continue; }
-            BOOL found = NO;
-            _lvScanAndAttach(w, &found);
-            if (found) { foundAnyCard = YES; }
+            BOOL foundNotif = NO, foundPlayer = NO;
+            _lvScanAndAttach(w, &foundNotif, &foundPlayer);
+            if (foundNotif) foundAnyCard = YES;
+            if (foundPlayer) foundAnyPlayer = YES;
         }
-        // 没有通知卡片 / 播放器可见 → 暂停视频播放，避免空闲时也在循环
-        // 否则确保继续播放
         if (gPlayer) {
-            if (foundAnyCard) { [gPlayer play]; }
-            else { [gPlayer pause]; }
+            if (foundAnyCard) { [gPlayer play]; } else { [gPlayer pause]; }
+        }
+        if (gPlayerPlayer) {
+            if (foundAnyPlayer) { [gPlayerPlayer play]; } else { [gPlayerPlayer pause]; }
         }
     } @catch (NSException *e) {}
 }
@@ -645,7 +743,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.36 加载完成 =====");
+        _lvLog(@"===== 1.0.37 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
