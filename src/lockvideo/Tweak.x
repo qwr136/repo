@@ -6,11 +6,14 @@
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
 #define kLVVideoDir  @"/var/mobile/通知视频"
+#define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
 
 static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
+static char kFallbackKey;
+static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
 
@@ -18,21 +21,17 @@ static NSDictionary *_lvPrefs(void) {
     return [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
 }
 
-static BOOL _lvEnabled(void) {
+static BOOL _lvBool(NSString *key) {
     @try {
-        id v = _lvPrefs()[@"LockVideoEnabled"];
+        id v = _lvPrefs()[key];
         if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
     } @catch (NSException *e) {}
     return NO;
 }
 
-static BOOL _lvSound(void) {
-    @try {
-        id v = _lvPrefs()[@"LockVideoSound"];
-        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
-    } @catch (NSException *e) {}
-    return NO;   // 默认静音
-}
+static BOOL _lvEnabled(void) { return _lvBool(@"LockVideoEnabled"); }
+static BOOL _lvSound(void)   { return _lvBool(@"LockVideoSound"); }   // 默认静音
+static BOOL _lvDebug(void)   { return _lvBool(@"LockVideoDebug"); }   // 诊断模式
 
 static NSArray<NSString *> *_lvScanFiles(void) {
     @try {
@@ -57,6 +56,30 @@ static NSString *_lvPath(void) {
         return saved;
     }
     return _lvScanFiles().firstObject;
+}
+
+#pragma mark - 诊断日志（只记录"每个类第一次出现"，防刷屏）
+
+static void _lvLog(NSString *line) {
+    @try {
+        if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
+        NSString *old = [NSString stringWithContentsOfFile:kLVLogFile
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:nil] ?: @"";
+        if (old.length > 8192) { old = @""; }   // 防止无限增长
+        NSString *full = [old stringByAppendingFormat:@"%@\n", line];
+        [full writeToFile:kLVLogFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    } @catch (NSException *e) {}
+}
+
+static void _lvLogOnce(NSString *cls, NSString *action) {
+    @try {
+        if (!gLoggedClasses) { gLoggedClasses = [NSMutableSet set]; }
+        NSString *key = [cls stringByAppendingString:action];
+        if ([gLoggedClasses containsObject:key]) { return; }
+        [gLoggedClasses addObject:key];
+        _lvLog([NSString stringWithFormat:@"%@ -> %@", cls, action]);
+    } @catch (NSException *e) {}
 }
 
 #pragma mark - 共享播放器（多视图可同时显示同一视频）
@@ -88,11 +111,11 @@ static AVPlayer *_lvPlayer(void) {
                         completionHandler:^(BOOL d) { [p play]; }];
                 } @catch (NSException *e) {}
             }];
-            NSLog(@"[LockVideo] 播放: %@ 声音=%d", path, _lvSound());
+            _lvLog([NSString stringWithFormat:@"播放器创建: %@ 声音=%d", path, _lvSound()]);
         }
         return gPlayer;
     } @catch (NSException *e) {
-        NSLog(@"[LockVideo] player: %@", e);
+        _lvLog([NSString stringWithFormat:@"player 异常: %@", e]);
         return nil;
     }
 }
@@ -108,53 +131,121 @@ static void _lvResetPlayer(void) {
     } @catch (NSException *e) {}
 }
 
-#pragma mark - 视图识别：所有类名带 Notification 的通知视图
+#pragma mark - 视图识别（大小写不敏感）
 
 static BOOL _lvIsNotificationView(UIView *v) {
-    NSString *cls = NSStringFromClass([v class]);
-    if (![cls containsString:@"Notification"]) { return NO; }
-    return [cls containsString:@"Cell"]    || [cls containsString:@"List"]       ||
-           [cls containsString:@"Background"] || [cls containsString:@"Banner"] ||
-           [cls containsString:@"Stack"]   || [cls containsString:@"Controller"] ||
-           [cls containsString:@"View"];
+    @try {
+        NSString *cls = NSStringFromClass([v class]);
+        if (!cls) { return NO; }
+        NSString *low = cls.lowercaseString;
+        if (![low containsString:@"notification"]) { return NO; }
+        return [low containsString:@"cell"]    || [low containsString:@"list"]       ||
+               [low containsString:@"background"] || [low containsString:@"banner"]  ||
+               [low containsString:@"stack"]   || [low containsString:@"controller"] ||
+               [low containsString:@"content"] || [low containsString:@"view"];
+    } @catch (NSException *e) { return NO; }
+}
+
+#pragma mark - 挂载
+
+static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
+    // 找到最上层的毛玻璃/背景视图，把视频插在它上面、文字内容之下
+    UIView *bg = nil;
+    for (UIView *s in v.subviews) {
+        NSString *c = NSStringFromClass(s.class);
+        BOOL isBg = [s isKindOfClass:[UIVisualEffectView class]] ||
+                    [c containsString:@"Effect"] || [c containsString:@"Material"] ||
+                    [c containsString:@"Background"] || [c containsString:@"Backdrop"] ||
+                    [c containsString:@"Blur"];
+        if (isBg) { bg = s; }
+    }
+    if (bg && bg.layer != l.superlayer) {
+        [v.layer insertSublayer:l above:bg.layer];
+    } else if (v.subviews.count > 0 && v.layer != l.superlayer) {
+        [v.layer insertSublayer:l above:((UIView *)v.subviews[0]).layer];
+    } else if (l.superlayer != v.layer) {
+        [v.layer addSublayer:l];
+    }
 }
 
 static void _lvAttach(UIView *v) {
     if (!v || !_lvEnabled()) { return; }
     @try {
         AVPlayer *p = _lvPlayer();
-        if (!p) { return; }
+
+        if (!p) {
+            // 找不到视频：诊断模式下盖绿色层，证明 tweak 已经命中通知卡片
+            if (_lvDebug()) {
+                CALayer *f = objc_getAssociatedObject(v, &kFallbackKey);
+                if (!f) {
+                    f = [CALayer layer];
+                    f.backgroundColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.0 alpha:0.45].CGColor;
+                    objc_setAssociatedObject(v, &kFallbackKey, f, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                    [v.layer addSublayer:f];
+                    _lvLogOnce(NSStringFromClass(v.class), @"绿色诊断层(没找到视频文件)");
+                }
+                f.frame = v.bounds;
+            }
+            return;
+        }
 
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         if (!l) {
             l = [AVPlayerLayer playerLayerWithPlayer:p];
             l.videoGravity = AVLayerVideoGravityResizeAspectFill;
             objc_setAssociatedObject(v, &kLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            _lvLogOnce(NSStringFromClass(v.class), @"已挂载视频");
         }
         if (l.player != p) { l.player = p; }   // 素材切换后更新引用
 
-        if (l.superlayer != v.layer) {
-            if (v.subviews.count > 0) {
-                // 插到第一个子视图（一般是毛玻璃背景）之上、内容之下
-                [v.layer insertSublayer:l above:((UIView *)v.subviews[0]).layer];
-            } else {
-                [v.layer addSublayer:l];
-            }
-        }
+        _lvInsertLayer(v, l);
         l.frame = v.bounds;
         [p play];
     } @catch (NSException *e) {
-        NSLog(@"[LockVideo] attach: %@", e);
+        _lvLog([NSString stringWithFormat:@"attach 异常: %@", e]);
     }
 }
 
-#pragma mark - 全局 hook（UIView 级别，运行时自动匹配通知视图）
+static void _lvOnMatch(UIView *v) {
+    if (!_lvEnabled()) { return; }
+    if (_lvDebug()) { _lvLogOnce(NSStringFromClass(v.class), @"匹配到通知视图"); }
+    _lvAttach(v);
+}
+
+#pragma mark - iOS 16 锁屏通知显式 hook（NCNotificationContentView 是通知卡片内容视图）
+
+%group LVNotif16
+%hook NCNotificationContentView
+- (void)didMoveToWindow {
+    %orig;
+    @try { if (((UIView *)self).window) { _lvOnMatch((UIView *)self); } } @catch (NSException *e) {}
+}
+- (void)layoutSubviews {
+    %orig;
+    @try {
+        UIView *v = (UIView *)self;
+        AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+        if (l) {
+            _lvInsertLayer(v, l);
+            l.frame = v.bounds;
+            if (v.window && gPlayer) { [gPlayer play]; }
+        }
+        if (_lvDebug()) {
+            CALayer *f = objc_getAssociatedObject(v, &kFallbackKey);
+            if (f) { f.frame = v.bounds; }
+        }
+    } @catch (NSException *e) {}
+}
+%end
+%end
+
+#pragma mark - 全局 hook（UIView 级别兜底，自动匹配所有通知视图）
 
 static void (*_orig_didMoveToWindow)(UIView *, SEL);
 static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
     _orig_didMoveToWindow(self, _cmd);
     @try {
-        if (self.window && _lvIsNotificationView(self)) { _lvAttach(self); }
+        if (self.window && _lvIsNotificationView(self)) { _lvOnMatch(self); }
     } @catch (NSException *e) {}
 }
 
@@ -211,6 +302,7 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         } else if (gPlayer) {
             gPlayer.muted = !_lvSound();   // 只改了声音 -> 即时生效
         }
+        if (_lvDebug()) { gLoggedClasses = nil; }   // 重新记日志
     } @catch (NSException *e) {}
 }
 
@@ -218,30 +310,42 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 
 %ctor {
     @try {
-        // 1) 全局 swizzle UIView：运行时自动匹配所有通知视图（保证命中）
+        // 1) iOS 16 锁屏通知：显式 hook NCNotificationContentView（不依赖子类调用 super）
+        if (objc_getClass("NCNotificationContentView") != Nil) {
+            %init(LVNotif16);
+            _lvLog(@"NCNotificationContentView 显式 hook OK");
+        } else {
+            _lvLog(@"NCNotificationContentView 不存在(非 iOS16?)");
+        }
+
+        // 2) 全局 swizzle UIView 兜底：自动匹配所有类名含 notification 的视图
         Class uiView = objc_getClass("UIView");
         if (uiView) {
             MSHookMessageEx(uiView, @selector(didMoveToWindow),
                             (IMP)_lv_didMoveToWindow, (IMP *)&_orig_didMoveToWindow);
             MSHookMessageEx(uiView, @selector(layoutSubviews),
                             (IMP)_lv_layoutSubviews, (IMP *)&_orig_layoutSubviews);
-            NSLog(@"[LockVideo] UIView 全局 hook OK");
+            _lvLog(@"UIView 全局 hook OK");
         }
 
-        // 2) 壁纸 hook（类存在才装）
+        // 3) 壁纸 hook（类存在才装）
         if (objc_getClass("SBLockScreenWallpaperView") != Nil) {
             %init(LVWallpaper);
-            NSLog(@"[LockVideo] 壁纸 hook OK");
+            _lvLog(@"壁纸 hook OK");
+        } else {
+            _lvLog(@"SBLockScreenWallpaperView 不存在");
         }
 
-        // 3) 设置变化：声音即时生效；素材变化重建播放器
+        // 4) 设置变化：声音即时生效；素材变化重建播放器
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
                                         _lvPrefsChanged,
                                         kLVNotify,
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
+
+        _lvLog(@"===== 1.0.17 加载完成 =====");
     } @catch (NSException *e) {
-        NSLog(@"[LockVideo] ctor: %@", e);
+        _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
 }
