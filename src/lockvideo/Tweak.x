@@ -144,7 +144,7 @@ static void _lvAttachTo(UIView *view) {
 
 - (void)didMoveToWindow {
     %orig;
-    @try { if (self.window) { _lvAttachTo((UIView *)self); } } @catch (NSException *e) {}
+    @try { if (((UIView *)self).window) { _lvAttachTo((UIView *)self); } } @catch (NSException *e) {}
 }
 
 - (void)layoutSubviews {
@@ -165,7 +165,7 @@ static void _lvAttachTo(UIView *view) {
 
 - (void)didMoveToWindow {
     %orig;
-    @try { if (self.window) { _lvAttachTo((UIView *)self); } } @catch (NSException *e) {}
+    @try { if (((UIView *)self).window) { _lvAttachTo((UIView *)self); } } @catch (NSException *e) {}
 }
 
 - (void)layoutSubviews {
