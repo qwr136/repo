@@ -1,5 +1,4 @@
 #import "LockVideoPrefsListController.h"
-#import "LockVideoMaterialCell.h"
 #import <UIKit/UIKit.h>
 #import <Preferences/Preferences.h>
 #import <spawn.h>
@@ -17,23 +16,7 @@
     return _specifiers;
 }
 
-// 「选择素材」这一行用自定义单元格：中间居中显示文件名，去掉右侧 chevron
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtSpecifier:(PSSpecifier *)specifier {
-    if ([[specifier identifier] isEqualToString:@"LockVideoMaterialLink"]) {
-        LockVideoMaterialCell *cell = [tableView dequeueReusableCellWithIdentifier:@"LockVideoMaterialCell"];
-        if (!cell) {
-            cell = [[LockVideoMaterialCell alloc]
-                    initWithStyle:UITableViewCellStyleDefault
-                    reuseIdentifier:@"LockVideoMaterialCell"
-                    specifier:specifier];
-        }
-        [cell setSpecifier:specifier];
-        return cell;
-    }
-    return [super tableView:tableView cellForRowAtSpecifier:specifier];
-}
-
-// 从 prefs 读出当前播放的视频文件名（用于「当前素材」那一行）
+// 从 prefs 读出当前播放的视频文件名（用于自定义 LockVideoMaterialCell 显示）
 - (NSString *)_currentVideoName {
     NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
     NSString *path = prefs[@"LockVideoPath"];
