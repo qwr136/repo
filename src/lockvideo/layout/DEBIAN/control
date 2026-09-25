@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.34 - 1) 选完素材后设置面板立刻显示选中文件名（之前卡住显示「未选择」）2) 没有锁屏通知时自动暂停视频，收到通知再恢复
+Changelog: 1.0.34 - 一、选完素材后设置面板立刻显示选中文件名（之前卡住显示「未选择」）；二、没有锁屏通知时自动暂停视频，收到通知再恢复
