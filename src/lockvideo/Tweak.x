@@ -2,6 +2,8 @@
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
+#import <dlfcn.h>
 #import <substrate.h>
 #import <dlfcn.h>
 
@@ -223,7 +225,8 @@ static BOOL _lvIsMediaPlaying(void) {
         }
         Class mc = NSClassFromString(@"SBMediaController");
         if (mc && [mc respondsToSelector:NSSelectorFromString(@"sharedInstance")]) {
-            id c = [mc performSelector:NSSelectorFromString(@"sharedInstance")];
+            // 用 objc_msgSend 代替 performSelector（避免 -Warc-performSelector-leaks 当作错误）
+            id c = ((id (*)(id, SEL))objc_msgSend)(mc, NSSelectorFromString(@"sharedInstance"));
             if (c) {
                 gCanDetectPlayback = YES;
                 NSNumber *n = nil;
