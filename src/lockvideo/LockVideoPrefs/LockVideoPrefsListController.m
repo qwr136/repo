@@ -39,12 +39,14 @@
 // 让 PSStaticTextCell 显示最新素材名
 - (void)_refreshCurrentMaterialRow {
     @try {
-        UISpecifier *target = nil;
-        for (UISpecifier *sp in [self specifiers]) {
-            if ([sp.identifier isEqualToString:@"LockVideoCurrentPath"]) { target = sp; break; }
+        PSSpecifier *target = nil;
+        for (PSSpecifier *sp in [self specifiers]) {
+            if ([[sp identifier] isEqualToString:@"LockVideoCurrentPath"]) { target = sp; break; }
         }
         if (target) {
-            [target setProperty:[self _currentVideoName] forKey:@"value"];
+            NSString *name = [self _currentVideoName];
+            [target setProperty:name forKey:@"value"];
+            [target setProperty:name forKey:@"detailText"];
             [self reloadSpecifier:target];
         }
     } @catch (NSException *e) {}
