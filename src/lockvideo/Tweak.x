@@ -12,10 +12,14 @@
 static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
+static AVPlayer *gPlayerPlayer = nil;
+static NSString *gCurrentPlayerPath = nil;
+static id gPlayerLoopObserver = nil;
 static char kLayerKey;
-static char kPlayerLayerKey;   // 播放器视图用的独立 layer key
-static char kTrackedKey;       // 防止 didMoveToWindow 重复计数
-static int gActiveCount = 0;   // 通知卡片 + 播放器视图 当前在窗口里的总数
+static char kPlayerLayerKey;
+static char kTrackedKey;
+static int gActiveNotifCount = 0;
+static int gActivePlayerCount = 0;
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
@@ -119,16 +123,6 @@ static NSArray<NSString *> *_lvScanFiles(void) {
     return @[];
 }
 
-// 锁屏播放器的独立路径（为空则跟随 LockVideoPath）
-static NSString *_lvPlayerPath(void) {
-    NSString *saved = _lvString(@"LockVideoPlayerPath");
-    if ([saved isKindOfClass:[NSString class]] &&
-        [[NSFileManager defaultManager] fileExistsAtPath:saved]) {
-        return saved;
-    }
-    return _lvPath();
-}
-
 // 锁屏播放器的独立透明度（默认 0.5）
 static CGFloat _lvPlayerAlpha(void) {
     @try {
@@ -158,6 +152,16 @@ static NSString *_lvPath(void) {
         return saved;
     }
     return _lvScanFiles().firstObject;
+}
+
+// 锁屏播放器的独立路径（没单独选过则跟随 LockVideoPath）
+static NSString *_lvPlayerPath(void) {
+    NSString *saved = _lvString(@"LockVideoPlayerPath");
+    if ([saved isKindOfClass:[NSString class]] &&
+        [[NSFileManager defaultManager] fileExistsAtPath:saved]) {
+        return saved;
+    }
+    return _lvPath();
 }
 
 #pragma mark - 诊断日志（只记录"每个类第一次出现"，防刷屏）
