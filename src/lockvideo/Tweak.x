@@ -661,6 +661,20 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundNotif, BOOL *foundPlayer) 
                 if (foundPlayer) *foundPlayer = YES;
                 _lvLogOnce(cls, @"轮询扫描命中播放器");
                 _lvAttachPlayerView(v);
+            } else {
+                // 诊断：把扫描到的类名记下来（每个类只记一次），
+                // 这样即使播放器是常驻视图（不触发 didMoveToWindow）也能被发现
+                NSString *low = cls.lowercaseString;
+                BOOL suspicious =
+                    [low containsString:@"media"]   || [low containsString:@"playing"] ||
+                    [low containsString:@"music"]   || [low containsString:@"audio"]   ||
+                    [low containsString:@"nowplay"] || [low containsString:@"radio"]   ||
+                    [low containsString:@"album"]   || [low containsString:@"artwork"];
+                if (suspicious) {
+                    _lvLogOnce(cls, @"【疑似播放器】请反馈此行");
+                } else {
+                    _lvLogOnce(cls, @"扫描时发现的类");
+                }
             }
             for (UIView *c in v.subviews) { [stack addObject:c]; }
         }
@@ -751,11 +765,13 @@ static void _lvPollTick(void) {
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 视频=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
+        _lvLog([NSString stringWithFormat:@"播放器: 开关=%d 视频=%@ 透明度=%.2f",
+                _lvPlayerEnabled(), _lvPlayerPath() ?: @"(无)", _lvPlayerAlpha()]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
         {
             NSMutableString *s = [NSMutableString string];
             for (NSString *suite in _lvSuites()) {
-                for (NSString *k in @[@"LockVideoEnabled", @"LockVideoSound"]) {
+                for (NSString *k in @[@"LockVideoEnabled", @"LockVideoSound", @"LockVideoPlayerEnabled"]) {
                     CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
                     CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)k, (__bridge CFStringRef)suite);
                     id val = cf ? CFBridgingRelease(cf) : nil;
@@ -764,7 +780,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.38 加载完成 =====");
+        _lvLog(@"===== 1.0.39 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
