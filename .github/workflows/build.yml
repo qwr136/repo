@@ -1,0 +1,75 @@
+name: Build Tweak (macOS 真 arm64e)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lockvideo/**'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew install ldid xz dpkg
+
+      - name: Setup Theos
+        run: |
+          git clone --recursive --depth=1 https://github.com/theos/theos.git $HOME/theos
+          mkdir -p $HOME/theos/sdks
+          curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
+          ls $HOME/theos/sdks
+
+      - name: Build (arm64 + arm64e 真 fat binary)
+        run: |
+          export THEOS=$HOME/theos
+          cd src/lockvideo
+          make clean
+          # macOS Apple 工具链：编真正的 arm64 + arm64e 双架构，无需 cputype 伪装
+          make package FINALPACKAGE=1 ARCHS="arm64 arm64e"
+          ls -la packages/
+
+      - name: Verify binaries
+        run: |
+          BIN=$(find .theos -path "*LockVideoPrefs.bundle/LockVideoPrefs" | head -1)
+          DYLIB=$(find .theos -name "LockVideo.dylib" | head -1)
+          echo "== prefs =="
+          file "$BIN"
+          echo "== dylib =="
+          file "$DYLIB"
+          lipo -info "$BIN"
+          lipo -info "$DYLIB"
+
+      - name: Publish to repo (deb + Packages 索引)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          # 清掉本包旧 deb，放入新 deb
+          rm -f debs/com.xiaofei.notifybgvideo_*.deb
+          cp src/lockvideo/packages/*.deb debs/
+          # 重新生成 Packages 索引
+          dpkg-scanpackages --multiversion . /dev/null > Packages
+          gzip -k -f Packages
+          xz -k -f Packages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add debs Packages Packages.gz Packages.xz
+          if git diff --cached --quiet; then
+            echo "没有变化"
+          else
+            git commit -m "CI: macOS 编译 通知背景视频 (真 arm64e fat binary) [skip ci]"
+            git push
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: src/lockvideo/packages/*.deb
