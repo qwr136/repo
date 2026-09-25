@@ -328,7 +328,37 @@ static BOOL _lvIsPlayerClassName(NSString *cls) {
     // 通配：lockview + media / media + control
     if ([low containsString:@"lockview"] && [low containsString:@"media"]) return YES;
     if ([low containsString:@"mediaplatter"])           return YES;
-    return NO;
+    // iOS 16 锁屏播放器实际使用 MediaRemoteUI.framework（MRU 前缀）
+    if ([low containsString:@"mruartwork"])             return YES;
+    if ([low containsString:@"mrunowplaying"])          return YES;
+    if ([low containsString:@"mrumediacontrols"])       return YES;
+    if ([low containsString:@"mruplatter"])             return YES;
+    if ([low containsString:@"mrulock"])                return YES;
+    // 宽松兜底：锁屏下任何含媒体关键词的类（放歌时播放器叫什么都能挂上）
+    return _lvIsLikelyPlayerClass(cls);
+}
+
+// 宽松兜底匹配：类名含媒体关键词即视为播放器候选。
+// 用于应对不同 iOS 版本 / 不同机型播放器类名不确定的情况。
+static BOOL _lvIsLikelyPlayerClass(NSString *cls) {
+    if (!cls) return NO;
+    NSString *low = cls.lowercaseString;
+    // 排除明显不是播放器的
+    if ([low containsString:@"notification"]) return NO;
+    if ([low containsString:@"display"])      return NO;  // displaying 误报
+    if ([low containsString:@"backdrop"])     return NO;
+    if ([low containsString:@"vibrancy"])     return NO;
+    if ([low containsString:@"material"])     return NO;  // MTMaterialView 是背景材质
+    if ([low containsString:@"blur"])         return NO;
+    if ([low containsString:@"wallpaper"])    return NO;
+    if ([low containsString:@"statusbar"])    return NO;
+    return
+        [low containsString:@"media"]   || [low containsString:@"playing"]  ||
+        [low containsString:@"music"]   || [low containsString:@"audio"]    ||
+        [low containsString:@"nowplay"] || [low containsString:@"artwork"]  ||
+        [low containsString:@"album"]   || [low containsString:@"radio"]    ||
+        [low containsString:@"mru"]     || [low containsString:@"podcast"]  ||
+        [low containsString:@"track"]   || [low containsString:@"playback"];
 }
 
 #pragma mark - 挂载
@@ -424,6 +454,13 @@ static void _lvAttachPlayerView(UIView *v) {
     @try {
         if (!_lvPlayerEnabled()) {
             _lvLogOnce(@"状态", @"开关「播放器视频背景」是关闭的，跳过挂载");
+            return;
+        }
+        // 宽松兜底匹配到的候选：太小的视图（图标/标签）不挂，避免误伤
+        CGSize sz = v.bounds.size;
+        if (sz.width < 80.0 || sz.height < 30.0) {
+            _lvLogOnce(NSStringFromClass(v.class),
+                       [NSString stringWithFormat:@"候选太小跳过 %.0fx%.0f", sz.width, sz.height]);
             return;
         }
         AVPlayer *p = _lvPlayerPlayer();
@@ -823,7 +860,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.40 加载完成 =====");
+        _lvLog(@"===== 1.0.41 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
