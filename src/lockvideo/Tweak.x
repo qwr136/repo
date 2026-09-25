@@ -197,6 +197,23 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
 %end
 %end
 
+#pragma mark - 设置变化回调（C 函数，ARC 下 block 不能转 CFNotificationCallback）
+
+static void _lvPrefsChanged(CFNotificationCenterRef center,
+                            void *observer,
+                            CFStringRef name,
+                            const void *object,
+                            CFDictionaryRef userInfo) {
+    @try {
+        NSString *np = _lvPath();
+        if (![np isEqualToString:gCurrentPath]) {
+            _lvResetPlayer();          // 素材变了 -> 重建播放器
+        } else if (gPlayer) {
+            gPlayer.muted = !_lvSound();   // 只改了声音 -> 即时生效
+        }
+    } @catch (NSException *e) {}
+}
+
 #pragma mark - ctor
 
 %ctor {
@@ -220,16 +237,7 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
         // 3) 设置变化：声音即时生效；素材变化重建播放器
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
-                                        (CFNotificationCallback)^(void) {
-                                            @try {
-                                                NSString *np = _lvPath();
-                                                if (![np isEqualToString:gCurrentPath]) {
-                                                    _lvResetPlayer();
-                                                } else if (gPlayer) {
-                                                    gPlayer.muted = !_lvSound();
-                                                }
-                                            } @catch (NSException *e) {}
-                                        },
+                                        _lvPrefsChanged,
                                         kLVNotify,
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
