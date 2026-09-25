@@ -1,5 +1,5 @@
 export THEOS_DEVICE_IP = localhost
-export TARGET = iphone:latest:14.5
+export TARGET = iphone:14.5:14.5
 # 只用 arm64：SpringBoard 注入稳定。
 # 设置面板改为纯 plist（PreferenceLoader entry），不再编译任何 arm64e 二进制，
 # 从根上避开 Linux 工具链 arm64e ABI 不兼容导致的闪退。
