@@ -36,19 +36,19 @@
     return @"(未选择)";
 }
 
-// 刷新两个文件显示行：「锁屏通知背景（文件名）」和「当前素材（文件名）」
+// 刷新「选择素材」那一行的右侧文件名（PSLinkCell 稳定显示 detailText）
 - (void)_refreshCurrentMaterialRow {
     @try {
-        NSString *name = [self _currentVideoName];
-        NSString *bracketed = [NSString stringWithFormat:@"（%@）", name];
+        PSSpecifier *target = nil;
         for (PSSpecifier *sp in [self specifiers]) {
-            NSString *ident = [sp identifier];
-            if ([ident isEqualToString:@"LockVideoBackdropText"] ||
-                [ident isEqualToString:@"LockVideoCurrentText"]) {
-                [sp setProperty:bracketed forKey:@"detailText"];
-                [sp setProperty:bracketed forKey:@"value"];
-                [self reloadSpecifier:sp];
-            }
+            if ([[sp identifier] isEqualToString:@"LockVideoMaterialLink"]) { target = sp; break; }
+        }
+        if (target) {
+            NSString *name = [self _currentVideoName];
+            NSString *bracketed = [NSString stringWithFormat:@"（%@）", name];
+            [target setProperty:bracketed forKey:@"detailText"];
+            [target setProperty:bracketed forKey:@"value"];
+            [self reloadSpecifier:target];
         }
     } @catch (NSException *e) {}
 }
