@@ -36,18 +36,19 @@
     return @"(未选择)";
 }
 
-// 在「选择素材」按钮右侧显示当前素材名
+// 刷新两个文件显示行：「锁屏通知背景（文件名）」和「当前素材（文件名）」
 - (void)_refreshCurrentMaterialRow {
     @try {
-        PSSpecifier *target = nil;
+        NSString *name = [self _currentVideoName];
+        NSString *bracketed = [NSString stringWithFormat:@"（%@）", name];
         for (PSSpecifier *sp in [self specifiers]) {
-            if ([[sp identifier] isEqualToString:@"LockVideoMaterialButton"]) { target = sp; break; }
-        }
-        if (target) {
-            NSString *name = [self _currentVideoName];
-            [target setProperty:name forKey:@"value"];
-            [target setProperty:name forKey:@"detailText"];
-            [self reloadSpecifier:target];
+            NSString *ident = [sp identifier];
+            if ([ident isEqualToString:@"LockVideoBackdropText"] ||
+                [ident isEqualToString:@"LockVideoCurrentText"]) {
+                [sp setProperty:bracketed forKey:@"detailText"];
+                [sp setProperty:bracketed forKey:@"value"];
+                [self reloadSpecifier:sp];
+            }
         }
     } @catch (NSException *e) {}
 }
