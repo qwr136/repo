@@ -447,9 +447,8 @@ static void _lvPollTick(void) {
             if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
                 ![c containsString:@"Banner"]) { continue; }
             if (w.hidden || w.alpha <= 0.01) { continue; }
-            if (found) {
-                _lvScanAndAttach(w, &found);
-            }
+            BOOL found = NO;
+            _lvScanAndAttach(w, &found);
         }
     } @catch (NSException *e) {}
 }
