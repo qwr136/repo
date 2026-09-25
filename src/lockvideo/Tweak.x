@@ -401,7 +401,7 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 
 static NSTimer *gPollTimer = nil;
 
-// 只挂用户实际看到的圆角卡片本体（NCNotificationShortLookView / 横幅），
+// 只挂用户实际看到的通知视图本体（短按卡片 / 横幅 / 长按展开视图），
 // 排除列表容器、遮罩、标题、外层 cell——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后
 static BOOL _lvIsCardClass(NSString *cls) {
     NSString *low = cls.lowercaseString;
@@ -411,9 +411,12 @@ static BOOL _lvIsCardClass(NSString *cls) {
     if ([low containsString:@"listview"])     { return NO; }
     if ([low containsString:@"sectionlist"])  { return NO; }
     if ([low containsString:@"listcell"])     { return NO; }
-    if ([low containsString:@"content"])      { return NO; }
-    // 只挂用户实际看到的圆角卡片本体
-    return [low containsString:@"shortlook"] || [low containsString:@"banner"];
+    // 短按：可见圆角卡片本体（NCNotificationShortLookView）
+    // 横幅：锁屏顶部悬浮通知（NCNotificationBannerView / ...）
+    // 长按展开：长按通知后弹出的完整视图（NCNotificationLongLookView / NCNotificationLongLookContentView / ...）
+    return [low containsString:@"shortlook"] ||
+           [low containsString:@"banner"]     ||
+           [low containsString:@"longlook"];
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
@@ -519,7 +522,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.29 加载完成 =====");
+        _lvLog(@"===== 1.0.30 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
