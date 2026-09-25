@@ -239,24 +239,17 @@ static BOOL _lvIsNotificationView(UIView *v) {
 
 #pragma mark - 挂载
 
+// 关键：把视频插在 cell 的最底层（index 0），让 cell 自带的毛玻璃、icon、文字全部浮在视频之上。
+// 这样视频作为卡片背景透出来，文字保持清晰可读。
 static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
-    // 找到最上层的毛玻璃/背景视图，把视频插在它上面、文字内容之下
-    UIView *bg = nil;
-    for (UIView *s in v.subviews) {
-        NSString *c = NSStringFromClass(s.class);
-        BOOL isBg = [s isKindOfClass:[UIVisualEffectView class]] ||
-                    [c containsString:@"Effect"] || [c containsString:@"Material"] ||
-                    [c containsString:@"Background"] || [c containsString:@"Backdrop"] ||
-                    [c containsString:@"Blur"];
-        if (isBg) { bg = s; }
+    if (l.superlayer == v.layer) {
+        if (v.layer.sublayers.firstObject != l) {
+            [l removeFromSuperlayer];
+            [v.layer insertSublayer:l atIndex:0];
+        }
+        return;
     }
-    if (bg && bg.layer != l.superlayer) {
-        [v.layer insertSublayer:l above:bg.layer];
-    } else if (v.subviews.count > 0 && v.layer != l.superlayer) {
-        [v.layer insertSublayer:l above:((UIView *)v.subviews[0]).layer];
-    } else if (l.superlayer != v.layer) {
-        [v.layer addSublayer:l];
-    }
+    [v.layer insertSublayer:l atIndex:0];
 }
 
 static void _lvAttach(UIView *v) {
@@ -415,17 +408,18 @@ static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
 static NSTimer *gPollTimer = nil;
 static CFTimeInterval gLastDump = 0;
 
-// 只挂真正的通知卡片，排除整块列表容器和遮罩/标题（否则会盖住整个锁屏）
+// 只挂"通知卡片本体"（NCNotificationListCell），不挂 short look view / 内容视图，
+// 避免双层覆盖；同时排除列表容器、遮罩和分组标题
 static BOOL _lvIsCardClass(NSString *cls) {
     NSString *low = cls.lowercaseString;
     if (![low containsString:@"notif"]) { return NO; }
-    if ([low containsString:@"stackdimming"]) { return NO; }   // 变暗遮罩
-    if ([low containsString:@"header"])       { return NO; }   // 分组标题
-    if ([low containsString:@"listview"])     { return NO; }   // 整个列表容器
+    if ([low containsString:@"stackdimming"]) { return NO; }
+    if ([low containsString:@"header"])       { return NO; }
+    if ([low containsString:@"listview"])     { return NO; }
     if ([low containsString:@"sectionlist"])  { return NO; }
-    // 真正要挂的：卡片本体 / 短视图 / 内容视图 / 横幅
-    return [low containsString:@"listcell"]   || [low containsString:@"shortlook"] ||
-           [low containsString:@"content"]    || [low containsString:@"banner"]    ||
+    if ([low containsString:@"shortlook"])    { return NO; }   // 内部内容视图，避免双层覆盖
+    // 卡片本体（NCNotificationListCell 等）：class 同时含 cell + notification，或含 listcell
+    return [low containsString:@"listcell"] ||
            ([low containsString:@"cell"] && [low containsString:@"notification"]);
 }
 
@@ -545,7 +539,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.20 加载完成 =====");
+        _lvLog(@"===== 1.0.21 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
