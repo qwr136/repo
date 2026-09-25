@@ -34,17 +34,17 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.24
+Version: 1.0.25
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 380
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.24_iphoneos-arm64.deb
-Size: 22362
-MD5sum: 5f2c78126a92370418f7a7c8d076f2aa
-SHA1: 1561f06be037c2a9436bf1ef69caddced2c2c406
-SHA256: f4405503df93da4861c5351770069137fca31700004bb345d4d3ea234f0fa335
+Filename: debs/com.xiaofei.notifybgvideo_1.0.25_iphoneos-arm64.deb
+Size: 22788
+MD5sum: 3135ce9b916268a7ab3271dca57a50e6
+SHA1: b8378405c178e49ef94a6dae6ae99e0d28bfedc2
+SHA256: 1826276a1fc239ae6cb65fc65307d3794a4b8b34243c758313177e242cb18944
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
