@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.32
+Version: 1.0.33
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.32_iphoneos-arm64.deb
-Size: 21794
-MD5sum: 17974625334e8f5cb5a5aedd1dbb7ee9
-SHA1: 3c2e70a5aaa47a743fc1dda1d75389f293ec9fa7
-SHA256: 8bf8a1835f31d75f830bd504fa3e8adf5f5bc65eb7c28e71f3150bb6f84b7543
+Filename: debs/com.xiaofei.notifybgvideo_1.0.33_iphoneos-arm64.deb
+Size: 23262
+MD5sum: 01da1b455e5c6bbf629b666daccb7557
+SHA1: 876b89a936e482f1efb5e7b5bdca2b8c95e07ad8
+SHA256: adafce02fdd197081c6ef1946e7c7bbede4a6de834b36dd01a2b62a909545450
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.32 - 设置面板精简：删掉独立的「锁屏通知背景」和「当前素材」两行；「选择素材」改为 PSLinkCell（点切换 + 右侧稳定显示文件名 + chevron），所有素材名显示合并到这一行
+Changelog: 1.0.33 - 「选择素材」改为自定义单元格：素材名居中显示在红框位置，右侧 chevron 去掉
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
