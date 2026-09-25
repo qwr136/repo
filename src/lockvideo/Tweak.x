@@ -252,16 +252,15 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if (!cls) { return NO; }
         NSString *low = cls.lowercaseString;
         if (![low containsString:@"notification"]) { return NO; }
-        // 排除整张列表/容器/遮罩/标题——这些的 bounds 是全屏或很大，挂上去会把视频铺满整个锁屏
+        // 排除一切容器/遮罩/标题/列表——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后看不见
         if ([low containsString:@"stackdimming"]) { return NO; }
         if ([low containsString:@"header"])       { return NO; }
-        if ([low containsString:@"listview"])     { return NO; }
+        if ([low containsString:@"listview"])     { return NO; }   // 整个列表容器（全屏）
         if ([low containsString:@"sectionlist"])  { return NO; }
-        if ([low containsString:@"shortlook"])    { return NO; }   // 内部内容视图，避免双层
-        // 只允许真正的卡片本体
-        return [low containsString:@"listcell"] ||
-               [low containsString:@"banner"]   ||
-               ([low containsString:@"cell"] && [low containsString:@"notification"]);
+        if ([low containsString:@"listcell"])     { return NO; }   // 卡片外层容器，视频会被内部卡片盖住看不见
+        if ([low containsString:@"content"])      { return NO; }   // 内容视图，交给 shortlook 统一处理
+        // 只挂用户实际看到的圆角卡片本体
+        return [low containsString:@"shortlook"] || [low containsString:@"banner"];
     } @catch (NSException *e) { return NO; }
 }
 
@@ -333,10 +332,10 @@ static void _lvOnMatch(UIView *v) {
     _lvAttach(v);
 }
 
-#pragma mark - iOS 16 锁屏通知显式 hook（NCNotificationContentView 是通知卡片内容视图）
+#pragma mark - iOS 16 锁屏通知显式 hook（直接挂用户可见的卡片本体 NCNotificationShortLookView）
 
 %group LVNotif16
-%hook NCNotificationContentView
+%hook NCNotificationShortLookView
 - (void)didMoveToWindow {
     %orig;
     @try { if (((UIView *)self).window) { _lvOnMatch((UIView *)self); } } @catch (NSException *e) {}
@@ -440,8 +439,8 @@ static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
 static NSTimer *gPollTimer = nil;
 static CFTimeInterval gLastDump = 0;
 
-// 只挂"通知卡片本体"（NCNotificationListCell），不挂 short look view / 内容视图，
-// 避免双层覆盖；同时排除列表容器、遮罩和分组标题
+// 只挂用户实际看到的圆角卡片本体（NCNotificationShortLookView / 横幅），
+// 排除列表容器、遮罩、标题、外层 cell——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后
 static BOOL _lvIsCardClass(NSString *cls) {
     NSString *low = cls.lowercaseString;
     if (![low containsString:@"notif"]) { return NO; }
@@ -449,10 +448,10 @@ static BOOL _lvIsCardClass(NSString *cls) {
     if ([low containsString:@"header"])       { return NO; }
     if ([low containsString:@"listview"])     { return NO; }
     if ([low containsString:@"sectionlist"])  { return NO; }
-    if ([low containsString:@"shortlook"])    { return NO; }   // 内部内容视图，避免双层覆盖
-    // 卡片本体（NCNotificationListCell 等）：class 同时含 cell + notification，或含 listcell
-    return [low containsString:@"listcell"] ||
-           ([low containsString:@"cell"] && [low containsString:@"notification"]);
+    if ([low containsString:@"listcell"])     { return NO; }
+    if ([low containsString:@"content"])      { return NO; }
+    // 只挂用户实际看到的圆角卡片本体
+    return [low containsString:@"shortlook"] || [low containsString:@"banner"];
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
@@ -503,12 +502,12 @@ static void _lvPollTick(void) {
 
 %ctor {
     @try {
-        // 1) iOS 16 锁屏通知：显式 hook NCNotificationContentView（不依赖子类调用 super）
-        if (objc_getClass("NCNotificationContentView") != Nil) {
+        // 1) iOS 16 锁屏通知：显式 hook 用户实际看到的卡片本体 NCNotificationShortLookView
+        if (objc_getClass("NCNotificationShortLookView") != Nil) {
             %init(LVNotif16);
-            _lvLog(@"NCNotificationContentView 显式 hook OK");
+            _lvLog(@"NCNotificationShortLookView 显式 hook OK");
         } else {
-            _lvLog(@"NCNotificationContentView 不存在(非 iOS16?)");
+            _lvLog(@"NCNotificationShortLookView 不存在(非 iOS16?)");
         }
 
         // 2) 全局 swizzle UIView 兜底：自动匹配所有类名含 notification 的视图
@@ -571,7 +570,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.23 加载完成 =====");
+        _lvLog(@"===== 1.0.24 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

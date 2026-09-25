@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.23
+Version: 1.0.24
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.23 - 修复视频铺满全屏：根因是全局 UIView hook 命中了 NCNotificationListView（整个列表容器，bounds=全屏），导致视频挂在整个锁屏。改为和轮询扫描同样的严格匹配，排除 listview/sectionlist/stackdimming/header/shortlook，只挂真正的通知卡片 cell
+Changelog: 1.0.24 - 统一挂载目标为 NCNotificationShortLookView（用户实际看到的圆角卡片本体）：显式 hook、全局 UIView hook、轮询扫描三处匹配规则全部收紧，只挂 shortlook/banner，排除 listview/listcell/sectionlist/header/stackdimming/content，彻底解决视频铺满全屏或藏在卡片背后看不见的问题
