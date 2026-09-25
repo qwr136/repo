@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.43
+Version: 1.0.44
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.43_iphoneos-arm64.deb
-Size: 32510
-MD5sum: ea4e154e2638963d83ae3c2a033ea6ae
-SHA1: 5af38cc42f31f42d0b8f3b723540643c25270be1
-SHA256: 37746c2b07df4f2a6d07eaa25caa20d3578e7196c797100c3ff4fe2d301c40ac
+Filename: debs/com.xiaofei.notifybgvideo_1.0.44_iphoneos-arm64.deb
+Size: 28754
+MD5sum: 31b6c21f77782d26ad91a5d9c237aa0c
+SHA1: ebdd8e8cd979687fbee5a4b35db3f9a47e1f12e0
+SHA256: 4784f2467376609da88bf2129f0b66b5a150aaa1559303b7e6cbb5829f79238a
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.43 - 修复主屏幕也出现视频背景（不再挂主屏幕壁纸窗口，只挂锁屏窗口内壁纸）加播放状态去抖防视频闪烁 - 播放器背景重写：不再找播放器视图（日志证明该设备锁屏没有独立播放器视图），改为检测系统是否正在播放音频，放歌时把视频直接铺到锁屏壁纸上作全屏背景、停播自动隐藏；诊断日志改为设置开关控制，默认关闭，日常日志不再刷屏
+Changelog: 1.0.44 - 「播放器背景」改为「桌面视频」，新增独立「锁屏背景视频」，两者素材与透明度各自独立设置，移除详细诊断日志开关
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
