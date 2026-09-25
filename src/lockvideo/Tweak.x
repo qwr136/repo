@@ -266,17 +266,43 @@ static BOOL _lvIsNotificationView(UIView *v) {
 
 #pragma mark - 挂载
 
-// 关键：把视频插在 cell 的最底层（index 0），让 cell 自带的毛玻璃、icon、文字全部浮在视频之上。
-// 这样视频作为卡片背景透出来，文字保持清晰可读。
+// 在卡片的子层里找到毛玻璃/模糊背景层（UIVisualEffectView 等），把视频插到它之上。
+// 这样视频替代卡片原本的灰色模糊底，文字/icon 依然浮在视频最上层，保持可读。
+static CALayer *_lvFindBlurLayer(CALayer *parent) {
+    for (CALayer *s in parent.sublayers) {
+        id d = s.delegate;
+        if ([d isKindOfClass:[UIView class]]) {
+            UIView *v = (UIView *)d;
+            NSString *cls = NSStringFromClass(v.class);
+            NSString *low = cls.lowercaseString;
+            if ([v isKindOfClass:[UIVisualEffectView class]] ||
+                [low containsString:@"blur"]   || [low containsString:@"effect"] ||
+                [low containsString:@"backdrop"] || [low containsString:@"material"] ||
+                [low containsString:@"vibrancy"]) {
+                return s;
+            }
+        }
+    }
+    return nil;
+}
+
 static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
+    CALayer *blur = _lvFindBlurLayer(v.layer);
     if (l.superlayer == v.layer) {
-        if (v.layer.sublayers.firstObject != l) {
+        // 已经在本视图层里——确保位于 blur 之上（视频替代灰底）
+        if (blur) {
+            [v.layer insertSublayer:l above:blur];
+        } else if (v.layer.sublayers.firstObject != l) {
             [l removeFromSuperlayer];
             [v.layer insertSublayer:l atIndex:0];
         }
         return;
     }
-    [v.layer insertSublayer:l atIndex:0];
+    if (blur) {
+        [v.layer insertSublayer:l above:blur];
+    } else {
+        [v.layer insertSublayer:l atIndex:0];
+    }
 }
 
 static void _lvAttach(UIView *v) {
@@ -570,7 +596,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.24 加载完成 =====");
+        _lvLog(@"===== 1.0.25 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
