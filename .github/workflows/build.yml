@@ -34,8 +34,19 @@ jobs:
           cd src/lockvideo
           make clean
           # macOS Apple 工具链：编真正的 arm64 + arm64e 双架构，无需 cputype 伪装
-          make package FINALPACKAGE=1 ARCHS="arm64 arm64e"
+          make package FINALPACKAGE=1 ARCHS="arm64 arm64e" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           ls -la packages/
+
+      - name: Publish build log (for debugging)
+        if: always()
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f build.log
+          if git diff --cached --quiet; then echo "日志无变化"; else
+            git commit -m "CI: build log [skip ci]"; git push
+          fi
 
       - name: Verify binaries
         run: |

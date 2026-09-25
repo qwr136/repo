@@ -193,6 +193,7 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
 }
 
 #pragma mark - 播放状态检测（是否有 App 正在放音乐/视频）
+// v1.0.42：锁屏不再找播放器视图，改为按播放状态把视频铺到锁屏壁纸
 
 static BOOL gCanDetectPlayback = NO;   // 拿不到状态就默认一直显示（保证功能不失效）
 static BOOL gMRReady = NO;
