@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.16
+Version: 1.0.17
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 348
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.16_iphoneos-arm64.deb
-Size: 14670
-MD5sum: 4c9d33773cefd2210e6c5e6e6095d7b1
-SHA1: ed3e210c6c5b3e67ab84e4e799a37f873ff7ceea
-SHA256: 56ae84ac8d0a04c55c3eb7e65197cad32c99a904739ecd7f739c25643db28886
+Filename: debs/com.xiaofei.notifybgvideo_1.0.17_iphoneos-arm64.deb
+Size: 16878
+MD5sum: 809ed98088041cefa28a339112a9db49
+SHA1: 4c245ba05c7448d43169890733b79daf2543352e
+SHA256: 6a47e23f71962a75e62fd815baaf929533611490e2ef7fa3e7539eb9d8eee118
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.16 - 通知背景生效重构：不再依赖固定类名，全局 hook UIView 后按类名自动匹配所有含 Notification 的通知视图（cell/列表/横幅），视频层插在通知卡片背景之上内容之下；新增「视频声音」开关（默认静音，切换即时生效）；壁纸 hook 保留
+Changelog: 1.0.17 - 锁屏通知生效修复：显式 hook iOS16 通知卡片内容视图 NCNotificationContentView；视频层优先插在毛玻璃背景之上；新增「诊断模式」开关：打开后通知卡片出现半透明绿色层并在 /var/mobile/通知视频/Hook日志.txt 记录命中的类名，方便定位问题
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
