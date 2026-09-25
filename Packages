@@ -1,0 +1,9 @@
+# Packages 索引文件
+#
+# 空源状态下此文件为空。
+# 把 .deb 放进 debs/ 目录后，执行以下命令重新生成：
+#   dpkg-scanpackages -m debs /dev/null > Packages
+#   gzip -9 -c Packages > Packages.gz
+#   xz -c Packages > Packages.xz
+#
+# 生成完毕后，请回到 Release 文件，把对应的 SHA256 / SHA1 / MD5 填到对应字段。

@@ -1,0 +1,12 @@
+Origin: xiaofei
+Label: xiaofei
+Suite: stable
+Version: 1.0
+Codename: xiaofei
+Architectures: iphoneos-arm64 iphoneos-arm64e iphoneos-arm
+Components: main
+Description: xiaofei 的 Sileo 越狱源
+Date: Fri, 25 Sep 2026 13:40:50 +0000
+MD5Sum:
+ SHA1:
+ SHA256:
