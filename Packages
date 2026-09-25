@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.26
+Version: 1.0.27
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
-Installed-Size: 380
+Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.26_iphoneos-arm64.deb
-Size: 23110
-MD5sum: 31c225e2daaacf1a15e2ba785f6267ec
-SHA1: 280b6d67959c4136aaaf416d71ffeb8183d41639
-SHA256: 02415c78138a912d077c041623e5e7221a4d218065d86cebe60a34f06c01fa2e
+Filename: debs/com.xiaofei.notifybgvideo_1.0.27_iphoneos-arm64.deb
+Size: 21866
+MD5sum: c7566aaf20c3f4788457b93841ee35ee
+SHA1: 722f3aae6f486d34b549a2583fa277faf3a458bf
+SHA256: d1fd834da65a571acb92e87b1940c2b568b0da49efe0d892c56b163c45c7748e
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.26 - 修复视频被卡片多层背景遮挡：原来只找一个模糊层插视频，遇到多层背景叠在一起时视频仍被盖住。改为递归隐藏卡片内所有 UIVisualEffectView/blur/effect/backdrop/material/vibrancy 背景子视图，清掉卡片自身背景色，再把视频放到最底层。视频直接成为卡片背景，文字/icon 浮在最上层。layoutSubviews 时重复执行以防 iOS 重新显示背景
+Changelog: 1.0.27 - 清理 UI：去掉诊断模式开关和扫描锁屏视图树按钮；视频声音默认开启（用户未设置时直接出声）；在「选择素材」按钮下加一行「当前素材」实时显示当前播放的视频文件名
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
