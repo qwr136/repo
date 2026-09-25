@@ -45,6 +45,28 @@ static BOOL _lvBool(NSString *key) {
     return NO;
 }
 
+// 视频透明度：默认 0.5（视频淡一些，文字才看得清）
+static CGFloat _lvAlpha(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoAlpha"];
+        if ([v respondsToSelector:@selector(floatValue)]) {
+            CGFloat a = [v floatValue];
+            if (a > 0.05) { return MIN(a, 1.0); }
+        }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoAlpha"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(floatValue)]) {
+                CGFloat a = [val floatValue];
+                if (a > 0.05) { return MIN(a, 1.0); }
+            }
+        }
+    } @catch (NSException *e) {}
+    return 0.5;
+}
+
 static NSString *_lvString(NSString *key) {
     @try {
         id v = _lvPrefs()[key];
@@ -286,7 +308,11 @@ static void _lvAttach(UIView *v) {
 
         _lvInsertLayer(v, l);
         l.frame = v.bounds;
+        l.opacity = (float)_lvAlpha();   // 视频淡一点，文字才看得清
         [p play];
+        _lvLogOnce(NSStringFromClass(v.class),
+                   [NSString stringWithFormat:@"挂载尺寸 %.0fx%.0f 透明度 %.2f",
+                    v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"attach 异常: %@", e]);
     }
@@ -539,7 +565,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.21 加载完成 =====");
+        _lvLog(@"===== 1.0.22 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
