@@ -40,7 +40,7 @@ Maintainer: 小飞 <[email protected]>
 Installed-Size: 348
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: ./src/lockvideo/packages/com.xiaofei.notifybgvideo_1.0.12_iphoneos-arm64.deb
+Filename: ./debs/com.xiaofei.notifybgvideo_1.0.12_iphoneos-arm64.deb
 Size: 11350
 MD5sum: 43b89829525471c1274ab4568a585019
 SHA1: 11eacd6b17588e54732f10af755a21622d9e8480
