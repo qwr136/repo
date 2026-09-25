@@ -266,43 +266,44 @@ static BOOL _lvIsNotificationView(UIView *v) {
 
 #pragma mark - 挂载
 
-// 在卡片的子层里找到毛玻璃/模糊背景层（UIVisualEffectView 等），把视频插到它之上。
-// 这样视频替代卡片原本的灰色模糊底，文字/icon 依然浮在视频最上层，保持可读。
-static CALayer *_lvFindBlurLayer(CALayer *parent) {
-    for (CALayer *s in parent.sublayers) {
-        id d = s.delegate;
-        if ([d isKindOfClass:[UIView class]]) {
-            UIView *v = (UIView *)d;
-            NSString *cls = NSStringFromClass(v.class);
+// 递归隐藏卡片里所有模糊/背景子视图（UIVisualEffectView 等），让视频能直接当卡片背景，
+// 不再被任何灰色/模糊层挡在下面。文字/icon 等内容子视图不动。
+static void _lvHideBackgroundsRecursive(UIView *v) {
+    @try {
+        // 清掉卡片自身的背景色
+        if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
+            v.backgroundColor = [UIColor clearColor];
+        }
+        for (UIView *s in v.subviews) {
+            NSString *cls = NSStringFromClass(s.class);
             NSString *low = cls.lowercaseString;
-            if ([v isKindOfClass:[UIVisualEffectView class]] ||
-                [low containsString:@"blur"]   || [low containsString:@"effect"] ||
-                [low containsString:@"backdrop"] || [low containsString:@"material"] ||
-                [low containsString:@"vibrancy"]) {
-                return s;
+            BOOL isBlur = [s isKindOfClass:[UIVisualEffectView class]] ||
+                          [low containsString:@"blur"]   || [low containsString:@"effect"] ||
+                          [low containsString:@"backdrop"] || [low containsString:@"material"] ||
+                          [low containsString:@"vibrancy"] || [low containsString:@"backgroundview"];
+            if (isBlur && !s.hidden) {
+                s.hidden = YES;
+                _lvLogOnce(cls, @"隐藏卡片背景");
+            }
+            // 递归处理子视图（背景可能嵌套）
+            if (s.subviews.count > 0 && s.subviews.count < 20) {
+                _lvHideBackgroundsRecursive(s);
             }
         }
-    }
-    return nil;
+    } @catch (NSException *e) {}
 }
 
+// 视频插到卡片最底层（index 0）——卡片自己的背景层已隐藏，所以视频直接可见，
+// 文字/icon 等内容子视图（位于更高 index）自然浮在视频之上。
 static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
-    CALayer *blur = _lvFindBlurLayer(v.layer);
     if (l.superlayer == v.layer) {
-        // 已经在本视图层里——确保位于 blur 之上（视频替代灰底）
-        if (blur) {
-            [v.layer insertSublayer:l above:blur];
-        } else if (v.layer.sublayers.firstObject != l) {
+        if (v.layer.sublayers.firstObject != l) {
             [l removeFromSuperlayer];
             [v.layer insertSublayer:l atIndex:0];
         }
         return;
     }
-    if (blur) {
-        [v.layer insertSublayer:l above:blur];
-    } else {
-        [v.layer insertSublayer:l atIndex:0];
-    }
+    [v.layer insertSublayer:l atIndex:0];
 }
 
 static void _lvAttach(UIView *v) {
@@ -337,6 +338,8 @@ static void _lvAttach(UIView *v) {
         }
         if (l.player != p) { l.player = p; }   // 素材切换后更新引用
 
+        // 先把卡片里所有模糊/背景子视图隐藏掉，避免视频被灰底盖住
+        _lvHideBackgroundsRecursive(v);
         _lvInsertLayer(v, l);
         l.frame = v.bounds;
         l.opacity = (float)_lvAlpha();   // 视频淡一点，文字才看得清
@@ -372,6 +375,7 @@ static void _lvOnMatch(UIView *v) {
         UIView *v = (UIView *)self;
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         if (l) {
+            _lvHideBackgroundsRecursive(v);   // 重新隐藏背景
             _lvInsertLayer(v, l);
             l.frame = v.bounds;
             if (v.window && gPlayer) { [gPlayer play]; }
@@ -402,6 +406,8 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
         if (_lvIsNotificationView(self)) {
             AVPlayerLayer *l = objc_getAssociatedObject(self, &kLayerKey);
             if (l) {
+                _lvHideBackgroundsRecursive(self);   // 每次布局都重新隐藏背景
+                _lvInsertLayer(self, l);
                 l.frame = self.bounds;
                 if (self.window && gPlayer) { [gPlayer play]; }
             }
@@ -596,7 +602,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.25 加载完成 =====");
+        _lvLog(@"===== 1.0.26 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
