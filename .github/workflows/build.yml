@@ -39,13 +39,14 @@ jobs:
 
       - name: Verify binaries
         run: |
+          cd "$GITHUB_WORKSPACE/src/lockvideo"
           BIN=$(find .theos -path "*LockVideoPrefs.bundle/LockVideoPrefs" | head -1)
           DYLIB=$(find .theos -name "LockVideo.dylib" | head -1)
           echo "== prefs =="
           file "$BIN"
+          lipo -info "$BIN"
           echo "== dylib =="
           file "$DYLIB"
-          lipo -info "$BIN"
           lipo -info "$DYLIB"
 
       - name: Publish to repo (deb + Packages 索引)
@@ -53,8 +54,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           # 清掉本包旧 deb，放入新 deb
           rm -f debs/com.xiaofei.notifybgvideo_*.deb
-          cp src/lockvideo/packages/*.deb debs/
-          # 重新生成 Packages 索引
+          cp src/lockvideo/packages/*.deb debs/          # 重新生成 Packages 索引
           dpkg-scanpackages --multiversion . /dev/null > Packages
           gzip -k -f Packages
           xz -k -f Packages
