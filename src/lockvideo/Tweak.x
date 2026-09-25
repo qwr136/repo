@@ -254,7 +254,7 @@ static void _lvResetPlayer(void) {
 
 #pragma mark - 桌面视频 / 锁屏背景播放器
 
-static AVPlayer *_lvMakePlayer(NSString *path, id *outObserver) {
+static AVPlayer *_lvMakePlayer(NSString *path, id __strong *outObserver) {
     @try {
         AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
         if (!item) { return nil; }
