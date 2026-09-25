@@ -6,7 +6,16 @@ Codename: xiaofei
 Architectures: iphoneos-arm64 iphoneos-arm64e iphoneos-arm
 Components: main
 Description: xiaofei 的 Sileo 越狱源
-Date: Fri, 25 Sep 2026 13:40:50 +0000
+Date: Fri, 25 Sep 2026 13:59:00 +0000
 MD5Sum:
- SHA1:
- SHA256:
+ 374aa422a6863e07b293dc2b1a13c62d   1328 Packages
+ be9df7f270ea8ee815e4dbc6e296bd43    668 Packages.gz
+ 655d660e306cee68e194d11dae675412    708 Packages.xz
+SHA1:
+ e57faf69a026f8abcf52584e73e7a561da331fe1   1328 Packages
+ e4a18f068ceb45fb94f267a30df8d09ba289bbc4    668 Packages.gz
+ b873d89cd138d629946ae1d642497077ff2c4859    708 Packages.xz
+SHA256:
+ e1b62cb805ce6e4df02523f1226fb4f9621b0512b0396b433fc2f2e8bfbc056a   1328 Packages
+ 212f662f3adac63f725ab8161e8bac2a48847d23876a323cab879a4577d01034    668 Packages.gz
+ 8245ca523b86f6659a34ac439b9ded842c8177f71c1dffdf127fbbc4d1e82c47    708 Packages.xz
