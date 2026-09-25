@@ -252,10 +252,16 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if (!cls) { return NO; }
         NSString *low = cls.lowercaseString;
         if (![low containsString:@"notification"]) { return NO; }
-        return [low containsString:@"cell"]    || [low containsString:@"list"]       ||
-               [low containsString:@"background"] || [low containsString:@"banner"]  ||
-               [low containsString:@"stack"]   || [low containsString:@"controller"] ||
-               [low containsString:@"content"] || [low containsString:@"view"];
+        // 排除整张列表/容器/遮罩/标题——这些的 bounds 是全屏或很大，挂上去会把视频铺满整个锁屏
+        if ([low containsString:@"stackdimming"]) { return NO; }
+        if ([low containsString:@"header"])       { return NO; }
+        if ([low containsString:@"listview"])     { return NO; }
+        if ([low containsString:@"sectionlist"])  { return NO; }
+        if ([low containsString:@"shortlook"])    { return NO; }   // 内部内容视图，避免双层
+        // 只允许真正的卡片本体
+        return [low containsString:@"listcell"] ||
+               [low containsString:@"banner"]   ||
+               ([low containsString:@"cell"] && [low containsString:@"notification"]);
     } @catch (NSException *e) { return NO; }
 }
 
@@ -565,7 +571,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.22 加载完成 =====");
+        _lvLog(@"===== 1.0.23 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
