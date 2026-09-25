@@ -4,7 +4,7 @@ Architecture: iphoneos-arm64
 Maintainer: Simon
 Installed-Size: 356
 Depends: mobilesubstrate
-Filename: debs/com.wkk.ccglow_2.0.2_iphoneos-arm64.deb
+Filename: ./debs/com.wkk.ccglow_2.0.2_iphoneos-arm64.deb
 Size: 25136
 MD5sum: 7e1d640139fb8b438c96319c02262b7a
 SHA1: 429b2ca2629b50a03158276fb79689d0b096899e
@@ -22,7 +22,7 @@ Maintainer: Simon
 Installed-Size: 356
 Pre-Depends: rootless-compat(>= 0.9)
 Depends: mobilesubstrate
-Filename: debs/com.wkk.ccglow_2.0.2_iphoneos-arm64e.deb
+Filename: ./debs/com.wkk.ccglow_2.0.2_iphoneos-arm64e.deb
 Size: 30710
 MD5sum: c65bbc99d2dc7a142b7d754f20379893
 SHA1: 7d3391bb61a7a6fd1e5d59351c8136724aea7533
@@ -33,24 +33,27 @@ Author: Simon
 Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
 Name: 控制中心发光
 
-Package: com.xiaofei.lockvideo
-Version: 1.0.2
+Package: com.xiaofei.notifybgvideo
+Version: 1.0.3
 Architecture: iphoneos-arm64
-Maintainer: qwr136 <[email protected]>
-Installed-Size: 244
+Maintainer: 小飞 <[email protected]>
+Installed-Size: 148
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.lockvideo_1.0.2_iphoneos-arm64.deb
-Size: 7574
-MD5sum: 6ca2cc9711284c0f553827ea169222e6
-SHA1: 7e405508d1e9edfc36344df0de147acdaa48a50a
-SHA256: 5238f91b31a0300f843143f6b58c2847018664af153c358547c74191ae1c43c6
+Filename: ./debs/com.xiaofei.notifybgvideo_1.0.3_iphoneos-arm64.deb
+Size: 7642
+MD5sum: b4e19a2739ed10633949f11559b28cff
+SHA1: d9cdc8b54df2e5e90111baa79b8546b7b8e302a4
+SHA256: c01fa1d3c493a79d3afd6b7e0fbaa5ed9f40191a2a5cfdb21558d3daae9936d3
 Section: Tweaks (rootless)
-Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频
-Author: qwr136
-Changelog: 1.0.2 - 补齐 Info.plist 字段(NSPrincipalClass + APPL)、Root.plist 加 detail、Tweak %ctor 主动注册 prefs bundle；1.0.1 - 修复偏好设置面板：扁平 bundle 结构 + iOS 设置 App 可识别；1.0.0 - 首版
+Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
+Author: 小飞
+Changelog: 1.0.3 - 彻底修复设置面板（Info.plist 改为 binary plist、补齐 iOS 必备字段、改包名 com.xiaofei.notifybgvideo、改作者为小飞、加 Respring 启动入口）；1.0.2 - 补齐 Info.plist 字段；1.0.1 - 扁平化 bundle；1.0.0 - 首版
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
-Name: LockVideo
+Name: 通知背景视频
 Sileodepiction: https://qwr136.github.io/repo/
 
+dpkg-scanpackages: warning: Packages in archive but missing from override file:
+dpkg-scanpackages: warning:   com.wkk.ccglow com.xiaofei.notifybgvideo
+dpkg-scanpackages: info: Wrote 3 entries to output Packages file.
