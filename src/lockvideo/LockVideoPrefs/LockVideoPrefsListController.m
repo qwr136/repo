@@ -16,7 +16,7 @@
     return _specifiers;
 }
 
-// 扫描 /var/mobile/通知视频 里的视频，循环切换到下一个
+// 弹出选择界面：列出 /var/mobile/通知视频 里所有视频，点选播放
 - (void)switchMaterial:(id)sender {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSMutableArray *files = [NSMutableArray array];
@@ -39,27 +39,41 @@
         return;
     }
 
-    // 读取当前路径，循环切到下一个
+    // 当前选中的素材
     NSMutableDictionary *prefs = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
                                   mutableCopy] ?: [NSMutableDictionary dictionary];
     NSString *cur = prefs[@"LockVideoPath"];
-    NSUInteger idx = cur ? [files indexOfObject:cur] : NSNotFound;
-    NSString *next = files[(idx == NSNotFound) ? 0 : (idx + 1) % files.count];
 
-    prefs[@"LockVideoPath"] = next;
-    [prefs writeToFile:kLVPrefsFile atomically:YES];
+    // 选择界面：每个视频一个选项，当前选中的打勾
+    UIAlertController *sheet = [UIAlertController
+        alertControllerWithTitle:[NSString stringWithFormat:@"选择素材（%lu 个）", (unsigned long)files.count]
+        message:nil
+        preferredStyle:UIAlertControllerStyleActionSheet];
 
-    // 通知 SpringBoard 重建播放器
-    CFNotificationCenterPostNotification(
-        CFNotificationCenterGetDarwinNotifyCenter(),
-        CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
+    for (NSString *f in files) {
+        NSString *name = [f lastPathComponent];
+        NSString *title = [f isEqualToString:cur] ? [@"✓ " stringByAppendingString:name] : name;
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
+                                      mutableCopy] ?: [NSMutableDictionary dictionary];
+            p[@"LockVideoPath"] = f;
+            [p writeToFile:kLVPrefsFile atomically:YES];
 
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"已切换素材"
-        message:[NSString stringWithFormat:@"当前播放：\n%@", [next lastPathComponent]]
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+            // 通知 SpringBoard 立即切换
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
+
+            UIAlertController *ok = [UIAlertController
+                alertControllerWithTitle:@"已选择"
+                message:[NSString stringWithFormat:@"当前播放：\n%@", name]
+                preferredStyle:UIAlertControllerStyleAlert];
+            [ok addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:ok animated:YES completion:nil];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)respring:(id)sender {

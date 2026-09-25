@@ -126,8 +126,9 @@ static void _lvAttachTo(UIView *view) {
             gLayer.frame = view.bounds;
             if (gLayer.superlayer != view.layer) {
                 [gLayer removeFromSuperlayer];
-                // 插到最底层：盖住壁纸，但不挡时间/通知等控件
-                [view.layer insertSublayer:gLayer atIndex:0];
+                // 加到该视图层最上层：壁纸视图内容只有壁纸本身，盖住它正好；
+                // 时间/通知等控件是兄弟视图层级更高，不会被挡
+                [view.layer addSublayer:gLayer];
             }
             [gPlayer play];
         } @catch (NSException *e) {
