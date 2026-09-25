@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.17
+Version: 1.0.18
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 348
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.17_iphoneos-arm64.deb
-Size: 16878
-MD5sum: 809ed98088041cefa28a339112a9db49
-SHA1: 4c245ba05c7448d43169890733b79daf2543352e
-SHA256: 6a47e23f71962a75e62fd815baaf929533611490e2ef7fa3e7539eb9d8eee118
+Filename: debs/com.xiaofei.notifybgvideo_1.0.18_iphoneos-arm64.deb
+Size: 19256
+MD5sum: dea5940490291dcce0f5ed29f8d4ca58
+SHA1: e300d2b39c0cb8ac80f38c459b8108e62fa0174d
+SHA256: a51c4a087f16bc63026ec5579ab9b03a6875abeaf2c69bfdf7a2e03e20288261
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.17 - 锁屏通知生效修复：显式 hook iOS16 通知卡片内容视图 NCNotificationContentView；视频层优先插在毛玻璃背景之上；新增「诊断模式」开关：打开后通知卡片出现半透明绿色层并在 /var/mobile/通知视频/Hook日志.txt 记录命中的类名，方便定位问题
+Changelog: 1.0.18 - 加强排查能力：启动时记录开关状态/视频路径；命中通知视图必记录类名；新增「扫描锁屏视图树」按钮，点一下后 90 秒内每 2 秒把锁屏窗口层级导出到 /var/mobile/通知视频/视图树.txt，用定位 iOS16 锁屏通知真实类名
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
