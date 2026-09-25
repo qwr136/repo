@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.23
+Version: 1.0.24
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 380
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.23_iphoneos-arm64.deb
-Size: 22274
-MD5sum: df4c9d5f37488106075414814fbc5d65
-SHA1: d7bc1a2629543f854b44ff7a6546aceabdd34f52
-SHA256: 67e23333da156779e1d3a6ef5c6f469b36e13738ee73904a6ea459f115a4bdaf
+Filename: debs/com.xiaofei.notifybgvideo_1.0.24_iphoneos-arm64.deb
+Size: 22362
+MD5sum: 5f2c78126a92370418f7a7c8d076f2aa
+SHA1: 1561f06be037c2a9436bf1ef69caddced2c2c406
+SHA256: f4405503df93da4861c5351770069137fca31700004bb345d4d3ea234f0fa335
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.23 - 修复视频铺满全屏：根因是全局 UIView hook 命中了 NCNotificationListView（整个列表容器，bounds=全屏），导致视频挂在整个锁屏。改为和轮询扫描同样的严格匹配，排除 listview/sectionlist/stackdimming/header/shortlook，只挂真正的通知卡片 cell
+Changelog: 1.0.24 - 统一挂载目标为 NCNotificationShortLookView（用户实际看到的圆角卡片本体）：显式 hook、全局 UIView hook、轮询扫描三处匹配规则全部收紧，只挂 shortlook/banner，排除 listview/listcell/sectionlist/header/stackdimming/content，彻底解决视频铺满全屏或藏在卡片背后看不见的问题
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
