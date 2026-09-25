@@ -8,14 +8,11 @@
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
-#define kLVDumpFile  @"/var/mobile/通知视频/视图树.txt"
-#define kLVDumpNotify CFSTR("com.xiaofei.notifybgvideo/DumpHierarchy")
 
 static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
-static char kFallbackKey;
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
@@ -83,8 +80,22 @@ static NSString *_lvString(NSString *key) {
 }
 
 static BOOL _lvEnabled(void) { return _lvBool(@"LockVideoEnabled"); }
-static BOOL _lvSound(void)   { return _lvBool(@"LockVideoSound"); }   // 默认静音
-static BOOL _lvDebug(void)   { return _lvBool(@"LockVideoDebug"); }   // 诊断模式
+
+// 视频声音默认开启（用户没设过时直接出声）；用户显式设为 NO 时尊重选择。
+static BOOL _lvSound(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoSound"];
+        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoSound"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(boolValue)]) { return [val boolValue]; }
+        }
+    } @catch (NSException *e) {}
+    return YES;   // 默认出声
+}
 
 static NSArray<NSString *> *_lvScanFiles(void) {
     @try {
@@ -132,63 +143,6 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
         if ([gLoggedClasses containsObject:key]) { return; }
         [gLoggedClasses addObject:key];
         _lvLog([NSString stringWithFormat:@"%@ -> %@", cls, action]);
-    } @catch (NSException *e) {}
-}
-
-#pragma mark - 锁屏视图树扫描（排查用：把整个窗口层级导出到文件）
-
-static NSTimer *gDumpTimer = nil;
-static int gDumpTicks = 0;
-
-static void _lvDumpView(UIView *v, int depth, NSMutableString *s, int *lines) {
-    if (!v || depth > 14 || *lines > 4000) { return; }
-    @try {
-        NSString *cls = NSStringFromClass([v class]);
-        NSString *mark = ([cls.lowercaseString containsString:@"notification"] ||
-                          [cls.lowercaseString containsString:@"notif"]) ? @" <<< 通知相关" : @"";
-        CGRect f = v.frame;
-        [s appendFormat:@"%@%@ (%.0f,%.0f %.0fx%.0f)%@\n",
-            [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
-            cls, f.origin.x, f.origin.y, f.size.width, f.size.height, mark];
-        (*lines)++;
-        for (UIView *c in v.subviews) { _lvDumpView(c, depth + 1, s, lines); }
-    } @catch (NSException *e) {}
-}
-
-static void _lvDumpOnce(void) {
-    @try {
-        if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
-        NSMutableString *s = [NSMutableString string];
-        [s appendFormat:@"== 第 %d 次扫描 ==\n", gDumpTicks];
-        int lines = 0;
-        id app = [UIApplication sharedApplication];
-        NSArray *wins = nil;
-        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
-        for (UIWindow *w in wins) {
-            [s appendFormat:@"\n[WINDOW] %@\n", NSStringFromClass([w class])];
-            _lvDumpView(w, 0, s, &lines);
-        }
-        if (wins.count == 0) { [s appendString:@"(取不到 windows)\n"]; }
-        [s writeToFile:kLVDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    } @catch (NSException *e) {}
-}
-
-static void _lvStartDump(void) {
-    @try {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (gDumpTimer) { [gDumpTimer invalidate]; gDumpTimer = nil; }
-            gDumpTicks = 0;
-            _lvLog(@"开始扫描视图树（90 秒）");
-            gDumpTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
-                gDumpTicks++;
-                _lvDumpOnce();
-                if (gDumpTicks >= 45) {
-                    [t invalidate];
-                    gDumpTimer = nil;
-                    _lvLog(@"扫描结束，请查看 视图树.txt");
-                }
-            }];
-        });
     } @catch (NSException *e) {}
 }
 
@@ -312,18 +266,8 @@ static void _lvAttach(UIView *v) {
         AVPlayer *p = _lvPlayer();
 
         if (!p) {
-            // 找不到视频：诊断模式下盖绿色层，证明 tweak 已经命中通知卡片
-            if (_lvDebug()) {
-                CALayer *f = objc_getAssociatedObject(v, &kFallbackKey);
-                if (!f) {
-                    f = [CALayer layer];
-                    f.backgroundColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.0 alpha:0.45].CGColor;
-                    objc_setAssociatedObject(v, &kFallbackKey, f, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                    [v.layer addSublayer:f];
-                    _lvLogOnce(NSStringFromClass(v.class), @"绿色诊断层(没找到视频文件)");
-                }
-                f.frame = v.bounds;
-            }
+            // 找不到视频文件：直接记一行日志退出，不再做绿色诊断层
+            _lvLogOnce(NSStringFromClass(v.class), @"没找到视频文件（请检查 /var/mobile/通知视频 目录与素材路径）");
             return;
         }
 
@@ -379,10 +323,6 @@ static void _lvOnMatch(UIView *v) {
             _lvInsertLayer(v, l);
             l.frame = v.bounds;
             if (v.window && gPlayer) { [gPlayer play]; }
-        }
-        if (_lvDebug()) {
-            CALayer *f = objc_getAssociatedObject(v, &kFallbackKey);
-            if (f) { f.frame = v.bounds; }
         }
     } @catch (NSException *e) {}
 }
@@ -454,22 +394,12 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         } else if (gPlayer) {
             gPlayer.muted = !_lvSound();   // 只改了声音 -> 即时生效
         }
-        if (_lvDebug()) { gLoggedClasses = nil; }   // 重新记日志
     } @catch (NSException *e) {}
-}
-
-static void _lvDumpNotifyCallback(CFNotificationCenterRef center,
-                                  void *observer,
-                                  CFStringRef name,
-                                  const void *object,
-                                  CFDictionaryRef userInfo) {
-    @try { _lvStartDump(); } @catch (NSException *e) {}
 }
 
 #pragma mark - 轮询扫描（不依赖任何 hook 传播：直接遍历锁屏视图树找通知卡片）
 
 static NSTimer *gPollTimer = nil;
-static CFTimeInterval gLastDump = 0;
 
 // 只挂用户实际看到的圆角卡片本体（NCNotificationShortLookView / 横幅），
 // 排除列表容器、遮罩、标题、外层 cell——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后
@@ -517,14 +447,8 @@ static void _lvPollTick(void) {
             if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
                 ![c containsString:@"Banner"]) { continue; }
             if (w.hidden || w.alpha <= 0.01) { continue; }
-            BOOL found = NO;
-            _lvScanAndAttach(w, &found);
             if (found) {
-                CFTimeInterval now = CACurrentMediaTime();
-                if (now - gLastDump > 10.0) {      // 最多每 10 秒导出一次
-                    gLastDump = now;
-                    _lvDumpOnce();
-                }
+                _lvScanAndAttach(w, &found);
             }
         }
     } @catch (NSException *e) {}
@@ -579,21 +503,15 @@ static void _lvPollTick(void) {
                                         kLVNotify,
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
-                                        NULL,
-                                        _lvDumpNotifyCallback,
-                                        kLVDumpNotify,
-                                        NULL,
-                                        CFNotificationSuspensionBehaviorDeliverImmediately);
 
-        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 诊断=%d 视频=%@ 目录存在=%d",
-                _lvEnabled(), _lvSound(), _lvDebug(), _lvPath() ?: @"(无)",
+        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 视频=%@ 目录存在=%d",
+                _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
         {
             NSMutableString *s = [NSMutableString string];
             for (NSString *suite in _lvSuites()) {
-                for (NSString *k in @[@"LockVideoEnabled", @"LockVideoSound", @"LockVideoDebug"]) {
+                for (NSString *k in @[@"LockVideoEnabled", @"LockVideoSound"]) {
                     CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
                     CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)k, (__bridge CFStringRef)suite);
                     id val = cf ? CFBridgingRelease(cf) : nil;
@@ -602,7 +520,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.26 加载完成 =====");
+        _lvLog(@"===== 1.0.27 加载完成 =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

@@ -16,6 +16,45 @@
     return _specifiers;
 }
 
+// 从 prefs 读出当前播放的视频文件名（用于「当前素材」那一行）
+- (NSString *)_currentVideoName {
+    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
+    NSString *path = prefs[@"LockVideoPath"];
+    if ([path isKindOfClass:[NSString class]] && path.length) {
+        return [path lastPathComponent];
+    }
+    // 没显式选过就用目录里第一个视频作为兜底
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *files = [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil];
+    for (NSString *f in files) {
+        NSString *ext = [f pathExtension].lowercaseString;
+        if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
+            [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"]) {
+            return f;
+        }
+    }
+    return @"(未选择)";
+}
+
+// 让 PSStaticTextCell 显示最新素材名
+- (void)_refreshCurrentMaterialRow {
+    @try {
+        UISpecifier *target = nil;
+        for (UISpecifier *sp in [self specifiers]) {
+            if ([sp.identifier isEqualToString:@"LockVideoCurrentPath"]) { target = sp; break; }
+        }
+        if (target) {
+            [target setProperty:[self _currentVideoName] forKey:@"value"];
+            [self reloadSpecifier:target];
+        }
+    } @catch (NSException *e) {}
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self _refreshCurrentMaterialRow];
+}
+
 // 弹出选择界面：列出 /var/mobile/通知视频 里所有视频，点选播放
 - (void)switchMaterial:(id)sender {
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -64,30 +103,12 @@
                 CFNotificationCenterGetDarwinNotifyCenter(),
                 CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
 
-            UIAlertController *ok = [UIAlertController
-                alertControllerWithTitle:@"已选择"
-                message:[NSString stringWithFormat:@"当前播放：\n%@", name]
-                preferredStyle:UIAlertControllerStyleAlert];
-            [ok addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-            [self presentViewController:ok animated:YES completion:nil];
+            // 立刻刷新设置面板的「当前素材」那一行
+            [self _refreshCurrentMaterialRow];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
-}
-
-// 让 SpringBoard 开始扫描并导出锁屏视图树（排查用）
-- (void)dumpHierarchy:(id)sender {
-    CFNotificationCenterPostNotification(
-        CFNotificationCenterGetDarwinNotifyCenter(),
-        CFSTR("com.xiaofei.notifybgvideo/DumpHierarchy"), NULL, NULL, YES);
-
-    UIAlertController *ok = [UIAlertController
-        alertControllerWithTitle:@"开始扫描"
-        message:@"90 秒内：\n1) 锁屏\n2) 让手机收到一条通知（用另一台设备发消息/微信都行）\n3) 等 1 分钟后解锁\n然后用 Filza 打开 /var/mobile/通知视频/视图树.txt 发给我"
-        preferredStyle:UIAlertControllerStyleAlert];
-    [ok addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:ok animated:YES completion:nil];
 }
 
 - (void)respring:(id)sender {
