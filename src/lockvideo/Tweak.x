@@ -13,7 +13,7 @@
 
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
 static NSMutableSet<AVPlayer *> *gAllPlayers = nil;     // 每个挂载视图独立播放器，避免同素材多视图共用卡住
-static NSMutableDictionary<AVPlayer *, id> *gObserverMap = nil;
+static NSMapTable *gObserverMap = nil;   // player -> loop observer（AVPlayer 不遵循 NSCopying，不能用 NSDictionary 当 key）
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
@@ -37,6 +37,8 @@ static void _lvLog(NSString *line);
 static void _lvLogOnce(NSString *cls, NSString *action);
 static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v);
 static NSString *_lvButtonTitle(UIView *btn);
+static BOOL _lvViewEffectivelyVisible(UIView *v);
+static BOOL _lvIsActivityHost(UIView *v);
 
 static NSArray<NSString *> *_lvSuites(void) {
     return @[@"com.xiaofei.notifybgvideo", @"com.xiaofei.notifybgvideo.prefs"];
@@ -456,7 +458,7 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
         player.muted = !_lvSound();
         _lvAllowAutoLockForPlayer(player);
         if (!gAllPlayers) { gAllPlayers = [NSMutableSet set]; }
-        if (!gObserverMap) { gObserverMap = [NSMutableDictionary dictionary]; }
+        if (!gObserverMap) { gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory]; }
         [gAllPlayers addObject:player];
 
             __weak AVPlayer *wp = player;
@@ -474,7 +476,7 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
                         completionHandler:^(BOOL d) { [p play]; }];
                 } @catch (NSException *e) {}
             }];
-            gObserverMap[player] = observer;
+            [gObserverMap setObject:observer forKey:player];
             _lvLog([NSString stringWithFormat:@"播放器创建: %@ 声音=%d", path, _lvSound()]);
         return player;
     } @catch (NSException *e) {
@@ -486,7 +488,7 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
 static void _lvDetachPlayer(AVPlayer *player) {
     if (!player) { return; }
     @try {
-        id observer = gObserverMap[player];
+        id observer = [gObserverMap objectForKey:player];
         if (observer) {
             [[NSNotificationCenter defaultCenter] removeObserver:observer];
             [gObserverMap removeObjectForKey:player];
@@ -1915,7 +1917,7 @@ static void _lvPollTick(void) {
         });
 
         gAllPlayers = [NSMutableSet set];
-        gObserverMap = [NSMutableDictionary dictionary];
+        gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];
         if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
 
         // 不再在 ctor 里预创建播放器：每个挂载视图独立一个 AVPlayer，等视图出现时再按需创建，避免同素材多播放器冲突
