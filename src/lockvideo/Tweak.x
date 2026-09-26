@@ -8,7 +8,21 @@
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
 #define kLVVideoDir  @"/var/mobile/通知视频"
-#define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
+#define kLVLogFile   @"/var/mobile/通知视频/插件日志.txt"   // 全方位问题诊断日志（需手动开启）
+#define kLVFlushLog  CFSTR("com.xiaofei.notifybgvideo/FlushLog")
+#define kLVVersion   @"1.0.84"
+
+// 问题日志的分类名（声音 / 卡顿 / 失效 是重点，其余按要求全量收集）
+#define kLVCatSound    @"声音"
+#define kLVCatPerf     @"卡顿"
+#define kLVCatFail     @"失效"
+#define kLVCatMount    @"挂载"
+#define kLVCatPlayer   @"播放"
+#define kLVCatAsset    @"素材"
+#define kLVCatActivity @"活动"
+#define kLVCatPrefs    @"偏好"
+#define kLVCatExcept   @"异常"
+
 #define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
 // 实时活动 / Now Playing 的类型判定结果
@@ -24,6 +38,7 @@ typedef NS_ENUM(NSInteger, LVActivityKind) {
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
 static NSMutableSet<AVPlayer *> *gAllPlayers = nil;     // 当前所有存活的 AVPlayer（含共享），用于统一暂停/声音同步/可见性播放
 static NSMapTable *gObserverMap = nil;   // player -> loop observer（AVPlayer 不遵循 NSCopying，不能用 NSDictionary 当 key）
+static NSMapTable *gAuxObserverMap = nil; // player -> @[observer]：问题诊断用的听播通知（失败/卡顿/错误日志）
 static NSMutableDictionary<NSString *, AVPlayer *> *gPlayerByPath = nil;  // 路径 -> 共享播放器：同一段视频只解码一次，多视图 AVPlayerLayer 共用
 static NSMutableDictionary<NSValue *, NSNumber *> *gRefCount = nil;       // 播放器指针(NSValue) -> 引用计数：视图挂载+1、卸载-1，归零才真正销毁
 static char kLayerKey;
@@ -54,10 +69,22 @@ static NSHashTable<UIView *> *_lvAttachedTable(void) {
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 static NSSet<NSString *> *gLastActivePaths = nil;    // 上一次激活的素材路径集合，变化时重置全部播放器
 
+// —— 偏好读取缓存：解析 plist 是磁盘 IO，而透明度/圆角这类函数会在 layoutSubviews 里被逐帧调用。
+// 旧版每次都重新读文件并解析全文，下拉动画期间等于每帧几十次磁盘 IO —— 这是掉帧的隐性来源。
+// 缓存 0.5 秒 + 按文件修改时间判断是否需要真重读，既保证开关即时生效，又免掉绝大多数 IO。
+static NSDictionary *gPrefsCache = nil;
+static NSTimeInterval gPrefsLastCheck = 0;
+static NSTimeInterval gPrefsMTime = -1;
+
 #pragma mark - 偏好（直接读文件）
 
 static void _lvLog(NSString *line);
 static void _lvLogOnce(NSString *cls, NSString *action);
+static void _lvNote(NSString *cat, NSString *fmt, ...);       // 常规流程（仅在「详细日志」开启时写入）
+static void _lvIssue(NSString *cat, NSString *fmt, ...);      // 疑似问题 / 已自动兜底
+static void _lvFail(NSString *cat, NSString *fmt, ...);       // 明确失败
+static void _lvExcept(const char *fn, NSException *e);        // 未捕获异常的抓取
+static BOOL _lvLogging(void);
 static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v);
 static NSString *_lvButtonTitle(UIView *btn);
 static BOOL _lvViewEffectivelyVisible(UIView *v);
@@ -75,13 +102,36 @@ static NSArray<NSString *> *_lvSuites(void) {
 }
 
 static NSDictionary *_lvPrefs(void) {
-    return [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile] ?: @{};
+    @try {
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        if (gPrefsCache && (now - gPrefsLastCheck) < 0.5) { return gPrefsCache; }
+        gPrefsLastCheck = now;
+        NSDictionary *attr = [[NSFileManager defaultManager] attributesOfItemAtPath:kLVPrefsFile error:nil];
+        NSDate *mDate = attr ? [attr objectForKey:NSFileModificationDate] : nil;
+        NSTimeInterval mt = mDate ? [mDate timeIntervalSince1970] : 0;
+        if (gPrefsCache && mt == gPrefsMTime) { return gPrefsCache; }   // 文件没动过，直接复用上次解析结果
+        NSDictionary *fresh = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile] ?: @{};
+        gPrefsCache = fresh;
+        gPrefsMTime = mt;
+        return fresh;
+    } @catch (NSException *e) { _lvExcept(__func__, e); }
+    return gPrefsCache ?: @{};
 }
 
+// 设置变更：立刻丢弃缓存，保证下一次读取拿到新值
+static void _lvPrefsInvalidate(void) {
+    gPrefsCache = nil;
+    gPrefsMTime = -1;
+    gPrefsLastCheck = 0;
+}
+
+// 注意：key 在 plist 里存在时直接返回，绝不再去查 CF 偏好。
+// 旧写法只在读到「YES」时才提前返回，开关为关闭时会每帧遍历两个 suite 做
+// CFPreferencesAppSynchronize（强制刷盘），layoutSubviews 里等于每帧几十次磁盘同步。
 static BOOL _lvBool(NSString *key) {
     @try {
         id v = _lvPrefs()[key];
-        if ([v respondsToSelector:@selector(boolValue)] && [v boolValue]) { return YES; }
+        if (v) { return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : NO; }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
             CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)suite);
@@ -89,14 +139,14 @@ static BOOL _lvBool(NSString *key) {
             id val = CFBridgingRelease(cf);
             if ([val respondsToSelector:@selector(boolValue)] && [val boolValue]) { return YES; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
 static BOOL _lvAlphaEnabled(void) {
     @try {
         id v = _lvPrefs()[@"LockVideoAlphaEnabled"];
-        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        if (v) { return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : YES; }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
             CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoAlphaEnabled"), (__bridge CFStringRef)suite);
@@ -104,7 +154,7 @@ static BOOL _lvAlphaEnabled(void) {
             id val = CFBridgingRelease(cf);
             if ([val respondsToSelector:@selector(boolValue)]) { return [val boolValue]; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return YES;
 }
 
@@ -112,9 +162,12 @@ static CGFloat _lvAlpha(void) {
     if (!_lvAlphaEnabled()) { return 1.0; }
     @try {
         id v = _lvPrefs()[@"LockVideoAlpha"];
-        if ([v respondsToSelector:@selector(floatValue)]) {
-            CGFloat a = [v floatValue];
-            if (a > 0.05) { return MIN(a, 1.0); }
+        if (v) {
+            if ([v respondsToSelector:@selector(floatValue)]) {
+                CGFloat a = [v floatValue];
+                if (a > 0.05) { return MIN(a, 1.0); }
+            }
+            return 0.5;
         }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
@@ -126,14 +179,14 @@ static CGFloat _lvAlpha(void) {
                 if (a > 0.05) { return MIN(a, 1.0); }
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return 0.5;
 }
 
 static BOOL _lvCornerEnabled(void) {
     @try {
         id v = _lvPrefs()[@"LockVideoCornerEnabled"];
-        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        if (v) { return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : YES; }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
             CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoCornerEnabled"), (__bridge CFStringRef)suite);
@@ -141,16 +194,19 @@ static BOOL _lvCornerEnabled(void) {
             id val = CFBridgingRelease(cf);
             if ([val respondsToSelector:@selector(boolValue)]) { return [val boolValue]; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return YES;
 }
 
 static CGFloat _lvCornerRadius(void) {
     @try {
         id v = _lvPrefs()[@"LockVideoCornerRadius"];
-        if ([v respondsToSelector:@selector(floatValue)]) {
-            CGFloat r = [v floatValue];
-            if (r >= 0) { return MIN(r, 40.0); }
+        if (v) {
+            if ([v respondsToSelector:@selector(floatValue)]) {
+                CGFloat r = [v floatValue];
+                if (r >= 0) { return MIN(r, 40.0); }
+            }
+            return 18.0;
         }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
@@ -162,14 +218,14 @@ static CGFloat _lvCornerRadius(void) {
                 if (r >= 0) { return MIN(r, 40.0); }
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return 18.0;
 }
 
 static NSString *_lvString(NSString *key) {
     @try {
         id v = _lvPrefs()[key];
-        if ([v isKindOfClass:[NSString class]] && [v length]) { return v; }
+        if (v) { return ([v isKindOfClass:[NSString class]] && [v length]) ? v : nil; }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
             CFTypeRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)suite);
@@ -177,7 +233,7 @@ static NSString *_lvString(NSString *key) {
             id val = CFBridgingRelease(cf);
             if ([val isKindOfClass:[NSString class]] && [val length]) { return val; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -189,7 +245,7 @@ static BOOL _lvDebugOutline(void) { return _lvBool(@"LockVideoDebugOutline"); }
 static BOOL _lvSound(void) {
     @try {
         id v = _lvPrefs()[@"LockVideoSound"];
-        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        if (v) { return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : YES; }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
             CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoSound"), (__bridge CFStringRef)suite);
@@ -197,7 +253,7 @@ static BOOL _lvSound(void) {
             id val = CFBridgingRelease(cf);
             if ([val respondsToSelector:@selector(boolValue)]) { return [val boolValue]; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return YES;
 }
 
@@ -216,16 +272,20 @@ static NSArray<NSString *> *_lvScanFiles(void) {
             }
         }
         return [out sortedArrayUsingSelector:@selector(compare:)];
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return @[];
 }
 
 static NSString *_lvPathForKey(NSString *key) {
     @try {
         id v = _lvPrefs()[key];
-        if ([v isKindOfClass:[NSString class]] && [v length] &&
-            [[NSFileManager defaultManager] fileExistsAtPath:v]) {
-            return v;
+        if (v) {
+            if ([v isKindOfClass:[NSString class]] && [v length]) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:v]) { return v; }
+                // 典型的「失效」：设置里明明选过，但文件已经被删掉/改了名
+                _lvIssue(kLVCatAsset, @"选的素材文件不存在，%@ 暂时不生效：%@", key, v);
+            }
+            return nil;
         }
         for (NSString *suite in _lvSuites()) {
             CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
@@ -237,7 +297,7 @@ static NSString *_lvPathForKey(NSString *key) {
                 return val;
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -257,7 +317,8 @@ static NSString *_lvPath(void) {
             return files.firstObject;
         }
         _lvLogOnce(@"当前素材", @"未设置且素材目录为空 —— 卡片不会有背景，请在设置里「选择消息素材」");
-    } @catch (NSException *e) {}
+        _lvFail(kLVCatAsset, @"没有可用素材：既没设置主素材，%@ 目录里也找不到视频/图片", kLVVideoDir);
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -266,13 +327,325 @@ static NSString *_lvClearPath(void)  { return _lvPathForKey(@"LockVideoClearPath
 static NSString *_lvActivityPath(void){ return _lvPathForKey(@"LockVideoActivityPath"); }   // 实时活动独立素材
 static NSString *_lvPlayerPath(void){ return _lvPathForKey(@"LockVideoPlayerPath"); }      // 播放器 / Now Playing 独立素材
 
-#pragma mark - 诊断日志
+#pragma mark - 全方位问题收集日志（默认关闭，设置里打开才记录）
 
-// 本版本停用 Hook 日志（不再生成 /var/mobile/通知视频/Hook日志.txt）
-// 保留「视图结构.txt」诊断导出，函数体置空以避免改动全部调用点
-static void _lvLog(NSString *line) { (void)line; }
+// ─── 为什么要有这套日志 ─────────────────────────────────────────────
+// 反馈过来的问题基本就落在三类：
+//   声音 —— 不该响的响了 / 该响的没响 / 几个视图抢同一个播放器导致声音状态打架
+//   卡顿 —— 下拉掉帧，多半是某一帧里我们做了递归扫描或磁盘读写
+//   失效 —— 素材没挂上、播放器起不来、看着还是系统原样
+// 这套日志就是给这三类（以及其它一切异常）留证据。
+//
+// ─── 使用规则（很重要）─────────────────────────────────────────────
+//   1) 默认一个字都不写。只有在设置里打开「收集插件问题日志」才开始记录；
+//      不打开时除了两次布尔判断，插件行为和以前完全一样，没有额外开销。
+//   2) 全部磁盘写入在独立串行队列里做，主线程只负责把一行字丢进队列，绝不拖慢动画。
+//   3) 三级严重度：
+//        记录 —— 正常流程的关键节点（只有同时打开「详细日志」才写）
+//        疑似 —— 发现不对劲，但插件已经自动兜底了（素材回退、推迟挂载、被迫重挂…）
+//        失败 —— 明确没做成（文件没了、解码失败、播放器创建失败、该挂没挂上…）
+//   4) 相同内容 3 秒内只写一次，其余折算成「重复 N 次」，
+//      否则一次下拉通知就能刷出几千行，反而看不出问题在哪。
+//   5) 日志超过 2MB 自动把旧的归档成 插件日志.txt.old，不让日志撑爆磁盘。
+// ─────────────────────────────────────────────────────────────────
 
-static void _lvLogOnce(NSString *cls, NSString *action) { (void)cls; (void)action; }
+#define LVLOG_THROTTLE_SEC 3.0
+#define LVLOG_BUFFER_MAX   60
+#define LVLOG_ROTATE_BYTES (2ULL * 1024 * 1024)
+
+#include <time.h>
+#include <sys/time.h>
+
+static NSString *_lvLogTimeString(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    time_t sec = (time_t)tv.tv_sec;
+    struct tm tmBuf;
+    localtime_r(&sec, &tmBuf);
+    char buf[40];
+    strftime(buf, sizeof(buf), "%m-%d %H:%M:%S", &tmBuf);
+    int ms = (int)(tv.tv_usec / 1000);
+    return [NSString stringWithFormat:@"%s.%03d", buf, ms];
+}
+
+// 单调时钟：比 NSDate 便宜得多（不产生对象），可以在每帧都跑的代码里放心用
+static inline double _lvNowMs(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
+
+static NSString *_lvDesc(UIView *v) {
+    if (!v) { return @"(nil view)"; }
+    return [NSString stringWithFormat:@"%@ %.0fx%.0f",
+            NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height];
+}
+
+static dispatch_queue_t _lvLogQueue(void) {
+    static dispatch_queue_t q = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("com.xiaofei.notifybgvideo.log", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
+
+static NSMutableArray<NSString *> *gLogBuffer = nil;
+static NSMutableDictionary<NSString *, NSNumber *> *gLogLastAt = nil;
+static NSMutableDictionary<NSString *, NSNumber *> *gLogRepeat = nil;
+static BOOL gLogFlushScheduled = NO;
+static BOOL gLogHeaderDone = NO;
+static BOOL gLogReentrant = NO;   // 防止「读偏好出错 → 写日志 → 又读偏好」的无限递归
+
+static void _lvLogFlushLocked(void);   // 只允许在日志队列里调用
+
+static NSString *_lvLogHeaderText(void) {
+    NSString *dev = @"?";
+    NSString *sys = @"?";
+    @try {
+        UIDevice *d = [UIDevice currentDevice];
+        if (d) {
+            NSString *m = [d model];
+            NSString *v = [d systemVersion];
+            if (m.length) { dev = m; }
+            if (v.length) { sys = v; }
+        }
+    } @catch (NSException *e) { }
+    return [NSString stringWithFormat:
+            @"\n──────── 开始记录：%@ ────────\n"
+            @"插件版本 %@   设备 %@   系统 %@\n"
+            @"日志文件 %@\n"
+            @"格式：[时间] [分类/级别] 内容\n"
+            @"级别：记录=正常流程 / 疑似=发现异常但已兜底 / 失败=确实没做成\n"
+            @"重点分类：声音 / 卡顿 / 失效 / 播放 / 素材 / 活动 / 异常\n"
+            @"──────────────────────────────\n",
+            _lvLogTimeString(), kLVVersion, dev, sys, kLVLogFile];
+}
+
+static void _lvLogScheduleFlushLocked(void) {
+    if (gLogFlushScheduled) { return; }
+    gLogFlushScheduled = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), _lvLogQueue(), ^{
+        @try {
+            gLogFlushScheduled = NO;
+            _lvLogFlushLocked();
+        } @catch (NSException *e) { }
+    });
+}
+
+static void _lvLogFlushLocked(void) {
+    if (!gLogBuffer || gLogBuffer.count == 0) { return; }
+    NSArray<NSString *> *batch = [gLogBuffer copy];
+    [gLogBuffer removeAllObjects];
+    NSFileHandle *h = nil;
+    @try {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:kLVVideoDir isDirectory:&isDir]) {
+            [fm createDirectoryAtPath:kLVVideoDir withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+        NSString *path = kLVLogFile;
+        if (![fm fileExistsAtPath:path]) {
+            [_lvLogHeaderText() writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            gLogHeaderDone = YES;
+        }
+        NSMutableData *d = [NSMutableData dataWithCapacity:4096];
+        if (!gLogHeaderDone) {
+            gLogHeaderDone = YES;
+            [d appendData:[_lvLogHeaderText() dataUsingEncoding:NSUTF8StringEncoding]];
+        }
+        for (NSString *line in batch) { [d appendData:[line dataUsingEncoding:NSUTF8StringEncoding]]; }
+        if (d.length == 0) { return; }
+        h = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!h) { return; }
+        [h seekToEndOfFile];
+        [h writeData:d];
+        [h closeFile];
+        h = nil;
+
+        unsigned long long sz = [[fm attributesOfItemAtPath:path error:nil] fileSize];
+        if (sz > LVLOG_ROTATE_BYTES) {
+            NSString *bak = [path stringByAppendingString:@".old"];
+            [fm removeItemAtPath:bak error:nil];
+            [fm moveItemAtPath:path toPath:bak error:nil];
+            NSString *notice = [NSString stringWithFormat:
+                @"[%@] [%@] 日志已超过 2MB，旧内容存到 插件日志.txt.old，本文件从头开始\n",
+                _lvLogTimeString(), kLVCatPrefs];
+            [notice writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            gLogHeaderDone = YES;
+        }
+    } @catch (NSException *e) {
+        @try { if (h) { [h closeFile]; } } @catch (NSException *e2) { }
+    }
+}
+
+static void _lvLogEmit(NSString *lvl, NSString *cat, NSString *msg) {
+    if (!msg.length) { return; }
+    NSString *body = (msg.length > 400)
+        ? [[msg substringToIndex:400] stringByAppendingString:@"…(已截断)"]
+        : msg;
+    NSString *lvlCopy = lvl ?: @"记录";
+    NSString *catCopy = cat ?: @"通用";
+    dispatch_async(_lvLogQueue(), ^{
+        @try {
+            if (!gLogBuffer) { gLogBuffer = [NSMutableArray arrayWithCapacity:LVLOG_BUFFER_MAX]; }
+            if (!gLogLastAt) { gLogLastAt = [NSMutableDictionary dictionary]; }
+            if (!gLogRepeat) { gLogRepeat = [NSMutableDictionary dictionary]; }
+            NSString *key = [NSString stringWithFormat:@"%@|%@|%@", lvlCopy, catCopy, body];
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+            NSNumber *last = gLogLastAt[key];
+            NSString *out = body;
+            if (last && (now - [last doubleValue]) < LVLOG_THROTTLE_SEC) {
+                NSInteger r = [gLogRepeat[key] integerValue] + 1;
+                gLogRepeat[key] = @(r);
+                BOOL punch = (r < 20) ? ((r % 5) == 0) : ((r % 50) == 0);
+                if (!punch) { return; }
+                out = [NSString stringWithFormat:@"%@（%.0f 秒内重复 %ld 次）", body, LVLOG_THROTTLE_SEC, (long)r];
+                gLogRepeat[key] = @(0);
+            } else {
+                NSInteger r = [gLogRepeat[key] integerValue];
+                if (r > 0) {
+                    [gLogBuffer addObject:[NSString stringWithFormat:
+                        @"[%@] [%@/%@] ↑ 上面这条在这段时间里一共出现 %ld 次（已合并）\n",
+                        _lvLogTimeString(), catCopy, lvlCopy, (long)r]];
+                    gLogRepeat[key] = @(0);
+                }
+                gLogLastAt[key] = @(now);
+            }
+            [gLogBuffer addObject:[NSString stringWithFormat:@"[%@] [%@/%@] %@\n",
+                                   _lvLogTimeString(), catCopy, lvlCopy, out]];
+            if (gLogBuffer.count >= LVLOG_BUFFER_MAX) { _lvLogFlushLocked(); }
+            else { _lvLogScheduleFlushLocked(); }
+        } @catch (NSException *e) { }
+    });
+}
+
+// 同步把缓冲区写到磁盘（设置面板导出日志前调用，保证导出的是完整内容）
+static void _lvLogFlushNowSync(void) {
+    @try {
+        dispatch_sync(_lvLogQueue(), ^{
+            @try { _lvLogFlushLocked(); } @catch (NSException *e) { }
+        });
+    } @catch (NSException *e) { }
+}
+
+// 注意：刻意不做 CFPreferencesAppSynchronize —— 那是强制刷盘的同步操作，
+// 在会被每帧调用的路径上用它本身就是卡顿来源。
+static BOOL _lvLogEnabledRaw(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoLogEnabled"];
+        if (v) { return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : NO; }
+        for (NSString *suite in _lvSuites()) {
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoLogEnabled"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(boolValue)] && [val boolValue]) { return YES; }
+        }
+    } @catch (NSException *e) { }
+    return NO;
+}
+
+static BOOL _lvLogVerboseRaw(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoLogVerbose"];
+        if (v) { return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : NO; }
+        for (NSString *suite in _lvSuites()) {
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoLogVerbose"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(boolValue)] && [val boolValue]) { return YES; }
+        }
+    } @catch (NSException *e) { }
+    return NO;
+}
+
+static BOOL _lvLogging(void) {
+    if (gLogReentrant) { return NO; }
+    gLogReentrant = YES;
+    BOOL r = NO;
+    @try { r = _lvLogEnabledRaw(); } @catch (NSException *e) { r = NO; }
+    gLogReentrant = NO;
+    return r;
+}
+
+// 「详细日志」是否开启（记录级）
+static BOOL _lvVerbose(void) {
+    if (gLogReentrant) { return NO; }
+    gLogReentrant = YES;
+    BOOL r = NO;
+    @try { r = _lvLogEnabledRaw() && _lvLogVerboseRaw(); } @catch (NSException *e) { r = NO; }
+    gLogReentrant = NO;
+    return r;
+}
+
+static void _lvNote(NSString *cat, NSString *fmt, ...) {
+    if (!_lvVerbose()) { return; }
+    va_list ap; va_start(ap, fmt);
+    NSString *m = [[NSString alloc] initWithFormat:fmt arguments:ap];
+    va_end(ap);
+    _lvLogEmit(@"记录", cat, m);
+}
+
+static void _lvIssue(NSString *cat, NSString *fmt, ...) {
+    if (!_lvLogging()) { return; }
+    va_list ap; va_start(ap, fmt);
+    NSString *m = [[NSString alloc] initWithFormat:fmt arguments:ap];
+    va_end(ap);
+    _lvLogEmit(@"疑似", cat, m);
+}
+
+static void _lvFail(NSString *cat, NSString *fmt, ...) {
+    if (!_lvLogging()) { return; }
+    va_list ap; va_start(ap, fmt);
+    NSString *m = [[NSString alloc] initWithFormat:fmt arguments:ap];
+    va_end(ap);
+    _lvLogEmit(@"失败", cat, m);
+}
+
+static void _lvExcept(const char *fn, NSException *e) {
+    if (!_lvLogging()) { return; }
+    NSString *name = e ? (e.name ?: @"(无名称)") : @"(nil 异常)";
+    NSString *reason = e ? (e.reason ?: @"(无原因)") : @"(nil 异常)";
+    _lvLogEmit(@"失败", kLVCatExcept,
+               [NSString stringWithFormat:@"%s 抛出 %@：%@", fn ?: "?", name, reason]);
+}
+
+// 旧的 Hook 日志通道：改走问题日志的「记录」级（详细日志开启时才写）
+static void _lvLog(NSString *line) {
+    if (!_lvVerbose()) { return; }
+    _lvLogEmit(@"记录", kLVCatPrefs, line ?: @"");
+}
+
+static void _lvLogOnce(NSString *cls, NSString *action) {
+    if (!_lvVerbose()) { return; }
+    _lvLogEmit(@"记录", cls ?: @"通用", action ?: @"");
+}
+
+// ─── 卡顿观测 ─────────────────────────────────────────────────────
+// 只在「日志已开启」时才真正取时间戳；开关关闭时 LV_PERF_BEGIN 退化成一个 0 值，
+// 额外开销约等于一次 clock_gettime，可以忽略。
+static BOOL gPerfWatch = NO;
+static double gPerfWatchStamp = 0;
+static BOOL _lvPerfWatch(void) {
+    if (gLogReentrant) { return NO; }
+    double now = _lvNowMs();
+    if (gPerfWatchStamp <= 0.0 || (now - gPerfWatchStamp) > 1000.0) {
+        gPerfWatchStamp = now;
+        gPerfWatch = _lvLogging();
+    }
+    return gPerfWatch;
+}
+
+#define LV_PERF_BEGIN()   double _lv_perf_t0 = (_lvPerfWatch() ? _lvNowMs() : 0.0)
+// 可变参数写法：耗时 %.1f ms 由宏补在最后一位
+#define LV_PERF_CHECK(cat, budgetMs, fmt, ...) do { \
+        if (_lv_perf_t0 > 0.0) { \
+            double _dt = _lvNowMs() - _lv_perf_t0; \
+            if (_dt > (double)(budgetMs)) { \
+                _lvIssue((cat), (fmt), ##__VA_ARGS__, _dt); \
+            } \
+        } \
+    } while (0)
 
 // 诊断用：把通知视图的完整层级写到 /var/mobile/通知视频/视图结构.txt
 // 每一层记录：类名 / frame / hidden / alpha / 背景色 / 子图层 / 是否挂载素材
@@ -314,7 +687,7 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
             NSString *path = objc_getAssociatedObject(v, &kPathKey);
             NSString *mtl = path ? @" [已挂素材]" : @"";
             UIColor *bg = nil;
-            @try { bg = v.backgroundColor; } @catch (NSException *e) {}
+            @try { bg = v.backgroundColor; } @catch (NSException *e) { _lvExcept(__func__, e);}
             NSString *bgDesc = @"无";
             if (bg) {
                 CGFloat r = 0, g = 0, b = 0, a = 0;
@@ -323,7 +696,7 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
                 }
             }
             NSUInteger subLayers = 0;
-            @try { subLayers = v.layer.sublayers.count; } @catch (NSException *e) {}
+            @try { subLayers = v.layer.sublayers.count; } @catch (NSException *e) { _lvExcept(__func__, e);}
             NSString *actTag = @"";
             if (_lvIsActivityContentClass(cls) || _lvIsActivityHost(v)) {
                 switch (_lvResolvedKindForView(v)) {
@@ -374,7 +747,7 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
         @try {
             id app = [UIApplication sharedApplication];
             NSArray *wins = nil;
-            @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+            @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) { _lvExcept(__func__, e);}
             BOOL found = NO;
             for (UIWindow *w in wins) {
                 NSMutableArray *st = [NSMutableArray arrayWithObject:@[w, @0]];
@@ -401,9 +774,9 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
                 }
             }
             if (!found) { [s appendString:@"  （未找到壁纸视图）\n"]; }
-        } @catch (NSException *e) {}
+        } @catch (NSException *e) { _lvExcept(__func__, e);}
         [s writeToFile:kLVDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // dump 用更好的根视图：「选项/清除」按钮不在小卡片 ShortLookView 的子树里，
@@ -424,7 +797,7 @@ static UIView *_lvBetterDumpRoot(UIView *v) {
             p = p.superview;
             up++;
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return best;
 }
 
@@ -438,7 +811,7 @@ static void _lvAllowAutoLockForPlayer(AVPlayer *p) {
             [p setValue:@NO forKey:@"preventsDisplaySleepDuringVideoPlayback"];
             _lvLogOnce(@"自动锁屏", @"已允许视频播放时熄屏");
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static BOOL _lvPathIsImageAsset(NSString *path) {
@@ -479,7 +852,7 @@ static UIImage *_lvAnimatedImage(NSString *path) {
         if (frames.count == 0) { return nil; }
         if (frames.count == 1) { return frames.firstObject; }
         return [UIImage animatedImageWithImages:frames duration:total];
-    } @catch (NSException *e) { return nil; }
+    } @catch (NSException *e) { _lvExcept(__func__, e); return nil; }
 }
 
 static AVPlayer *_lvPlayerForPath(NSString *path) {
@@ -505,7 +878,13 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
         }
 
         AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
-        if (!item) { return nil; }
+        if (!item) {
+            _lvFail(kLVCatFail, @"视频轨道创建失败（文件路径对但读不出内容）：%@", path.lastPathComponent ?: path);
+            return nil;
+        }
+        if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            _lvFail(kLVCatAsset, @"视频文件不存在：%@", path);
+        }
         AVPlayer *player = [AVPlayer playerWithPlayerItem:item];
         player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
         player.muted = !_lvSound();
@@ -528,12 +907,43 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
                   toleranceBefore:kCMTimeZero
                    toleranceAfter:kCMTimeZero
                         completionHandler:^(BOOL d) { [p play]; }];
-                } @catch (NSException *e) {}
+                } @catch (NSException *e) { _lvExcept(__func__, e);}
             }];
             [gObserverMap setObject:observer forKey:player];
-            _lvLog([NSString stringWithFormat:@"播放器创建(按路径复用): %@ 声音=%d", path, _lvSound()]);
+
+            // 故障诊断监听：视频自身出问题（解码跟不上、播到一半失败、错误日志）
+            // 都是「卡顿 / 声音 / 失效」的直接证据，平时没人上报，只能靠这里留痕。
+            if (!gAuxObserverMap) {
+                gAuxObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory
+                                                       valueOptions:NSMapTableStrongMemory];
+            }
+            NSMutableArray *aux = [NSMutableArray array];
+            NSOperationQueue *mq = [NSOperationQueue mainQueue];
+            NSString *nm = path.lastPathComponent ?: path;
+            id oStall = [[NSNotificationCenter defaultCenter]
+                addObserverForName:AVPlayerItemPlaybackStalledNotification
+                            object:item queue:mq usingBlock:^(NSNotification *n) {
+                _lvIssue(kLVCatPerf, @"视频解码跟不上 / 读取被阻塞，播放中断：%@", nm);
+            }];
+            if (oStall) { [aux addObject:oStall]; }
+            id oFail = [[NSNotificationCenter defaultCenter]
+                addObserverForName:AVPlayerItemFailedToPlayToEndTimeNotification
+                            object:item queue:mq usingBlock:^(NSNotification *n) {
+                NSError *err = n.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];
+                _lvFail(kLVCatFail, @"视频播到一半失败：%@ 错误=%@", nm, err ?: (id)@"(未知)");
+            }];
+            if (oFail) { [aux addObject:oFail]; }
+            id oNewErr = [[NSNotificationCenter defaultCenter]
+                addObserverForName:AVPlayerItemNewErrorLogEntryNotification
+                            object:item queue:mq usingBlock:^(NSNotification *n) {
+                _lvFail(kLVCatFail, @"视频产生错误日志条目（解码器 / 文件损坏）：%@", nm);
+            }];
+            if (oNewErr) { [aux addObject:oNewErr]; }
+            if (aux.count) { [gAuxObserverMap setObject:aux forKey:player]; }
+
+            _lvNote(kLVCatPlayer, @"创建播放器（按路径复用）：%@ 声音=%d", nm, _lvSound());
         return player;
-    } @catch (NSException *e) {
+    } @catch (NSException *e) { _lvExcept(__func__, e);
         _lvLog([NSString stringWithFormat:@"player 异常: %@", e]);
         return nil;
     }
@@ -548,6 +958,11 @@ static void _lvDetachPlayer(AVPlayer *player) {
             [gObserverMap removeObjectForKey:player];
         }
         [player pause];
+        NSMutableArray *aux = [gAuxObserverMap objectForKey:player];
+        if (aux) {
+            for (id tok in aux) { [[NSNotificationCenter defaultCenter] removeObserver:tok]; }
+            [gAuxObserverMap removeObjectForKey:player];
+        }
         [gAllPlayers removeObject:player];
         // 从「按路径复用」缓存中清除该播放器，避免被再次复用
         NSString *hitKey = nil;
@@ -556,7 +971,7 @@ static void _lvDetachPlayer(AVPlayer *player) {
         }
         if (hitKey) { [gPlayerByPath removeObjectForKey:hitKey]; }
         [gRefCount removeObjectForKey:[NSValue valueWithNonretainedObject:player]];
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 视图卸载时释放一次引用；只有引用归零（没有其它同路径视图再用）才真正销毁播放器，
@@ -571,7 +986,7 @@ static void _lvReleasePlayerRef(AVPlayer *player) {
         } else {
             gRefCount[key] = @(c - 1);
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 判断某个播放器是否被「其它有效可见」的挂载视图使用（防止共享播放器被单个隐藏视图误暂停/误静音）
@@ -586,7 +1001,7 @@ static BOOL _lvPlayerHasOtherVisibleView(AVPlayer *p, UIView *exceptV) {
                 return YES;
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
@@ -598,13 +1013,13 @@ static void _lvResetAllPlayers(void) {
         [gAllPlayers removeAllObjects];
         [gPlayerByPath removeAllObjects];
         [gRefCount removeAllObjects];
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvPauseAllPlayers(void) {
     @try {
         for (AVPlayer *p in gAllPlayers) { [p pause]; }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvPlayAllVisiblePlayers(void) {
@@ -616,7 +1031,7 @@ static void _lvPlayAllVisiblePlayers(void) {
                 [p play];
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 #pragma mark - 视图识别
@@ -642,7 +1057,7 @@ static UIView *_lvFindActivityPlatterHost(UIView *v) {
                 return cur;
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -654,7 +1069,7 @@ static BOOL _lvIsActivityAuthorizationAlert(UIView *v) {
             NSString *t = _lvButtonTitle(btn).lowercaseString;
             if ([t containsString:@"允许"] || [t containsString:@"不允许"]) { return YES; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
@@ -725,7 +1140,7 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
                 @try {
                     if ([cur respondsToSelector:@selector(accessibilityLabel)]) { al = [cur accessibilityLabel]; }
                     if (!al.length && [cur respondsToSelector:@selector(accessibilityIdentifier)]) { al = [cur accessibilityIdentifier]; }
-                } @catch (NSException *e) {}
+                } @catch (NSException *e) { _lvExcept(__func__, e);}
                 if (al.length) {
                     NSString *t = al.lowercaseString;
                     for (NSString *m in axTexts) {
@@ -743,7 +1158,7 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
         // 子视图太单薄 —— 十有八九是内容还没从 App 端渲染过来，先别下结论
         if (nodes < 6) { return LVActivityKindUnknown; }
         return LVActivityKindGeneral;
-    } @catch (NSException *e) { return LVActivityKindUnknown; }
+    } @catch (NSException *e) { _lvExcept(__func__, e); return LVActivityKindUnknown; }
 }
 
 // 兼容旧调用点
@@ -780,7 +1195,7 @@ static UIView *_lvFindActivityContentInHost(UIView *host) {
             if (_lvIsActivityContentClass(NSStringFromClass([cur class]))) { return cur; }
             [stack addObjectsFromArray:cur.subviews];
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -816,7 +1231,7 @@ static LVActivityKind _lvResolvedKindForView(UIView *v) {
             return LVActivityKindNowPlaying;
         }
         return LVActivityKindGeneral;
-    } @catch (NSException *e) { return LVActivityKindGeneral; }
+    } @catch (NSException *e) { _lvExcept(__func__, e); return LVActivityKindGeneral; }
 }
 
 // 根据视图当前的真实类型，算出「此刻最应该挂的素材路径」
@@ -844,12 +1259,12 @@ static NSString *_lvExpectedPathForView(UIView *v) {
                 LVActivityKind k = _lvResolvedKindForView(v);
                 result = _lvResolvedPathForKind(k);
             }
-        } @catch (NSException *e) {}
+        } @catch (NSException *e) { _lvExcept(__func__, e);}
 
         objc_setAssociatedObject(v, &kExpectedKey, result ?: @"", OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kExpectedStampKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return result.length ? result : nil;
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -910,7 +1325,7 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if ([low containsString:@"listcell"])     { return NO; }
         if ([low containsString:@"content"])      { return NO; }
         return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
-    } @catch (NSException *e) { return NO; }
+    } @catch (NSException *e) { _lvExcept(__func__, e); return NO; }
 }
 
 #pragma mark - 挂载
@@ -961,7 +1376,7 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
                 _lvHideBackgroundsRecursive(sv);
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvDetach(UIView *v);
@@ -1005,7 +1420,7 @@ static int _lvTopFullCoverBackgroundIndex(UIView *v) {
             if (li == NSNotFound) { continue; }
             if ((int)li > idx) { idx = (int)li; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return idx;
 }
 
@@ -1081,7 +1496,7 @@ static BOOL _lvViewEffectivelyVisible(UIView *v) {
         CGRect inter = CGRectIntersection(r, screen);
         if (CGRectIsNull(inter)) { return NO; }
         return inter.size.width > 2.0 && inter.size.height > 2.0;
-    } @catch (NSException *e) { return NO; }
+    } @catch (NSException *e) { _lvExcept(__func__, e); return NO; }
 }
 
 // 「选项/清除」按钮的音频控制：
@@ -1097,23 +1512,32 @@ static void _lvApplyButtonAudio(UIView *v) {
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         AVPlayer *p = l.player;
         if (!p) { return; }
+        NSString *title = _lvButtonTitle(v);
+        NSString *who = [NSString stringWithFormat:@"按钮「%@」(%@)", title ?: @"无标题", NSStringFromClass([v class])];
         if (_lvViewEffectivelyVisible(v)) {
-            if (!_lvPlayerHasOtherVisibleView(p, v)) { p.muted = !_lvSound(); }  // 仅当无人共用时才按开关设声音
+            if (_lvPlayerHasOtherVisibleView(p, v)) {
+                _lvIssue(kLVCatSound, @"%@ 与卡片共用同一个播放器，声音状态按共享处理（无法单独静音/出声）", who);
+            } else {
+                p.muted = !_lvSound();  // 仅当无人共用时才按开关设声音
+            }
             [p play];
         } else {
             // 按钮不可见：仅当没有其它可见视图共用此播放器时才静音+暂停，避免冻结共享的视频
-            if (!_lvPlayerHasOtherVisibleView(p, v)) {
+            if (_lvPlayerHasOtherVisibleView(p, v)) {
+                _lvNote(kLVCatSound, @"%@ 不可见，但播放器被可见卡片共用，保持出声", who);
+            } else {
+                if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 不可见 → 静音并暂停", who); }
                 p.muted = YES;
                 [p pause];
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvUpdateButtonAudioEverywhere(void) {
     @try {
         for (UIView *v in [_lvAttachedTable() allObjects]) { _lvApplyButtonAudio(v); }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvAttachWithPath(UIView *v, NSString *path);
@@ -1143,7 +1567,7 @@ static BOOL _lvAllowedToAttach(UIView *v) {
         if (_lvIsPillButtonClass(cls)) { return YES; }
         if ([low containsString:@"actionbutton"]) { return YES; }
         return NO;
-    } @catch (NSException *e) { return NO; }
+    } @catch (NSException *e) { _lvExcept(__func__, e); return NO; }
 }
 
 // 几何启发：识别「包含两个并排等尺寸子视图」的容器 —— 选项/清除按钮组的通用形状特征，
@@ -1168,7 +1592,7 @@ static BOOL _lvLooksLikeButtonGroup(UIView *v) {
                 }
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
@@ -1183,7 +1607,7 @@ static BOOL _lvIsButtonAreaView(UIView *sv, UIView *host) {
         NSString *cls = NSStringFromClass([sv class]);
         if (_lvIsActionButtonGroupView(cls) || _lvIsSingleActionButtonClass(cls)) { return YES; }
         if ([sv isKindOfClass:[UIButton class]]) { return YES; }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
@@ -1194,6 +1618,7 @@ static BOOL _lvIsButtonAreaView(UIView *sv, UIView *host) {
 static CGRect _lvCoverFrameForHost(UIView *v) {
     CGRect frame = v.bounds;
     if (!v) { return frame; }
+    LV_PERF_BEGIN();
     @try {
         CGFloat hostH = v.bounds.size.height;
         if (hostH <= 1.0) { return frame; }
@@ -1234,6 +1659,9 @@ static CGRect _lvCoverFrameForHost(UIView *v) {
             CGFloat bottom = bestY - 4.0;
             if (bottom >= 8.0 && bottom < frame.size.height) {
                 frame.size.height = bottom;
+                LV_PERF_CHECK(kLVCatPerf, 4.0,
+                              @"背景裁剪计算 %@ 耗时 %.1f ms（预算 4ms）",
+                              NSStringFromClass([v class]));
                 _lvRestoreBackgroundsRecursive(bestView, 0);   // 清掉历史版本残留的隐藏标记
                 _lvLogOnce(NSStringFromClass([v class]),
                            [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
@@ -1242,7 +1670,10 @@ static CGRect _lvCoverFrameForHost(UIView *v) {
                 return frame;
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+    LV_PERF_CHECK(kLVCatPerf, 4.0,
+                  @"背景裁剪计算 %@ 耗时 %.1f ms（预算 4ms）",
+                  NSStringFromClass([v class]));
     return frame;
 }
 
@@ -1264,7 +1695,7 @@ static void _lvDebugRemove(UIView *v) {
         for (UIView *sv in [v.subviews copy]) {
             if (sv.tag == kLVDebugTag) { [sv removeFromSuperview]; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 开关变化时把可能残留的调试覆盖层清干净
@@ -1275,16 +1706,16 @@ static void _lvScanAndRemoveDebugIn(UIView *v, int depth) {
             if (sv.tag == kLVDebugTag) { [sv removeFromSuperview]; continue; }
             _lvScanAndRemoveDebugIn(sv, depth + 1);
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvRemoveAllDebugOverlays(void) {
     @try {
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
-        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) { _lvExcept(__func__, e);}
         for (UIWindow *w in wins) { _lvScanAndRemoveDebugIn(w, 0); }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 关闭插件时彻底还原系统原样：
@@ -1339,7 +1770,7 @@ static void _lvForceRestoreAllInView(UIView *v, int depth) {
         objc_setAssociatedObject(v, &kExpectedStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kActivityHostKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         for (UIView *sv in [v.subviews copy]) { _lvForceRestoreAllInView(sv, depth + 1); }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 颜色约定（截图后对照即可定位问题层）：
@@ -1470,7 +1901,7 @@ static void _lvDebugDraw(UIView *root) {
                 for (UIView *c in sv.subviews) { [stack2 addObject:@[c, @(depth + 1)]]; }
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 视图（及其浅层子树）上是否还留着插件的痕迹（素材层 / 备份值）
@@ -1493,7 +1924,7 @@ static BOOL _lvHasPluginTraces(UIView *v, int depth) {
         for (UIView *sv in v.subviews) {
             if (_lvHasPluginTraces(sv, depth + 1)) { return YES; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
@@ -1518,6 +1949,10 @@ static void _lvRefresh(UIView *v) {
         // 若与已挂载的不同则重挂，消除「首帧消息视频 → 后变正确视频」的闪烁。
         NSString *expected = _lvExpectedPathForView(v);
         if (expected.length && ![expected isEqualToString:path]) {
+            // 「先显示通知视频、随后才跳成自己选的」就是这一步触发的：
+            // 首次挂载时类型还没判定准，这里才纠正。记录下来，好定位到底是哪张卡片、哪次回退走岔了。
+            _lvIssue(kLVCatFail, @"素材被更正（先看错的再看对的）：%@ 原=%@ 新=%@",
+                     _lvDesc(v), path.lastPathComponent, expected.lastPathComponent);
             _lvAttachWithPath(v, expected);
             return;
         }
@@ -1546,13 +1981,15 @@ static void _lvRefresh(UIView *v) {
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
         _lvPrepareHostBackgrounds(v);
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvAttachWithPath(UIView *v, NSString *path) {
     if (!v || !path.length || !_lvEnabled()) { return; }
     // 防挂锁：白名单以外的视图（按钮组容器等）一律不挂载，并清掉可能的历史残留
     if (!_lvAllowedToAttach(v)) {
+        _lvIssue(kLVCatFail, @"白名单拒绝挂载（这个视图不允许挂素材）：%@ 试图挂 %@",
+                 _lvDesc(v), path.lastPathComponent);
         _lvDetach(v);
         return;
     }
@@ -1571,7 +2008,8 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
 
             UIImage *img = _lvAnimatedImage(path);
             if (!img) {
-                _lvLogOnce(NSStringFromClass(v.class), @"图片/GIF 解码失败，请确认文件完整");
+                _lvFail(kLVCatAsset, @"图片/GIF 解码失败，请确认文件完整：%@（挂在 %@）",
+                        path.lastPathComponent, NSStringFromClass([v class]));
                 return;
             }
             UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
@@ -1623,7 +2061,8 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
             objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         if (!p) {
-            _lvLogOnce(NSStringFromClass(v.class), @"没找到视频文件（请检查 /var/mobile/通知视频 目录与素材路径）");
+            _lvFail(kLVCatFail, @"视频播放器创建不出来，背景挂不上：%@（挂在 %@）",
+                    path.lastPathComponent, NSStringFromClass([v class]));
             return;
         }
 
@@ -1668,7 +2107,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         _lvLogOnce(NSStringFromClass(v.class),
                    [NSString stringWithFormat:@"挂载尺寸 %.0fx%.0f 透明度 %.2f",
                     coverFrame.size.width, coverFrame.size.height, _lvAlpha()]);
-    } @catch (NSException *e) {
+    } @catch (NSException *e) { _lvExcept(__func__, e);
         _lvLog([NSString stringWithFormat:@"attach 异常: %@", e]);
     }
 }
@@ -1689,7 +2128,7 @@ static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v) {
                 [out addObjectsFromArray:_lvFindPillButtonsInView(sv)];
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return out;
 }
 
@@ -1707,20 +2146,20 @@ static NSString *_lvButtonTitle(UIView *btn) {
             @try {
                 UILabel *lbl = [(id)btn titleLabel];
                 if ([lbl isKindOfClass:[UILabel class]] && lbl.text.length) { return lbl.text; }
-            } @catch (NSException *e) {}
+            } @catch (NSException *e) { _lvExcept(__func__, e);}
         }
         // 无障碍标签兜底：部分系统按钮的文字只存在于 accessibilityLabel / identifier
         if ([btn respondsToSelector:@selector(accessibilityLabel)]) {
             @try {
                 NSString *t = [btn accessibilityLabel];
                 if (t.length) { return t; }
-            } @catch (NSException *e) {}
+            } @catch (NSException *e) { _lvExcept(__func__, e);}
         }
         if ([btn respondsToSelector:@selector(accessibilityIdentifier)]) {
             @try {
                 NSString *t = [btn accessibilityIdentifier];
                 if (t.length) { return t; }
-            } @catch (NSException *e) {}
+            } @catch (NSException *e) { _lvExcept(__func__, e);}
         }
         NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:btn];
         int visited = 0;
@@ -1734,7 +2173,7 @@ static NSString *_lvButtonTitle(UIView *btn) {
             }
             [queue addObjectsFromArray:sv.subviews];
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return nil;
 }
 
@@ -1773,7 +2212,7 @@ static void _lvAttachActionButtonGroup(UIView *v) {
                     if ([pc containsString:@"action"] || [pc containsString:@"pill"] || [pc containsString:@"buttongroup"]) {
                         _lvDetach(p);
                     }
-                } @catch (NSException *e) {}
+                } @catch (NSException *e) { _lvExcept(__func__, e);}
                 p = p.superview;
                 up++;
             }
@@ -1802,7 +2241,7 @@ static void _lvAttachActionButtonGroup(UIView *v) {
         } else {
             _lvDetach(v);   // 找不到单个按钮也不给容器挂背景
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 #pragma mark - 卸载
@@ -1841,7 +2280,7 @@ static void _lvRestoreBackgroundsRecursive(UIView *v, int depth) {
         }
 
         for (UIView *sv in [v.subviews copy]) { _lvRestoreBackgroundsRecursive(sv, depth + 1); }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvDetach(UIView *v) {
@@ -1862,7 +2301,7 @@ static void _lvDetach(UIView *v) {
         // 切完之后 PLPlatterView 就不再触发 _lvRefresh，后续连尺寸同步都会断掉。
         // 需要在关闭插件时清理的话，请走 _lvDetachAll / _lvForceRestoreAllInView。
         _lvRestoreBackgroundsRecursive(v, 0);
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvDetachAll(void) {
@@ -1876,7 +2315,7 @@ static void _lvDetachAll(void) {
             _lvDetach(v);
         }
         [_lvAttachedTable() removeAllObjects];
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 #pragma mark - 仅限锁屏
@@ -1891,11 +2330,11 @@ static BOOL _lvHasLockScreenWindow(void) {
     @try {
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
-        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) { _lvExcept(__func__, e);}
         for (UIWindow *w in wins) {
             if (_lvIsLockScreenWindow(w)) { return YES; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return NO;
 }
 
@@ -1928,7 +2367,7 @@ static BOOL _lvIsLockScreenVisible(void) {
             }
 #pragma clang diagnostic pop
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
     return _lvHasLockScreenWindow();
 }
 
@@ -1960,9 +2399,9 @@ static void _lvScheduleActivityRecheck(UIView *v) {
                 if (!vv || !vv.window) { return; }
                 if (!_lvEnabled() || !_lvIsLockScreenVisible()) { return; }
                 _lvOnMatch(vv);
-            } @catch (NSException *e) {}
+            } @catch (NSException *e) { _lvExcept(__func__, e);}
         });
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvHandleActivityMatch(UIView *v) {
@@ -1987,16 +2426,26 @@ static void _lvHandleActivityMatch(UIView *v) {
                 // 兜底：内容始终没渲染过来（某些 App 的 Live Activity 天生很单薄），
                 // 次数用尽后按普通实时活动处理，别让卡片一直没背景
                 kind = LVActivityKindGeneral;
+                _lvIssue(kLVCatActivity, @"活动类型始终判不出来（已复核 %ld 次），已按普通实时活动处理：%@",
+                         (long)idx, _lvDesc(v));
             } else {
+                _lvNote(kLVCatActivity, @"实时活动内容还没渲染出来，先不挂素材，安排第 %ld 次复核：%@",
+                        (long)(idx + 1), _lvDesc(v));
                 _lvScheduleActivityRecheck(v);
                 return;
             }
         }
         objc_setAssociatedObject(v, &kKindKey, @(kind), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         NSString *p = _lvResolvedPathForKind(kind);
+        _lvNote(kLVCatActivity, @"类型判定=%@ → 素材=%@ （%@）",
+                kind == LVActivityKindNowPlaying ? @"播放器" : @"普通活动",
+                p.lastPathComponent ?: @"(无素材)", NSStringFromClass([v class]));
         if (p.length) { _lvAttachWithPath(host, p); }
-        else { _lvDetach(host); }
-    } @catch (NSException *e) {}
+        else {
+            _lvFail(kLVCatAsset, @"识别出了活动卡片，但找不到对应素材（会保持系统原样）：%@", _lvDesc(host));
+            _lvDetach(host);
+        }
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvOnMatch(UIView *v) {
@@ -2025,6 +2474,7 @@ static void _lvOnMatch(UIView *v) {
         if (p.length) {
             _lvAttachWithPath(v, p);
         } else {
+            _lvNote(kLVCatActivity, @"活动宿主还没拿到类型，安排复核（不再退化成主素材）：%@", _lvDesc(v));
             _lvScheduleActivityRecheck(_lvFindActivityContentInHost(v) ?: v);
         }
     } else {
@@ -2041,11 +2491,11 @@ static void _lvOnMatch(UIView *v) {
     @try {
         UIView *sv = (UIView *)self;
         if (sv.window) { _lvOnMatch(sv); }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 - (void)layoutSubviews {
     %orig;
-    @try { _lvRefresh((UIView *)self); } @catch (NSException *e) {}
+    @try { _lvRefresh((UIView *)self); } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 %end
 %end
@@ -2057,15 +2507,21 @@ static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
     _orig_didMoveToWindow(self, _cmd);
     @try {
         if (self.window && _lvIsNotificationView(self)) { _lvOnMatch(self); }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void (*_orig_layoutSubviews)(UIView *, SEL);
 static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
     _orig_layoutSubviews(self, _cmd);
     @try {
-        if (_lvIsNotificationView(self) && self.window) { _lvRefresh(self); }
-    } @catch (NSException *e) {}
+        if (_lvIsNotificationView(self) && self.window) {
+            LV_PERF_BEGIN();
+            _lvRefresh(self);
+            LV_PERF_CHECK(kLVCatPerf, 8.0,
+                          @"layoutSubviews 刷新 %@ 耗时 %.1f ms（预算 8ms，超过一帧就是掉帧来源）",
+                          NSStringFromClass([self class]));
+        }
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 #pragma mark - 壁纸 hook
@@ -2099,7 +2555,7 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
                 [p play];
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 %end
@@ -2111,16 +2567,24 @@ static void _lvPollTick(void);
 static void _lvStartPollTimer(void);
 static void _lvStopPollTimer(void);
 
+static void _lvFlushLogCallback(CFNotificationCenterRef center, void *observer, CFStringRef name,
+                                const void *object, CFDictionaryRef userInfo) {
+    @try { _lvLogFlushNowSync(); } @catch (NSException *e) { }
+}
+
 static void _lvPrefsChanged(CFNotificationCenterRef center,
                             void *observer,
                             CFStringRef name,
                             const void *object,
-                            CFDictionaryRef userInfo) {
+                                        CFDictionaryRef userInfo) {
     @try {
+        // 设置刚被改写：立刻丢掉偏好缓存 —— 否则下一帧还在用旧值（也算是「失效」的一种表现）
+        _lvPrefsInvalidate();
+        _lvNote(kLVCatPrefs, @"收到设置变更通知");
         BOOL nowEnabled = _lvEnabled();
         // 可视化调试开关翻转时，先把残留的描边覆盖层清干净
         dispatch_async(dispatch_get_main_queue(), ^{
-            @try { if (!_lvDebugOutline()) { _lvRemoveAllDebugOverlays(); } } @catch (NSException *e) {}
+            @try { if (!_lvDebugOutline()) { _lvRemoveAllDebugOverlays(); } } @catch (NSException *e) { _lvExcept(__func__, e);}
         });
         if (nowEnabled != gWasEnabled) {
             gWasEnabled = nowEnabled;
@@ -2131,12 +2595,12 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
                     @try {
                         id app = [UIApplication sharedApplication];
                         NSArray *wins = nil;
-                        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+                        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) { _lvExcept(__func__, e);}
                         for (UIWindow *w in wins) {
                             _lvForceRestoreAllInView(w, 0);
                             _lvScanAndRemoveDebugIn(w, 0);
                         }
-                    } @catch (NSException *e) {}
+                    } @catch (NSException *e) { _lvExcept(__func__, e);}
                 });
                 _lvResetAllPlayers();   // 直接释放全部播放器，省电省内存
                 _lvStopPollTimer();     // 关掉轮询，彻底不再碰系统视图
@@ -2145,16 +2609,18 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
             _lvLog(@"启用=开：立即重新挂载");
             _lvStartPollTimer();
             dispatch_async(dispatch_get_main_queue(), ^{
-                @try { _lvPollTick(); } @catch (NSException *e) {}
+                @try { _lvPollTick(); } @catch (NSException *e) { _lvExcept(__func__, e);}
             });
             return;
         }
 
         // 声音变化同步到所有播放器
+        BOOL want = _lvSound();
         for (AVPlayer *p in gAllPlayers) {
-            p.muted = !_lvSound();
+            p.muted = !want;
             _lvAllowAutoLockForPlayer(p);
         }
+        _lvNote(kLVCatSound, @"声音开关=%d，已同步 %lu 个播放器", want, (unsigned long)gAllPlayers.count);
         _lvUpdateButtonAudioEverywhere();   // 按钮素材立刻按可见性修正，不漏声
 
         // 收集当前激活的 path
@@ -2177,9 +2643,9 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            @try { _lvPollTick(); } @catch (NSException *e) {}
+            @try { _lvPollTick(); } @catch (NSException *e) { _lvExcept(__func__, e);}
         });
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 #pragma mark - 轮询扫描
@@ -2195,9 +2661,9 @@ static void _lvStartPollTimer(void) {
         }
         if (gPollTimer) { return; }
         gPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
-            @try { _lvPollTick(); } @catch (NSException *e) {}
+            @try { _lvPollTick(); } @catch (NSException *e) { _lvExcept(__func__, e);}
         }];
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 static void _lvStopPollTimer(void) {
@@ -2207,7 +2673,7 @@ static void _lvStopPollTimer(void) {
             return;
         }
         if (gPollTimer) { [gPollTimer invalidate]; gPollTimer = nil; }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 轮询扫描命中判断 —— 与 _lvIsNotificationView 保持完全一致。
@@ -2246,7 +2712,7 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
             }
             for (UIView *c in v.subviews) { [stack addObject:c]; }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 // 清理历史版本残留的非法挂载：
@@ -2266,11 +2732,80 @@ static void _lvCleanupStaleAttachments(void) {
             _lvDetach(v);
             [table removeObject:v];
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+}
+
+// 运行时体检：每轮轮询做一次，专门抓「声音」和「失效」两类问题。
+// 这些状态平时没有任何上报渠道，出问题只能靠用户口述；
+// 这里直接把当时的真实状态（静音、播放速率、图层是否还在、播放器是否报错）写进日志。
+static NSInteger gPollRounds = 0;
+static void _lvAuditRuntime(void) {
+    if (!_lvLogging()) { return; }
+    @try {
+        NSArray<UIView *> *views = [_lvAttachedTable() allObjects];
+        BOOL wantSound = _lvSound();
+        if (views.count == 0) {
+            _lvIssue(kLVCatFail, @"当前没有任何视图挂着素材（卡片背景会保持系统原样）播放器数=%lu",
+                     (unsigned long)gAllPlayers.count);
+        }
+        for (UIView *v in views) {
+            NSString *path = objc_getAssociatedObject(v, &kPathKey);
+            if (!path.length) { continue; }
+            NSString *cls = NSStringFromClass([v class]);
+            NSString *name = path.lastPathComponent ?: path;
+            if (_lvPathIsImageAsset(path)) {
+                UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
+                if (!iv) { _lvFail(kLVCatFail, @"图片素材丢了图片视图：%@ / %@", cls, name); }
+                else if (iv.superview != v) { _lvIssue(kLVCatFail, @"图片视图被系统摘掉了，下次刷新会重新插入：%@", cls); }
+                continue;
+            }
+            AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+            AVPlayer *p = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
+            if (!p) {
+                _lvFail(kLVCatFail, @"挂了素材却没有可用播放器：%@ / %@", cls, name);
+                continue;
+            }
+            if (l && l.superlayer != v.layer) {
+                _lvIssue(kLVCatFail, @"视频图层被系统摘掉了，下次刷新会重新插入：%@ / %@", cls, name);
+            }
+            if (![gAllPlayers containsObject:p]) {
+                _lvFail(kLVCatFail, @"播放器已销毁却仍挂在视图上：%@ / %@", cls, name);
+            }
+            if (p.status == AVPlayerStatusFailed || p.error) {
+                _lvFail(kLVCatFail, @"播放器状态异常 status=%ld 错误=%@（%@）",
+                        (long)p.status, p.error ?: (id)@"(无详细信息)", name);
+            }
+            if (p.currentItem.error) {
+                _lvFail(kLVCatFail, @"视频轨道错误：%@（%@）", p.currentItem.error, name);
+            }
+            BOOL vis = _lvViewEffectivelyVisible(v);
+            BOOL shared = _lvPlayerHasOtherVisibleView(p, v);
+            if (vis) {
+                if (p.rate < 0.01) {
+                    _lvIssue(kLVCatFail, @"卡片可见但画面没动 rate=%.2f：%@ / %@", p.rate, cls, name);
+                }
+                if (!shared && p.muted != !wantSound) {
+                    _lvIssue(kLVCatSound, @"声音开关=%d 但播放器实际静音=%d：%@", wantSound, p.muted, cls);
+                }
+            } else if (!shared) {
+                if (p.rate > 0.01) { _lvIssue(kLVCatSound, @"卡片不可见却还在播放（会漏声音）：%@ / %@", cls, name); }
+                if (wantSound && !p.muted) { _lvIssue(kLVCatSound, @"卡片不可见但没静音：%@", cls); }
+            } else {
+                _lvNote(kLVCatSound, @"播放器被多视图共用，按共享状态处理声音：%@ / %@", cls, name);
+            }
+        }
+        if (gPollRounds % 40 == 0) {
+            _lvNote(kLVCatPerf, @"运行概况：挂载视图=%lu 播放器=%lu 共享缓存=%lu",
+                    (unsigned long)views.count, (unsigned long)gAllPlayers.count,
+                    (unsigned long)gPlayerByPath.count);
+        }
+    } @catch (NSException *e) { _lvExcept(__func__, e); }
 }
 
 static void _lvPollTick(void) {
     @try {
+        LV_PERF_BEGIN();
+        gPollRounds++;
         if (!_lvEnabled()) {
             _lvPauseAllPlayers();
             return;
@@ -2280,9 +2815,10 @@ static void _lvPollTick(void) {
             return;
         }
         _lvCleanupStaleAttachments();   // 清理旧版本挂在按钮区大视图上的残留
+        _lvAuditRuntime();              // 体检：把「声音 / 失效」的真实状态写进日志
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
-        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) { _lvExcept(__func__, e);}
         BOOL foundAnyCard = NO;
         for (UIWindow *w in wins) {
             if (w.hidden || w.alpha <= 0.01) { continue; }
@@ -2291,9 +2827,14 @@ static void _lvPollTick(void) {
             if (found) { foundAnyCard = YES; }
         }
         if (foundAnyCard) { _lvPlayAllVisiblePlayers(); }
-        else { _lvPauseAllPlayers(); }
+        else {
+            _lvPauseAllPlayers();
+            if (gPollRounds % 20 == 0) { _lvNote(kLVCatFail, @"连续 %ld 轮轮询都没找到任何通知卡片", (long)gPollRounds); }
+        }
         _lvUpdateButtonAudioEverywhere();   // 选项/清除：不左滑时静音暂停，不漏声音
-    } @catch (NSException *e) {}
+        LV_PERF_CHECK(kLVCatPerf, 20.0,
+                      @"每轮轮询扫描（遍历全部窗口找卡片）耗时 %.1f ms（预算 20ms）");
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
 #pragma mark - ctor
@@ -2331,11 +2872,12 @@ static void _lvPollTick(void) {
                 } else {
                     _lvLog(@"插件默认关闭：轮询未启动");
                 }
-            } @catch (NSException *e) {}
+            } @catch (NSException *e) { _lvExcept(__func__, e);}
         });
 
         gAllPlayers = [NSMutableSet set];
         gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];
+        gAuxObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];
         gPlayerByPath = [NSMutableDictionary dictionary];
         gRefCount = [NSMutableDictionary dictionary];
         if (!_lvAttachedViews) { _lvAttachedViews = [NSHashTable weakObjectsHashTable]; }
@@ -2351,13 +2893,21 @@ static void _lvPollTick(void) {
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
 
+        // 设置面板导出日志前会发这个通知：先把缓冲区刷到磁盘，保证导出的是完整内容
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvFlushLogCallback,
+                                        kLVFlushLog,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 实时活动=%@ 播放器=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.83 加载完成（补前向声明修复编译 + 修复活动宿主退化挂主素材 + 播放器类型三判据识别 + 多次递增延迟复核 + 素材回退链 播放器→活动→主 + 弱引用挂载表） =====");
-    } @catch (NSException *e) {
+        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（全方位问题收集日志：声音/卡顿/失效 + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
+    } @catch (NSException *e) { _lvExcept(__func__, e);
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
 }
