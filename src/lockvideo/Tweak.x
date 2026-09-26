@@ -50,8 +50,27 @@ static BOOL _lvBool(NSString *key) {
     return NO;
 }
 
+// 是否启用透明度调节
+static BOOL _lvAlphaEnabled(void) {
+    // 默认开启透明度调节；关闭时素材完全不透明（alpha=1.0）
+    @try {
+        id v = _lvPrefs()[@"LockVideoAlphaEnabled"];
+        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoAlphaEnabled"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(boolValue)]) { return [val boolValue]; }
+        }
+    } @catch (NSException *e) {}
+    return YES;
+}
+
 // 视频透明度：默认 0.5（视频淡一些，文字才看得清）
+// 若关闭「启用透明度调节」，则返回 1.0（完全不透明）
 static CGFloat _lvAlpha(void) {
+    if (!_lvAlphaEnabled()) { return 1.0; }
     @try {
         id v = _lvPrefs()[@"LockVideoAlpha"];
         if ([v respondsToSelector:@selector(floatValue)]) {
@@ -70,6 +89,44 @@ static CGFloat _lvAlpha(void) {
         }
     } @catch (NSException *e) {}
     return 0.5;
+}
+
+// 是否启用视频/图片背景圆角
+static BOOL _lvCornerEnabled(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoCornerEnabled"];
+        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoCornerEnabled"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(boolValue)]) { return [val boolValue]; }
+        }
+    } @catch (NSException *e) {}
+    return YES;
+}
+
+// 视频/图片背景圆角半径：默认 18.0，范围 0~40
+static CGFloat _lvCornerRadius(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoCornerRadius"];
+        if ([v respondsToSelector:@selector(floatValue)]) {
+            CGFloat r = [v floatValue];
+            if (r >= 0) { return MIN(r, 40.0); }
+        }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoCornerRadius"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val respondsToSelector:@selector(floatValue)]) {
+                CGFloat r = [val floatValue];
+                if (r >= 0) { return MIN(r, 40.0); }
+            }
+        }
+    } @catch (NSException *e) {}
+    return 18.0;
 }
 
 static NSString *_lvString(NSString *key) {
@@ -390,12 +447,14 @@ static void _lvRefresh(UIView *v) {
         if (l) {
             _lvInsertLayer(v, l);
             l.frame = v.bounds;
+            l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             if (v.window && gPlayer && !_lvIsImageAsset()) { [gPlayer play]; }
         }
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) {
             if (iv.superview != v) { [v insertSubview:iv atIndex:0]; }
             iv.frame = v.bounds;
+            iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
         // v1.0.55 起：为了让素材可见，隐藏系统自带的毛玻璃/背景层（幂等，已处理则跳过）
         _lvHideBackgroundsRecursive(v);
@@ -421,7 +480,7 @@ static void _lvAttach(UIView *v) {
             if (!iv) {
                 iv = [[UIImageView alloc] initWithFrame:v.bounds];
                 iv.contentMode = UIViewContentModeScaleAspectFill;
-                iv.layer.cornerRadius = 18.0;
+                iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
                 iv.layer.masksToBounds = YES;
                 iv.clipsToBounds = YES;
                 objc_setAssociatedObject(v, &kImgKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -433,6 +492,7 @@ static void _lvAttach(UIView *v) {
             [v insertSubview:iv atIndex:0];   // 确保在最底层
             iv.frame = v.bounds;
             iv.alpha = (float)_lvAlpha();
+            iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             // 隐藏系统毛玻璃/背景层，让图片素材可见；关闭时还原
             _lvHideBackgroundsRecursive(v);
             _lvLogOnce(NSStringFromClass(v.class),
@@ -461,7 +521,7 @@ static void _lvAttach(UIView *v) {
         if (!l) {
             l = [AVPlayerLayer playerLayerWithPlayer:p];
             l.videoGravity = AVLayerVideoGravityResizeAspectFill;
-            l.cornerRadius = 18.0;
+            l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             l.masksToBounds = YES;
             objc_setAssociatedObject(v, &kLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             _lvLogOnce(NSStringFromClass(v.class), @"已挂载视频");
@@ -473,6 +533,7 @@ static void _lvAttach(UIView *v) {
         _lvInsertLayer(v, l);
         [_lvAttachedViews addObject:v];
         l.frame = v.bounds;
+        l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         l.opacity = (float)_lvAlpha();   // 视频淡一点，文字才看得清
         [p play];
         _lvHideBackgroundsRecursive(v);

@@ -72,6 +72,20 @@
 			<key>PostNotification</key>
 			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
 			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.xiaofei.notifybgvideo</string>
+			<key>key</key>
+			<string>LockVideoAlphaEnabled</string>
+			<key>label</key>
+			<string>启用透明度调节</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
+			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
 			<real>0.5</real>
@@ -93,6 +107,46 @@
 			<string>PSGroupCell</string>
 			<key>footer</key>
 			<string>开关即时生效，无需注销；如要彻底刷新所有通知缓存，点 Respring。</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footer</key>
+			<string>关闭后视频/图片背景将使用直角；开启后可调节圆角半径。</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.xiaofei.notifybgvideo</string>
+			<key>key</key>
+			<string>LockVideoCornerEnabled</string>
+			<key>label</key>
+			<string>启用视频圆角</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>18.0</real>
+			<key>defaults</key>
+			<string>com.xiaofei.notifybgvideo</string>
+			<key>key</key>
+			<string>LockVideoCornerRadius</string>
+			<key>label</key>
+			<string>圆角大小</string>
+			<key>max</key>
+			<real>40.0</real>
+			<key>min</key>
+			<real>0.0</real>
+			<key>showValue</key>
+			<true/>
 		</dict>
 		<dict>
 			<key>action</key>
