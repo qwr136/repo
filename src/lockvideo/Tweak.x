@@ -516,12 +516,15 @@ static void _lvPlayAllVisiblePlayers(void) {
 static BOOL _lvIsActionButtonGroupView(NSString *cls) {
     if (!cls) return NO;
     NSString *low = cls.lowercaseString;
-    if ([low containsString:@"buttongroup"]) return YES;       // PLCTButtonGroupView / PLPillButtonGroupView
-    if ([low containsString:@"pillcontent"]) return YES;       // PLPillContentView（iOS18 动作菜单容器）
-    if ([low containsString:@"actionbutton"]) return YES;        // NCNotificationListCellActionButton 容器
-    if ([low containsString:@"actionview"]) return YES;        // 动作视图容器
-    if ([low containsString:@"actionmenu"]) return YES;          // 长按动作菜单容器
-    if ([low containsString:@"notification"] && [low containsString:@"action"]) return YES;
+    // —— 外围容器一律不算按钮区（只认「按钮组」和「按钮本身」，其余不碰）——
+    if ([low containsString:@"presenting"]) return NO;   // PLActionButtonsPresentingView（按钮的呈现容器）
+    if ([low containsString:@"floating"])   return NO;   // FVFloatingActionView（悬浮视图）
+    if ([low containsString:@"menu"])       return NO;   // 动作菜单容器
+    if ([low containsString:@"group"]) {
+        return [low containsString:@"buttongroup"];      // PLCTButtonGroupView / PLPillButtonGroupView
+    }
+    if ([low containsString:@"pillcontent"]) return YES; // PLPillContentView（iOS18 动作菜单按钮容器）
+    if ([low containsString:@"actionbutton"]) return YES; // NCNotificationListCellActionButton / PLPlatterActionButton(s)View
     return NO;
 }
 
@@ -1684,7 +1687,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.67 加载完成（按钮区不再露出多余背景 + 纯标题匹配 + 视图结构诊断） =====");
+        _lvLog(@"===== 1.0.72 加载完成（只认卡片/按钮组/按钮 + 按钮区强制诊断导出） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
