@@ -16,6 +16,7 @@ static id gLoopObserver = nil;
 static char kLayerKey;
 static char kImgKey;
 static char kHideDoneKey;   // 标记"背景已隐藏"，避免每帧递归遍历导致卡顿
+static char kOrigBgKey;     // 保存原始 backgroundColor，关闭插件时能精确恢复卡片原貌
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static NSHashTable *_lvAttachedViews = nil;   // 弱引用集合：记录所有已挂载视频/图片层的视图（关闭时即时卸载）
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
@@ -292,9 +293,15 @@ static BOOL _lvIsNotificationView(UIView *v) {
 
 // 递归隐藏卡片里所有模糊/背景子视图（UIVisualEffectView 等），让视频能直接当卡片背景，
 // 不再被任何灰色/模糊层挡在下面。文字/icon 等内容子视图不动。
+// 第一次进入时把卡片自身的 backgroundColor 原值保存到 kOrigBgKey，关闭插件时能 1:1 还原。
 static void _lvHideBackgroundsRecursive(UIView *v) {
     if (objc_getAssociatedObject(v, &kHideDoneKey)) { return; }   // 已处理过则跳过整棵子树递归，避免滑动/动画时每帧卡顿
     @try {
+        // 第一次隐藏时保存原始 backgroundColor（NSNull 表示原本是 nil）
+        if (!objc_getAssociatedObject(v, &kOrigBgKey)) {
+            id orig = v.backgroundColor ?: (id)[NSNull null];
+            objc_setAssociatedObject(v, &kOrigBgKey, orig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         // 清掉卡片自身的背景色
         if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
             v.backgroundColor = [UIColor clearColor];
@@ -432,11 +439,18 @@ static void _lvAttach(UIView *v) {
 
 #pragma mark - 卸载（关闭「启用」时即时移除背景，无需注销）
 
-// 恢复卡片原始背景：把之前被隐藏的模糊/背景子视图重新显示，背景色清回透明
+// 恢复卡片原始背景：把之前被隐藏的模糊/背景子视图重新显示，背景色还原到挂载前的原值
 static void _lvRestoreBackgroundsRecursive(UIView *v) {
     if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }   // 从没隐藏过则跳过
     @try {
-        v.backgroundColor = nil;   // 清回透明，让原生模糊层重新可见
+        // 恢复原始 backgroundColor（可能是具体颜色，也可能是 nil）
+        id origBg = objc_getAssociatedObject(v, &kOrigBgKey);
+        if (origBg && origBg != [NSNull null]) {
+            v.backgroundColor = (UIColor *)origBg;
+        } else {
+            v.backgroundColor = nil;
+        }
+        objc_setAssociatedObject(v, &kOrigBgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         for (UIView *s in v.subviews) {
             NSString *cls = NSStringFromClass(s.class);
             NSString *low = cls.lowercaseString;
@@ -594,10 +608,16 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
             UIView *v = (UIView *)self;
             AVPlayer *p = _lvPlayer();
             if (p && _lvEnabled()) {
-                AVPlayerLayer *l = [AVPlayerLayer playerLayerWithPlayer:p];
-                l.videoGravity = AVLayerVideoGravityResizeAspectFill;
+                // 复用同一 AVPlayerLayer（通过 kLayerKey 关联），关闭插件时 _lvDetachAll 会一并卸掉
+                AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+                if (!l) {
+                    l = [AVPlayerLayer playerLayerWithPlayer:p];
+                    l.videoGravity = AVLayerVideoGravityResizeAspectFill;
+                    objc_setAssociatedObject(v, &kLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
                 l.frame = v.bounds;
                 [v.layer addSublayer:l];
+                [_lvAttachedViews addObject:v];   // 加入集合，关闭「启用」时一并卸载恢复原图
                 [p play];
             }
         }

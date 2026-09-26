@@ -6,7 +6,7 @@ ARCHS = arm64
 
 BUNDLE_NAME = LockVideoPrefs
 LockVideoPrefs_FILES = LockVideoPrefsListController.m LockVideoMaterialCell.m
-LockVideoPrefs_FRAMEWORKS = UIKit
+LockVideoPrefs_FRAMEWORKS = UIKit PhotosUI
 LockVideoPrefs_PRIVATE_FRAMEWORKS = Preferences
 LockVideoPrefs_CFLAGS = -fobjc-arc
 LockVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles

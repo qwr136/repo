@@ -1,13 +1,14 @@
 #import "LockVideoPrefsListController.h"
 #import <UIKit/UIKit.h>
 #import <Preferences/Preferences.h>
+#import <PhotosUI/PhotosUI.h>
 #import <spawn.h>
 #import <sys/wait.h>
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVVideoDir  @"/var/mobile/通知视频"
 
-@interface LockVideoPrefsListController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface LockVideoPrefsListController () <PHPickerViewControllerDelegate>
 @end
 
 @implementation LockVideoPrefsListController
@@ -134,19 +135,18 @@
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-#pragma mark - 从相册添加素材到素材目录
+#pragma mark - 从相册添加素材到素材目录（PHPicker：支持视频 / GIF / 图片）
 
 - (void)addFromAlbum:(id)sender {
     @try {
-        if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
-            [self _showAlertTitle:@"无法访问相册" message:@"当前设备不支持相册访问。"];
-            return;
-        }
-        UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-        picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-        // public.movie = 视频，public.image = 图片/GIF
-        picker.mediaTypes = @[@"public.movie", @"public.image"];
-        picker.videoQuality = UIImagePickerControllerQualityTypeHigh;
+        PHPickerConfiguration *cfg = [[PHPickerConfiguration alloc] init];
+        // 同时支持视频与图片（含 GIF），PHPicker 会自动显示所有类型
+        cfg.filter = [PHPickerFilter anyFilterMatchingSubfilters:@[
+            [PHPickerFilter imagesFilter],
+            [PHPickerFilter videosFilter]
+        ]];
+        cfg.selectionLimit = 1;
+        PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:cfg];
         picker.delegate = self;
         [self presentViewController:picker animated:YES completion:nil];
     } @catch (NSException *e) {
@@ -154,67 +154,115 @@
     }
 }
 
-- (void)imagePickerController:(UIImagePickerController *)picker
-    didFinishPickingMediaWithInfo:(NSDictionary *)info {
-    @try {
-        NSString *type = info[UIImagePickerControllerMediaType];
-        NSFileManager *fm = [NSFileManager defaultManager];
-        NSString *dir = kLVVideoDir;
-        if (![fm fileExistsAtPath:dir]) {
-            [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
-        }
+// PHPicker 代理：选中后由系统给出 NSItemProvider，我们据此判断类型并落盘
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    if (results.count == 0) return;   // 用户取消
+    PHPickerResult *result = results.firstObject;
+    NSItemProvider *provider = result.itemProvider;
 
-        NSString *savedPath = nil;
-        if ([type isEqualToString:@"public.movie"]) {
-            NSURL *url = info[UIImagePickerControllerMediaURL];
-            if (url) {
-                NSString *ext = [url pathExtension].lowercaseString;
-                if (ext.length == 0) { ext = @"mp4"; }
-                NSString *dst = [dir stringByAppendingPathComponent:
-                    [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
-                [fm removeItemAtPath:dst error:nil];
-                if ([fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:nil]) {
-                    savedPath = dst;
+    // 1) 视频（含 mov/mp4/m4v 等所有 public.movie 类型）
+    if ([provider hasItemConformingToTypeIdentifier:@"public.movie"]) {
+        [provider loadFileRepresentationForTypeIdentifier:@"public.movie"
+            completionHandler:^(NSURL *url, NSError *err) {
+                [self _copyPickedFile:url fallbackExt:@"mp4"
+                            completion:^(NSString *path) {
+                                [self _finishAddWithPath:path];
+                            }];
+            }];
+        return;
+    }
+    // 2) GIF：优先保留为 .gif 文件（保留动画）；PHPicker 会给出 com.compuserve.gif 标识
+    if ([provider hasItemConformingToTypeIdentifier:@"com.compuserve.gif"]) {
+        [provider loadFileRepresentationForTypeIdentifier:@"com.compuserve.gif"
+            completionHandler:^(NSURL *url, NSError *err) {
+                [self _copyPickedFile:url fallbackExt:@"gif"
+                            completion:^(NSString *path) {
+                                [self _finishAddWithPath:path];
+                            }];
+            }];
+        return;
+    }
+    // 3) 普通图片（jpg/png/heic 等）
+    if ([provider hasItemConformingToTypeIdentifier:@"public.image"]) {
+        [provider loadObjectOfClass:[UIImage class]
+            completionHandler:^(id<NSItemProviderReading> obj, NSError *err) {
+                if (![obj isKindOfClass:[UIImage class]]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self _showAlertTitle:@"添加失败" message:@"无法读取所选图片。"];
+                    });
+                    return;
                 }
-            }
-        } else {
-            UIImage *img = info[UIImagePickerControllerOriginalImage];
-            if (img) {
+                UIImage *img = (UIImage *)obj;
+                NSFileManager *fm = [NSFileManager defaultManager];
                 NSData *data = UIImageJPEGRepresentation(img, 0.9);
                 NSString *ext = @"jpg";
                 if (!data) { data = UIImagePNGRepresentation(img); ext = @"png"; }
-                NSString *dst = [dir stringByAppendingPathComponent:
+                if (![fm fileExistsAtPath:kLVVideoDir]) {
+                    [fm createDirectoryAtPath:kLVVideoDir withIntermediateDirectories:YES attributes:nil error:nil];
+                }
+                NSString *dst = [kLVVideoDir stringByAppendingPathComponent:
                     [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
-                if (data && [data writeToFile:dst atomically:YES]) { savedPath = dst; }
-            }
-        }
-
-        [picker dismissViewControllerAnimated:YES completion:^{
-            if (savedPath) {
-                NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
-                                          mutableCopy] ?: [NSMutableDictionary dictionary];
-                p[@"LockVideoPath"] = savedPath;
-                [p writeToFile:kLVPrefsFile atomically:YES];
-                // 通知 SpringBoard 立即应用新素材
-                CFNotificationCenterPostNotification(
-                    CFNotificationCenterGetDarwinNotifyCenter(),
-                    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
-                [self _refreshCurrentMaterialRow];
-                [self _showAlertTitle:@"已添加素材"
-                              message:[NSString stringWithFormat:@"已保存到素材目录：\n%@", savedPath]];
-            } else {
-                [self _showAlertTitle:@"添加失败" message:@"无法保存所选素材，请重试。"];
-            }
-        }];
-    } @catch (NSException *e) {
-        [picker dismissViewControllerAnimated:YES completion:^{
-            [self _showAlertTitle:@"出错" message:[e description]];
-        }];
+                if (![data writeToFile:dst atomically:YES]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self _showAlertTitle:@"添加失败" message:@"无法保存图片。"];
+                    });
+                    return;
+                }
+                [self _finishAddWithPath:dst];
+            }];
+        return;
     }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self _showAlertTitle:@"暂不支持" message:@"该素材类型暂不支持导入。"];
+    });
 }
 
-- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    [picker dismissViewControllerAnimated:YES completion:nil];
+// 把 PHPicker 给出的临时文件（视频/GIF）拷贝到素材目录
+// 注意：loadFileRepresentation 给的 URL 只在回调内有效，必须在这里同步拷贝
+- (void)_copyPickedFile:(NSURL *)url fallbackExt:(NSString *)fallbackExt completion:(void(^)(NSString *path))cb {
+    if (!url) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self _showAlertTitle:@"添加失败" message:@"无法读取所选文件。"];
+        });
+        return;
+    }
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:kLVVideoDir]) {
+        [fm createDirectoryAtPath:kLVVideoDir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    NSString *ext = [url pathExtension].lowercaseString;
+    if (ext.length == 0) ext = fallbackExt;
+    NSString *dst = [kLVVideoDir stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
+    [fm removeItemAtPath:dst error:nil];
+    NSError *err = nil;
+    if (![fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&err]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self _showAlertTitle:@"添加失败" message:err.localizedDescription ?: @"复制失败"];
+        });
+        return;
+    }
+    cb(dst);
+}
+
+// 落盘后写 prefs + 通知 SpringBoard + 刷新设置面板
+- (void)_finishAddWithPath:(NSString *)path {
+    if (!path) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
+                                  mutableCopy] ?: [NSMutableDictionary dictionary];
+        p[@"LockVideoPath"] = path;
+        [p writeToFile:kLVPrefsFile atomically:YES];
+        // 通知 SpringBoard 立即应用新素材
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
+        [self _refreshCurrentMaterialRow];
+        [self _showAlertTitle:@"已添加素材"
+                      message:[NSString stringWithFormat:@"已保存到素材目录：\n%@", path]];
+    });
 }
 
 // 生成素材文件名时间戳（相册_YYYYMMDD_HHMMSS）
