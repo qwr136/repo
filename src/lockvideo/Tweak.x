@@ -12,12 +12,14 @@
 #define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
-static NSMutableSet<AVPlayer *> *gAllPlayers = nil;     // 每个挂载视图独立播放器，避免同素材多视图共用卡住
+static NSMutableSet<AVPlayer *> *gAllPlayers = nil;     // 当前所有存活的 AVPlayer（含共享），用于统一暂停/声音同步/可见性播放
 static NSMapTable *gObserverMap = nil;   // player -> loop observer（AVPlayer 不遵循 NSCopying，不能用 NSDictionary 当 key）
+static NSMutableDictionary<NSString *, AVPlayer *> *gPlayerByPath = nil;  // 路径 -> 共享播放器：同一段视频只解码一次，多视图 AVPlayerLayer 共用
+static NSMutableDictionary<NSValue *, NSNumber *> *gRefCount = nil;       // 播放器指针(NSValue) -> 引用计数：视图挂载+1、卸载-1，归零才真正销毁
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
-static char kPlayerKey;        // 记录 view 专属的 AVPlayer（不再按 path 共享）
+static char kPlayerKey;        // 记录 view 当前使用的 AVPlayer（可能与其他同路径视图共享，按引用计数管理生命周期）
 static char kActivityHostKey;  // 标记实时活动卡片的 PLPlatterView 宿主
 static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
@@ -450,16 +452,31 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
             _lvLogOnce(@"扫描结果", [NSString stringWithFormat:@"%@ 里没有找到视频文件", kLVVideoDir]);
             return nil;
         }
-        // 每个挂载视图都创建独立播放器：多个 AVPlayerLayer 不能共用同一个 AVPlayer，否则只能一个显示，甚至会卡住
+        // 按路径复用：同一段视频只创建一个 AVPlayer，多个视图的 AVPlayerLayer 共用它，
+        // 避免 1.0.79「每视图独立播放器」在同素材多视图时重复解码导致掉帧/卡顿。
+        if (!gPlayerByPath) { gPlayerByPath = [NSMutableDictionary dictionary]; }
+        if (!gObserverMap) { gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory]; }
+        if (!gAllPlayers) { gAllPlayers = [NSMutableSet set]; }
+        if (!gRefCount) { gRefCount = [NSMutableDictionary dictionary]; }
+
+        AVPlayer *existing = gPlayerByPath[path];
+        if (existing) {
+            NSValue *pkey = [NSValue valueWithNonretainedObject:existing];
+            NSInteger c = [gRefCount[pkey] integerValue];
+            gRefCount[pkey] = @(c + 1);
+            return existing;
+        }
+
         AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
         if (!item) { return nil; }
         AVPlayer *player = [AVPlayer playerWithPlayerItem:item];
         player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
         player.muted = !_lvSound();
         _lvAllowAutoLockForPlayer(player);
-        if (!gAllPlayers) { gAllPlayers = [NSMutableSet set]; }
-        if (!gObserverMap) { gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory]; }
         [gAllPlayers addObject:player];
+        gPlayerByPath[path] = player;
+        NSValue *pkey = [NSValue valueWithNonretainedObject:player];
+        gRefCount[pkey] = @(1);
 
             __weak AVPlayer *wp = player;
             id observer = [[NSNotificationCenter defaultCenter]
@@ -477,7 +494,7 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
                 } @catch (NSException *e) {}
             }];
             [gObserverMap setObject:observer forKey:player];
-            _lvLog([NSString stringWithFormat:@"播放器创建: %@ 声音=%d", path, _lvSound()]);
+            _lvLog([NSString stringWithFormat:@"播放器创建(按路径复用): %@ 声音=%d", path, _lvSound()]);
         return player;
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"player 异常: %@", e]);
@@ -495,7 +512,45 @@ static void _lvDetachPlayer(AVPlayer *player) {
         }
         [player pause];
         [gAllPlayers removeObject:player];
+        // 从「按路径复用」缓存中清除该播放器，避免被再次复用
+        NSString *hitKey = nil;
+        for (NSString *k in [gPlayerByPath allKeys]) {
+            if (gPlayerByPath[k] == player) { hitKey = k; break; }
+        }
+        if (hitKey) { [gPlayerByPath removeObjectForKey:hitKey]; }
+        [gRefCount removeObjectForKey:[NSValue valueWithNonretainedObject:player]];
     } @catch (NSException *e) {}
+}
+
+// 视图卸载时释放一次引用；只有引用归零（没有其它同路径视图再用）才真正销毁播放器，
+// 这样共享同一段视频的其它视图不会因为某一个视图卸载而被迫停掉/重建。
+static void _lvReleasePlayerRef(AVPlayer *player) {
+    if (!player) { return; }
+    @try {
+        NSValue *key = [NSValue valueWithNonretainedObject:player];
+        NSInteger c = [gRefCount[key] integerValue];
+        if (c <= 1) {
+            _lvDetachPlayer(player);
+        } else {
+            gRefCount[key] = @(c - 1);
+        }
+    } @catch (NSException *e) {}
+}
+
+// 判断某个播放器是否被「其它有效可见」的挂载视图使用（防止共享播放器被单个隐藏视图误暂停/误静音）
+static BOOL _lvPlayerHasOtherVisibleView(AVPlayer *p, UIView *exceptV) {
+    if (!p) { return NO; }
+    @try {
+        for (UIView *v in [_lvAttachedViews copy]) {
+            if (v == exceptV) { continue; }
+            AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+            AVPlayer *vp = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
+            if (vp == p && _lvViewEffectivelyVisible(v) && !_lvPathIsImageAsset(objc_getAssociatedObject(v, &kPathKey))) {
+                return YES;
+            }
+        }
+    } @catch (NSException *e) {}
+    return NO;
 }
 
 static void _lvResetAllPlayers(void) {
@@ -504,6 +559,8 @@ static void _lvResetAllPlayers(void) {
             _lvDetachPlayer(p);
         }
         [gAllPlayers removeAllObjects];
+        [gPlayerByPath removeAllObjects];
+        [gRefCount removeAllObjects];
     } @catch (NSException *e) {}
 }
 
@@ -809,10 +866,14 @@ static void _lvApplyButtonAudio(UIView *v) {
         AVPlayer *p = l.player;
         if (!p) { return; }
         if (_lvViewEffectivelyVisible(v)) {
-            p.muted = !_lvSound();
+            if (!_lvPlayerHasOtherVisibleView(p, v)) { p.muted = !_lvSound(); }  // 仅当无人共用时才按开关设声音
+            [p play];
         } else {
-            p.muted = YES;
-            [p pause];
+            // 按钮不可见：仅当没有其它可见视图共用此播放器时才静音+暂停，避免冻结共享的视频
+            if (!_lvPlayerHasOtherVisibleView(p, v)) {
+                p.muted = YES;
+                [p pause];
+            }
         }
     } @catch (NSException *e) {}
 }
@@ -1192,7 +1253,7 @@ static void _lvRefresh(UIView *v) {
         }
         if (l && path.length) {
             AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
-            if (!p) {
+            if (!p || ![gAllPlayers containsObject:p]) {   // 播放器可能已被重置销毁，需重建
                 p = _lvPlayerForPath(path);
                 objc_setAssociatedObject(v, &kPlayerKey, p, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             }
@@ -1282,7 +1343,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
 
         // ===== 视频分支 =====
         AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
-        if (!p) {
+        if (!p || ![gAllPlayers containsObject:p]) {   // 播放器可能已被重置销毁，需重建
             p = _lvPlayerForPath(path);
             objc_setAssociatedObject(v, &kPlayerKey, p, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
@@ -1504,9 +1565,9 @@ static void _lvRestoreBackgroundsRecursive(UIView *v, int depth) {
 static void _lvDetach(UIView *v) {
     if (!v) { return; }
     @try {
-        // 先停掉并释放这个视图专属的播放器（含循环播放 observer）
+        // 释放这个视图对播放器的一次引用（共享播放器需归零才真正销毁）
         AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
-        if (p) { _lvDetachPlayer(p); }
+        if (p) { _lvReleasePlayerRef(p); }
         objc_setAssociatedObject(v, &kPlayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
@@ -1918,9 +1979,11 @@ static void _lvPollTick(void) {
 
         gAllPlayers = [NSMutableSet set];
         gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];
+        gPlayerByPath = [NSMutableDictionary dictionary];
+        gRefCount = [NSMutableDictionary dictionary];
         if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
 
-        // 不再在 ctor 里预创建播放器：每个挂载视图独立一个 AVPlayer，等视图出现时再按需创建，避免同素材多播放器冲突
+        // 不再在 ctor 里预创建播放器：等视图出现时再按需创建；同一路径的多个视图会复用同一个 AVPlayer（引用计数管理）
 
         gWasEnabled = _lvEnabled();
 
@@ -1936,7 +1999,7 @@ static void _lvPollTick(void) {
                 _lvActivityPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.79 加载完成（实时活动铺满卡片 + 同素材独立播放器防卡 + 面板图标 panel@3x） =====");
+        _lvLog(@"===== 1.0.80 加载完成（同素材按路径复用单播放器 + 引用计数防卡 + 共享播放器不再被单个隐藏视图误暂停） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
