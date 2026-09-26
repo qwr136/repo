@@ -382,20 +382,12 @@ static BOOL _lvIsPillButtonClass(NSString *cls) {
     return NO;
 }
 
+// 只识别锁屏通知底部「选项/清除」动作按钮组容器，主通知卡片不再挂载背景
 static BOOL _lvIsNotificationView(UIView *v) {
     @try {
         NSString *cls = NSStringFromClass([v class]);
         if (!cls) { return NO; }
-        if (_lvIsActionButtonGroupView(cls)) return YES;
-        NSString *low = cls.lowercaseString;
-        if (![low containsString:@"notification"]) { return NO; }
-        if ([low containsString:@"stackdimming"]) { return NO; }
-        if ([low containsString:@"header"])       { return NO; }
-        if ([low containsString:@"listview"])     { return NO; }
-        if ([low containsString:@"sectionlist"])  { return NO; }
-        if ([low containsString:@"listcell"])     { return NO; }
-        if ([low containsString:@"content"])      { return NO; }
-        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
+        return _lvIsActionButtonGroupView(cls);
     } @catch (NSException *e) { return NO; }
 }
 
@@ -463,6 +455,12 @@ static void _lvRefresh(UIView *v) {
         }
         NSString *path = objc_getAssociatedObject(v, &kPathKey);
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+        UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
+        // 未挂载素材的视图（如通知卡片主体）保持系统原样，不再隐藏背景层
+        if (!path.length || (!l && !iv)) {
+            _lvDetach(v);
+            return;
+        }
         if (l && path.length) {
             AVPlayer *p = _lvPlayerForPath(path);
             if (p && l.player != p) { l.player = p; }
@@ -471,7 +469,6 @@ static void _lvRefresh(UIView *v) {
             l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             if (v.window && p && !_lvPathIsImageAsset(path)) { [p play]; }
         }
-        UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) {
             if (iv.superview != v) { [v insertSubview:iv atIndex:0]; }
             iv.frame = v.bounds;
@@ -564,7 +561,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
     }
 }
 
-static void _lvAttach(UIView *v) {
+__attribute__((unused)) static void _lvAttach(UIView *v) {
     _lvAttachWithPath(v, _lvPath());
 }
 
@@ -584,7 +581,7 @@ static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v) {
     return out;
 }
 
-// 尝试识别按钮组内的「选项」「清除」单个按钮，分别挂载不同素材；识别不到则整个容器挂载选项素材
+// 仅对按钮组内的「选项」「清除」单个按钮分别挂载对应素材，互不 fallback
 static void _lvAttachActionButtonGroup(UIView *v) {
     if (!v) return;
     @try {
@@ -601,17 +598,18 @@ static void _lvAttachActionButtonGroup(UIView *v) {
                 NSString *lowTitle = title.lowercaseString;
                 NSString *path = nil;
                 if ([lowTitle containsString:@"选项"] || [lowTitle containsString:@"option"]) {
-                    path = _lvOptionPath() ?: _lvPath();
+                    path = _lvOptionPath();
                 } else if ([lowTitle containsString:@"清除"] || [lowTitle containsString:@"clear"]) {
-                    path = _lvClearPath() ?: _lvPath();
-                } else {
-                    path = _lvOptionPath() ?: _lvPath();
+                    path = _lvClearPath();
                 }
-                _lvAttachWithPath(sv, path);
+                if (path.length) { _lvAttachWithPath(sv, path); }
+                else { _lvDetach(sv); }
             }
         } else {
-            NSString *path = _lvOptionPath() ?: _lvPath();
-            _lvAttachWithPath(v, path);
+            // 无法识别单个按钮时，整个容器使用选项素材（用户通常只给容器区域一个素材）
+            NSString *path = _lvOptionPath();
+            if (path.length) { _lvAttachWithPath(v, path); }
+            else { _lvDetach(v); }
         }
     } @catch (NSException *e) {}
 }
@@ -740,9 +738,8 @@ static void _lvOnMatch(UIView *v) {
     NSString *cls = NSStringFromClass([v class]);
     if (_lvIsActionButtonGroupView(cls)) {
         _lvAttachActionButtonGroup(v);
-    } else {
-        _lvAttach(v);
     }
+    // 主通知卡片不再挂载背景，只保留按钮组背景
 }
 
 #pragma mark - iOS 16 锁屏通知显式 hook
@@ -878,18 +875,9 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 
 static NSTimer *gPollTimer = nil;
 
+// 轮询扫描只命中动作按钮组，主卡片不再挂载背景
 static BOOL _lvIsCardClass(NSString *cls) {
-    if (_lvIsActionButtonGroupView(cls)) return YES;
-    NSString *low = cls.lowercaseString;
-    if (![low containsString:@"notif"]) { return NO; }
-    if ([low containsString:@"stackdimming"]) { return NO; }
-    if ([low containsString:@"header"])       { return NO; }
-    if ([low containsString:@"listview"])     { return NO; }
-    if ([low containsString:@"sectionlist"])  { return NO; }
-    if ([low containsString:@"listcell"])     { return NO; }
-    return [low containsString:@"shortlook"] ||
-           [low containsString:@"banner"]     ||
-           [low containsString:@"longlook"];
+    return _lvIsActionButtonGroupView(cls);
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
