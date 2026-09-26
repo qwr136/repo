@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.71
+Version: 1.0.72
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 488
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.71_iphoneos-arm64.deb
-Size: 97340
-MD5sum: 8d202f245c244b8b73cb737831eff087
-SHA1: d58a7573d538030393013f1c9d86d1f4a60c3f6f
-SHA256: 9e9ca7e7809a752ba304a80589e3c144f3e17ef8a46c06618b3db4967e3d24c6
+Filename: debs/com.xiaofei.notifybgvideo_1.0.72_iphoneos-arm64.deb
+Size: 97372
+MD5sum: 804c12878ad07f3dc74c606225982f6a
+SHA1: 92d876c12fe449d46226300df5b38e2c193b7279
+SHA256: d1f81e298ef41bb36e1e69209056a623cdfde05a8eb0062401e9d3791f8e4b87
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Author: 小飞
-Changelog: 1.0.71 - 设置面板去掉三个取消选择素材按钮，恢复之前的布局；诊断导出升级：按钮组出现时立即强制导出完整层级，并把导出根视图提升到通知列表 cell 级别——之前导出范围只覆盖卡片本体，看不到按钮区，导致排查按钮下方多余视图时抓不到关键层
+Changelog: 1.0.72 - 按用户要求收紧视图识别白名单：只认通知卡片本体和按钮组及按钮本身三类视图，其余一律不碰；排除了 PLActionButtonsPresentingView 按钮呈现容器和 FVFloatingActionView 悬浮视图等外围容器，它们此前被误当通知视图操作背景，是按钮区域显示异常的来源；同步收紧轮询扫描规则
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
