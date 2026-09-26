@@ -474,28 +474,70 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
 
 static void _lvAttachWithPath(UIView *v, NSString *path);
 
+// 几何启发：识别「包含两个并排等尺寸子视图」的容器 —— 选项/清除按钮组的通用形状特征，
+// 不依赖类名，任何 iOS 版本都能命中
+static BOOL _lvLooksLikeButtonGroup(UIView *v) {
+    if (!v) { return NO; }
+    @try {
+        NSArray<UIView *> *subs = v.subviews;
+        if (subs.count < 2 || subs.count > 8) { return NO; }
+        for (NSUInteger i = 0; i < subs.count; i++) {
+            for (NSUInteger j = i + 1; j < subs.count; j++) {
+                UIView *a = subs[i];
+                UIView *b = subs[j];
+                if (a.hidden || b.hidden || a.alpha < 0.05 || b.alpha < 0.05) { continue; }
+                CGFloat wDiff = fabs(a.bounds.size.width - b.bounds.size.width);
+                CGFloat hDiff = fabs(a.bounds.size.height - b.bounds.size.height);
+                CGFloat yDiff = fabs(a.frame.origin.y - b.frame.origin.y);
+                CGFloat xDiff = fabs(a.frame.origin.x - b.frame.origin.x);
+                if (wDiff < 12.0 && hDiff < 12.0 && yDiff < 12.0 && xDiff > 10.0 &&
+                    a.bounds.size.width > 40.0 && a.bounds.size.height > 24.0) {
+                    return YES;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
 // 计算宿主视图上素材背景层应覆盖的区域：
 // 若子树里存在「选项/清除」按钮区，则背景层只覆盖按钮区上方的卡片部分，
-// 按钮区露出系统原样（只有按钮本身有素材背景）；找不到按钮区时铺满整个视图
+// 按钮区露出系统原样（只有按钮本身有素材背景）；找不到按钮区时铺满整个视图。
+// 检测优先级：类名匹配 → 几何特征（底部区域里两个并排等尺寸子视图）
 static CGRect _lvCoverFrameForHost(UIView *v) {
     CGRect frame = v.bounds;
     if (!v) { return frame; }
     @try {
+        CGFloat hostH = v.bounds.size.height;
         NSMutableArray<UIView *> *stack = [NSMutableArray array];
         for (UIView *sv in v.subviews) { [stack addObject:sv]; }
         int visited = 0;
-        while (stack.count > 0 && visited < 500) {
+        while (stack.count > 0 && visited < 800) {
             UIView *sv = stack.firstObject;
             [stack removeObjectAtIndex:0];
             visited++;
             NSString *cls = NSStringFromClass([sv class]);
-            if (_lvIsActionButtonGroupView(cls) || _lvIsSingleActionButtonClass(cls)) {
+            BOOL byClass = _lvIsActionButtonGroupView(cls) || _lvIsSingleActionButtonClass(cls) || [sv isKindOfClass:[UIButton class]];
+            BOOL hit = byClass;
+            if (!hit && hostH > 80.0) {
+                // 几何兜底：只认位于下半部分、且内部有两个并排等尺寸子视图的容器
+                CGFloat yInHost = [v convertRect:sv.bounds fromView:sv].origin.y;
+                if (yInHost > hostH * 0.2 && yInHost < hostH - 20.0 && _lvLooksLikeButtonGroup(sv)) {
+                    hit = YES;
+                }
+            }
+            if (hit) {
                 CGRect f = [v convertRect:sv.bounds fromView:sv];
                 CGFloat bottom = f.origin.y - 6.0;
                 if (bottom >= 20.0 && bottom < frame.size.height) {
                     frame.size.height = bottom;
                 }
-                _lvRestoreBackgroundsRecursive(sv);   // 顺带清掉历史版本残留的隐藏标记
+                if (byClass) {
+                    _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
+                }
+                _lvLogOnce(NSStringFromClass([v class]),
+                           [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
+                            cls, f.origin.y, f.size.height, frame.size.height]);
                 return frame;
             }
             for (UIView *c in sv.subviews) { [stack addObject:c]; }
