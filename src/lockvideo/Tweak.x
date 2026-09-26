@@ -202,20 +202,22 @@ static NSString *_lvPathForKey(NSString *key) {
 
 static NSString *_lvPath(void) {
     @try {
-        // 「取消选择素材」会写入空字符串：存在空值时不再自动扫描目录
-        id direct = _lvPrefs()[@"LockVideoPath"];
-        if ([direct isKindOfClass:[NSString class]] && ![direct length]) { return nil; }
-        for (NSString *suite in _lvSuites()) {
-            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
-            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoPath"), (__bridge CFStringRef)suite);
-            if (!cf) { continue; }
-            id val = CFBridgingRelease(cf);
-            if ([val isKindOfClass:[NSString class]] && ![val length]) { return nil; }
+        NSString *saved = _lvPathForKey(@"LockVideoPath");
+        if (saved) {
+            _lvLogOnce(@"当前素材", [NSString stringWithFormat:@"已设置: %@", saved.lastPathComponent]);
+            return saved;
         }
+        // 没设置、或设置过的文件已不存在：退回扫描目录，取第一个可用素材。
+        // （旧版本把「取消选择」写成空字符串后就永久不生效，这里不再把空值当取消）
+        NSArray<NSString *> *files = _lvScanFiles();
+        if (files.count) {
+            _lvLogOnce(@"当前素材", [NSString stringWithFormat:@"未设置，自动用目录第一个: %@",
+                                    [files.firstObject lastPathComponent]]);
+            return files.firstObject;
+        }
+        _lvLogOnce(@"当前素材", @"未设置且素材目录为空 —— 卡片不会有背景，请在设置里「选择当前素材」");
     } @catch (NSException *e) {}
-    NSString *saved = _lvPathForKey(@"LockVideoPath");
-    if (saved) return saved;
-    return _lvScanFiles().firstObject;
+    return nil;
 }
 
 static NSString *_lvOptionPath(void) { return _lvPathForKey(@"LockVideoOptionPath"); }
@@ -311,6 +313,15 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
 
             for (UIView *c in v.subviews) { [stack addObject:@[c, @(depth + 1)]]; }
         }
+
+        [s appendString:@"\n===== 素材配置 =====\n"];
+        NSString *mainP = _lvPath();
+        NSString *optP = _lvOptionPath();
+        NSString *clrP = _lvClearPath();
+        [s appendFormat:@"  当前素材=%@\n", mainP ? mainP.lastPathComponent : @"未设置（卡片不会有背景）"];
+        [s appendFormat:@"  选项素材=%@\n", optP ? optP.lastPathComponent : @"未设置"];
+        [s appendFormat:@"  清除素材=%@\n", clrP ? clrP.lastPathComponent : @"未设置"];
+        [s appendFormat:@"  素材目录文件数=%lu\n", (unsigned long)_lvScanFiles().count];
 
         [s appendFormat:@"\n===== 挂载了素材的视图（共 %lu 个）=====\n", (unsigned long)attached.count];
         if (attached.count == 0) {
@@ -1692,7 +1703,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.73 加载完成（修复按钮组容器误挂素材——选项下面那层同款视频的元凶） =====");
+        _lvLog(@"===== 1.0.74 加载完成（修复主素材被空值钉死导致卡片背景不生效） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

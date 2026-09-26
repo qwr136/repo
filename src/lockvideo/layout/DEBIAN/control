@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.73
+Version: 1.0.74
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.73 - 修复选项按钮下面多出来的那层同款视频：PLPlatterActionButtonsView 按钮组容器的类名含 actionbutton 又不含 group，被误判成单个按钮挂上了素材，整块铺在两个按钮底下且和选项按钮用同一个文件；现在把按钮组容器从单个按钮判定中排除，容器恢复系统原样只留两个按钮各自挂素材，旧版本挂上去的残留会在轮询时自动清掉
+Changelog: 1.0.74 - 修复通知卡片背景视频不生效：旧版本点过取消选择当前素材后会把空字符串写进配置，主素材从此被钉死为空再也不会挂载；现在空值等同未设置，会自动退回扫描素材目录取第一个文件，卡片背景立刻恢复；诊断导出新增素材配置段，直接显示当前素材选项素材清除素材各自有没有设置以及目录里有多少文件
