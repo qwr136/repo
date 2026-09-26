@@ -531,14 +531,15 @@ static CGRect _lvCoverFrameForHost(UIView *v) {
                 CGFloat bottom = f.origin.y - 6.0;
                 if (bottom >= 20.0 && bottom < frame.size.height) {
                     frame.size.height = bottom;
+                    if (byClass) {
+                        _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
+                    }
+                    _lvLogOnce(NSStringFromClass([v class]),
+                               [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
+                                cls, f.origin.y, f.size.height, frame.size.height]);
+                    return frame;
                 }
-                if (byClass) {
-                    _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
-                }
-                _lvLogOnce(NSStringFromClass([v class]),
-                           [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
-                            cls, f.origin.y, f.size.height, frame.size.height]);
-                return frame;
+                // 候选位于顶部、裁剪无意义 —— 继续找下一个（真正的按钮区在底部）
             }
             for (UIView *c in sv.subviews) { [stack addObject:c]; }
         }
@@ -746,6 +747,19 @@ static void _lvAttachActionButtonGroup(UIView *v) {
         NSArray<UIView *> *buttons = _lvFindPillButtonsInView(v);
         if (buttons.count > 0) {
             _lvDetach(v);   // 关键：清掉容器上可能残留的挂载并恢复其背景，缝隙不再显示视频
+            // 保险：向上清理最多 4 层祖先中可能残留的旧版本挂载（只清 action/pill/button 类容器）
+            UIView *p = v.superview;
+            int up = 0;
+            while (p && up < 4) {
+                @try {
+                    NSString *pc = NSStringFromClass([p class]).lowercaseString ?: @"";
+                    if ([pc containsString:@"action"] || [pc containsString:@"pill"] || [pc containsString:@"buttongroup"]) {
+                        _lvDetach(p);
+                    }
+                } @catch (NSException *e) {}
+                p = p.superview;
+                up++;
+            }
             for (NSUInteger i = 0; i < buttons.count; i++) {
                 UIView *sv = buttons[i];
                 NSString *lowTitle = _lvButtonTitle(sv).lowercaseString;
@@ -1029,8 +1043,11 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 
 static NSTimer *gPollTimer = nil;
 
-// 轮询扫描命中：动作按钮组 或 通知卡片本体
+// 轮询扫描命中判断 —— 与 _lvIsNotificationView 保持完全一致。
+// 必须排除 content 容器：NCNotificationLongLookContentView 这类视图包含卡片+按钮区，
+// 若被挂载会铺满整个区域，导致按钮组缝隙露出主素材
 static BOOL _lvIsCardClass(NSString *cls) {
+    if (!cls) { return NO; }
     if (_lvIsActionButtonGroupView(cls)) return YES;
     NSString *low = cls.lowercaseString;
     if (![low containsString:@"notif"]) { return NO; }
@@ -1039,6 +1056,7 @@ static BOOL _lvIsCardClass(NSString *cls) {
     if ([low containsString:@"listview"])     { return NO; }
     if ([low containsString:@"sectionlist"])  { return NO; }
     if ([low containsString:@"listcell"])     { return NO; }
+    if ([low containsString:@"content"])      { return NO; }
     return [low containsString:@"shortlook"] ||
            [low containsString:@"banner"]     ||
            [low containsString:@"longlook"];
@@ -1063,6 +1081,36 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
     } @catch (NSException *e) {}
 }
 
+// 清理历史版本残留的非法挂载：
+// 视图带挂载记录但既不是合法卡片本体、也不在按钮组内（例如旧版本挂在
+// LongLookContentView 这类包含按钮区的大视图上）——一律卸载，防止按钮区露出素材
+static void _lvCleanupStaleAttachments(void) {
+    @try {
+        NSMutableArray<UIView *> *stale = [NSMutableArray array];
+        for (UIView *v in _lvAttachedViews) {
+            if (!v || !v.window) { continue; }
+            NSString *cls = NSStringFromClass([v class]);
+            if (_lvIsCardClass(cls)) { continue; }   // 合法卡片挂载点
+            // 按钮组内的按钮属于合法挂载（祖先存在 action group 容器）
+            BOOL inGroup = NO;
+            UIView *p = v.superview;
+            int up = 0;
+            while (p && up < 6) {
+                if (_lvIsActionButtonGroupView(NSStringFromClass([p class]))) { inGroup = YES; break; }
+                p = p.superview;
+                up++;
+            }
+            if (inGroup) { continue; }
+            [stale addObject:v];
+        }
+        for (UIView *v in stale) {
+            _lvLog([NSString stringWithFormat:@"清理残留挂载: %@", NSStringFromClass([v class])]);
+            _lvDetach(v);
+            [_lvAttachedViews removeObject:v];
+        }
+    } @catch (NSException *e) {}
+}
+
 static void _lvPollTick(void) {
     @try {
         if (!_lvEnabled()) {
@@ -1073,6 +1121,7 @@ static void _lvPollTick(void) {
             _lvPauseAllPlayers();
             return;
         }
+        _lvCleanupStaleAttachments();   // 清理旧版本挂在按钮区大视图上的残留
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
