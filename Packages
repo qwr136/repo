@@ -34,20 +34,20 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.msgbgvideo
-Version: 1.0.4
+Version: 1.0.5
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
-Filename: debs/com.xiaofei.msgbgvideo_1.0.4_iphoneos-arm64.deb
-Size: 25844
-MD5sum: b663a681ce6b619f36d6d86a0ea03226
-SHA1: 8a0d83ca612911ab5208c258b49bd7bbfcc08142
-SHA256: b710c19aece3a509254c3b0a8943ac54543aa5effb0f538a1cb15ae5752222da
+Filename: debs/com.xiaofei.msgbgvideo_1.0.5_iphoneos-arm64.deb
+Size: 25946
+MD5sum: 507c73f84dee13097e384cdf697a7071
+SHA1: 7851352a63774da7f8b310cc4c3f7ab36378be56
+SHA256: ee4a118b5349ca7d3d8ac6a63090bf90f8701213f9498fab95b025d6ab392887
 Section: Tweaks (rootless)
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Author: 小飞
-Changelog: 1.0.4 - 修复日志不生成（自动建素材目录+兜底日志）与默认未开启的问题，注入过滤增加 MobileSMS 可执行文件，新增心跳与视图树诊断
+Changelog: 1.0.5 - 修复MobileSMS注入后不生效：过滤规则增加Executables双保险命中MobileSMS，激活判定改宽松匹配(进程名/bundle含mobilesms)，去掉gQuiet静默，新增全局dylib加载探针日志用于确认注入落点
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 信息视频背景
