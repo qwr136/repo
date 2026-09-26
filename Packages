@@ -34,20 +34,20 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.msgbgvideo
-Version: 1.0.2
+Version: 1.0.3
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
-Filename: debs/com.xiaofei.msgbgvideo_1.0.2_iphoneos-arm64.deb
-Size: 23982
-MD5sum: 19055f698873fbfeedb0f0799ef72871
-SHA1: bab44edc5b15067ade507be7d94a0ee024c5571c
-SHA256: 47e33e3fcf9361262561fb534d7c7320a1edf14d5bee12197ef1efbd3609cc3d
+Filename: debs/com.xiaofei.msgbgvideo_1.0.3_iphoneos-arm64.deb
+Size: 25460
+MD5sum: aaf051cfd6ee99654f3450877151bd4d
+SHA1: fdf3d8f34b718467feae36e6d286dcfc70e48381
+SHA256: d4df5722e1fc28516f89dcd92e9202012e9175591708aaacb8b51d815ea6076f
 Section: Tweaks (rootless)
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Author: 小飞
-Changelog: 1.0.2 - 视频直接挂到会话列表视图 CKConversationListCollectionView 和聊天页 CKTranscript 上，并清掉列表自身背景，滚动时视频固定不跟随
+Changelog: 1.0.3 - 修复日志不生成（自动建素材目录+兜底日志）与默认未开启的问题，注入过滤增加 MobileSMS 可执行文件，新增心跳与视图树诊断
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 信息视频背景
