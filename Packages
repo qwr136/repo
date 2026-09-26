@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.72
+Version: 1.0.73
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 488
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.72_iphoneos-arm64.deb
-Size: 97372
-MD5sum: 804c12878ad07f3dc74c606225982f6a
-SHA1: 92d876c12fe449d46226300df5b38e2c193b7279
-SHA256: d1f81e298ef41bb36e1e69209056a623cdfde05a8eb0062401e9d3791f8e4b87
+Filename: debs/com.xiaofei.notifybgvideo_1.0.73_iphoneos-arm64.deb
+Size: 97412
+MD5sum: 5f3583b3ef5019803454606fe4981c8d
+SHA1: 3f8dd8cad199093410309dfafe5c215c53030b48
+SHA256: 50deda3dd12cd588eab100125784d1d2b9786ea2648b755c45eba01c5c4c2e26
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Author: 小飞
-Changelog: 1.0.72 - 按用户要求收紧视图识别白名单：只认通知卡片本体和按钮组及按钮本身三类视图，其余一律不碰；排除了 PLActionButtonsPresentingView 按钮呈现容器和 FVFloatingActionView 悬浮视图等外围容器，它们此前被误当通知视图操作背景，是按钮区域显示异常的来源；同步收紧轮询扫描规则
+Changelog: 1.0.73 - 修复选项按钮下面多出来的那层同款视频：PLPlatterActionButtonsView 按钮组容器的类名含 actionbutton 又不含 group，被误判成单个按钮挂上了素材，整块铺在两个按钮底下且和选项按钮用同一个文件；现在把按钮组容器从单个按钮判定中排除，容器恢复系统原样只留两个按钮各自挂素材，旧版本挂上去的残留会在轮询时自动清掉
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
