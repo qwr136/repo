@@ -1082,6 +1082,20 @@ static NSInteger _lvNowPlayingState(void) {
 static NSString *_lvSubtreeDigest(UIView *root) {
     NSMutableString *out = [NSMutableString string];
     @try {
+        if (root.superview) {
+            NSMutableArray<NSString *> *ups = [NSMutableArray array];
+            NSInteger hop = 0;
+            for (UIView *cur = root.superview; cur && hop < 6; cur = cur.superview) {
+                hop++;
+                NSString *al = nil;
+                @try { al = cur.accessibilityLabel; } @catch (NSException *e) { al = nil; }
+                CGSize sz = cur.bounds.size;
+                [ups addObject:[NSString stringWithFormat:@"%@(%.0fx%.0f)%@",
+                                NSStringFromClass([cur class]), sz.width, sz.height,
+                                al.length ? [@"[" stringByAppendingFormat:@"%@]", al] : @""]];
+            }
+            [out appendFormat:@"祖先[%@] || ", [ups componentsJoinedByString:@" < "]];
+        }
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         int nodes = 0;
         while (stack.count && nodes < 70 && out.length < 900) {
@@ -1102,11 +1116,37 @@ static NSString *_lvSubtreeDigest(UIView *root) {
     return out.length ? out : @"(空)";
 }
 
+// 再试着从视图上读出「它属于哪个实时活动 / 哪个 App」。
+// 只读纯数据型的私有属性，且要求选择器确实存在，读不到就拉倒 —— 纯诊断用途，不改任何行为。
+static NSString *_lvProbeActivityIdentity(UIView *v) {
+    NSMutableArray<NSString *> *hits = [NSMutableArray array];
+    @try {
+        NSArray<NSString *> *keys = @[@"activityIdentifier", @"_activityIdentifier",
+                                      @"activityItemIdentifier", @"_activityItemIdentifier",
+                                      @"activityAttributes", @"_activityAttributes",
+                                      @"bundleIdentifier", @"appBundleIdentifier",
+                                      @"_applicationIdentifier", @"contentIdentifier"];
+        for (NSString *k in keys) {
+            SEL sel = NSSelectorFromString(k);
+            if (!sel || ![v respondsToSelector:sel]) { continue; }
+            @try {
+                id val = [v valueForKey:k];
+                NSString *desc = val ? [val description] : nil;
+                if (!desc.length) { continue; }
+                if (desc.length > 120) { desc = [desc substringToIndex:120]; }
+                [hits addObject:[NSString stringWithFormat:@"%@=%@", k, desc]];
+            } @catch (NSException *e) { /* 私有属性读不出来是常态，忽略 */ }
+        }
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+    return hits.count ? [hits componentsJoinedByString:@" | "] : @"(无私钥可读)";
+}
+
 static void _lvDumpActivityStructureOnce(UIView *v) {
     if (!_lvLogging() || !v) { return; }
     if (objc_getAssociatedObject(v, &kKindDumpKey)) { return; }
     objc_setAssociatedObject(v, &kKindDumpKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     _lvNote(kLVCatActivity, @"卡片真实结构（据此区分实时活动/播放器）：%@", _lvSubtreeDigest(v));
+    _lvNote(kLVCatActivity, @"卡片所属活动/App（同上目的）：%@", _lvProbeActivityIdentity(v));
 }
 
 static void _lvAttachWithPath(UIView *v, NSString *path);
