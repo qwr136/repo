@@ -41,10 +41,10 @@ Installed-Size: 488
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
 Filename: debs/com.xiaofei.notifybgvideo_1.0.75_iphoneos-arm64.deb
-Size: 96592
-MD5sum: 7024003b402e2832fe721087ff4f0ce2
-SHA1: 354cb849b3460f85536e08b08086b3089fc784e7
-SHA256: d2ab2e50738681e12acf3948f6dd3779a94cf5453ac5a08970583741c5877683
+Size: 96598
+MD5sum: 3a86893662872d786b6d0b5718abfb25
+SHA1: cbd935f4040d05e2899a6986624674b13724e25a
+SHA256: 394acf0086dc6640195db828aaab76d95bc85620544c13d2c609e7b798860933
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Author: 小飞
