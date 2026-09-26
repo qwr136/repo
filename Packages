@@ -34,20 +34,20 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.msgbgvideo
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
-Installed-Size: 352
+Installed-Size: 384
 Depends: mobilesubstrate | ellekit
-Filename: debs/com.xiaofei.msgbgvideo_1.0.1_iphoneos-arm64.deb
-Size: 21820
-MD5sum: 22a40225730df9634f8c0f441fdb30e2
-SHA1: 2b234301fde4260e46376691ee31a4db47c8fcff
-SHA256: f2a1f20d7592123f488f070355f0951ce42351bfc9e58ef6761600b337bb4e0e
+Filename: debs/com.xiaofei.msgbgvideo_1.0.2_iphoneos-arm64.deb
+Size: 23982
+MD5sum: 19055f698873fbfeedb0f0799ef72871
+SHA1: bab44edc5b15067ade507be7d94a0ee024c5571c
+SHA256: 47e33e3fcf9361262561fb534d7c7320a1edf14d5bee12197ef1efbd3609cc3d
 Section: Tweaks (rootless)
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Author: 小飞
-Changelog: 1.0.1 - 首个版本：信息 App 全屏视频背景，支持启用开关、切换视频、声音开关（默认开）、透明度调节，素材放在 /var/mobile/信息视频
+Changelog: 1.0.2 - 视频直接挂到会话列表视图 CKConversationListCollectionView 和聊天页 CKTranscript 上，并清掉列表自身背景，滚动时视频固定不跟随
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 信息视频背景
