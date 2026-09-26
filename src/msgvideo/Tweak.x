@@ -24,6 +24,7 @@ static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gAppActive = YES;
 static int gUpdateCount = 0;
 static int gPollCount = 0;
+static BOOL gInMessages = NO;   // 只有注入到「信息」App 时才干活（其它进程只写日志当探针）
 
 #pragma mark - 偏好（直接读文件 + 系统偏好双保险）
 
@@ -315,6 +316,7 @@ static BOOL _mvIsTargetClass(NSString *cls) {
 // 滚动时用 contentOffset 修正 frame，保证视频固定在屏幕上不跟着滚。
 static void _mvAttachToView(UIView *v) {
     @try {
+        if (!gInMessages) { return; }
         if (!v || !_mvEnabled()) { return; }
         AVPlayer *p = _mvPlayer();
         if (!p) { return; }
@@ -364,6 +366,7 @@ static void _mvAttachToView(UIView *v) {
 
 static void _mvScanTargets(UIView *root) {
     @try {
+        if (!gInMessages) { return; }
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         int visited = 0;
         while (stack.count > 0 && visited < 1500) {
@@ -405,6 +408,7 @@ static void _mvDumpWindow(UIWindow *w) {
 
 static void _mvUpdateWindow(UIWindow *w) {
     @try {
+        if (!gInMessages) { return; }
         if (!w) { return; }
         if (w.hidden || w.alpha <= 0.01) { return; }
 
@@ -463,6 +467,15 @@ static void _mvUpdateWindow(UIWindow *w) {
 
 static void _mvPollTick(void) {
     @try {
+        if (!gInMessages) {
+            // 探针进程：只写心跳，绝不动界面
+            gPollCount++;
+            if (gPollCount % 20 == 1) {
+                _mvLog([NSString stringWithFormat:@"探针心跳: 进程=%@（不是信息App，不干活）",
+                        [[NSProcessInfo processInfo] processName]]);
+            }
+            return;
+        }
         if (!_mvEnabled()) {
             if (gPlayer) { [gPlayer pause]; }
             return;
@@ -574,6 +587,9 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
 
 %ctor {
     @try {
+        NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
+        gInMessages = [bid isEqualToString:@"com.apple.MobileSMS"];
+
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL, _mvPrefsChanged, kMVNotify, NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
@@ -591,13 +607,15 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
                 @try { if (gPlayer) { [gPlayer pause]; } } @catch (NSException *e) {}
             }];
 
-        _mvLog([NSString stringWithFormat:@"进程: %@ (信息App=%d)",
-                [[NSProcessInfo processInfo] processName],
-                [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:@"com.apple.MobileSMS"]]);
+        _mvLog([NSString stringWithFormat:@"进程: %@ bundle=%@ 信息App=%d",
+                [[NSProcessInfo processInfo] processName], bid ?: @"(无)", gInMessages]);
+        if (!gInMessages) {
+            _mvLog(@"探针: dylib 已加载，但当前不是信息App，只记录不干活");
+        }
         _mvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 透明度=%.2f 视频=%@ 目录存在=%d",
                 _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
-        _mvLog(@"===== 1.0.3 信息视频背景 加载完成 =====");
+        _mvLog(@"===== 1.0.4 信息视频背景 加载完成 =====");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
