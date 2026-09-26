@@ -23,6 +23,8 @@ static char kHideDoneKey;
 static char kOrigHiddenKey;
 static char kOrigAlphaKey;
 static char kOrigBgColorKey;
+static char kOrigCornerKey;    // 备份：宿主 layer.cornerRadius（关闭插件时还原）
+static char kOrigMasksKey;     // 备份：宿主 layer.masksToBounds（关闭插件时还原）
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 
@@ -240,6 +242,8 @@ static NSTimeInterval gLastDumpTime = 0;
 static void _lvDumpHierarchy(UIView *root, BOOL force) {
     @try {
         if (!root) { return; }
+        // 视图结构.txt 只在「视图描边调试」开启时才导出，平时不再写日志
+        if (!_lvDebugOutline()) { return; }
         if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
         NSTimeInterval gap = _lvDebugOutline() ? 1.5 : 8.0;
@@ -714,6 +718,53 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
     [v.layer insertSublayer:l atIndex:target];
 }
 
+#pragma mark - 按钮素材声音（左滑可见才出声）
+
+// 视图是否「实际可见」：祖先链没有 hidden / alpha≈0，且投影到屏幕上有实际面积
+// （iOS16 锁屏不左滑时，选项/清除按钮是被移出屏幕或隐藏的，靠这个判定区分）
+static BOOL _lvViewEffectivelyVisible(UIView *v) {
+    if (!v) { return NO; }
+    @try {
+        if (!v.window) { return NO; }
+        for (UIView *cur = v; cur; cur = cur.superview) {
+            if (cur.hidden || cur.alpha < 0.01) { return NO; }
+        }
+        CGRect r = [v convertRect:v.bounds toView:nil];
+        CGRect screen = [UIScreen mainScreen].bounds;
+        CGRect inter = CGRectIntersection(r, screen);
+        if (CGRectIsNull(inter)) { return NO; }
+        return inter.size.width > 2.0 && inter.size.height > 2.0;
+    } @catch (NSException *e) { return NO; }
+}
+
+// 「选项/清除」按钮的音频控制：
+//   左滑按钮真的显示出来 → 正常出声（跟随「视频声音」开关）
+//   不左滑（按钮隐藏 / 移出屏幕）→ 静音并暂停，绝不漏声音；主卡片视频不受影响
+static void _lvApplyButtonAudio(UIView *v) {
+    @try {
+        if (!v) { return; }
+        NSString *cls = NSStringFromClass([v class]);
+        if (!_lvIsSingleActionButtonClass(cls) && ![v isKindOfClass:[UIButton class]]) { return; }
+        NSString *path = objc_getAssociatedObject(v, &kPathKey);
+        if (!path.length || _lvPathIsImageAsset(path)) { return; }   // 图片/GIF 本来就没有声音
+        AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+        AVPlayer *p = l.player;
+        if (!p) { return; }
+        if (_lvViewEffectivelyVisible(v)) {
+            p.muted = !_lvSound();
+        } else {
+            p.muted = YES;
+            [p pause];
+        }
+    } @catch (NSException *e) {}
+}
+
+static void _lvUpdateButtonAudioEverywhere(void) {
+    @try {
+        for (UIView *v in [_lvAttachedViews copy]) { _lvApplyButtonAudio(v); }
+    } @catch (NSException *e) {}
+}
+
 static void _lvAttachWithPath(UIView *v, NSString *path);
 
 // 防挂锁白名单：只允许两类视图挂载素材——
@@ -904,6 +955,27 @@ static void _lvForceRestoreAllInView(UIView *v, int depth) {
             v.backgroundColor = ob;
             objc_setAssociatedObject(v, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+        NSNumber *oc = objc_getAssociatedObject(v, &kOrigCornerKey);
+        if (oc) {
+            v.layer.cornerRadius = [oc floatValue];
+            objc_setAssociatedObject(v, &kOrigCornerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        NSNumber *om = objc_getAssociatedObject(v, &kOrigMasksKey);
+        if (om) {
+            v.layer.masksToBounds = [om boolValue];
+            objc_setAssociatedObject(v, &kOrigMasksKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        // 兜底：就算不在挂载清单里，只要视图上还挂着插件素材层就一律拆掉
+        AVPlayerLayer *al = objc_getAssociatedObject(v, &kLayerKey);
+        if (al) {
+            [al removeFromSuperlayer];
+            objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        UIImageView *aiv = objc_getAssociatedObject(v, &kImgKey);
+        if (aiv) {
+            [aiv removeFromSuperview];
+            objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kKeepBgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kPathKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1064,7 +1136,14 @@ static void _lvRefresh(UIView *v) {
             _lvInsertLayer(v, l);
             l.frame = _lvCoverFrameForHost(v);
             l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
-            if (v.window && p && !_lvPathIsImageAsset(path)) { [p play]; }
+            if (v.window && p && !_lvPathIsImageAsset(path)) {
+                NSString *cls = NSStringFromClass([v class]);
+                if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
+                    if (_lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑按钮可见才播
+                } else {
+                    [p play];
+                }
+            }
         }
         if (iv) {
             if (iv.superview != v) { _lvInsertImageView(v, iv); }
@@ -1114,6 +1193,12 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
 
             if (_lvIsActionButtonGroupView(NSStringFromClass(v.class)) || _lvIsPillButtonClass(NSStringFromClass(v.class))) {
+                if (!objc_getAssociatedObject(v, &kOrigMasksKey)) {
+                    objc_setAssociatedObject(v, &kOrigMasksKey, @(v.layer.masksToBounds), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
+                if (!objc_getAssociatedObject(v, &kOrigCornerKey)) {
+                    objc_setAssociatedObject(v, &kOrigCornerKey, @(v.layer.cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
                 v.layer.masksToBounds = YES;
                 v.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             }
@@ -1154,7 +1239,14 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         l.frame = _lvCoverFrameForHost(v);
         l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         l.opacity = (float)_lvAlpha();
-        [p play];
+        {
+            NSString *cls = NSStringFromClass([v class]);
+            if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
+                if (_lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑可见才播，不左滑保持静音暂停
+            } else {
+                [p play];
+            }
+        }
         _lvPrepareHostBackgrounds(v);
         CGRect coverFrame = l.frame;
         _lvLogOnce(NSStringFromClass(v.class),
@@ -1320,6 +1412,16 @@ static void _lvRestoreBackgroundsRecursive(UIView *v, int depth) {
         if (origBg) {
             v.backgroundColor = origBg;
             objc_setAssociatedObject(v, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        NSNumber *origCorner = objc_getAssociatedObject(v, &kOrigCornerKey);
+        if (origCorner) {
+            v.layer.cornerRadius = [origCorner floatValue];
+            objc_setAssociatedObject(v, &kOrigCornerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        NSNumber *origMasks = objc_getAssociatedObject(v, &kOrigMasksKey);
+        if (origMasks) {
+            v.layer.masksToBounds = [origMasks boolValue];
+            objc_setAssociatedObject(v, &kOrigMasksKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
 
         for (UIView *sv in [v.subviews copy]) { _lvRestoreBackgroundsRecursive(sv, depth + 1); }
@@ -1538,6 +1640,7 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
             p.muted = !_lvSound();
             _lvAllowAutoLockForPlayer(p);
         }
+        _lvUpdateButtonAudioEverywhere();   // 按钮素材立刻按可见性修正，不漏声
 
         // 收集当前激活的 path
         NSMutableSet<NSString *> *active = [NSMutableSet set];
@@ -1669,6 +1772,7 @@ static void _lvPollTick(void) {
         }
         if (foundAnyCard) { _lvPlayAllVisiblePlayers(); }
         else { _lvPauseAllPlayers(); }
+        _lvUpdateButtonAudioEverywhere();   // 选项/清除：不左滑时静音暂停，不漏声音
     } @catch (NSException *e) {}
 }
 
@@ -1740,7 +1844,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.75 加载完成（设置面板改名调序 + 关闭即恢复系统原样 + 停用 Hook 日志） =====");
+        _lvLog(@"===== 1.0.76 加载完成（关闭恢复原生背景更彻底 + 选项清除左滑才出声 + 日志只在调试时写） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
