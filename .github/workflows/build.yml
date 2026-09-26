@@ -42,6 +42,15 @@ jobs:
           cd "$GITHUB_WORKSPACE/src/lockvideo/packages"
           python3 "$GITHUB_WORKSPACE/.github/scripts/repack_gzip.py"
 
+      - name: Verify deb (control 单行 + gzip + 架构，防 Bad Deb)
+        run: |
+          cd "$GITHUB_WORKSPACE/src/lockvideo/packages"
+          for d in *.deb; do
+            dpkg-deb -I "$d" > /dev/null
+            dpkg-deb -c "$d" > /dev/null
+          done
+          python3 "$GITHUB_WORKSPACE/.github/scripts/verify_deb.py"
+
       - name: Publish build log (for debugging)
         if: always()
         run: |

@@ -2,7 +2,7 @@
 # 把 theos 打出来的 deb 里 data.tar.lzma 重压缩为 data.tar.gz。
 # 部分 iOS 包管理器/设备 dpkg 不认 LZMA alone 格式，会报 Bad Deb。
 # 只做纯重压缩，不重新解包，tar 内 root/wheel 属主原样保留。
-import glob, gzip, lzma, os, sys
+import glob, gzip, lzma, os, sys, time
 
 def ar_members(p):
     data = open(p, 'rb').read()
@@ -18,7 +18,7 @@ def ar_members(p):
 
 def ar_header(name, size):
     h = name.ljust(16).encode()
-    h += b'0'.ljust(12)          # mtime
+    h += str(int(time.time())).encode().ljust(12)   # mtime（与 GNU dpkg-deb 一致）
     h += b'0'.ljust(6)           # uid
     h += b'0'.ljust(6)           # gid
     h += b'100644'.ljust(8)      # mode
