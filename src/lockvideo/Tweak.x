@@ -249,12 +249,13 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
 // 每一层记录：类名 / frame / hidden / alpha / 背景色 / 子图层 / 是否挂载素材
 // 文件末尾还会列出「结论段」——所有挂了素材的视图及其素材文件名与覆盖区域
 static NSTimeInterval gLastDumpTime = 0;
-static void _lvDumpHierarchy(UIView *root) {
+static void _lvDumpHierarchy(UIView *root, BOOL force) {
     @try {
+        if (!root) { return; }
         if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
         NSTimeInterval gap = _lvDebugOutline() ? 1.5 : 8.0;
-        if (now - gLastDumpTime < gap) { return; }   // 节流，避免频繁写文件
+        if (!force && now - gLastDumpTime < gap) { return; }   // 节流，避免频繁写文件
         gLastDumpTime = now;
 
         NSMutableString *s = [NSMutableString string];
@@ -353,6 +354,28 @@ static void _lvDumpHierarchy(UIView *root) {
         } @catch (NSException *e) {}
         [s writeToFile:kLVDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
     } @catch (NSException *e) {}
+}
+
+// dump 用更好的根视图：「选项/清除」按钮不在小卡片 ShortLookView 的子树里，
+// 之前按卡片导出的文件里永远看不到按钮区（挂载记录是 0 个但按钮明明挂了素材）。
+// 向上找包含 cell / longlook / listview 的祖先，把整条通知都框进导出范围。
+static UIView *_lvBetterDumpRoot(UIView *v) {
+    if (!v) { return nil; }
+    UIView *best = v;
+    @try {
+        UIView *p = v.superview;
+        int up = 0;
+        while (p && up < 8) {
+            NSString *c = NSStringFromClass([p class]).lowercaseString ?: @"";
+            if ([c containsString:@"cell"] || [c containsString:@"longlook"] ||
+                [c containsString:@"listview"] || [c containsString:@"stackview"]) {
+                best = p;
+            }
+            p = p.superview;
+            up++;
+        }
+    } @catch (NSException *e) {}
+    return best;
 }
 
 #pragma mark - 播放器（按 path 缓存，支持多素材）
@@ -1235,6 +1258,8 @@ static void _lvAttachActionButtonGroup(UIView *v) {
             }
             _lvLogOnce(NSStringFromClass([v class]),
                        [NSString stringWithFormat:@"按钮组识别: %@", [titles componentsJoinedByString:@" | "]]);
+            // 按钮区一出现就强制导出完整层级（覆盖按钮所在整条通知），定位按钮下方多余视图
+            _lvDumpHierarchy(_lvBetterDumpRoot(v), YES);
         } else {
             _lvDetach(v);   // 找不到单个按钮也不给容器挂背景
         }
@@ -1354,7 +1379,7 @@ static BOOL _lvIsLockScreenVisible(void) {
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");
     _lvDebugDraw(v);
-    _lvDumpHierarchy(v);
+    _lvDumpHierarchy(_lvBetterDumpRoot(v), NO);
     if (!_lvEnabled()) {
         _lvDetach(v);
         _lvPauseAllPlayers();

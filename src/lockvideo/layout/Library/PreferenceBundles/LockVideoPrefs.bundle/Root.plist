@@ -42,14 +42,6 @@
 		</dict>
 		<dict>
 			<key>action</key>
-			<string>clearMainMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>取消选择当前素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
 			<string>addFromAlbum:</string>
 			<key>cell</key>
 			<string>PSButtonCell</string>
@@ -70,14 +62,6 @@
 		</dict>
 		<dict>
 			<key>action</key>
-			<string>clearOptionMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>取消选择选项按钮素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
 			<string>switchClearMaterial:</string>
 			<key>cell</key>
 			<string>PSButtonCell</string>
@@ -87,14 +71,6 @@
 			<string>LockVideoClearMaterialLink</string>
 			<key>label</key>
 			<string>选择清除按钮素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>clearClearMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>取消选择清除按钮素材</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

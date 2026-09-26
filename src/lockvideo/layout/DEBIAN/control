@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.70
+Version: 1.0.71
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.70 - 修复 Bad Deb 无法安装：元数据里的更新日志从 1.0.67 起被写成了带换行续行的多行格式，Sileo 自带的包解析器读不了这种格式，直接报 Bad Deb 无法读取；现在改回所有环境都兼容的单行格式并精简历史记录，数据流保持全设备兼容的 gzip 压缩
+Changelog: 1.0.71 - 设置面板去掉三个取消选择素材按钮，恢复之前的布局；诊断导出升级：按钮组出现时立即强制导出完整层级，并把导出根视图提升到通知列表 cell 级别——之前导出范围只覆盖卡片本体，看不到按钮区，导致排查按钮下方多余视图时抓不到关键层
