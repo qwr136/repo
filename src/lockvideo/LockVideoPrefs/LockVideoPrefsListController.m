@@ -398,7 +398,6 @@
             [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
         } else if ([key isEqualToString:@"LockVideoClearPath"]) {
             [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
-        }
         } else if ([key isEqualToString:@"LockVideoActivityPath"]) {
             [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:key];
         }
