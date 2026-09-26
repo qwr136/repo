@@ -9,6 +9,7 @@
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
+#define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
 static NSMutableDictionary<NSString *, AVPlayer *> *gPlayerMap = nil;
@@ -236,6 +237,44 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
         if ([gLoggedClasses containsObject:key]) { return; }
         [gLoggedClasses addObject:key];
         _lvLog([NSString stringWithFormat:@"%@ -> %@", cls, action]);
+    } @catch (NSException *e) {}
+}
+
+// 诊断用：把通知视图的完整层级（类名 + frame + 是否挂载素材）写到
+// /var/mobile/通知视频/视图结构.txt，用于定位「按钮区还露素材」到底是哪一层
+static NSTimeInterval gLastDumpTime = 0;
+static void _lvDumpHierarchy(UIView *root) {
+    @try {
+        if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        if (now - gLastDumpTime < 8.0) { return; }   // 节流，避免频繁写文件
+        gLastDumpTime = now;
+
+        NSMutableString *s = [NSMutableString string];
+        [s appendFormat:@"时间: %@\n", [NSDate date]];
+        [s appendFormat:@"根视图: %@ frame=%.0f,%.0f %.0fx%.0f\n\n",
+         NSStringFromClass([root class]), root.frame.origin.x, root.frame.origin.y,
+         root.frame.size.width, root.frame.size.height];
+
+        NSMutableArray *stack = [NSMutableArray array];
+        [stack addObject:@[root, @0]];
+        int visited = 0;
+        while (stack.count > 0 && visited < 600) {
+            NSArray *item = stack.lastObject;
+            [stack removeLastObject];
+            visited++;
+            UIView *v = item[0];
+            int depth = [item[1] intValue];
+            if (depth > 9) { continue; }
+            NSString *cls = NSStringFromClass([v class]);
+            NSString *mtl = objc_getAssociatedObject(v, &kPathKey) ? @" [已挂素材]" : @"";
+            [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f%@\n",
+             [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
+             cls, v.frame.origin.x, v.frame.origin.y,
+             v.frame.size.width, v.frame.size.height, mtl];
+            for (UIView *c in v.subviews) { [stack addObject:@[c, @(depth + 1)]]; }
+        }
+        [s writeToFile:kLVDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
     } @catch (NSException *e) {}
 }
 
@@ -473,15 +512,84 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
 static void _lvScanAndRestoreInView(UIView *v);
 static void _lvDetach(UIView *v);
 
-static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
-    if (l.superlayer == v.layer) {
-        if (v.layer.sublayers.firstObject != l) {
-            [l removeFromSuperlayer];
-            [v.layer insertSublayer:l atIndex:0];
+// 只针对通知卡片本体（shortlook / banner / longlook）
+static BOOL _lvIsCardHostClass(NSString *cls) {
+    if (!cls) { return NO; }
+    NSString *low = cls.lowercaseString;
+    return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
+}
+
+// 找到卡片自身的整块背景层（毛玻璃 / 材质 / 暗化视图）在 sublayers 里的索引，找不到返回 -1。
+// 找到后我们把视频层插到它「上面一层」——这样系统毛玻璃保留下来，
+// 视频被裁剪掉的区域（按钮区）露出的就是真正的系统原样，而不是透出壁纸/别的视频。
+static int _lvTopFullCoverBackgroundIndex(UIView *v) {
+    int idx = -1;
+    @try {
+        CGFloat hostW = v.bounds.size.width;
+        CGFloat hostH = v.bounds.size.height;
+        if (hostW < 8.0 || hostH < 8.0) { return -1; }
+        NSArray<UIView *> *subs = v.subviews;
+        for (NSUInteger i = 0; i < subs.count; i++) {
+            UIView *sv = subs[i];
+            if (!_lvIsBackgroundView(sv)) { continue; }
+            CGRect f = sv.frame;
+            if (f.size.width < hostW * 0.6 || f.size.height < hostH * 0.6) { continue; }
+            NSUInteger li = [v.layer.sublayers indexOfObject:sv.layer];
+            if (li == NSNotFound) { continue; }
+            if ((int)li > idx) { idx = (int)li; }
         }
-        return;
+    } @catch (NSException *e) {}
+    return idx;
+}
+
+// 卡片：保留系统毛玻璃（视频叠在它上面）；按钮等小视图：沿用旧的隐藏背景办法
+static void _lvPrepareHostBackgrounds(UIView *v) {
+    if (!v) { return; }
+    if (_lvIsCardHostClass(NSStringFromClass([v class])) && _lvTopFullCoverBackgroundIndex(v) >= 0) {
+        _lvRestoreBackgroundsRecursive(v);
+    } else {
+        _lvHideBackgroundsRecursive(v);
     }
-    [v.layer insertSublayer:l atIndex:0];
+}
+
+// 图片素材是 UIView，同样要插到卡片系统毛玻璃「上面一层」，否则会被毛玻璃盖住
+static void _lvInsertImageView(UIView *v, UIImageView *iv) {
+    NSUInteger cur = (iv.superview == v) ? [v.subviews indexOfObject:iv] : NSNotFound;
+    NSInteger target = 0;
+    if (_lvIsCardHostClass(NSStringFromClass([v class]))) {
+        NSArray<UIView *> *subs = v.subviews;
+        CGFloat hostW = v.bounds.size.width, hostH = v.bounds.size.height;
+        for (NSUInteger i = 0; i < subs.count; i++) {
+            UIView *sv = subs[i];
+            if (sv == iv) { continue; }
+            if (!_lvIsBackgroundView(sv)) { continue; }
+            CGRect f = sv.frame;
+            if (f.size.width < hostW * 0.6 || f.size.height < hostH * 0.6) { continue; }
+            NSInteger at = (NSInteger)[subs indexOfObject:sv];
+            if (cur != NSNotFound && (NSInteger)cur < at) { target = at; }   // 移除自身后索引 -1
+            else { target = at + 1; }
+        }
+    }
+    if (cur != NSNotFound && (NSInteger)cur == target) { return; }
+    [iv removeFromSuperview];
+    [v insertSubview:iv atIndex:(NSUInteger)target];
+}
+
+static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
+    BOOL isCard = _lvIsCardHostClass(NSStringFromClass([v class]));
+    int bg = isCard ? _lvTopFullCoverBackgroundIndex(v) : -1;
+    NSUInteger cur = (l.superlayer == v.layer) ? [v.layer.sublayers indexOfObject:l] : NSNotFound;
+    unsigned target;
+    if (bg < 0) {
+        target = 0;
+    } else if (cur != NSNotFound && cur < (NSUInteger)bg) {
+        target = (unsigned)bg;          // 移除自身后背景层索引会 -1
+    } else {
+        target = (unsigned)bg + 1;
+    }
+    if (cur != NSNotFound && cur == target) { return; }
+    [l removeFromSuperlayer];
+    [v.layer insertSublayer:l atIndex:target];
 }
 
 static void _lvAttachWithPath(UIView *v, NSString *path);
@@ -538,48 +646,75 @@ static BOOL _lvLooksLikeButtonGroup(UIView *v) {
     return NO;
 }
 
+// 判断某个子孙视图是否属于「按钮区」——三种判据，任一命中即可：
+//   1) 已经挂上了独立素材（选项/清除按钮素材），这是最可靠的判据
+//   2) 类名命中按钮组 / 单个动作按钮 / UIButton
+//   3) 几何特征：内部有两个并排、等尺寸的子视图（按钮组的通用形状）
+static BOOL _lvIsButtonAreaView(UIView *sv, UIView *host) {
+    (void)host;
+    @try {
+        if (objc_getAssociatedObject(sv, &kPathKey)) { return YES; }
+        NSString *cls = NSStringFromClass([sv class]);
+        if (_lvIsActionButtonGroupView(cls) || _lvIsSingleActionButtonClass(cls)) { return YES; }
+        if ([sv isKindOfClass:[UIButton class]]) { return YES; }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
 // 计算宿主视图上素材背景层应覆盖的区域：
-// 若子树里存在「选项/清除」按钮区，则背景层只覆盖按钮区上方的卡片部分，
-// 按钮区露出系统原样（只有按钮本身有素材背景）；找不到按钮区时铺满整个视图。
-// 检测优先级：类名匹配 → 几何特征（底部区域里两个并排等尺寸子视图）
+// 扫描整棵子树找出所有「按钮区」候选，取其中最靠上的那个，把背景层裁到它上方，
+// 按钮区及下方一律不铺素材（露出系统原样，只有按钮本身显示自己的素材）。
+// 找不到按钮区时铺满整个视图。
 static CGRect _lvCoverFrameForHost(UIView *v) {
     CGRect frame = v.bounds;
     if (!v) { return frame; }
     @try {
         CGFloat hostH = v.bounds.size.height;
+        if (hostH <= 1.0) { return frame; }
         NSMutableArray<UIView *> *stack = [NSMutableArray array];
         for (UIView *sv in v.subviews) { [stack addObject:sv]; }
         int visited = 0;
-        while (stack.count > 0 && visited < 800) {
+        CGFloat bestY = CGFLOAT_MAX;
+        UIView *bestView = nil;
+        while (stack.count > 0 && visited < 1200) {
             UIView *sv = stack.firstObject;
             [stack removeObjectAtIndex:0];
             visited++;
-            NSString *cls = NSStringFromClass([sv class]);
-            BOOL byClass = _lvIsActionButtonGroupView(cls) || _lvIsSingleActionButtonClass(cls) || [sv isKindOfClass:[UIButton class]];
-            BOOL hit = byClass;
+            BOOL hit = _lvIsButtonAreaView(sv, v);
+            // 几何兜底只认下半部分（避免把卡片中部的图标/标题区误判成按钮区）
             if (!hit && hostH > 80.0) {
-                // 几何兜底：只认位于下半部分、且内部有两个并排等尺寸子视图的容器
-                CGFloat yInHost = [v convertRect:sv.bounds fromView:sv].origin.y;
-                if (yInHost > hostH * 0.2 && yInHost < hostH - 20.0 && _lvLooksLikeButtonGroup(sv)) {
+                CGRect gf = [v convertRect:sv.bounds fromView:sv];
+                if (gf.origin.y > hostH * 0.5 && gf.origin.y < hostH - 12.0 && _lvLooksLikeButtonGroup(sv)) {
                     hit = YES;
                 }
             }
-            if (hit) {
-                CGRect f = [v convertRect:sv.bounds fromView:sv];
-                CGFloat bottom = f.origin.y - 6.0;
-                if (bottom >= 20.0 && bottom < frame.size.height) {
-                    frame.size.height = bottom;
-                    if (byClass) {
-                        _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
-                    }
-                    _lvLogOnce(NSStringFromClass([v class]),
-                               [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
-                                cls, f.origin.y, f.size.height, frame.size.height]);
-                    return frame;
-                }
-                // 候选位于顶部、裁剪无意义 —— 继续找下一个（真正的按钮区在底部）
+            if (!hit) {
+                for (UIView *c in sv.subviews) { [stack addObject:c]; }
+                continue;
+            }
+            CGRect f = [v convertRect:sv.bounds fromView:sv];
+            if (f.size.height < 8.0 || f.size.width < 8.0) {
+                for (UIView *c in sv.subviews) { [stack addObject:c]; }
+                continue;
+            }
+            // 只认位于下半部分的按钮区；顶部的小控件（开关、头像等）不参与裁剪
+            if (f.origin.y > hostH * 0.15 && f.origin.y < bestY) {
+                bestY = f.origin.y;
+                bestView = sv;
             }
             for (UIView *c in sv.subviews) { [stack addObject:c]; }
+        }
+        if (bestView) {
+            CGFloat bottom = bestY - 4.0;
+            if (bottom >= 8.0 && bottom < frame.size.height) {
+                frame.size.height = bottom;
+                _lvRestoreBackgroundsRecursive(bestView);   // 清掉历史版本残留的隐藏标记
+                _lvLogOnce(NSStringFromClass([v class]),
+                           [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
+                            NSStringFromClass([bestView class]), bestY,
+                            bestView.bounds.size.height, frame.size.height]);
+                return frame;
+            }
         }
     } @catch (NSException *e) {}
     return frame;
@@ -609,11 +744,11 @@ static void _lvRefresh(UIView *v) {
             if (v.window && p && !_lvPathIsImageAsset(path)) { [p play]; }
         }
         if (iv) {
-            if (iv.superview != v) { [v insertSubview:iv atIndex:0]; }
+            if (iv.superview != v) { _lvInsertImageView(v, iv); }
             iv.frame = _lvCoverFrameForHost(v);
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
-        _lvHideBackgroundsRecursive(v);
+        _lvPrepareHostBackgrounds(v);
     } @catch (NSException *e) {}
 }
 
@@ -645,12 +780,12 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
                 iv.layer.masksToBounds = YES;
                 iv.clipsToBounds = YES;
                 objc_setAssociatedObject(v, &kImgKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                [v insertSubview:iv atIndex:0];
+                _lvInsertImageView(v, iv);
                 [_lvAttachedViews addObject:v];
                 _lvLogOnce(NSStringFromClass(v.class), @"已挂载图片/GIF");
             }
             iv.image = img;
-            [v insertSubview:iv atIndex:0];
+            _lvInsertImageView(v, iv);
             iv.frame = _lvCoverFrameForHost(v);
             iv.alpha = (float)_lvAlpha();
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
@@ -660,7 +795,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
                 v.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             }
 
-            _lvHideBackgroundsRecursive(v);
+            _lvPrepareHostBackgrounds(v);
             CGRect coverFrame = iv.frame;
             _lvLogOnce(NSStringFromClass(v.class),
                        [NSString stringWithFormat:@"图片挂载尺寸 %.0fx%.0f 透明度 %.2f",
@@ -697,7 +832,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         l.opacity = (float)_lvAlpha();
         [p play];
-        _lvHideBackgroundsRecursive(v);
+        _lvPrepareHostBackgrounds(v);
         CGRect coverFrame = l.frame;
         _lvLogOnce(NSStringFromClass(v.class),
                    [NSString stringWithFormat:@"挂载尺寸 %.0fx%.0f 透明度 %.2f",
@@ -743,6 +878,19 @@ static NSString *_lvButtonTitle(UIView *btn) {
                 if ([lbl isKindOfClass:[UILabel class]] && lbl.text.length) { return lbl.text; }
             } @catch (NSException *e) {}
         }
+        // 无障碍标签兜底：部分系统按钮的文字只存在于 accessibilityLabel / identifier
+        if ([btn respondsToSelector:@selector(accessibilityLabel)]) {
+            @try {
+                NSString *t = [btn accessibilityLabel];
+                if (t.length) { return t; }
+            } @catch (NSException *e) {}
+        }
+        if ([btn respondsToSelector:@selector(accessibilityIdentifier)]) {
+            @try {
+                NSString *t = [btn accessibilityIdentifier];
+                if (t.length) { return t; }
+            } @catch (NSException *e) {}
+        }
         NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:btn];
         int visited = 0;
         while (queue.count > 0 && visited < 50) {
@@ -759,9 +907,9 @@ static NSString *_lvButtonTitle(UIView *btn) {
     return nil;
 }
 
-// 按钮组挂载策略：
-//   1) v 本身就是单个动作按钮 → 按标题/位置挂对应素材（选项=OptionPath，清除=ClearPath）
-//   2) v 是按钮组容器 → 找到内部每个按钮分别挂载；容器自身绝不挂背景（两按钮之间的缝隙保持系统原样）
+// 按钮组挂载策略（纯标题匹配，不做位置猜测）：
+//   标题含「清除/Clear」→ ClearPath；含「选项/Option」→ OptionPath；
+//   其他标题（如实时活动的「不允许/允许」）或读不到标题 → 一律不挂素材，保持系统原样
 static void _lvAttachActionButtonGroup(UIView *v) {
     if (!v) return;
     @try {
@@ -775,11 +923,6 @@ static void _lvAttachActionButtonGroup(UIView *v) {
                 path = _lvClearPath();
             } else if ([lowTitle containsString:@"选项"] || [lowTitle containsString:@"option"]) {
                 path = _lvOptionPath();
-            } else {
-                // 无标题：按自己在兄弟按钮中的位置判断（第 1 个=选项，其余=清除）
-                NSArray<UIView *> *siblings = _lvFindPillButtonsInView(v.superview);
-                NSUInteger idx = [siblings indexOfObject:v];
-                path = (idx == 0 || idx == NSNotFound) ? _lvOptionPath() : _lvClearPath();
             }
             if (path.length) { _lvAttachWithPath(v, path); }
             else { _lvDetach(v); }
@@ -803,21 +946,26 @@ static void _lvAttachActionButtonGroup(UIView *v) {
                 p = p.superview;
                 up++;
             }
+            NSMutableArray<NSString *> *titles = [NSMutableArray array];
             for (NSUInteger i = 0; i < buttons.count; i++) {
                 UIView *sv = buttons[i];
                 NSString *lowTitle = _lvButtonTitle(sv).lowercaseString;
+                [titles addObject:[NSString stringWithFormat:@"%@(%@)",
+                                   NSStringFromClass([sv class]), lowTitle ?: @"无标题"]];
                 NSString *path = nil;
                 if ([lowTitle containsString:@"清除"] || [lowTitle containsString:@"clear"]) {
                     path = _lvClearPath();
                 } else if ([lowTitle containsString:@"选项"] || [lowTitle containsString:@"option"]) {
                     path = _lvOptionPath();
                 } else {
-                    // 无标题按位置：左（第 1 个）=选项，右（其余）=清除
-                    path = (i == 0) ? _lvOptionPath() : _lvClearPath();
+                    // 不做位置猜测：标题不匹配的按钮一律不挂素材，保持系统原样
+                    path = nil;
                 }
                 if (path.length) { _lvAttachWithPath(sv, path); }
                 else { _lvDetach(sv); }
             }
+            _lvLogOnce(NSStringFromClass([v class]),
+                       [NSString stringWithFormat:@"按钮组识别: %@", [titles componentsJoinedByString:@" | "]]);
         } else {
             _lvDetach(v);   // 找不到单个按钮也不给容器挂背景
         }
@@ -936,6 +1084,7 @@ static BOOL _lvIsLockScreenVisible(void) {
 
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");
+    _lvDumpHierarchy(v);
     if (!_lvEnabled()) {
         _lvDetach(v);
         _lvPauseAllPlayers();
@@ -1236,7 +1385,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.60 加载完成（选项/清除按钮独立背景素材 + 多播放器） =====");
+        _lvLog(@"===== 1.0.67 加载完成（按钮区不再露出多余背景 + 纯标题匹配 + 视图结构诊断） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
