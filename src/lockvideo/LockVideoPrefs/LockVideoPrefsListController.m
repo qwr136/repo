@@ -239,8 +239,8 @@
         [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
     [fm removeItemAtPath:dst error:nil];
 
-    NSError *copyErr = nil;
-    BOOL ok = NO;
+    __block NSError *copyErr = nil;
+    __block BOOL ok = NO;
 
     // 方案 A：直接 copyItem（iOS 上对 PHPicker 的临时 URL 通常有效，但长视频可能因后台清理失败）
     if ([fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&copyErr]) {
