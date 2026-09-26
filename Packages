@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.45
+Version: 1.0.46
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.45_iphoneos-arm64.deb
-Size: 24104
-MD5sum: 677a87fbfeacf30fc37a1f4977677d4a
-SHA1: 221e1f826874f7492406dc6fed26e9ccbca12a0c
-SHA256: 478ed195e07f6fffb9285490d8c09a519589544d4f51c15042a5e3fe336f4269
+Filename: debs/com.xiaofei.notifybgvideo_1.0.46_iphoneos-arm64.deb
+Size: 26102
+MD5sum: 75c32bd0aa808632d1e08ae44feb48b9
+SHA1: 7452b26878234bc75f55e77feab2077bebc4177f
+SHA256: 521d6bdf9eb32cadbc24f3afc0b49938014321913876cfb2deb3541bcb6e451a
 Section: Tweaks (rootless)
-Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
+Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.45 - 基于 1.0.35 精简版修复锁屏来通知后视频播放阻止自动熄屏的问题，保留选择素材行空白显示
+Changelog: 1.0.46 - 新增 GIF/图片背景支持：素材为 gif/png/jpg/jpeg/heic 时自动改用 UIImageView 铺底（GIF 用 ImageIO 拆帧播放动画），与视频模式互斥；设置「选择素材」同步支持图片；修复 Release 校验和与索引不匹配导致的添加源失败
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
