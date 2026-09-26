@@ -34,4 +34,4 @@ ld: warning: -multiply_defined is obsolete
 [1;31m> [1;3;39mMaking stage in MsgVideoPrefs…[m
 [1;31m> [1;3;39mMaking stage for bundle MsgVideoPrefs…[m
 [1;31m> [1;3;39mMaking stage for tweak MsgVideo…[m
-dm.pl: building package `com.xiaofei.msgbgvideo:iphoneos-arm64' in `./packages/com.xiaofei.msgbgvideo_1.0.4_iphoneos-arm64.deb'
+dm.pl: building package `com.xiaofei.msgbgvideo:iphoneos-arm64' in `./packages/com.xiaofei.msgbgvideo_1.0.5_iphoneos-arm64.deb'
