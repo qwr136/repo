@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.49
+Version: 1.0.50
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.49_iphoneos-arm64.deb
-Size: 27810
-MD5sum: 847c47b6ad7b424261a57ab96a6160e3
-SHA1: 22b2d5e392713a450963b58136128ecf30b030f8
-SHA256: d646e2cc71964642ff4073c46f9ec8e05178a15a2f8749d87027dbf5f8e1cd38
+Filename: debs/com.xiaofei.notifybgvideo_1.0.50_iphoneos-arm64.deb
+Size: 32644
+MD5sum: df9ab6d5f3622dec2ed5b6880ea159df
+SHA1: b43db176ee4ee8abb69e6cc8d71fff2223f1346a
+SHA256: 1f489b1a6dc2c127f4ee7979b2849d6cef2c9457ca964ee8375bdd7ba6bd8f3b
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Author: 小飞
-Changelog: 1.0.49 - 修复下滑锁屏消息视频反应慢/卡顿：① longlook 展开视图纳入即时 hook（不再等 1.5s 轮询）；② 背景模糊层隐藏加「已处理」标记，避免每帧递归遍历；③ 启动时预热播放器消除首次创建卡顿；改用系统锁屏管理器 isLockScreenVisible 判定真实锁屏状态，彻底排除解锁后桌面横幅/灵动岛出声；1.0.48 - 视频/声音仅限锁屏通知：所有挂载点加「仅锁屏窗口」闸门，灵动岛与解锁后前台横幅不再挂视频、不再出声；1.0.47 - 修复图片↔视频切换不即时生效：视频分支清理残留图片层、设置变更后立即重扫描挂载、图片模式下不再后台播放视频；1.0.46 - 新增 GIF/图片背景支持：素材为 gif/png/jpg/jpeg/heic 时自动改用 UIImageView 铺底（GIF 用 ImageIO 拆帧播放动画），与视频模式互斥；设置「选择素材」同步支持图片；修复 Release 校验和与索引不匹配导致的添加源失败
+Changelog: 1.0.50 - 「启用」开关即时生效：开启/关闭不再需要注销，关闭时立即卸载全部视频/图片背景并恢复卡片原貌，开启时立即重新挂载；设置新增「从相册添加素材」：可直接从系统相册选取视频/图片，自动存入素材目录并设为当前素材；1.0.49 - 修复下滑锁屏消息视频反应慢/卡顿：① longlook 展开视图纳入即时 hook（不再等 1.5s 轮询）；② 背景模糊层隐藏加「已处理」标记，避免每帧递归遍历；③ 启动时预热播放器消除首次创建卡顿；改用系统锁屏管理器 isLockScreenVisible 判定真实锁屏状态，彻底排除解锁后桌面横幅/灵动岛出声；1.0.48 - 视频/声音仅限锁屏通知：所有挂载点加「仅锁屏窗口」闸门，灵动岛与解锁后前台横幅不再挂视频、不再出声；1.0.47 - 修复图片↔视频切换不即时生效：视频分支清理残留图片层、设置变更后立即重扫描挂载、图片模式下不再后台播放视频；1.0.46 - 新增 GIF/图片背景支持：素材为 gif/png/jpg/jpeg/heic 时自动改用 UIImageView 铺底（GIF 用 ImageIO 拆帧播放动画），与视频模式互斥；设置「选择素材」同步支持图片；修复 Release 校验和与索引不匹配导致的添加源失败
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
