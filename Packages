@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.70
+Version: 1.0.71
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 488
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.70_iphoneos-arm64.deb
-Size: 96666
-MD5sum: e68f404365432df7a19eb79a087a146a
-SHA1: 7c65c2af446c40cf1fb5e46c83b98fe0f59e20c9
-SHA256: bd0749c1d949ca5062bca5116399b69895d88a7ad927688398552bc097c0120b
+Filename: debs/com.xiaofei.notifybgvideo_1.0.71_iphoneos-arm64.deb
+Size: 97340
+MD5sum: 8d202f245c244b8b73cb737831eff087
+SHA1: d58a7573d538030393013f1c9d86d1f4a60c3f6f
+SHA256: 9e9ca7e7809a752ba304a80589e3c144f3e17ef8a46c06618b3db4967e3d24c6
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Author: 小飞
-Changelog: 1.0.70 - 修复 Bad Deb 无法安装：元数据里的更新日志从 1.0.67 起被写成了带换行续行的多行格式，Sileo 自带的包解析器读不了这种格式，直接报 Bad Deb 无法读取；现在改回所有环境都兼容的单行格式并精简历史记录，数据流保持全设备兼容的 gzip 压缩
+Changelog: 1.0.71 - 设置面板去掉三个取消选择素材按钮，恢复之前的布局；诊断导出升级：按钮组出现时立即强制导出完整层级，并把导出根视图提升到通知列表 cell 级别——之前导出范围只覆盖卡片本体，看不到按钮区，导致排查按钮下方多余视图时抓不到关键层
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
