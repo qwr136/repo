@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.44
+Version: 1.0.45
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.44_iphoneos-arm64.deb
-Size: 28754
-MD5sum: 31b6c21f77782d26ad91a5d9c237aa0c
-SHA1: ebdd8e8cd979687fbee5a4b35db3f9a47e1f12e0
-SHA256: 4784f2467376609da88bf2129f0b66b5a150aaa1559303b7e6cbb5829f79238a
+Filename: debs/com.xiaofei.notifybgvideo_1.0.45_iphoneos-arm64.deb
+Size: 24104
+MD5sum: 677a87fbfeacf30fc37a1f4977677d4a
+SHA1: 221e1f826874f7492406dc6fed26e9ccbca12a0c
+SHA256: 478ed195e07f6fffb9285490d8c09a519589544d4f51c15042a5e3fe336f4269
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频。支持 mp4/mov 等格式，循环播放，路径自由填写。
 Author: 小飞
-Changelog: 1.0.44 - 「播放器背景」改为「桌面视频」，新增独立「锁屏背景视频」，两者素材与透明度各自独立设置，移除详细诊断日志开关
+Changelog: 1.0.45 - 基于 1.0.35 精简版修复锁屏来通知后视频播放阻止自动熄屏的问题，保留选择素材行空白显示
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
