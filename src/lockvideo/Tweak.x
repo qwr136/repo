@@ -236,6 +236,7 @@ static NSString *_lvPath(void) {
 static NSString *_lvOptionPath(void) { return _lvPathForKey(@"LockVideoOptionPath"); }
 static NSString *_lvClearPath(void)  { return _lvPathForKey(@"LockVideoClearPath"); }
 static NSString *_lvActivityPath(void){ return _lvPathForKey(@"LockVideoActivityPath"); }   // 实时活动独立素材
+static NSString *_lvPlayerPath(void){ return _lvPathForKey(@"LockVideoPlayerPath"); }      // 播放器 / Now Playing 独立素材
 
 #pragma mark - 诊断日志
 
@@ -616,6 +617,32 @@ static BOOL _lvIsActivityAuthorizationAlert(UIView *v) {
         for (UIView *btn in btns) {
             NSString *t = _lvButtonTitle(btn).lowercaseString;
             if ([t containsString:@"允许"] || [t containsString:@"不允许"]) { return YES; }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
+// 判断一个实时活动是否是「正在播放 / Now Playing」widget（锁屏音乐播放器）
+// 通过递归检查子视图类名是否包含音乐播放控件相关标记
+static BOOL _lvIsNowPlayingActivityView(UIView *v) {
+    if (!v) return NO;
+    @try {
+        NSArray<NSString *> *markers = @[
+            @"nowplaying", @"nowplayingcontent", @"nowplayinglive", @"nowplayingitem",
+            @"mpmediacontrols", @"mpmediacontrolsparent", @"mrplatter", @"mrplatternowplaying",
+            @"mrplattercontrols", @"mrplatterplayback", @"mproute", @"mpvolume", @"mpbutton",
+            @"mptransport", @"mpartwork", @"csmediacontrols", @"csnowplayingtransport",
+            @"csnowplayingview", @"transportbutton"
+        ];
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:v];
+        while (stack.count) {
+            UIView *cur = [stack lastObject];
+            [stack removeLastObject];
+            NSString *cls = NSStringFromClass([cur class]).lowercaseString;
+            for (NSString *m in markers) {
+                if ([cls containsString:m]) return YES;
+            }
+            [stack addObjectsFromArray:cur.subviews];
         }
     } @catch (NSException *e) {}
     return NO;
@@ -1666,11 +1693,12 @@ static void _lvOnMatch(UIView *v) {
         UIView *host = _lvFindActivityPlatterHost(v);
         if (host) {
             objc_setAssociatedObject(host, &kActivityHostKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            NSString *ap = _lvActivityPath();
+            // Now Playing 音乐播放器单独走「播放器素材」，其它实时活动走「实时活动素材」，都为空时回退主素材
+            NSString *ap = _lvIsNowPlayingActivityView(v) ? _lvPlayerPath() : _lvActivityPath();
             _lvAttachWithPath(host, ap.length ? ap : _lvPath());   // 实时活动：视频铺满 PLPlatterView，优先独立素材
         } else {
             // 找不到宿主就回退到内容视图本身
-            NSString *ap = _lvActivityPath();
+            NSString *ap = _lvIsNowPlayingActivityView(v) ? _lvPlayerPath() : _lvActivityPath();
             _lvAttachWithPath(v, ap.length ? ap : _lvPath());
         }
     } else {
@@ -1809,10 +1837,12 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         NSString *opt = _lvOptionPath();
         NSString *clr = _lvClearPath();
         NSString *act = _lvActivityPath();
+        NSString *play = _lvPlayerPath();
         if (main.length) [active addObject:main];
         if (opt.length)  [active addObject:opt];
         if (clr.length)  [active addObject:clr];
         if (act.length)  [active addObject:act];
+        if (play.length) [active addObject:play];
 
         // 素材路径发生变化：彻底重置全部播放器并重新挂载，避免旧播放器残留导致卡住或不同步
         if (!gLastActivePaths || ![active isEqualToSet:gLastActivePaths]) {
@@ -1994,12 +2024,12 @@ static void _lvPollTick(void) {
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
 
-        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 实时活动=%@ 目录存在=%d",
+        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 实时活动=%@ 播放器=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
-                _lvActivityPath() ?: @"(无)",
+                _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.80 加载完成（同素材按路径复用单播放器 + 引用计数防卡 + 共享播放器不再被单个隐藏视图误暂停） =====");
+        _lvLog(@"===== 1.0.81 加载完成（同素材按路径复用单播放器 + Now Playing 独立播放器素材 + 面板图标 panel@3x） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

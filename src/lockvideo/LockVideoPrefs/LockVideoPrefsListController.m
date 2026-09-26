@@ -63,6 +63,7 @@
     [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:@"LockVideoOptionPath"];
     [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:@"LockVideoClearPath"];
     [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:@"LockVideoActivityPath"];
+    [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:@"LockVideoPlayerPath"];
 }
 
 // 通用素材选择器：把 key 对应的 prefs 项设为用户选中的文件
@@ -123,6 +124,8 @@
                 [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
             } else if ([key isEqualToString:@"LockVideoActivityPath"]) {
                 [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:key];
+            } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
+                [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:key];
             }
         }]];
     }
@@ -144,6 +147,10 @@
 
 - (void)switchActivityMaterial:(id)sender {
     [self _switchMaterialForKey:@"LockVideoActivityPath" title:@"实时活动素材" sender:sender];
+}
+
+- (void)switchPlayerMaterial:(id)sender {
+    [self _switchMaterialForKey:@"LockVideoPlayerPath" title:@"播放器素材" sender:sender];
 }
 
 #pragma mark - 取消选择素材（写入空字符串，插件读取到空值即不再使用该素材）
@@ -173,6 +180,8 @@
             identifier = @"LockVideoOptionMaterialLink";
         } else if ([key isEqualToString:@"LockVideoClearPath"]) {
             identifier = @"LockVideoClearMaterialLink";
+        } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
+            identifier = @"LockVideoPlayerMaterialLink";
         }
         if (identifier) {
             [self _refreshMaterialRow:identifier prefsKey:key];
@@ -400,6 +409,8 @@
             [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
         } else if ([key isEqualToString:@"LockVideoActivityPath"]) {
             [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:key];
+        } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
+            [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:key];
         }
         [self _showAlertTitle:@"已添加素材"
                       message:[NSString stringWithFormat:@"已保存到素材目录：\n%@\n并设为「%@」", path, [self _titleForKey:key]]];
@@ -410,6 +421,7 @@
     if ([key isEqualToString:@"LockVideoOptionPath"]) return @"选项素材";
     if ([key isEqualToString:@"LockVideoClearPath"]) return @"清除素材";
     if ([key isEqualToString:@"LockVideoActivityPath"]) return @"实时活动素材";
+    if ([key isEqualToString:@"LockVideoPlayerPath"]) return @"播放器素材";
     return @"消息素材";
 }
 

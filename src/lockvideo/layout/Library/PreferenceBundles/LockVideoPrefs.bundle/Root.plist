@@ -78,6 +78,18 @@
 		</dict>
 		<dict>
 			<key>action</key>
+			<string>switchPlayerMaterial:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>detailText</key>
+			<string></string>
+			<key>identifier</key>
+			<string>LockVideoPlayerMaterialLink</string>
+			<key>label</key>
+			<string>播放器素材</string>
+		</dict>
+		<dict>
+			<key>action</key>
 			<string>addFromAlbum:</string>
 			<key>cell</key>
 			<string>PSButtonCell</string>
