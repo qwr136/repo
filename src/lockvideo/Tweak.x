@@ -470,10 +470,13 @@ static BOOL _lvIsLockScreenVisible(void) {
             }
         }
         if (lsMgr && sharedSel && visibleSel) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
             id inst = [lsMgr performSelector:sharedSel];
             if (inst && [inst respondsToSelector:visibleSel]) {
                 return (BOOL)[inst performSelector:visibleSel];
             }
+#pragma clang diagnostic pop
         }
     } @catch (NSException *e) {}
     return _lvHasLockScreenWindow();   // 兜底：看是否存在锁屏窗口
