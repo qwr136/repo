@@ -17,6 +17,7 @@ static NSMutableDictionary<NSString *, id> *gObserverMap = nil;
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
+static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
 static char kOrigHiddenKey;
@@ -141,6 +142,9 @@ static NSString *_lvString(NSString *key) {
 
 static BOOL _lvEnabled(void) { return _lvBool(@"LockVideoEnabled"); }
 
+// 可视化调试开关：开启后给通知视图每一层描边并标注类名，用于定位「多出来的那层背景」
+static BOOL _lvDebugOutline(void) { return _lvBool(@"LockVideoDebugOutline"); }
+
 static BOOL _lvSound(void) {
     @try {
         id v = _lvPrefs()[@"LockVideoSound"];
@@ -241,21 +245,28 @@ static void _lvLogOnce(NSString *cls, NSString *action) {
     } @catch (NSException *e) {}
 }
 
-// 诊断用：把通知视图的完整层级（类名 + frame + 是否挂载素材）写到
-// /var/mobile/通知视频/视图结构.txt，用于定位「按钮区还露素材」到底是哪一层
+// 诊断用：把通知视图的完整层级写到 /var/mobile/通知视频/视图结构.txt
+// 每一层记录：类名 / frame / hidden / alpha / 背景色 / 子图层 / 是否挂载素材
+// 文件末尾还会列出「结论段」——所有挂了素材的视图及其素材文件名与覆盖区域
 static NSTimeInterval gLastDumpTime = 0;
 static void _lvDumpHierarchy(UIView *root) {
     @try {
         if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-        if (now - gLastDumpTime < 8.0) { return; }   // 节流，避免频繁写文件
+        NSTimeInterval gap = _lvDebugOutline() ? 1.5 : 8.0;
+        if (now - gLastDumpTime < gap) { return; }   // 节流，避免频繁写文件
         gLastDumpTime = now;
 
         NSMutableString *s = [NSMutableString string];
         [s appendFormat:@"时间: %@\n", [NSDate date]];
+        [s appendFormat:@"系统: %@\n", [[UIDevice currentDevice] systemVersion]];
+        [s appendFormat:@"插件启用: %@   可视化调试: %@\n",
+         _lvEnabled() ? @"是" : @"否", _lvDebugOutline() ? @"开" : @"关"];
         [s appendFormat:@"根视图: %@ frame=%.0f,%.0f %.0fx%.0f\n\n",
          NSStringFromClass([root class]), root.frame.origin.x, root.frame.origin.y,
          root.frame.size.width, root.frame.size.height];
+
+        NSMutableArray *attached = [NSMutableArray array];
 
         NSMutableArray *stack = [NSMutableArray array];
         [stack addObject:@[root, @0]];
@@ -266,15 +277,80 @@ static void _lvDumpHierarchy(UIView *root) {
             visited++;
             UIView *v = item[0];
             int depth = [item[1] intValue];
-            if (depth > 9) { continue; }
+            if (depth > 10) { continue; }
             NSString *cls = NSStringFromClass([v class]);
-            NSString *mtl = objc_getAssociatedObject(v, &kPathKey) ? @" [已挂素材]" : @"";
-            [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f%@\n",
+            NSString *path = objc_getAssociatedObject(v, &kPathKey);
+            NSString *mtl = path ? @" [已挂素材]" : @"";
+            UIColor *bg = nil;
+            @try { bg = v.backgroundColor; } @catch (NSException *e) {}
+            NSString *bgDesc = @"无";
+            if (bg) {
+                CGFloat r = 0, g = 0, b = 0, a = 0;
+                if ([bg getRed:&r green:&g blue:&b alpha:&a]) {
+                    bgDesc = [NSString stringWithFormat:@"%.2f,%.2f,%.2f,%.2f", r, g, b, a];
+                }
+            }
+            NSUInteger subLayers = 0;
+            @try { subLayers = v.layer.sublayers.count; } @catch (NSException *e) {}
+            [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f hidden=%d alpha=%.2f bg=%@ 图层=%lu%@\n",
              [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
              cls, v.frame.origin.x, v.frame.origin.y,
-             v.frame.size.width, v.frame.size.height, mtl];
+             v.frame.size.width, v.frame.size.height,
+             (int)v.hidden, v.alpha, bgDesc, (unsigned long)subLayers, mtl];
+
+            if (path) {
+                AVPlayerLayer *pl = objc_getAssociatedObject(v, &kLayerKey);
+                UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
+                CGRect cover = pl ? pl.frame : (iv ? iv.frame : CGRectZero);
+                [attached addObject:[NSString stringWithFormat:@"%@ 素材=%@ 覆盖=%.0f,%.0f %.0fx%.0f",
+                                     cls, path.lastPathComponent,
+                                     cover.origin.x, cover.origin.y,
+                                     cover.size.width, cover.size.height]];
+            }
+
             for (UIView *c in v.subviews) { [stack addObject:@[c, @(depth + 1)]]; }
         }
+
+        [s appendFormat:@"\n===== 挂载了素材的视图（共 %lu 个）=====\n", (unsigned long)attached.count];
+        if (attached.count == 0) {
+            [s appendString:@"（无）\n"];
+        } else {
+            for (NSString *line in attached) { [s appendFormat:@"  %@\n", line]; }
+        }
+
+        // 壁纸层：卡片背景被裁剪后露出的就是它，若它也挂了素材就会看起来「下面还有一层视频」
+        [s appendString:@"\n===== 壁纸层 =====\n"];
+        @try {
+            id app = [UIApplication sharedApplication];
+            NSArray *wins = nil;
+            @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+            BOOL found = NO;
+            for (UIWindow *w in wins) {
+                NSMutableArray *st = [NSMutableArray arrayWithObject:@[w, @0]];
+                int vv = 0;
+                while (st.count > 0 && vv < 400) {
+                    NSArray *it = st.lastObject;
+                    [st removeLastObject];
+                    vv++;
+                    UIView *sv = it[0];
+                    int dd = [it[1] intValue];
+                    if (dd > 9) { continue; }
+                    NSString *c = NSStringFromClass([sv class]);
+                    if ([c.lowercaseString containsString:@"wallpaper"]) {
+                        NSString *pp = objc_getAssociatedObject(sv, &kPathKey);
+                        [s appendFormat:@"  %@ frame=%.0f,%.0f %.0fx%.0f 素材=%@\n",
+                         c, sv.frame.origin.x, sv.frame.origin.y,
+                         sv.frame.size.width, sv.frame.size.height,
+                         pp ? pp.lastPathComponent : @"无"];
+                        found = YES;
+                    }
+                    if (dd < 9) {
+                        for (UIView *cc in sv.subviews) { [st addObject:@[cc, @(dd + 1)]]; }
+                    }
+                }
+            }
+            if (!found) { [s appendString:@"  （未找到壁纸视图）\n"]; }
+        } @catch (NSException *e) {}
         [s writeToFile:kLVDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
     } @catch (NSException *e) {}
 }
@@ -740,9 +816,182 @@ static CGRect _lvCoverFrameForHost(UIView *v) {
     return frame;
 }
 
+#pragma mark - 可视化调试：给通知视图每一层描边并标注类名
+
+#define kLVDebugTag 20240919
+static char kDebugSigKey;
+static NSTimeInterval gLastDebugDraw = 0;
+
+static void _lvDebugRemove(UIView *v) {
+    if (!v) { return; }
+    @try {
+        UIView *ov = objc_getAssociatedObject(v, &kDebugKey);
+        if (ov) {
+            [ov removeFromSuperview];
+            objc_setAssociatedObject(v, &kDebugKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kDebugSigKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        for (UIView *sv in [v.subviews copy]) {
+            if (sv.tag == kLVDebugTag) { [sv removeFromSuperview]; }
+        }
+    } @catch (NSException *e) {}
+}
+
+// 开关变化时把可能残留的调试覆盖层清干净
+static void _lvScanAndRemoveDebugIn(UIView *v, int depth) {
+    if (!v || depth > 14) { return; }
+    @try {
+        for (UIView *sv in [v.subviews copy]) {
+            if (sv.tag == kLVDebugTag) { [sv removeFromSuperview]; continue; }
+            _lvScanAndRemoveDebugIn(sv, depth + 1);
+        }
+    } @catch (NSException *e) {}
+}
+
+static void _lvRemoveAllDebugOverlays(void) {
+    @try {
+        id app = [UIApplication sharedApplication];
+        NSArray *wins = nil;
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        for (UIWindow *w in wins) { _lvScanAndRemoveDebugIn(w, 0); }
+    } @catch (NSException *e) {}
+}
+
+// 颜色约定（截图后对照即可定位问题层）：
+//   红色粗框 + 红色半透明填充 = 这一层挂了素材（视频/图片）
+//   橙色     = 系统背景层（毛玻璃/材质）当前可见
+//   蓝色虚线 = 系统背景层已被插件隐藏
+//   绿色     = 按钮 / 按钮区
+//   青色     = 卡片根视图
+//   白色细框 = 其它视图
+static void _lvDebugDraw(UIView *root) {
+    if (!root) { return; }
+    @try {
+        if (!_lvDebugOutline()) { _lvDebugRemove(root); return; }
+
+        // 签名不变就不重绘，避免 layoutSubviews 频繁触发时卡顿
+        NSMutableString *sig = [NSMutableString stringWithFormat:@"%.0fx%.0f",
+                                root.bounds.size.width, root.bounds.size.height];
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:@[root, @0]];
+        int visited = 0;
+        while (stack.count > 0 && visited < 400) {
+            NSArray *item = stack.lastObject;
+            [stack removeLastObject];
+            visited++;
+            UIView *sv = item[0];
+            int depth = [item[1] intValue];
+            if (depth > 9) { continue; }
+            NSString *p = objc_getAssociatedObject(sv, &kPathKey);
+            [sig appendFormat:@"|%@:%.0f,%.0f,%.0f,%.0f,%d,%@",
+             NSStringFromClass([sv class]),
+             sv.frame.origin.x, sv.frame.origin.y,
+             sv.frame.size.width, sv.frame.size.height,
+             (int)sv.hidden, p ?: @"-"];
+            if (depth < 9) {
+                for (UIView *c in sv.subviews) { [stack addObject:@[c, @(depth + 1)]]; }
+            }
+        }
+        NSString *oldSig = objc_getAssociatedObject(root, &kDebugSigKey);
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        if (oldSig && [oldSig isEqualToString:sig] && now - gLastDebugDraw < 1.0) { return; }
+        gLastDebugDraw = now;
+        objc_setAssociatedObject(root, &kDebugSigKey, sig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        UIView *ov = objc_getAssociatedObject(root, &kDebugKey);
+        if (!ov) {
+            ov = [[UIView alloc] initWithFrame:root.bounds];
+            ov.tag = kLVDebugTag;
+            ov.userInteractionEnabled = NO;
+            ov.backgroundColor = [UIColor clearColor];
+            ov.clipsToBounds = YES;
+            objc_setAssociatedObject(root, &kDebugKey, ov, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (ov.superview != root) { [root addSubview:ov]; [root bringSubviewToFront:ov]; }
+        ov.frame = root.bounds;
+        for (CALayer *l in [[ov.layer sublayers] copy]) { [l removeFromSuperlayer]; }
+
+        CGFloat scale = [UIScreen mainScreen].scale ?: 2.0;
+        NSMutableArray *stack2 = [NSMutableArray arrayWithObject:@[root, @0]];
+        visited = 0;
+        while (stack2.count > 0 && visited < 400) {
+            NSArray *item = stack2.lastObject;
+            [stack2 removeLastObject];
+            visited++;
+            UIView *sv = item[0];
+            int depth = [item[1] intValue];
+            if (depth > 9) { continue; }
+            NSString *cls = NSStringFromClass([sv class]);
+            CGRect f = [root convertRect:sv.bounds fromView:sv];
+            BOOL attached = objc_getAssociatedObject(sv, &kPathKey) != nil;
+            BOOL isBg = _lvIsBackgroundView(sv);
+            BOOL isBtn = [sv isKindOfClass:[UIButton class]] ||
+                         _lvIsSingleActionButtonClass(cls) ||
+                         _lvIsActionButtonGroupView(cls) ||
+                         _lvIsPillButtonClass(cls);
+
+            UIColor *color = nil;
+            CGFloat lw = 1.0;
+            UIColor *fill = nil;
+            BOOL dashed = NO;
+            BOOL wantLabel = NO;
+            if (sv == root) {
+                color = [UIColor cyanColor]; lw = 2.0; wantLabel = YES;
+            } else if (attached) {
+                color = [UIColor redColor]; lw = 3.0;
+                fill = [[UIColor redColor] colorWithAlphaComponent:0.18];
+                wantLabel = YES;
+            } else if (isBg) {
+                if (sv.hidden || sv.alpha < 0.02) {
+                    color = [[UIColor blueColor] colorWithAlphaComponent:0.95];
+                    lw = 1.5; dashed = YES; wantLabel = YES;
+                } else {
+                    color = [UIColor orangeColor]; lw = 2.0; wantLabel = YES;
+                }
+            } else if (isBtn) {
+                color = [UIColor greenColor]; lw = 2.0; wantLabel = YES;
+            } else {
+                color = [[UIColor whiteColor] colorWithAlphaComponent:0.3]; lw = 1.0;
+                wantLabel = (f.size.width > 70.0 && f.size.height > 26.0);
+            }
+
+            BOOL drawable = f.size.width > 3.0 && f.size.height > 3.0 && sv.alpha > 0.02;
+            if (drawable && (attached || isBg || isBtn || sv == root ||
+                             (f.size.width > 40.0 && f.size.height > 20.0))) {
+                CAShapeLayer *sl = [CAShapeLayer layer];
+                sl.frame = ov.bounds;
+                sl.path = [UIBezierPath bezierPathWithRect:f].CGPath;
+                sl.strokeColor = color.CGColor;
+                sl.lineWidth = lw;
+                sl.fillColor = fill ? fill.CGColor : [UIColor clearColor].CGColor;
+                if (dashed) { sl.lineDashPattern = @[@3, @2]; }
+                [ov.layer addSublayer:sl];
+
+                if (wantLabel) {
+                    CATextLayer *tl = [CATextLayer layer];
+                    NSString *txt = [NSString stringWithFormat:@"%@ %.0fx%.0f%@",
+                                     cls, f.size.width, f.size.height,
+                                     attached ? @" ★素材" : @""];
+                    tl.string = txt;
+                    tl.fontSize = 8.0;
+                    tl.foregroundColor = color.CGColor;
+                    tl.contentsScale = scale;
+                    tl.truncationMode = kCATruncationEnd;
+                    tl.frame = CGRectMake(f.origin.x + 2.0, f.origin.y + 1.0,
+                                          MIN(f.size.width - 4.0, 240.0), 10.0);
+                    [ov.layer addSublayer:tl];
+                }
+            }
+            if (depth < 9) {
+                for (UIView *c in sv.subviews) { [stack2 addObject:@[c, @(depth + 1)]]; }
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
 // 统一刷新：每帧更新背景层尺寸，并确保系统毛玻璃/背景层处于隐藏状态
 static void _lvRefresh(UIView *v) {
     @try {
+        _lvDebugDraw(v);
         if (!_lvEnabled()) {
             _lvDetach(v);
             return;
@@ -1104,6 +1353,7 @@ static BOOL _lvIsLockScreenVisible(void) {
 
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");
+    _lvDebugDraw(v);
     _lvDumpHierarchy(v);
     if (!_lvEnabled()) {
         _lvDetach(v);
@@ -1200,6 +1450,10 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
                             CFDictionaryRef userInfo) {
     @try {
         BOOL nowEnabled = _lvEnabled();
+        // 可视化调试开关翻转时，先把残留的描边覆盖层清干净
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @try { if (!_lvDebugOutline()) { _lvRemoveAllDebugOverlays(); } } @catch (NSException *e) {}
+        });
         if (nowEnabled != gWasEnabled) {
             gWasEnabled = nowEnabled;
             if (!nowEnabled) {

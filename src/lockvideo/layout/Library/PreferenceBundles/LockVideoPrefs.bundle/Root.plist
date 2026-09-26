@@ -191,6 +191,28 @@
 			<true/>
 		</dict>
 		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footer</key>
+			<string>打开后，通知的每一层视图都会被描边并标注类名：红色粗框=这一层挂了素材，橙色=可见的系统背景层，蓝色虚线=已被插件隐藏的系统背景层，绿色=按钮或按钮区，青色=卡片根视图。截图即可看出多出来的那一层是谁；同时会把完整视图层级导出到 /var/mobile/通知视频/视图结构.txt，把这个文件发给开发者可精确定位。</string>
+			<key>label</key>
+			<string>视图调试（排查多余背景）</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.xiaofei.notifybgvideo</string>
+			<key>key</key>
+			<string>LockVideoDebugOutline</string>
+			<key>label</key>
+			<string>视图描边调试</string>
+		</dict>
+		<dict>
 			<key>action</key>
 			<string>respring:</string>
 			<key>cell</key>
