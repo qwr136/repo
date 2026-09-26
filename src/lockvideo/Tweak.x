@@ -24,7 +24,6 @@ static char kOrigHiddenKey;
 static char kOrigAlphaKey;
 static char kOrigBgColorKey;
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在
-static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 
 #pragma mark - 偏好（直接读文件）
@@ -228,27 +227,11 @@ static NSString *_lvClearPath(void)  { return _lvPathForKey(@"LockVideoClearPath
 
 #pragma mark - 诊断日志
 
-static void _lvLog(NSString *line) {
-    @try {
-        if (![[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]) { return; }
-        NSString *old = [NSString stringWithContentsOfFile:kLVLogFile
-                                                  encoding:NSUTF8StringEncoding
-                                                     error:nil] ?: @"";
-        if (old.length > 8192) { old = @""; }
-        NSString *full = [old stringByAppendingFormat:@"%@\n", line];
-        [full writeToFile:kLVLogFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    } @catch (NSException *e) {}
-}
+// 本版本停用 Hook 日志（不再生成 /var/mobile/通知视频/Hook日志.txt）
+// 保留「视图结构.txt」诊断导出，函数体置空以避免改动全部调用点
+static void _lvLog(NSString *line) { (void)line; }
 
-static void _lvLogOnce(NSString *cls, NSString *action) {
-    @try {
-        if (!gLoggedClasses) { gLoggedClasses = [NSMutableSet set]; }
-        NSString *key = [cls stringByAppendingString:action];
-        if ([gLoggedClasses containsObject:key]) { return; }
-        [gLoggedClasses addObject:key];
-        _lvLog([NSString stringWithFormat:@"%@ -> %@", cls, action]);
-    } @catch (NSException *e) {}
-}
+static void _lvLogOnce(NSString *cls, NSString *action) { (void)cls; (void)action; }
 
 // 诊断用：把通知视图的完整层级写到 /var/mobile/通知视频/视图结构.txt
 // 每一层记录：类名 / frame / hidden / alpha / 背景色 / 子图层 / 是否挂载素材
@@ -564,8 +547,7 @@ static BOOL _lvIsSingleActionButtonClass(NSString *cls) {
     return _lvIsPillButtonClass(cls);
 }
 
-static void _lvRestoreBackgroundsRecursive(UIView *v);
-static void _lvScanAndRestoreInView(UIView *v);
+static void _lvRestoreBackgroundsRecursive(UIView *v, int depth);
 static void _lvDetach(UIView *v);
 
 // 动作按钮组（含单个动作按钮）或通知卡片本体（shortlook/banner/longlook）
@@ -610,13 +592,13 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
             // 「选项/清除」按钮区不隐藏系统背景：整块区域保持系统原样，
             // 只有按钮本身（由 _lvAttachActionButtonGroup 挂载）显示素材
             if (_lvIsActionButtonGroupView(svCls) || _lvIsSingleActionButtonClass(svCls)) {
-                _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
+                _lvRestoreBackgroundsRecursive(sv, 0);   // 清掉历史版本残留的隐藏标记
                 continue;
             }
             // 卡片自身的整块毛玻璃：保留显示，视频叠在它上面；
             // 被裁剪掉的按钮区因此露出系统原样，而不是透出壁纸
             if (objc_getAssociatedObject(sv, &kKeepBgKey)) {
-                _lvRestoreBackgroundsRecursive(sv);
+                _lvRestoreBackgroundsRecursive(sv, 0);
                 continue;
             }
             if (_lvIsBackgroundView(sv)) {
@@ -637,7 +619,6 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
     } @catch (NSException *e) {}
 }
 
-static void _lvScanAndRestoreInView(UIView *v);
 static void _lvDetach(UIView *v);
 
 // 只针对通知卡片本体（shortlook / banner / longlook）
@@ -849,7 +830,7 @@ static CGRect _lvCoverFrameForHost(UIView *v) {
             CGFloat bottom = bestY - 4.0;
             if (bottom >= 8.0 && bottom < frame.size.height) {
                 frame.size.height = bottom;
-                _lvRestoreBackgroundsRecursive(bestView);   // 清掉历史版本残留的隐藏标记
+                _lvRestoreBackgroundsRecursive(bestView, 0);   // 清掉历史版本残留的隐藏标记
                 _lvLogOnce(NSStringFromClass([v class]),
                            [NSString stringWithFormat:@"背景裁剪: 按钮区 %@ y=%.0f h=%.0f 裁到 h=%.0f",
                             NSStringFromClass([bestView class]), bestY,
@@ -899,6 +880,34 @@ static void _lvRemoveAllDebugOverlays(void) {
         NSArray *wins = nil;
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
         for (UIWindow *w in wins) { _lvScanAndRemoveDebugIn(w, 0); }
+    } @catch (NSException *e) {}
+}
+
+// 关闭插件时彻底还原系统原样：
+// 无视任何标记，凡是有备份（hidden/alpha/背景色）的视图一律还原，
+// 并清掉插件留在视图上的全部关联标记；配合 _lvDetachAll 使用。
+static void _lvForceRestoreAllInView(UIView *v, int depth) {
+    if (!v || depth > 30) { return; }
+    @try {
+        NSNumber *oh = objc_getAssociatedObject(v, &kOrigHiddenKey);
+        if (oh) {
+            v.hidden = [oh boolValue];
+            objc_setAssociatedObject(v, &kOrigHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        NSNumber *oa = objc_getAssociatedObject(v, &kOrigAlphaKey);
+        if (oa) {
+            v.alpha = [oa floatValue];
+            objc_setAssociatedObject(v, &kOrigAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        UIColor *ob = objc_getAssociatedObject(v, &kOrigBgColorKey);
+        if (ob) {
+            v.backgroundColor = ob;
+            objc_setAssociatedObject(v, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kKeepBgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kPathKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        for (UIView *sv in [v.subviews copy]) { _lvForceRestoreAllInView(sv, depth + 1); }
     } @catch (NSException *e) {}
 }
 
@@ -1290,27 +1299,30 @@ static void _lvAttachActionButtonGroup(UIView *v) {
 
 #pragma mark - 卸载
 
-static void _lvRestoreBackgroundsRecursive(UIView *v) {
-    if (!v) return;
+// 还原系统背景：不再依赖 kHideDoneKey 标记，凡是有备份值的一律还原，
+// 并且无条件往下递归（历史版本残留、嵌套层的隐藏都能一次清干净）
+static void _lvRestoreBackgroundsRecursive(UIView *v, int depth) {
+    if (!v || depth > 30) return;
     @try {
-        if (!objc_getAssociatedObject(v, &kHideDoneKey)) return;
         objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        for (UIView *sv in v.subviews) {
-            NSNumber *origHidden = objc_getAssociatedObject(sv, &kOrigHiddenKey);
-            if (origHidden) {
-                sv.hidden = [origHidden boolValue];
-                objc_setAssociatedObject(sv, &kOrigHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-
-                NSNumber *origAlpha = objc_getAssociatedObject(sv, &kOrigAlphaKey);
-                if (origAlpha) { sv.alpha = [origAlpha floatValue]; objc_setAssociatedObject(sv, &kOrigAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-
-                UIColor *origBg = objc_getAssociatedObject(sv, &kOrigBgColorKey);
-                if (origBg) { sv.backgroundColor = origBg; objc_setAssociatedObject(sv, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-            } else {
-                _lvRestoreBackgroundsRecursive(sv);
-            }
+        NSNumber *origHidden = objc_getAssociatedObject(v, &kOrigHiddenKey);
+        if (origHidden) {
+            v.hidden = [origHidden boolValue];
+            objc_setAssociatedObject(v, &kOrigHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+        NSNumber *origAlpha = objc_getAssociatedObject(v, &kOrigAlphaKey);
+        if (origAlpha) {
+            v.alpha = [origAlpha floatValue];
+            objc_setAssociatedObject(v, &kOrigAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        UIColor *origBg = objc_getAssociatedObject(v, &kOrigBgColorKey);
+        if (origBg) {
+            v.backgroundColor = origBg;
+            objc_setAssociatedObject(v, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+
+        for (UIView *sv in [v.subviews copy]) { _lvRestoreBackgroundsRecursive(sv, depth + 1); }
     } @catch (NSException *e) {}
 }
 
@@ -1322,7 +1334,7 @@ static void _lvDetach(UIView *v) {
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         objc_setAssociatedObject(v, &kPathKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        _lvRestoreBackgroundsRecursive(v);
+        _lvRestoreBackgroundsRecursive(v, 0);
     } @catch (NSException *e) {}
 }
 
@@ -1332,16 +1344,6 @@ static void _lvDetachAll(void) {
             _lvDetach(v);
         }
         [_lvAttachedViews removeAllObjects];
-    } @catch (NSException *e) {}
-}
-
-static void _lvScanAndRestoreInView(UIView *v) {
-    if (!v) return;
-    @try {
-        if (objc_getAssociatedObject(v, &kHideDoneKey)) {
-            _lvRestoreBackgroundsRecursive(v);
-        }
-        for (UIView *sv in v.subviews) { _lvScanAndRestoreInView(sv); }
     } @catch (NSException *e) {}
 }
 
@@ -1489,6 +1491,8 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
 #pragma mark - 设置变化回调
 
 static void _lvPollTick(void);
+static void _lvStartPollTimer(void);
+static void _lvStopPollTimer(void);
 
 static void _lvPrefsChanged(CFNotificationCenterRef center,
                             void *observer,
@@ -1504,23 +1508,28 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         if (nowEnabled != gWasEnabled) {
             gWasEnabled = nowEnabled;
             if (!nowEnabled) {
+                // 关闭：卸载全部素材层 → 整棵视图树强制还原系统原样 → 清调试覆盖层 → 释放播放器
                 _lvDetachAll();
                 dispatch_async(dispatch_get_main_queue(), ^{
                     @try {
                         id app = [UIApplication sharedApplication];
                         NSArray *wins = nil;
                         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
-                        for (UIWindow *w in wins) { _lvScanAndRestoreInView(w); }
+                        for (UIWindow *w in wins) {
+                            _lvForceRestoreAllInView(w, 0);
+                            _lvScanAndRemoveDebugIn(w, 0);
+                        }
                     } @catch (NSException *e) {}
                 });
-                _lvPauseAllPlayers();
-                _lvLog(@"启用=关：已即时卸载全部背景");
-            } else {
-                _lvLog(@"启用=开：立即重新挂载");
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    @try { _lvPollTick(); } @catch (NSException *e) {}
-                });
+                _lvResetAllPlayers();   // 直接释放全部播放器，省电省内存
+                _lvStopPollTimer();     // 关掉轮询，彻底不再碰系统视图
+                return;
             }
+            _lvLog(@"启用=开：立即重新挂载");
+            _lvStartPollTimer();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                @try { _lvPollTick(); } @catch (NSException *e) {}
+            });
             return;
         }
 
@@ -1555,6 +1564,30 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 #pragma mark - 轮询扫描
 
 static NSTimer *gPollTimer = nil;
+
+// 轮询只在启用时跑：关闭插件直接停掉定时器，省电、也避免误挂载
+static void _lvStartPollTimer(void) {
+    @try {
+        if (![NSThread isMainThread]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ _lvStartPollTimer(); });
+            return;
+        }
+        if (gPollTimer) { return; }
+        gPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
+            @try { _lvPollTick(); } @catch (NSException *e) {}
+        }];
+    } @catch (NSException *e) {}
+}
+
+static void _lvStopPollTimer(void) {
+    @try {
+        if (![NSThread isMainThread]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ _lvStopPollTimer(); });
+            return;
+        }
+        if (gPollTimer) { [gPollTimer invalidate]; gPollTimer = nil; }
+    } @catch (NSException *e) {}
+}
 
 // 轮询扫描命中判断 —— 与 _lvIsNotificationView 保持完全一致。
 // 必须排除 content 容器：NCNotificationLongLookContentView 这类视图包含卡片+按钮区，
@@ -1668,11 +1701,12 @@ static void _lvPollTick(void) {
 
         dispatch_async(dispatch_get_main_queue(), ^{
             @try {
-                if (gPollTimer) { [gPollTimer invalidate]; gPollTimer = nil; }
-                gPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
-                    @try { _lvPollTick(); } @catch (NSException *e) {}
-                }];
-                _lvLog(@"轮询扫描已启动(每1.5秒)");
+                if (_lvEnabled()) {
+                    _lvStartPollTimer();
+                    _lvLog(@"轮询扫描已启动(每1.5秒)");
+                } else {
+                    _lvLog(@"插件默认关闭：轮询未启动");
+                }
             } @catch (NSException *e) {}
         });
 
@@ -1706,7 +1740,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.74 加载完成（修复主素材被空值钉死导致卡片背景不生效） =====");
+        _lvLog(@"===== 1.0.75 加载完成（设置面板改名调序 + 关闭即恢复系统原样 + 停用 Hook 日志） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

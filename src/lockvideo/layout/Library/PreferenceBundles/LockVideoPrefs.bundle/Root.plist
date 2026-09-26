@@ -36,17 +36,9 @@
 			<key>identifier</key>
 			<string>LockVideoMaterialLink</string>
 			<key>label</key>
-			<string>选择当前素材</string>
+			<string>选择消息素材</string>
 			<key>cell</key>
 			<string>PSButtonCell</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>addFromAlbum:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>从相册添加素材</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -58,7 +50,7 @@
 			<key>identifier</key>
 			<string>LockVideoOptionMaterialLink</string>
 			<key>label</key>
-			<string>选择选项按钮素材</string>
+			<string>选择选项素材</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -70,7 +62,15 @@
 			<key>identifier</key>
 			<string>LockVideoClearMaterialLink</string>
 			<key>label</key>
-			<string>选择清除按钮素材</string>
+			<string>选择清除素材</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>addFromAlbum:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>从相册添加素材</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
