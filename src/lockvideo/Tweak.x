@@ -217,7 +217,7 @@ static NSString *_lvPath(void) {
                                     [files.firstObject lastPathComponent]]);
             return files.firstObject;
         }
-        _lvLogOnce(@"当前素材", @"未设置且素材目录为空 —— 卡片不会有背景，请在设置里「选择当前素材」");
+        _lvLogOnce(@"当前素材", @"未设置且素材目录为空 —— 卡片不会有背景，请在设置里「选择消息素材」");
     } @catch (NSException *e) {}
     return nil;
 }

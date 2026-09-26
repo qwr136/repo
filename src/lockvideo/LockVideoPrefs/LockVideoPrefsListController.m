@@ -128,15 +128,15 @@
 }
 
 - (void)switchMaterial:(id)sender {
-    [self _switchMaterialForKey:@"LockVideoPath" title:@"选择当前素材" sender:sender];
+    [self _switchMaterialForKey:@"LockVideoPath" title:@"选择消息素材" sender:sender];
 }
 
 - (void)switchOptionMaterial:(id)sender {
-    [self _switchMaterialForKey:@"LockVideoOptionPath" title:@"选择选项按钮素材" sender:sender];
+    [self _switchMaterialForKey:@"LockVideoOptionPath" title:@"选择选项素材" sender:sender];
 }
 
 - (void)switchClearMaterial:(id)sender {
-    [self _switchMaterialForKey:@"LockVideoClearPath" title:@"选择清除按钮素材" sender:sender];
+    [self _switchMaterialForKey:@"LockVideoClearPath" title:@"选择清除素材" sender:sender];
 }
 
 #pragma mark - 取消选择素材（写入空字符串，插件读取到空值即不再使用该素材）
