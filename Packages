@@ -34,20 +34,20 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.msgbgvideo
-Version: 1.0.6
+Version: 1.0.7
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 384
 Depends: mobilesubstrate | ellekit
-Filename: debs/com.xiaofei.msgbgvideo_1.0.6_iphoneos-arm64.deb
-Size: 26636
-MD5sum: 846797fb104e718fa787c5999ab49cbd
-SHA1: 009e3cf4fd74facc0c1064760d6f820cc6ac4fee
-SHA256: ff9969fc89fefce59b36adc9f6ed43a83ed1c0469482054b5058dfa04bf102b1
+Filename: debs/com.xiaofei.msgbgvideo_1.0.7_iphoneos-arm64.deb
+Size: 26686
+MD5sum: 29b4d600dff13284907ef72410e006e9
+SHA1: 9c3102a2e9bae2cd84ed32891c3b715674034061
+SHA256: 70f7a01fb0b403a8226d24bab9948049a59ebd4c41bc1fa5fef35ad309f847ef
 Section: Tweaks (rootless)
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Author: 小飞
-Changelog: 1.0.6 - 诊断探针增强：SpringBoard探针用sysctl探测MobileSMS进程是否在运行并写入日志，客观区分「未冷启动信息App」与「注入层排除MobileSMS」
+Changelog: 1.0.7 - 过滤规则精简为仅 Bundles（移除 Executables 这一在 Ellekit 上未充分验证的匹配项），消除 MobileSMS 可能因 Executables 解析失败而不被注入的隐患
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 信息视频背景
