@@ -10,7 +10,7 @@
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/插件日志.txt"   // 全方位问题诊断日志（需手动开启）
 #define kLVFlushLog  CFSTR("com.xiaofei.notifybgvideo/FlushLog")
-#define kLVVersion   @"1.0.86"
+#define kLVVersion   @"1.0.87"
 
 // 问题日志的分类名（声音 / 卡顿 / 失效 是重点，其余按要求全量收集）
 #define kLVCatSound    @"声音"
@@ -1238,6 +1238,8 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
         BOOL sawSlider = NO;          // 音量条 —— 只有媒体卡才有
         BOOL sawArtwork = NO;         // 接近正方的封面图（≥52pt）
         NSInteger smallControls = 0;  // 播控小按钮的个数
+        BOOL sawAuxOptions = NO;          // 选项/清除 这类通知动作区（NCAuxiliaryOptionsView / PLPlatterActionButton）
+        BOOL sawPartialActivityContent = NO; // 活动内容的高度只占卡片一部分（嵌入的媒体小窗，而非铺满的实时活动）
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         while (stack.count) {
             UIView *cur = [stack lastObject];
@@ -1282,6 +1284,21 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
                     }
                 }
             }
+            // —— 结构特征（不看控件类名，专治「整棵子树全是通用类名」的设备）——
+            // ① 卡片里出现「选项/清除」动作区（NCAuxiliaryOptionsView / PLPlatterActionButton）
+            //    → 这是通知卡片，不是纯实时活动；用户的「播放器」卡正是这种形态
+            if (!sawAuxOptions &&
+                ([low containsString:@"auxiliaryoptions"] || [low containsString:@"actionbutton"])) {
+                sawAuxOptions = YES;
+            }
+            // ② 活动内容没铺满卡片（只占一部分）→ 它是嵌在通知里的媒体小窗（播放器），铺满的才是实时活动
+            if (!sawPartialActivityContent && _lvIsActivityContentClass(low)) {
+                UIView *sup = cur.superview;
+                if (sup && sup.bounds.size.height > 4.0) {
+                    CGFloat r = cur.bounds.size.height / sup.bounds.size.height;
+                    if (r < 0.7) { sawPartialActivityContent = YES; }
+                }
+            }
             [stack addObjectsFromArray:cur.subviews];
         }
 
@@ -1316,6 +1333,19 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
         if (weakHits >= 2) { return LVActivityKindNowPlaying; }
         // 子视图太单薄 —— 十有八九是内容还没从 App 端渲染过来，先别下结论
         if (nodes < 6) { return LVActivityKindUnknown; }
+        // —— 结构特征兜底（不看媒体控件类名）——
+        // 锁屏上「实时活动」和「媒体播放器」共用 CSActivityItemContentView 容器，上面那些靠类名的判据
+        // 在用户的设备上一个都命中不了 → 此前永远判成普通活动 → 两张卡共用一个背景视频。
+        // 两个独立信号，任一命中即认定这是播放器卡片（走「播放器素材」，与实时活动分开）：
+        //   ① 卡片里出现「选项/清除」动作区（纯实时活动没有）
+        //   ② 活动内容高度只占卡片一部分（铺满的是实时活动，只占一截的是嵌入的媒体小窗）
+        if (sawAuxOptions || sawPartialActivityContent) {
+            if (loaded) { *loaded = YES; }
+            _lvNote(kLVCatActivity,
+                    @"凭结构特征判定为播放器卡片（与实时活动分开，不再共用背景）：auxOptions=%d partialContent=%d",
+                    sawAuxOptions, sawPartialActivityContent);
+            return LVActivityKindNowPlaying;
+        }
         return LVActivityKindGeneral;
     } @catch (NSException *e) { _lvExcept(__func__, e); return LVActivityKindUnknown; }
 }
@@ -2281,6 +2311,11 @@ static void _lvRefresh(UIView *v) {
             _lvDetach(v);
             return;
         }
+        // 素材只在锁屏通知界面生效：离开锁屏立刻撤掉已挂上的背景，不在主屏/应用里露出来
+        if (!_lvIsLockScreenVisible()) {
+            _lvDetach(v);
+            return;
+        }
         NSString *path = objc_getAssociatedObject(v, &kPathKey);
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
@@ -2798,6 +2833,7 @@ static void _lvOnMatch(UIView *v) {
         return;
     }
     if (!_lvIsLockScreenVisible()) {
+        _lvDetach(v);
         _lvPauseAllPlayers();
         return;
     }
@@ -3160,6 +3196,10 @@ static void _lvPollTick(void) {
         }
         if (!_lvIsLockScreenVisible()) {
             _lvPauseAllPlayers();
+            // 不在锁屏：把已挂上的背景全部撤掉——素材只在锁屏通知界面生效，主屏/应用里不露出来
+            for (UIView *v in [_lvAttachedTable() allObjects]) {
+                if (v && v.window) { _lvDetach(v); }
+            }
             return;
         }
         _lvCleanupStaleAttachments();   // 清理旧版本挂在按钮区大视图上的残留
@@ -3256,7 +3296,7 @@ static void _lvPollTick(void) {
                 _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（统一声音裁定（不再漏声） + 实时活动/播放器分离（含手动指定） + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
+        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（统一声音裁定（不再漏声） + 实时活动/播放器分离（结构特征识别，不再共用背景） + 仅限锁屏通知界面生效 + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
     } @catch (NSException *e) { _lvExcept(__func__, e);
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
