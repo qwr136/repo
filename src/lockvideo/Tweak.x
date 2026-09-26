@@ -11,6 +11,16 @@
 #define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
 #define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
+// 实时活动 / Now Playing 的类型判定结果
+// Unknown    = 内容还没加载完，暂时不敢下结论（此时不挂载，避免先显示出错的素材）
+// General    = 普通实时活动（外卖/进度/运动…）
+// NowPlaying = 锁屏媒体播放器（走独立「播放器素材」）
+typedef NS_ENUM(NSInteger, LVActivityKind) {
+    LVActivityKindUnknown    = 0,
+    LVActivityKindGeneral    = 1,
+    LVActivityKindNowPlaying = 2,
+};
+
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
 static NSMutableSet<AVPlayer *> *gAllPlayers = nil;     // 当前所有存活的 AVPlayer（含共享），用于统一暂停/声音同步/可见性播放
 static NSMapTable *gObserverMap = nil;   // player -> loop observer（AVPlayer 不遵循 NSCopying，不能用 NSDictionary 当 key）
@@ -21,7 +31,11 @@ static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
 static char kPlayerKey;        // 记录 view 当前使用的 AVPlayer（可能与其他同路径视图共享，按引用计数管理生命周期）
 static char kActivityHostKey;  // 标记实时活动卡片的 PLPlatterView 宿主
-static char kRecheckKey;       // 标记活动视图已安排「延迟复核 NowPlaying 类型」，避免重复 dispatch
+static char kRecheckKey;       // 活动内容视图上：已安排的「类型复核」次数（NSNumber），到上限后停止
+static char kKindKey;          // 活动内容视图上：最终确定的类型（NSNumber / LVActivityKind），内容视图销毁即自动释放
+static char kKindProbeKey;     // 活动内容视图上：已定为普通活动后，是否做过一次「是不是漏判的播放器」复查
+static char kExpectedKey;      // 「应挂素材」短时缓存
+static char kExpectedStampKey;
 static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
@@ -30,7 +44,13 @@ static char kOrigAlphaKey;
 static char kOrigBgColorKey;
 static char kOrigCornerKey;    // 备份：宿主 layer.cornerRadius（关闭插件时还原）
 static char kOrigMasksKey;     // 备份：宿主 layer.masksToBounds（关闭插件时还原）
-static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在
+// 弱引用：只用于遍历，绝不 retain —— 旧版用 NSMutableArray 强引用 + 每次挂载都 addObject，
+// 数组会无限堆积并永久持有已销毁的视图，导致解锁后内存不降、遍历越来越慢（下拉卡顿）
+static NSHashTable<UIView *> *_lvAttachedViews = nil;
+static NSHashTable<UIView *> *_lvAttachedTable(void) {
+    if (!_lvAttachedViews) { _lvAttachedViews = [NSHashTable weakObjectsHashTable]; }
+    return _lvAttachedViews;
+}
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 static NSSet<NSString *> *gLastActivePaths = nil;    // 上一次激活的素材路径集合，变化时重置全部播放器
 
@@ -42,6 +62,13 @@ static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v);
 static NSString *_lvButtonTitle(UIView *btn);
 static BOOL _lvViewEffectivelyVisible(UIView *v);
 static BOOL _lvIsActivityHost(UIView *v);
+// 定义在后面的辅助函数：这里必须前向声明，否则 C99 报 implicit declaration，
+// 整个 dylib 直接编译不过（1.0.82 就是因为漏了这两个声明而没有出包）
+static BOOL _lvIsActivityContentClass(NSString *cls);
+static BOOL _lvIsNowPlayingActivityView(UIView *v);
+static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded);
+static LVActivityKind _lvResolvedKindForView(UIView *v);
+static void _lvOnMatch(UIView *v);
 
 static NSArray<NSString *> *_lvSuites(void) {
     return @[@"com.xiaofei.notifybgvideo", @"com.xiaofei.notifybgvideo.prefs"];
@@ -298,8 +325,12 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
             NSUInteger subLayers = 0;
             @try { subLayers = v.layer.sublayers.count; } @catch (NSException *e) {}
             NSString *actTag = @"";
-            if (_lvIsActivityContentClass(cls)) {
-                actTag = _lvIsNowPlayingActivityView(v) ? @" [播放器]" : @" [活动]";
+            if (_lvIsActivityContentClass(cls) || _lvIsActivityHost(v)) {
+                switch (_lvResolvedKindForView(v)) {
+                    case LVActivityKindNowPlaying: actTag = @" [播放器]"; break;
+                    case LVActivityKindGeneral:    actTag = @" [活动]";   break;
+                    default:                       actTag = @" [类型未定]"; break;
+                }
             }
             [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f hidden=%d alpha=%.2f bg=%@ 图层=%lu%@%@\n",
              [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
@@ -547,7 +578,7 @@ static void _lvReleasePlayerRef(AVPlayer *player) {
 static BOOL _lvPlayerHasOtherVisibleView(AVPlayer *p, UIView *exceptV) {
     if (!p) { return NO; }
     @try {
-        for (UIView *v in [_lvAttachedViews copy]) {
+        for (UIView *v in [_lvAttachedTable() allObjects]) {
             if (v == exceptV) { continue; }
             AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
             AVPlayer *vp = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
@@ -578,7 +609,7 @@ static void _lvPauseAllPlayers(void) {
 
 static void _lvPlayAllVisiblePlayers(void) {
     @try {
-        for (UIView *v in [_lvAttachedViews copy]) {
+        for (UIView *v in [_lvAttachedTable() allObjects]) {
             AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
             AVPlayer *p = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
             if (p && _lvViewEffectivelyVisible(v) && !_lvPathIsImageAsset(objc_getAssociatedObject(v, &kPathKey))) {
@@ -627,59 +658,197 @@ static BOOL _lvIsActivityAuthorizationAlert(UIView *v) {
     return NO;
 }
 
-// 判断一个实时活动是否是「正在播放 / Now Playing」widget（锁屏音乐播放器）
-// 通过递归检查子视图类名是否包含音乐播放控件相关标记。
-// 覆盖 iOS 16/17/18 系统媒体控件常见类名（不同机型/版本命名有差异，故列表较宽）。
-static BOOL _lvIsNowPlayingActivityView(UIView *v) {
-    if (!v) return NO;
+// 判断一个实时活动是不是锁屏媒体播放器（Now Playing widget）
+//
+// 三条判据，任一命中即认定为播放器：
+//   1) 强类名证据：NowPlaying / MediaControls / MRUI / CSNowPlaying 等明确的媒体控件类名
+//   2) 强文本证据：它是个可点击控件（UIControl），无障碍标签是「播放/暂停/上一首/下一首…」
+//   3) 弱类名证据累计 ≥ 2：artwork / playback / scrubber / music / progress …（单条太泛，不作数）
+// 关键点：内容还没加载完（子树太单薄）时返回 Unknown，而不是急着判成「普通活动」。
+// 旧版在这种时候就判 NO → 挂了实时活动素材甚至主素材 → 内容加载完又重挂 → 肉眼可见的「先错后对」。
+static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
+    if (loaded) { *loaded = NO; }
+    if (!root) { return LVActivityKindUnknown; }
     @try {
-        NSArray<NSString *> *markers = @[
-            // Now Playing / 媒体框架通用前缀
-            @"nowplaying", @"nowplayingcontent", @"nowplayinglive", @"nowplayingitem",
-            @"nowplayingheader", @"nowplayingartwork", @"nowplayingmetadata",
-            // MediaControls 系列
-            @"mediacontrols", @"mediacontrolsview", @"mediacontrolstime",
-            @"mediacontrolstransport", @"mediacontrolsvolume", @"mediacontrolsrouting",
-            // MRUI / MR 媒体远程框架（iOS 16+ 锁屏播放器常用）
-            @"mruimedia", @"mrcontent", @"mrplatter", @"mrroute", @"mrvolume",
-            @"mrmedia", @"mrnowplaying",
-            // 媒体路由 / 音量 / 传输控件
-            @"csmediacontrols", @"csnowplaying", @"csnowplayingtransport", @"csnowplayingview",
-            @"transportbutton", @"transportslider", @"volumecontainer", @"routingbutton",
-            @"playback", @"mpartwork", @"mptransport", @"mproute", @"mpvolume", @"mpbutton",
-            @"music", @"skip", @"scrubber", @"ellipsisbutton", @"routebutton"
-        ];
-        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:v];
+        if (root.bounds.size.width < 24.0 || root.bounds.size.height < 12.0) { return LVActivityKindUnknown; }
+
+        static NSArray<NSString *> *strongMarkers = nil;
+        static NSArray<NSString *> *weakMarkers = nil;
+        static NSArray<NSString *> *axTexts = nil;
+        if (!strongMarkers) {
+            strongMarkers = @[
+                @"nowplaying", @"nowplayingcontent", @"nowplayinglive", @"nowplayingitem",
+                @"nowplayingheader", @"nowplayingartwork", @"nowplayingmetadata",
+                @"mediacontrols", @"mediacontrolsview", @"mediacontrolstime",
+                @"mediacontrolstransport", @"mediacontrolsvolume", @"mediacontrolsrouting",
+                @"mruimedia", @"mrnowplaying", @"mruartwork", @"mrutransport", @"mruvolume",
+                @"mruroute", @"mrumetadata", @"mrcontent", @"mrplatter", @"mrmedia", @"mrroute",
+                @"csmediacontrols", @"csnowplaying", @"csnowplayingview", @"csnowplayingtransport",
+                @"mpmediacontrols", @"mpmediacontrolsparent", @"mproute", @"mpvolume",
+                @"mptransport", @"mpartwork", @"mpbutton",
+                @"transportslider", @"transportbutton", @"volumecontainer", @"routingbutton",
+                @"ellipsisbutton", @"routebutton", @"stepthrough", @"progressslider"
+            ];
+            weakMarkers = @[
+                @"playback", @"scrubber", @"artwork", @"album", @"artist",
+                @"tracktitle", @"music", @"skip", @"elapsedtime"
+            ];
+            axTexts = @[
+                @"播放", @"暂停", @"上一首", @"上一曲", @"下一首", @"下一曲",
+                @"下一个", @"上一个", @"跳过", @"停止",
+                @"play", @"pause", @"next track", @"previous track", @"seek"
+            ];
+        }
+
+        NSInteger weakHits = 0;
+        NSUInteger nodes = 0;
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         while (stack.count) {
             UIView *cur = [stack lastObject];
             [stack removeLastObject];
-            NSString *cls = NSStringFromClass([cur class]).lowercaseString;
-            for (NSString *m in markers) {
-                if ([cls containsString:m]) return YES;
+            if (++nodes > 260) { break; }
+            NSString *low = NSStringFromClass([cur class]).lowercaseString;
+            BOOL hitStrong = NO;
+            for (NSString *m in strongMarkers) {
+                if ([low containsString:m]) { hitStrong = YES; break; }
+            }
+            if (hitStrong) {
+                if (loaded) { *loaded = YES; }
+                return LVActivityKindNowPlaying;
+            }
+            for (NSString *m in weakMarkers) {
+                if ([low containsString:m]) { weakHits++; break; }
+            }
+            // 播控按钮的无障碍标签：只对真正的可点击控件采样，避免读到容器继承来的 label 误判
+            if ([cur isKindOfClass:[UIControl class]]) {
+                NSString *al = nil;
+                @try {
+                    if ([cur respondsToSelector:@selector(accessibilityLabel)]) { al = [cur accessibilityLabel]; }
+                    if (!al.length && [cur respondsToSelector:@selector(accessibilityIdentifier)]) { al = [cur accessibilityIdentifier]; }
+                } @catch (NSException *e) {}
+                if (al.length) {
+                    NSString *t = al.lowercaseString;
+                    for (NSString *m in axTexts) {
+                        if ([t containsString:m]) {
+                            if (loaded) { *loaded = YES; }
+                            return LVActivityKindNowPlaying;
+                        }
+                    }
+                }
             }
             [stack addObjectsFromArray:cur.subviews];
         }
+        if (loaded) { *loaded = (nodes >= 6); }
+        if (weakHits >= 2) { return LVActivityKindNowPlaying; }
+        // 子视图太单薄 —— 十有八九是内容还没从 App 端渲染过来，先别下结论
+        if (nodes < 6) { return LVActivityKindUnknown; }
+        return LVActivityKindGeneral;
+    } @catch (NSException *e) { return LVActivityKindUnknown; }
+}
+
+// 兼容旧调用点
+static BOOL _lvIsNowPlayingActivityView(UIView *v) {
+    return _lvDetectKindIn(v, NULL) == LVActivityKindNowPlaying;
+}
+
+// 素材回退链 —— 关键修正之一：
+//   没设「播放器素材」时，退回「实时活动素材」，最后才回退主素材。
+//   旧版从播放器直接跳到主素材，于是「只设了活动素材」= 播放器上先出现通知消息视频。
+static NSString *_lvResolvedPathForKind(LVActivityKind kind) {
+    NSString *pp = _lvPlayerPath();
+    NSString *ap = _lvActivityPath();
+    if (kind == LVActivityKindNowPlaying) {
+        if (pp.length) { return pp; }
+        if (ap.length) { return ap; }
+        return _lvPath();
+    }
+    if (ap.length) { return ap; }
+    return _lvPath();
+}
+
+// 从宿主往下找回活动内容视图，用于读取它的类型判定结果
+static UIView *_lvFindActivityContentInHost(UIView *host) {
+    if (!host) { return nil; }
+    if (_lvIsActivityContentClass(NSStringFromClass([host class]))) { return host; }
+    @try {
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:host];
+        int visited = 0;
+        while (stack.count && visited < 400) {
+            UIView *cur = [stack lastObject];
+            [stack removeLastObject];
+            visited++;
+            if (_lvIsActivityContentClass(NSStringFromClass([cur class]))) { return cur; }
+            [stack addObjectsFromArray:cur.subviews];
+        }
     } @catch (NSException *e) {}
-    return NO;
+    return nil;
+}
+
+// 综合「已确定的类型」与「当下检测结果」给出最终类型。
+// 已定为播放器就钉住不放；已定为普通活动仍留一次升级机会（媒体控件可能是后加载的）。
+static LVActivityKind _lvResolvedKindForView(UIView *v) {
+    @try {
+        UIView *content = nil;
+        if (_lvIsActivityContentClass(NSStringFromClass([v class]))) {
+            content = v;
+        } else if (_lvIsActivityHost(v)) {
+            content = _lvFindActivityContentInHost(v);
+        } else {
+            LVActivityKind k0 = _lvDetectKindIn(v, NULL);
+            return (k0 == LVActivityKindUnknown) ? LVActivityKindGeneral : k0;
+        }
+        if (!content) { content = v; }
+        NSNumber *sticky = objc_getAssociatedObject(content, &kKindKey);
+        UIView *probeRoot = _lvFindActivityPlatterHost(v) ?: v;
+        if (!sticky) {
+            BOOL loaded = NO;
+            LVActivityKind k = _lvDetectKindIn(probeRoot, &loaded);
+            return (k == LVActivityKindUnknown) ? LVActivityKindGeneral : k;
+        }
+        if ([sticky integerValue] == LVActivityKindNowPlaying) { return LVActivityKindNowPlaying; }
+        // 已定为普通活动：只给一次「是不是漏判的播放器」复查机会。
+        // 媒体控件有可能延迟加载，但绝不能每次 layout 都重扫整棵子树 —— 那会拖垮下拉帧率。
+        if (objc_getAssociatedObject(content, &kKindProbeKey)) { return LVActivityKindGeneral; }
+        objc_setAssociatedObject(content, &kKindProbeKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        LVActivityKind k = _lvDetectKindIn(probeRoot, NULL);
+        if (k == LVActivityKindNowPlaying) {
+            objc_setAssociatedObject(content, &kKindKey, @(LVActivityKindNowPlaying), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            return LVActivityKindNowPlaying;
+        }
+        return LVActivityKindGeneral;
+    } @catch (NSException *e) { return LVActivityKindGeneral; }
 }
 
 // 根据视图当前的真实类型，算出「此刻最应该挂的素材路径」
 // 用于：①锁屏下拉动画/内容延迟加载导致首次挂载类型判断不准时，在 _lvRefresh 里纠正；
 //       ②活动卡片若属于 Now Playing 应走播放器素材，否则走实时活动素材，都为空回退主素材。
-// 返回 nil 表示「不干预」（例如普通通知卡片，保持原挂载即可）。
+// 返回 nil 表示「不干预」：①普通通知卡片；②活动类型还没定下来（交给延迟复核，别抢跑）
 static NSString *_lvExpectedPathForView(UIView *v) {
     if (!v) return nil;
     @try {
         NSString *cls = NSStringFromClass([v class]);
-        if (_lvIsActivityContentClass(cls) || _lvIsActivityHost(v)) {
-            if (_lvIsNowPlayingActivityView(v)) {
-                NSString *pp = _lvPlayerPath();
-                if (pp.length) return pp;
-            }
-            NSString *ap = _lvActivityPath();
-            if (ap.length) return ap;
-            return _lvPath();   // 实时活动/播放器都没设 → 回退主素材
+        if (!_lvIsActivityContentClass(cls) && !_lvIsActivityHost(v)) { return nil; }
+
+        // 结果短时缓存：layoutSubviews 每帧都会走到这里，
+        // 不缓存的话等于每帧扫一遍子树的类名，下拉动画必然掉帧
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        NSNumber *stamp = objc_getAssociatedObject(v, &kExpectedStampKey);
+        NSString *cached = objc_getAssociatedObject(v, &kExpectedKey);
+        if (cached && stamp && (now - [stamp doubleValue]) < 0.35) {
+            return cached.length ? cached : nil;
         }
+
+        NSString *result = nil;
+        @try {
+            if (_lvIsActivityContentClass(cls) || _lvIsActivityHost(v)) {
+                LVActivityKind k = _lvResolvedKindForView(v);
+                result = _lvResolvedPathForKind(k);
+            }
+        } @catch (NSException *e) {}
+
+        objc_setAssociatedObject(v, &kExpectedKey, result ?: @"", OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kExpectedStampKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return result.length ? result : nil;
     } @catch (NSException *e) {}
     return nil;
 }
@@ -943,7 +1112,7 @@ static void _lvApplyButtonAudio(UIView *v) {
 
 static void _lvUpdateButtonAudioEverywhere(void) {
     @try {
-        for (UIView *v in [_lvAttachedViews copy]) { _lvApplyButtonAudio(v); }
+        for (UIView *v in [_lvAttachedTable() allObjects]) { _lvApplyButtonAudio(v); }
     } @catch (NSException *e) {}
 }
 
@@ -1163,6 +1332,12 @@ static void _lvForceRestoreAllInView(UIView *v, int depth) {
         objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kKeepBgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kPathKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kRecheckKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kKindKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kKindProbeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kExpectedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kExpectedStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kActivityHostKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         for (UIView *sv in [v.subviews copy]) { _lvForceRestoreAllInView(sv, depth + 1); }
     } @catch (NSException *e) {}
 }
@@ -1298,6 +1473,30 @@ static void _lvDebugDraw(UIView *root) {
     } @catch (NSException *e) {}
 }
 
+// 视图（及其浅层子树）上是否还留着插件的痕迹（素材层 / 备份值）
+// 用途：跳过「对没有挂载的视图反复 detach」。旧版对没挂素材的活动内容视图每帧都跑一次
+// _lvDetach → 递归整棵子树 restore，下拉动画期间纯粹白白烧 CPU，是掉帧的来源之一
+static BOOL _lvHasPluginTraces(UIView *v, int depth) {
+    if (!v || depth > 3) { return NO; }
+    @try {
+        if (objc_getAssociatedObject(v, &kPathKey))         { return YES; }
+        if (objc_getAssociatedObject(v, &kLayerKey))        { return YES; }
+        if (objc_getAssociatedObject(v, &kImgKey))          { return YES; }
+        if (objc_getAssociatedObject(v, &kHideDoneKey))     { return YES; }
+        if (objc_getAssociatedObject(v, &kKeepBgKey))       { return YES; }
+        if (objc_getAssociatedObject(v, &kOrigHiddenKey))   { return YES; }
+        if (objc_getAssociatedObject(v, &kOrigAlphaKey))    { return YES; }
+        if (objc_getAssociatedObject(v, &kOrigBgColorKey))  { return YES; }
+        if (objc_getAssociatedObject(v, &kOrigCornerKey))   { return YES; }
+        if (objc_getAssociatedObject(v, &kOrigMasksKey))    { return YES; }
+        if (depth >= 3) { return NO; }
+        for (UIView *sv in v.subviews) {
+            if (_lvHasPluginTraces(sv, depth + 1)) { return YES; }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
 // 统一刷新：每帧更新背景层尺寸，并确保系统毛玻璃/背景层处于隐藏状态
 static void _lvRefresh(UIView *v) {
     @try {
@@ -1309,9 +1508,9 @@ static void _lvRefresh(UIView *v) {
         NSString *path = objc_getAssociatedObject(v, &kPathKey);
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
-        // 未挂载素材的视图（如通知卡片主体）保持系统原样，不再隐藏背景层
+        // 未挂载素材的视图（如实时活动内容视图本体）保持系统原样，不再隐藏背景层
         if (!path.length || (!l && !iv)) {
-            _lvDetach(v);
+            if (_lvHasPluginTraces(v, 0)) { _lvDetach(v); }   // 只有真的留过东西才需要还原
             return;
         }
         // 锁屏下拉动画 / 内容延迟加载可能让首次挂载时的类型判断不准（活动卡片被暂挂成主素材、
@@ -1384,7 +1583,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
                 iv.clipsToBounds = YES;
                 objc_setAssociatedObject(v, &kImgKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 _lvInsertImageView(v, iv);
-                [_lvAttachedViews addObject:v];
+                [_lvAttachedTable() addObject:v];
                 _lvLogOnce(NSStringFromClass(v.class), @"已挂载图片/GIF");
             }
             iv.image = img;
@@ -1429,21 +1628,33 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         }
 
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+        BOOL freshLayer = NO;
         if (!l) {
             l = [AVPlayerLayer playerLayerWithPlayer:p];
             l.videoGravity = AVLayerVideoGravityResizeAspectFill;
             l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             l.masksToBounds = YES;
+            l.opacity = 0.0;   // 新建图层先透明，再淡入 —— 素材被更正（活动→播放器）时不至于先黑一块
             objc_setAssociatedObject(v, &kLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            freshLayer = YES;
             _lvLogOnce(NSStringFromClass(v.class), @"已挂载视频");
         }
         if (l.player != p) { l.player = p; }
 
         _lvInsertLayer(v, l);
-        [_lvAttachedViews addObject:v];
+        [_lvAttachedTable() addObject:v];
         l.frame = _lvCoverFrameForHost(v);
         l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
-        l.opacity = (float)_lvAlpha();
+        CGFloat targetOpacity = (float)_lvAlpha();
+        if (freshLayer) {
+            [CATransaction begin];
+            [CATransaction setAnimationDuration:0.18];
+            [CATransaction setAnimationTimingFunction:[CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut]];
+            l.opacity = targetOpacity;
+            [CATransaction commit];
+        } else {
+            l.opacity = targetOpacity;
+        }
         {
             NSString *cls = NSStringFromClass([v class]);
             if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
@@ -1646,17 +1857,25 @@ static void _lvDetach(UIView *v) {
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         objc_setAssociatedObject(v, &kPathKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(v, &kActivityHostKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);   // 实时活动宿主标记也清掉
+        // 注意：这里绝不清除 kActivityHostKey。
+        // 素材切换（活动→播放器）时 _lvAttachWithPath 会先 detach 再重挂，若把宿主标记清掉，
+        // 切完之后 PLPlatterView 就不再触发 _lvRefresh，后续连尺寸同步都会断掉。
+        // 需要在关闭插件时清理的话，请走 _lvDetachAll / _lvForceRestoreAllInView。
         _lvRestoreBackgroundsRecursive(v, 0);
     } @catch (NSException *e) {}
 }
 
 static void _lvDetachAll(void) {
     @try {
-        for (UIView *v in [_lvAttachedViews copy]) {
+        for (UIView *v in [_lvAttachedTable() allObjects]) {
+            objc_setAssociatedObject(v, &kActivityHostKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);   // 关闭插件：彻底摘掉宿主标记
+            objc_setAssociatedObject(v, &kKindKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kKindProbeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kExpectedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kExpectedStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             _lvDetach(v);
         }
-        [_lvAttachedViews removeAllObjects];
+        [_lvAttachedTable() removeAllObjects];
     } @catch (NSException *e) {}
 }
 
@@ -1713,6 +1932,73 @@ static BOOL _lvIsLockScreenVisible(void) {
     return _lvHasLockScreenWindow();
 }
 
+#pragma mark - 实时活动：类型判定与延迟复核
+
+// 类型复核的时间点（秒）。实时活动的内容由 App 端异步渲染，
+// 下拉那一瞬间子视图（媒体控件）通常还没到位 —— 旧版只派发到「下一轮 runloop」就完事，
+// 结果播放器长期被判成普通实时活动，永远用不上播放器素材。
+static NSArray<NSNumber *> *_lvRecheckDelays(void) {
+    static NSArray<NSNumber *> *d = nil;
+    if (!d) { d = @[@0.08, @0.22, @0.5, @1.0, @1.8]; }
+    return d;
+}
+
+static void _lvScheduleActivityRecheck(UIView *v) {
+    @try {
+        if (!v) { return; }
+        NSArray<NSNumber *> *delays = _lvRecheckDelays();
+        NSInteger idx = [objc_getAssociatedObject(v, &kRecheckKey) integerValue];
+        if (idx < 0) { idx = 0; }
+        if (idx >= (NSInteger)delays.count) { return; }   // 次数用尽：维持现状，不再派发
+        objc_setAssociatedObject(v, &kRecheckKey, @(idx + 1), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        double delay = [delays[idx] doubleValue];
+        __weak UIView *weakV = v;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            @try {
+                UIView *vv = weakV;
+                if (!vv || !vv.window) { return; }
+                if (!_lvEnabled() || !_lvIsLockScreenVisible()) { return; }
+                _lvOnMatch(vv);
+            } @catch (NSException *e) {}
+        });
+    } @catch (NSException *e) {}
+}
+
+static void _lvHandleActivityMatch(UIView *v) {
+    if (!v) { return; }
+    @try {
+        if (_lvIsActivityAuthorizationAlert(v)) { _lvDetach(v); return; }   // 授权弹窗保持系统原样
+
+        UIView *host = _lvFindActivityPlatterHost(v) ?: v;
+        if (host != v) {
+            objc_setAssociatedObject(host, &kActivityHostKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+
+        BOOL loaded = NO;
+        LVActivityKind kind = _lvDetectKindIn(host, &loaded);
+        if (kind == LVActivityKindUnknown) {
+            // 内容还没加载完 —— 先什么都别挂。
+            // 旧版这时候会按「普通活动」挂实时活动素材，素材没设就一路回退到主素材，
+            // 于是下拉第一时间看到的是「通知消息视频」，等媒体控件加载完才跳成自己选的视频。
+            // 宁可多等几十毫秒，也不要先给用户看一版错的。
+            NSInteger idx = [objc_getAssociatedObject(v, &kRecheckKey) integerValue];
+            if (idx >= (NSInteger)_lvRecheckDelays().count) {
+                // 兜底：内容始终没渲染过来（某些 App 的 Live Activity 天生很单薄），
+                // 次数用尽后按普通实时活动处理，别让卡片一直没背景
+                kind = LVActivityKindGeneral;
+            } else {
+                _lvScheduleActivityRecheck(v);
+                return;
+            }
+        }
+        objc_setAssociatedObject(v, &kKindKey, @(kind), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSString *p = _lvResolvedPathForKind(kind);
+        if (p.length) { _lvAttachWithPath(host, p); }
+        else { _lvDetach(host); }
+    } @catch (NSException *e) {}
+}
+
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");
     _lvDebugDraw(v);
@@ -1730,29 +2016,16 @@ static void _lvOnMatch(UIView *v) {
     if (_lvIsActionButtonGroupView(cls)) {
         _lvAttachActionButtonGroup(v);   // 按钮组：只给单个按钮挂素材，容器不挂
     } else if (_lvIsActivityContentClass(cls)) {
-        if (_lvIsActivityAuthorizationAlert(v)) {
-            _lvDetach(v);   // 授权弹窗保持系统原样
-            return;
-        }
-        UIView *host = _lvFindActivityPlatterHost(v);
-        if (host) {
-            objc_setAssociatedObject(host, &kActivityHostKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            // Now Playing 音乐播放器单独走「播放器素材」，其它实时活动走「实时活动素材」，都为空时回退主素材
-            NSString *ap = _lvIsNowPlayingActivityView(v) ? _lvPlayerPath() : _lvActivityPath();
-            _lvAttachWithPath(host, ap.length ? ap : _lvPath());   // 实时活动：视频铺满 PLPlatterView，优先独立素材
+        _lvHandleActivityMatch(v);       // 实时活动 / Now Playing：先判类型再挂
+    } else if (_lvIsActivityHost(v)) {
+        // 关键修复：活动宿主（PLPlatterView）被兜底 hook 命中时，绝不能再退化成主素材。
+        // 旧版这里落到 else → _lvAttach(host) → 直接挂「通知消息视频」，
+        // 把刚刚挂好的活动/播放器素材顶掉 —— 就是用户看到的「下拉先出通知视频，随后才跳成选的那个」。
+        NSString *p = _lvExpectedPathForView(v);
+        if (p.length) {
+            _lvAttachWithPath(v, p);
         } else {
-            // 找不到宿主就回退到内容视图本身
-            NSString *ap = _lvIsNowPlayingActivityView(v) ? _lvPlayerPath() : _lvActivityPath();
-            _lvAttachWithPath(v, ap.length ? ap : _lvPath());
-        }
-        // 锁屏下拉/内容加载时，子视图（媒体控件）可能尚未就位，导致上面误判成「非播放器」。
-        // 安排一次延迟复核：等下一轮 runloop 子视图加载后再重新判定并（必要时）重挂播放器素材。
-        // 用 kRecheckKey 确保每个活动视图只复核一次，且不清零（避免 _lvOnMatch 递归再次派发造成循环）。
-        if (!objc_getAssociatedObject(v, &kRecheckKey)) {
-            objc_setAssociatedObject(v, &kRecheckKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                @try { if (v.window) { _lvOnMatch(v); } } @catch (NSException *e) {}
-            });
+            _lvScheduleActivityRecheck(_lvFindActivityContentInHost(v) ?: v);
         }
     } else {
         _lvAttach(v);                    // 通知卡片主体：挂主素材
@@ -1822,7 +2095,7 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
                 if (l.player != p) { l.player = p; }
                 l.frame = v.bounds;
                 [v.layer addSublayer:l];
-                [_lvAttachedViews addObject:v];
+                [_lvAttachedTable() addObject:v];
                 [p play];
             }
         }
@@ -1982,7 +2255,8 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
 static void _lvCleanupStaleAttachments(void) {
     @try {
         NSMutableArray<UIView *> *stale = [NSMutableArray array];
-        for (UIView *v in _lvAttachedViews) {
+        NSHashTable<UIView *> *table = _lvAttachedTable();
+        for (UIView *v in [table allObjects]) {
             if (!v || !v.window) { continue; }
             if (_lvAllowedToAttach(v)) { continue; }   // 白名单内的合法挂载点
             [stale addObject:v];
@@ -1990,7 +2264,7 @@ static void _lvCleanupStaleAttachments(void) {
         for (UIView *v in stale) {
             _lvLog([NSString stringWithFormat:@"清理残留挂载: %@", NSStringFromClass([v class])]);
             _lvDetach(v);
-            [_lvAttachedViews removeObject:v];
+            [table removeObject:v];
         }
     } @catch (NSException *e) {}
 }
@@ -2064,7 +2338,7 @@ static void _lvPollTick(void) {
         gObserverMap = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];
         gPlayerByPath = [NSMutableDictionary dictionary];
         gRefCount = [NSMutableDictionary dictionary];
-        if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
+        if (!_lvAttachedViews) { _lvAttachedViews = [NSHashTable weakObjectsHashTable]; }
 
         // 不再在 ctor 里预创建播放器：等视图出现时再按需创建；同一路径的多个视图会复用同一个 AVPlayer（引用计数管理）
 
@@ -2082,7 +2356,7 @@ static void _lvPollTick(void) {
                 _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.82 加载完成（Now Playing 识别扩展 + 延迟复核 + 首帧回退修复 + 调试标注 [播放器]/[活动]） =====");
+        _lvLog(@"===== 1.0.83 加载完成（补前向声明修复编译 + 修复活动宿主退化挂主素材 + 播放器类型三判据识别 + 多次递增延迟复核 + 素材回退链 播放器→活动→主 + 弱引用挂载表） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

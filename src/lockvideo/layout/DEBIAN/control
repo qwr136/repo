@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.82
+Version: 1.0.83
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.82 - 修复「播放器背景和实时活动背景没分开」：大幅扩展 Now Playing 识别的媒体控件类名标记（MediaControls / MRUI / MRPlatter / MRContent / 传输/音量/路由/播放控件等），覆盖更多机型与系统版本；新增「挂载后延迟复核」——活动卡片子视图（媒体控件）未就位时先按普通活动挂，下一轮 runloop 再重新判定并（必要时）重挂播放器素材；新增 _lvRefresh 按当前真实类型重算应挂素材并重挂，消除锁屏下拉时「首帧显示消息视频、后变正确视频」的闪烁；调试导出视图结构时给每个实时活动内容视图标注 [播放器]/[活动] 便于定位；本版本不发布到源
+Changelog: 1.0.83 - 彻底修复「下拉第一时间显示通知消息视频、随后才跳成自己选的视频」：①补齐缺失的前向声明，1.0.82 之所以一直没出包就是因为这里 C99 编译失败；②修复元凶 bug——活动宿主 PLPlatterView 被兜底 hook 命中时会落进 _lvAttach 直接挂主素材，把刚挂好的活动/播放器素材顶掉；③播放器类型判定改为「强类名证据 / 播控按钮无障碍标签 / 弱证据计票」三选一，并在内容未加载完时返回「未定」而不是急着判成普通活动；④类型判定改为多次递增延迟复核（0.08~1.8s 共 5 次）而非只派发一次 runloop，且结果钉住在活动内容视图上不再来回抖；⑤素材回退链改为 播放器→实时活动→主素材（旧版从播放器直接跳主素材）；⑥挂载表改用 NSHashTable 弱引用，修掉 NSMutableArray 强引用 + 重复 addObject 导致的视图永久泄漏与下拉越用越卡；⑦「应挂素材」结果短时缓存，避免每帧扫整棵子树；⑧新建视频层淡入，素材更正时不再先黑一块
