@@ -40,7 +40,7 @@
 			<key>identifier</key>
 			<string>LockVideoMaterialLink</string>
 			<key>label</key>
-			<string>选择素材</string>
+			<string>选择当前素材</string>
 			<key>placeholder</key>
 			<string></string>
 			<key>value</key>
@@ -60,7 +60,7 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>清除选择素材</string>
+			<string>清除当前素材</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

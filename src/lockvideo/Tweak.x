@@ -330,10 +330,24 @@ static void _lvResetPlayer(void) {
 
 #pragma mark - 视图识别（大小写不敏感）
 
+// 判断是否为通知卡片的「选项」「清除」动作按钮组容器（PLCTButtonGroupView / PLPillButtonGroupView 等）
+static BOOL _lvIsActionButtonGroupView(NSString *cls) {
+    if (!cls) return NO;
+    NSString *low = cls.lowercaseString;
+    if ([low containsString:@"plctbuttongroup"]) return YES;       // PLCTButtonGroupView
+    if ([low containsString:@"plpillbuttongroup"]) return YES;     // PLPillButtonGroupView
+    if ([low containsString:@"plpillcontent"]) return YES;       // PLPillContentView
+    if ([low containsString:@"ncnotificationlistcellactionbutton"]) return YES;
+    if ([low containsString:@"csnotificationlistcellactionbutton"]) return YES;
+    return NO;
+}
+
 static BOOL _lvIsNotificationView(UIView *v) {
     @try {
         NSString *cls = NSStringFromClass([v class]);
         if (!cls) { return NO; }
+        // 选项/清除动作按钮组：类名不含 notification，单独识别
+        if (_lvIsActionButtonGroupView(cls)) return YES;
         NSString *low = cls.lowercaseString;
         if (![low containsString:@"notification"]) { return NO; }
         // 排除一切容器/遮罩/标题/列表——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后看不见
@@ -343,9 +357,8 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if ([low containsString:@"sectionlist"])  { return NO; }
         if ([low containsString:@"listcell"])     { return NO; }   // 卡片外层容器，视频会被内部卡片盖住看不见
         if ([low containsString:@"content"])      { return NO; }   // 内容视图，交给 shortlook 统一处理
-        // 只挂用户实际看到的圆角卡片本体 + 选项/清除动作按钮组
-        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"] ||
-               [low containsString:@"actionbutton"] || [low containsString:@"pillbutton"] || [low containsString:@"buttongroup"];
+        // 只挂用户实际看到的圆角卡片本体
+        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
     } @catch (NSException *e) { return NO; }
 }
 
@@ -783,6 +796,8 @@ static NSTimer *gPollTimer = nil;
 // 只挂用户实际看到的通知视图本体（短按卡片 / 横幅 / 长按展开视图），
 // 排除列表容器、遮罩、标题、外层 cell——它们的 bounds 远大于卡片，挂上会铺满或藏在卡片背后
 static BOOL _lvIsCardClass(NSString *cls) {
+    // 选项/清除动作按钮组：类名不含 notif，优先识别
+    if (_lvIsActionButtonGroupView(cls)) return YES;
     NSString *low = cls.lowercaseString;
     if (![low containsString:@"notif"]) { return NO; }
     if ([low containsString:@"stackdimming"]) { return NO; }
@@ -793,13 +808,9 @@ static BOOL _lvIsCardClass(NSString *cls) {
     // 短按：可见圆角卡片本体（NCNotificationShortLookView）
     // 横幅：锁屏顶部悬浮通知（NCNotificationBannerView / ...）
     // 长按展开：长按通知后弹出的完整视图（NCNotificationLongLookView / NCNotificationLongLookContentView / ...）
-    // 选项/清除动作按钮组（PLCTButtonGroupView / PLPillButtonGroupView / NCNotificationListCellActionButton）
     return [low containsString:@"shortlook"] ||
            [low containsString:@"banner"]     ||
-           [low containsString:@"longlook"]    ||
-           [low containsString:@"actionbutton"] ||
-           [low containsString:@"pillbutton"]   ||
-           [low containsString:@"buttongroup"];
+           [low containsString:@"longlook"];
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
