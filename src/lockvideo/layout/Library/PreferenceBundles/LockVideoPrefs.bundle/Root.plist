@@ -55,6 +55,14 @@
 			<string>从相册添加素材</string>
 		</dict>
 		<dict>
+			<key>action</key>
+			<string>clearMaterial:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>清除选择素材</string>
+		</dict>
+		<dict>
 			<key>PostNotification</key>
 			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
 			<key>cell</key>

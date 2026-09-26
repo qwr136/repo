@@ -343,8 +343,9 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if ([low containsString:@"sectionlist"])  { return NO; }
         if ([low containsString:@"listcell"])     { return NO; }   // 卡片外层容器，视频会被内部卡片盖住看不见
         if ([low containsString:@"content"])      { return NO; }   // 内容视图，交给 shortlook 统一处理
-        // 只挂用户实际看到的圆角卡片本体
-        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
+        // 只挂用户实际看到的圆角卡片本体 + 选项/清除动作按钮组
+        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"] ||
+               [low containsString:@"actionbutton"] || [low containsString:@"pillbutton"] || [low containsString:@"buttongroup"];
     } @catch (NSException *e) { return NO; }
 }
 
@@ -792,9 +793,13 @@ static BOOL _lvIsCardClass(NSString *cls) {
     // 短按：可见圆角卡片本体（NCNotificationShortLookView）
     // 横幅：锁屏顶部悬浮通知（NCNotificationBannerView / ...）
     // 长按展开：长按通知后弹出的完整视图（NCNotificationLongLookView / NCNotificationLongLookContentView / ...）
+    // 选项/清除动作按钮组（PLCTButtonGroupView / PLPillButtonGroupView / NCNotificationListCellActionButton）
     return [low containsString:@"shortlook"] ||
            [low containsString:@"banner"]     ||
-           [low containsString:@"longlook"];
+           [low containsString:@"longlook"]    ||
+           [low containsString:@"actionbutton"] ||
+           [low containsString:@"pillbutton"]   ||
+           [low containsString:@"buttongroup"];
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {

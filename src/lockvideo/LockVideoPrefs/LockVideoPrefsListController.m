@@ -359,6 +359,28 @@
     [self presentViewController:a animated:YES completion:nil];
 }
 
+// 清除当前选择的素材：移除 LockVideoPath 并通知 SpringBoard
+- (void)clearMaterial:(id)sender {
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"清除选择素材"
+                         message:@"确定要清除当前选择的素材吗？\n清除后将不再显示任何通知背景视频/图片，直到重新选择素材。"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
+                                  mutableCopy] ?: [NSMutableDictionary dictionary];
+        [p removeObjectForKey:@"LockVideoPath"];
+        [p writeToFile:kLVPrefsFile atomically:YES];
+        // 通知 SpringBoard 立即刷新（无素材时不挂载）
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
+        [self _refreshCurrentMaterialRow];
+        [self _showAlertTitle:@"已清除" message:@"当前素材已清除，请到「选择素材」重新选择或从相册添加。"];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)respring:(id)sender {
     char * const argv[] = { (char *)"sbreload", NULL };
     pid_t pid = 0;
