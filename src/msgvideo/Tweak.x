@@ -10,6 +10,8 @@
 #define kMVNotify    CFSTR("com.xiaofei.msgbgvideo/ReloadPrefs")
 #define kMVVideoDir  @"/var/mobile/信息视频"
 #define kMVLogFile   @"/var/mobile/信息视频/Hook日志.txt"
+// 兜底日志：无论素材目录存不存在都写，用来确认插件到底有没有注入
+#define kMVLogFile2  @"/var/mobile/Library/Preferences/msgvideo_hook.log"
 
 static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
@@ -21,6 +23,7 @@ static BOOL gTargetMounted = NO;   // 是否已挂到会话列表/聊天页视�
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gAppActive = YES;
 static int gUpdateCount = 0;
+static int gPollCount = 0;
 
 #pragma mark - 偏好（直接读文件 + 系统偏好双保险）
 
@@ -61,7 +64,11 @@ static BOOL _mvHas(NSString *key) {
     return NO;
 }
 
-static BOOL _mvEnabled(void) { return _mvBool(@"MsgVideoEnabled"); }
+// 没设过时默认开启（设置面板里开关也是默认开）
+static BOOL _mvEnabled(void) {
+    if (!_mvHas(@"MsgVideoEnabled")) { return YES; }
+    return _mvBool(@"MsgVideoEnabled");
+}
 
 // 声音默认开启：只有用户显式设为 NO 才静音
 static BOOL _mvSound(void) {
@@ -135,13 +142,22 @@ static NSString *_mvPath(void) {
 
 static void _mvLog(NSString *line) {
     @try {
-        if (![[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]) { return; }
-        NSString *old = [NSString stringWithContentsOfFile:kMVLogFile
-                                                  encoding:NSUTF8StringEncoding
-                                                     error:nil] ?: @"";
-        if (old.length > 8192) { old = @""; }
-        NSString *full = [old stringByAppendingFormat:@"%@\n", line];
-        [full writeToFile:kMVLogFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        // 目录不存在就建一个（顺便帮用户把素材目录准备好）
+        if (![fm fileExistsAtPath:kMVVideoDir]) {
+            [fm createDirectoryAtPath:kMVVideoDir
+          withIntermediateDirectories:YES
+                           attributes:nil
+                                error:nil];
+        }
+        for (NSString *path in @[kMVLogFile, kMVLogFile2]) {
+            NSString *old = [NSString stringWithContentsOfFile:path
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:nil] ?: @"";
+            if (old.length > 32768) { old = @""; }
+            NSString *full = [old stringByAppendingFormat:@"%@\n", line];
+            [full writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
     } @catch (NSException *e) {}
 }
 
@@ -362,6 +378,29 @@ static void _mvScanTargets(UIView *root) {
     } @catch (NSException *e) {}
 }
 
+// 诊断：把窗口的视图树打出来（深度 4、最多 60 行），用来确认真实类名
+static void _mvDumpRec(UIView *v, int depth, NSMutableString *s, int *lines) {
+    if (depth > 4 || *lines > 60) { return; }
+    @try {
+        NSMutableString *pad = [NSMutableString string];
+        for (int i = 0; i < depth; i++) { [pad appendString:@"  "]; }
+        [s appendFormat:@"%@%@ %.0fx%.0f\n", pad, NSStringFromClass(v.class),
+         v.bounds.size.width, v.bounds.size.height];
+        (*lines)++;
+        for (UIView *c in v.subviews) { _mvDumpRec(c, depth + 1, s, lines); }
+    } @catch (NSException *e) {}
+}
+
+static void _mvDumpWindow(UIWindow *w) {
+    @try {
+        NSMutableString *s = [NSMutableString string];
+        int lines = 0;
+        [s appendFormat:@"--- 窗口 %@ ---\n", NSStringFromClass(w.class)];
+        _mvDumpRec(w, 0, s, &lines);
+        _mvLog(s);
+    } @catch (NSException *e) {}
+}
+
 #pragma mark - 挂载到窗口
 
 static void _mvUpdateWindow(UIWindow *w) {
@@ -448,6 +487,20 @@ static void _mvPollTick(void) {
 
         if (!gTargetMounted) {
             _mvLogOnce(@"扫描结果", @"没找到会话列表视图(CKConversationList*/CKTranscript*)");
+        }
+
+        // 心跳：每 30 秒一行，确认插件活着；没挂上时顺便打一次视图树
+        gPollCount++;
+        if (gPollCount % 20 == 1) {
+            _mvLog([NSString stringWithFormat:@"心跳: 启用=%d 播放器=%d 挂到列表=%d 窗口=%lu",
+                    _mvEnabled(), (gPlayer != nil), gTargetMounted, (unsigned long)wins.count]);
+            if (!gTargetMounted) {
+                for (UIWindow *w in wins) {
+                    if (![w isKindOfClass:[UIWindow class]]) { continue; }
+                    if ([NSStringFromClass(w.class) containsString:@"TextEffects"]) { continue; }
+                    _mvDumpWindow(w);
+                }
+            }
         }
     } @catch (NSException *e) {}
 }
@@ -538,10 +591,13 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
                 @try { if (gPlayer) { [gPlayer pause]; } } @catch (NSException *e) {}
             }];
 
+        _mvLog([NSString stringWithFormat:@"进程: %@ (信息App=%d)",
+                [[NSProcessInfo processInfo] processName],
+                [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:@"com.apple.MobileSMS"]]);
         _mvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 透明度=%.2f 视频=%@ 目录存在=%d",
                 _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
-        _mvLog(@"===== 1.0.2 信息视频背景 加载完成（挂会话列表视图） =====");
+        _mvLog(@"===== 1.0.3 信息视频背景 加载完成 =====");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
