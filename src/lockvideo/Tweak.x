@@ -17,6 +17,8 @@ static char kLayerKey;
 static char kImgKey;
 static char kHideDoneKey;
 static char kOrigHiddenKey;
+static char kOrigAlphaKey;
+static char kOrigBgColorKey;
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在，避免弱引用丢失导致卸载失败
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
@@ -306,7 +308,7 @@ static BOOL _lvIsBackgroundView(UIView *v) {
 }
 
 // 递归隐藏卡片里所有系统背景/模糊子视图，让素材层真正可见
-// 并记录每个视图的原始 hidden 状态，关闭插件时 1:1 还原
+// 并记录每个视图的原始 hidden / alpha / backgroundColor，关闭插件时 1:1 还原
 static void _lvHideBackgroundsRecursive(UIView *v) {
     if (!v) return;
     @try {
@@ -315,8 +317,16 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
 
         for (UIView *sv in v.subviews) {
             if (_lvIsBackgroundView(sv)) {
-                NSNumber *orig = @(sv.hidden);
-                objc_setAssociatedObject(sv, &kOrigHiddenKey, orig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                // 只保存一次原始状态，避免重复 hide 把隐藏态/0alpha 覆盖掉
+                if (!objc_getAssociatedObject(sv, &kOrigHiddenKey)) {
+                    objc_setAssociatedObject(sv, &kOrigHiddenKey, @(sv.hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
+                if (!objc_getAssociatedObject(sv, &kOrigAlphaKey)) {
+                    objc_setAssociatedObject(sv, &kOrigAlphaKey, @(sv.alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
+                if (!objc_getAssociatedObject(sv, &kOrigBgColorKey)) {
+                    objc_setAssociatedObject(sv, &kOrigBgColorKey, sv.backgroundColor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
                 sv.hidden = YES;
             } else {
                 // 继续递归，但只处理一层背景层即可；避免误伤内容子视图
@@ -334,10 +344,16 @@ static void _lvRestoreBackgroundsRecursive(UIView *v) {
         objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         for (UIView *sv in v.subviews) {
-            NSNumber *orig = objc_getAssociatedObject(sv, &kOrigHiddenKey);
-            if (orig) {
-                sv.hidden = [orig boolValue];
+            NSNumber *origHidden = objc_getAssociatedObject(sv, &kOrigHiddenKey);
+            if (origHidden) {
+                sv.hidden = [origHidden boolValue];
                 objc_setAssociatedObject(sv, &kOrigHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+                NSNumber *origAlpha = objc_getAssociatedObject(sv, &kOrigAlphaKey);
+                if (origAlpha) { sv.alpha = [origAlpha floatValue]; objc_setAssociatedObject(sv, &kOrigAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+
+                UIColor *origBg = objc_getAssociatedObject(sv, &kOrigBgColorKey);
+                if (origBg) { sv.backgroundColor = origBg; objc_setAssociatedObject(sv, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
             } else {
                 _lvRestoreBackgroundsRecursive(sv);
             }
@@ -361,6 +377,12 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
 // 统一刷新：每帧更新背景层尺寸，并确保系统毛玻璃/背景层处于隐藏状态
 static void _lvRefresh(UIView *v) {
     @try {
+        // 如果开关被关闭，任何已挂载的视图都要立即卸载并恢复原始外观，
+        // 防止 layoutSubviews 每帧再次隐藏背景导致卡片保持透明。
+        if (!_lvEnabled()) {
+            _lvDetach(v);
+            return;
+        }
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         if (l) {
             _lvInsertLayer(v, l);
@@ -461,15 +483,6 @@ static void _lvAttach(UIView *v) {
 
 #pragma mark - 卸载（关闭「启用」时即时移除背景，无需注销）
 
-// 恢复卡片原始背景：已废弃（见上面同名函数说明，v1.0.53 起 hook 不再修改通知卡片视觉属性）
-
-// 恢复卡片原始背景 —— 已废弃（见 _lvRestoreBackgroundsRecursive 注释）。
-// 保留函数符号仅为防止调用点残留引用时编译失败。
-static void _lvRestoreBackgroundsRecursive_inline_removed(UIView *v) {
-    if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }
-    objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
 // 前向声明：恢复函数（detached 时调用）
 static void _lvRestoreBackgroundsRecursive(UIView *v);
 static void _lvScanAndRestoreInView(UIView *v);
@@ -482,14 +495,13 @@ static void _lvDetach(UIView *v) {
         if (l) { [l removeFromSuperlayer]; objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-        // v1.0.55：恢复被隐藏的系统毛玻璃/背景层，让卡片回到插件开启前状态
+        // v1.0.56：恢复被隐藏的系统毛玻璃/背景层（hidden/alpha/backgroundColor 一并还原），
+        // 让卡片回到插件开启前状态，而不是保持透明。
         _lvRestoreBackgroundsRecursive(v);
     } @catch (NSException *e) {}
 }
 
 // 卸载所有已挂载视图（关闭「启用」时调用）。
-// v1.0.53 起 hook 不再修改通知卡片的视觉属性，所以只需要移除我们插入的视频/图片层即可。
-// 通知卡片的原生外观由系统自动呈现，不会被本 hook 任何操作改变。
 static void _lvDetachAll(void) {
     @try {
         for (UIView *v in [_lvAttachedViews copy]) {
@@ -499,12 +511,15 @@ static void _lvDetachAll(void) {
     } @catch (NSException *e) {}
 }
 
-// _lvScanAndRestoreInView 已废弃（v1.0.53 不再需要扫描恢复背景），保留为 no-op 防止调用残留。
-static void _lvScanAndRestoreInView(UIView *v) { (void)v; }
-
 // 在一棵视图树里递归找任何带 kHideDoneKey 标记的视图并恢复其原始外观
-static void _lvScanAndRestoreInView_unused_removed(UIView *v) {
-    (void)v;
+static void _lvScanAndRestoreInView(UIView *v) {
+    if (!v) return;
+    @try {
+        if (objc_getAssociatedObject(v, &kHideDoneKey)) {
+            _lvRestoreBackgroundsRecursive(v);
+        }
+        for (UIView *sv in v.subviews) { _lvScanAndRestoreInView(sv); }
+    } @catch (NSException *e) {}
 }
 
 #pragma mark - 仅限锁屏（灵动岛/前台横幅不挂载、不出声）
@@ -566,6 +581,7 @@ static BOOL _lvIsLockScreenVisible(void) {
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");   // 不再依赖诊断模式，必记
     if (!_lvEnabled()) {
+        _lvDetach(v);                 // 关闭时立即恢复卡片原貌
         if (gPlayer) { [gPlayer pause]; }
         return;
     }
@@ -661,6 +677,15 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
             gWasEnabled = nowEnabled;
             if (!nowEnabled) {
                 _lvDetachAll();                 // 立即移除所有已挂的视频/图片层并恢复卡片原貌
+                // 再扫描所有 UIWindow，确保漏网之鱼也被恢复
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    @try {
+                        id app = [UIApplication sharedApplication];
+                        NSArray *wins = nil;
+                        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+                        for (UIWindow *w in wins) { _lvScanAndRestoreInView(w); }
+                    } @catch (NSException *e) {}
+                });
                 if (gPlayer) { [gPlayer pause]; }
                 _lvLog(@"启用=关：已即时卸载全部背景");
             } else {
