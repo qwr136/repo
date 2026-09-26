@@ -34,4 +34,4 @@ ld: warning: -multiply_defined is obsolete
 [1;31m> [1;3;39mMaking stage in LockVideoPrefs…[m
 [1;31m> [1;3;39mMaking stage for bundle LockVideoPrefs…[m
 [1;31m> [1;3;39mMaking stage for tweak LockVideo…[m
-dm.pl: building package `com.xiaofei.notifybgvideo:iphoneos-arm64' in `./packages/com.xiaofei.notifybgvideo_1.0.45_iphoneos-arm64.deb'
+dm.pl: building package `com.xiaofei.notifybgvideo:iphoneos-arm64' in `./packages/com.xiaofei.notifybgvideo_1.0.46_iphoneos-arm64.deb'
