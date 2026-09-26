@@ -19,18 +19,19 @@ ld: warning: -multiply_defined is obsolete
 [1;31m> [1;3;39mMaking all for tweak LockVideo…[m
 [0;31m==> [1;39mPreprocessing Tweak.x…[m
 [0;32m==> [1;39mCompiling Tweak.x (arm64)…[m
-[1mTweak.x:511:17: [0m[0;1;31merror: [0m[1mcall to undeclared function '_lvScanAndRestoreInView'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration][0m
-  511 |                 _lvScanAndRestoreInView(w);[0m
-      | [0;1;32m                ^
-[0m[1mTweak.x:518:13: [0m[0;1;31merror: [0m[1mstatic declaration of '_lvScanAndRestoreInView' follows non-static declaration[0m
-  518 | static void _lvScanAndRestoreInView(UIView *v) {[0m
-      | [0;1;32m            ^
-[0m[1mTweak.x:511:17: [0m[0;1;36mnote: [0mprevious implicit declaration is here[0m
-  511 |                 _lvScanAndRestoreInView(w);[0m
-      | [0;1;32m                ^
-[0m2 errors generated.
-make[3]: *** [/Users/runner/work/repo/repo/src/lockvideo/.theos/obj/arm64/Tweak.x.c6e8da38.o] Error 1
-rm /Users/runner/work/repo/repo/src/lockvideo/.theos/obj/arm64/Tweak.x.m
-make[2]: *** [/Users/runner/work/repo/repo/src/lockvideo/.theos/obj/arm64/LockVideo.dylib] Error 2
-make[1]: *** [internal-library-all_] Error 2
-make: *** [LockVideo.all.tweak.variables] Error 2
+[0;33m==> [1;39mLinking tweak LockVideo (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for LockVideo…[m
+[0;34m==> [1;39mStripping LockVideo (arm64)…[m
+[0;31m==> [1;39mPreprocessing Tweak.x…[m
+[0;32m==> [1;39mCompiling Tweak.x (arm64e)…[m
+[0;33m==> [1;39mLinking tweak LockVideo (arm64e)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for LockVideo…[m
+[0;34m==> [1;39mStripping LockVideo (arm64e)…[m
+[0;34m==> [1;39mMerging tweak LockVideo…[m
+[0;34m==> [1;39mSigning LockVideo…[m
+[1;31m> [1;3;39mMaking stage in LockVideoPrefs…[m
+[1;31m> [1;3;39mMaking stage for bundle LockVideoPrefs…[m
+[1;31m> [1;3;39mMaking stage for tweak LockVideo…[m
+dm.pl: building package `com.xiaofei.notifybgvideo:iphoneos-arm64' in `./packages/com.xiaofei.notifybgvideo_1.0.52_iphoneos-arm64.deb'
