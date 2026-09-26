@@ -1,6 +1,6 @@
 Package: com.xiaofei.msgbgvideo
 Name: 信息视频背景
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.1 - 首个版本：信息 App 全屏视频背景，支持启用开关、切换视频、声音开关（默认开）、透明度调节，素材放在 /var/mobile/信息视频
+Changelog: 1.0.2 - 视频直接挂到会话列表视图 CKConversationListCollectionView 和聊天页 CKTranscript 上，并清掉列表自身背景，滚动时视频固定不跟随

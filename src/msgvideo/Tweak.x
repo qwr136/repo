@@ -15,7 +15,9 @@ static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
+static char kViewLayerKey;
 static char kOrigBGKey;
+static BOOL gTargetMounted = NO;   // 是否已挂到会话列表/聊天页视图上
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gAppActive = YES;
 static int gUpdateCount = 0;
@@ -280,6 +282,86 @@ static void _mvTransparentTree(UIView *root, BOOL restore) {
     } @catch (NSException *e) {}
 }
 
+#pragma mark - 挂载到具体界面视图（CKConversationListCollectionView / 聊天页）
+
+// 会话列表：CKConversationListCollectionView（CKConversationListController 的根视图）
+// 聊天页：CKTranscript* 系列
+static BOOL _mvIsTargetClass(NSString *cls) {
+    if (!cls) { return NO; }
+    NSString *low = cls.lowercaseString;
+    if ([low containsString:@"conversationlist"])  { return YES; }
+    if ([low containsString:@"cktranscript"])      { return YES; }
+    if ([low containsString:@"messagetranscript"]) { return YES; }
+    return NO;
+}
+
+// 把视频层插到目标视图自身 layer 的最底层，并清掉它自己的背景色。
+// 滚动时用 contentOffset 修正 frame，保证视频固定在屏幕上不跟着滚。
+static void _mvAttachToView(UIView *v) {
+    @try {
+        if (!v || !_mvEnabled()) { return; }
+        AVPlayer *p = _mvPlayer();
+        if (!p) { return; }
+
+        _mvMakeClear(v);   // 不清背景，视频永远被它自己的白底挡住
+
+        AVPlayerLayer *l = objc_getAssociatedObject(v, &kViewLayerKey);
+        BOOL isNew = (l == nil);
+        if (!l) {
+            l = [AVPlayerLayer playerLayerWithPlayer:p];
+            l.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            l.masksToBounds = YES;
+            objc_setAssociatedObject(v, &kViewLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [v.layer insertSublayer:l atIndex:0];
+            _mvLog([NSString stringWithFormat:@"已挂到界面视图: %@ %.0fx%.0f",
+                    NSStringFromClass(v.class), v.bounds.size.width, v.bounds.size.height]);
+        }
+        if (l.superlayer != v.layer) {
+            [l removeFromSuperlayer];
+            [v.layer insertSublayer:l atIndex:0];
+        }
+        if (l.player != p) { l.player = p; }
+
+        CGRect f = v.bounds;
+        if ([v isKindOfClass:[UIScrollView class]]) {
+            CGPoint off = ((UIScrollView *)v).contentOffset;
+            f = CGRectMake(off.x, off.y, f.size.width, f.size.height);
+        }
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        l.frame = f;
+        l.opacity = (float)_mvAlpha();
+        [CATransaction commit];
+        l.hidden = NO;
+
+        gUpdateCount++;
+        if (isNew || (gUpdateCount % 10 == 0)) {
+            _mvTransparentTree(v, NO);
+        }
+
+        gTargetMounted = YES;
+        if (gAppActive) { [p play]; } else { [p pause]; }
+    } @catch (NSException *e) {
+        _mvLog([NSString stringWithFormat:@"view attach 异常: %@", e]);
+    }
+}
+
+static void _mvScanTargets(UIView *root) {
+    @try {
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+        int visited = 0;
+        while (stack.count > 0 && visited < 1500) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            visited++;
+            if (_mvIsTargetClass(NSStringFromClass(v.class))) {
+                _mvAttachToView(v);
+            }
+            for (UIView *c in v.subviews) { [stack addObject:c]; }
+        }
+    } @catch (NSException *e) {}
+}
+
 #pragma mark - 挂载到窗口
 
 static void _mvUpdateWindow(UIWindow *w) {
@@ -318,7 +400,9 @@ static void _mvUpdateWindow(UIWindow *w) {
         l.frame = w.bounds;
         l.opacity = (float)_mvAlpha();
         [CATransaction commit];
-        l.hidden = NO;
+        // 已经挂到会话列表/聊天页视图上时，窗口这一层就藏起来，避免两层叠加
+        l.hidden = gTargetMounted;
+        _mvMakeClear(w);   // 窗口自身若是不透明底色也会挡住视频
 
         // 让界面背景透明，视频才透得出来。
         // 全树遍历有开销，首次挂载立刻做，之后每 10 次才做一次（新 cell 由 hook 补）。
@@ -347,10 +431,23 @@ static void _mvPollTick(void) {
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+
+        // 先找会话列表 / 聊天页视图并挂上（优先），再更新窗口兜底层
+        gTargetMounted = NO;
+        for (UIWindow *w in wins) {
+            if (![w isKindOfClass:[UIWindow class]]) { continue; }
+            if ([NSStringFromClass(w.class) containsString:@"TextEffects"]) { continue; }
+            _mvScanTargets(w);
+        }
+
         for (UIWindow *w in wins) {
             if (![w isKindOfClass:[UIWindow class]]) { continue; }
             if ([NSStringFromClass(w.class) containsString:@"TextEffects"]) { continue; }
             _mvUpdateWindow(w);
+        }
+
+        if (!gTargetMounted) {
+            _mvLogOnce(@"扫描结果", @"没找到会话列表视图(CKConversationList*/CKTranscript*)");
         }
     } @catch (NSException *e) {}
 }
@@ -373,6 +470,29 @@ static void _mvReloadPrefs(void) {
 - (void)layoutSubviews {
     %orig;
     @try { _mvUpdateWindow(self); } @catch (NSException *e) {}
+}
+
+%end
+
+// 会话列表 / 聊天页：直接挂到这个滚动视图上
+%hook UIScrollView
+
+- (void)didMoveToWindow {
+    %orig;
+    @try {
+        if (_mvEnabled() && _mvIsTargetClass(NSStringFromClass(self.class))) {
+            _mvAttachToView(self);
+        }
+    } @catch (NSException *e) {}
+}
+
+- (void)layoutSubviews {
+    %orig;
+    @try {
+        if (_mvEnabled() && _mvIsTargetClass(NSStringFromClass(self.class))) {
+            _mvAttachToView(self);
+        }
+    } @catch (NSException *e) {}
 }
 
 %end
@@ -421,7 +541,7 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
         _mvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 透明度=%.2f 视频=%@ 目录存在=%d",
                 _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
-        _mvLog(@"===== 1.0.1 信息视频背景 加载完成 =====");
+        _mvLog(@"===== 1.0.2 信息视频背景 加载完成（挂会话列表视图） =====");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
