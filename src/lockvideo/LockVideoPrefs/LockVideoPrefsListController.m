@@ -221,7 +221,7 @@
 
 // 把 PHPicker 给出的临时文件（视频/GIF）拷贝到素材目录
 // 关键：loadFileRepresentation 给的 URL 只在回调内有效，必须立刻拷贝
-// 修复：长视频用 NSFileCoordinator + mapped reading，避免 dataWithContentsOfURL 把整个文件读进内存导致 OOM 失败
+// 修复 v1.0.54：长视频改用 POSIX 分块流式拷贝，避免一次性读全内存或原子写入双份空间导致 OOM / 磁盘不足失败
 - (void)_copyPickedFile:(NSURL *)url fallbackExt:(NSString *)fallbackExt completion:(void(^)(NSString *path))cb {
     if (!url) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -242,11 +242,12 @@
     __block NSError *copyErr = nil;
     __block BOOL ok = NO;
 
-    // 方案 A：直接 copyItem（iOS 上对 PHPicker 的临时 URL 通常有效，但长视频可能因后台清理失败）
+    // 方案 A：直接 copyItem（iOS 上对 PHPicker 的临时 URL 通常有效）
     if ([fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&copyErr]) {
         ok = YES;
     } else {
-        // 方案 B：用 NSFileCoordinator 协调读 + 流式写入（mapped reading，大文件友好）
+        // 方案 B：用 NSFileCoordinator 协调安全域读写，内部再尝试一次 copyItem，
+        // 仍失败则走 POSIX 分块流式拷贝（256KB 缓冲区，几乎不占内存）
         copyErr = nil;
         NSFileCoordinator *coord = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
         [coord coordinateReadingItemAtURL:url
@@ -255,27 +256,23 @@
                                    options:NSFileCoordinatorWritingForReplacing
                                      error:&copyErr
                                 byAccessor:^(NSURL *readURL, NSURL *writeURL) {
-            NSError *readErr = nil;
-            // mapped reading：内核态 mmap，物理内存压力下也不会 OOM
-            NSData *data = [NSData dataWithContentsOfURL:readURL
-                                                  options:NSDataReadingMappedIfSafe
-                                                    error:&readErr];
-            if (data && data.length > 0) {
-                NSError *writeErr = nil;
-                if ([data writeToURL:writeURL
-                             options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUnlessOpen
-                               error:&writeErr]) {
+            if ([fm copyItemAtURL:readURL toURL:writeURL error:&copyErr]) {
+                ok = YES;
+            } else {
+                NSError *streamErr = nil;
+                if ([self _lvStreamCopyFromURL:readURL toURL:writeURL error:&streamErr]) {
                     ok = YES;
                 } else {
-                    copyErr = writeErr;
+                    copyErr = streamErr ?: [NSError errorWithDomain:@"LockVideoPrefs" code:-2 userInfo:@{NSLocalizedDescriptionKey: @"流式拷贝失败"}];
                 }
-            } else {
-                copyErr = readErr ?: [NSError errorWithDomain:@"LockVideoPrefs" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"读取文件失败"}];
             }
         }];
     }
 
-    if (!ok) {
+    if (ok) {
+        // 取消文件保护，确保锁屏/SpringBoard 随时可读
+        [fm setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:dst error:nil];
+    } else {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self _showAlertTitle:@"添加失败"
                           message:[NSString stringWithFormat:@"复制失败：%@", copyErr.localizedDescription ?: @"未知错误，可能是视频过大或相册未授权"]];
@@ -283,6 +280,50 @@
         return;
     }
     cb(dst);
+}
+
+// POSIX 分块流式拷贝：适合大视频/GIF，不一次性映射或加载整文件
+- (BOOL)_lvStreamCopyFromURL:(NSURL *)srcURL toURL:(NSURL *)dstURL error:(NSError **)outErr {
+    const char *srcPath = [srcURL.path UTF8String];
+    const char *dstPath = [dstURL.path UTF8String];
+    int srcFD = open(srcPath, O_RDONLY);
+    if (srcFD < 0) {
+        if (outErr) *outErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: @"无法打开源文件"}];
+        return NO;
+    }
+    int dstFD = open(dstPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (dstFD < 0) {
+        close(srcFD);
+        if (outErr) *outErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: @"无法创建目标文件"}];
+        return NO;
+    }
+
+    char buffer[256 * 1024];
+    BOOL success = NO;
+    while (1) {
+        ssize_t n = read(srcFD, buffer, sizeof(buffer));
+        if (n == 0) { success = YES; break; }
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            if (outErr) *outErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: @"读取源文件失败"}];
+            break;
+        }
+        size_t written = 0;
+        while (written < (size_t)n) {
+            ssize_t w = write(dstFD, buffer + written, (size_t)n - written);
+            if (w < 0) {
+                if (errno == EINTR) continue;
+                if (outErr) *outErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: @"写入目标文件失败"}];
+                break;
+            }
+            written += w;
+        }
+        if (written < (size_t)n) break;
+    }
+
+    close(srcFD);
+    close(dstFD);
+    return success;
 }
 
 // 落盘后写 prefs + 通知 SpringBoard + 刷新设置面板

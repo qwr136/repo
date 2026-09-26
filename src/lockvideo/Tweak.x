@@ -15,6 +15,7 @@ static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
 static char kImgKey;
+static char kHideDoneKey;
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在，避免弱引用丢失导致卸载失败
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
