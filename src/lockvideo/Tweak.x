@@ -382,12 +382,21 @@ static BOOL _lvIsPillButtonClass(NSString *cls) {
     return NO;
 }
 
-// 只识别锁屏通知底部「选项/清除」动作按钮组容器，主通知卡片不再挂载背景
+// 动作按钮组（含单个动作按钮）或通知卡片本体（shortlook/banner/longlook）
 static BOOL _lvIsNotificationView(UIView *v) {
     @try {
         NSString *cls = NSStringFromClass([v class]);
         if (!cls) { return NO; }
-        return _lvIsActionButtonGroupView(cls);
+        if (_lvIsActionButtonGroupView(cls)) return YES;
+        NSString *low = cls.lowercaseString;
+        if (![low containsString:@"notification"]) { return NO; }
+        if ([low containsString:@"stackdimming"]) { return NO; }
+        if ([low containsString:@"header"])       { return NO; }
+        if ([low containsString:@"listview"])     { return NO; }
+        if ([low containsString:@"sectionlist"])  { return NO; }
+        if ([low containsString:@"listcell"])     { return NO; }
+        if ([low containsString:@"content"])      { return NO; }
+        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
     } @catch (NSException *e) { return NO; }
 }
 
@@ -581,35 +590,95 @@ static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v) {
     return out;
 }
 
-// 仅对按钮组内的「选项」「清除」单个按钮分别挂载对应素材，互不 fallback
+// 读取按钮文字：优先 UIButton titleLabel / currentTitle，再深度遍历内部 UILabel
+static NSString *_lvButtonTitle(UIView *btn) {
+    if (!btn) { return nil; }
+    @try {
+        if ([btn isKindOfClass:[UIButton class]]) {
+            NSString *t = [(UIButton *)btn currentTitle];
+            if (t.length) { return t; }
+            t = [(UIButton *)btn titleLabel].text;
+            if (t.length) { return t; }
+        }
+        if ([btn respondsToSelector:@selector(titleLabel)]) {
+            @try {
+                UILabel *lbl = [(id)btn titleLabel];
+                if ([lbl isKindOfClass:[UILabel class]] && lbl.text.length) { return lbl.text; }
+            } @catch (NSException *e) {}
+        }
+        NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:btn];
+        int visited = 0;
+        while (queue.count > 0 && visited < 50) {
+            UIView *sv = queue.firstObject;
+            [queue removeObjectAtIndex:0];
+            visited++;
+            if ([sv isKindOfClass:[UILabel class]]) {
+                NSString *t = [(UILabel *)sv text];
+                if (t.length) { return t; }
+            }
+            [queue addObjectsFromArray:sv.subviews];
+        }
+    } @catch (NSException *e) {}
+    return nil;
+}
+
+// 单个动作按钮（非 group 容器）
+static BOOL _lvIsSingleActionButtonClass(NSString *cls) {
+    if (!cls) { return NO; }
+    NSString *low = cls.lowercaseString;
+    if ([low containsString:@"group"]) { return NO; }
+    if ([low containsString:@"actionbutton"]) { return YES; }
+    return _lvIsPillButtonClass(cls);
+}
+
+// 按钮组挂载策略：
+//   1) v 本身就是单个动作按钮 → 按标题/位置挂对应素材（选项=OptionPath，清除=ClearPath）
+//   2) v 是按钮组容器 → 找到内部每个按钮分别挂载；容器自身绝不挂背景（两按钮之间的缝隙保持系统原样）
 static void _lvAttachActionButtonGroup(UIView *v) {
     if (!v) return;
     @try {
+        NSString *vCls = NSStringFromClass([v class]);
+
+        // —— 情况 1：单个动作按钮 ——
+        if (_lvIsSingleActionButtonClass(vCls) || [v isKindOfClass:[UIButton class]]) {
+            NSString *lowTitle = _lvButtonTitle(v).lowercaseString;
+            NSString *path = nil;
+            if ([lowTitle containsString:@"清除"] || [lowTitle containsString:@"clear"]) {
+                path = _lvClearPath();
+            } else if ([lowTitle containsString:@"选项"] || [lowTitle containsString:@"option"]) {
+                path = _lvOptionPath();
+            } else {
+                // 无标题：按自己在兄弟按钮中的位置判断（第 1 个=选项，其余=清除）
+                NSArray<UIView *> *siblings = _lvFindPillButtonsInView(v.superview);
+                NSUInteger idx = [siblings indexOfObject:v];
+                path = (idx == 0 || idx == NSNotFound) ? _lvOptionPath() : _lvClearPath();
+            }
+            if (path.length) { _lvAttachWithPath(v, path); }
+            else { _lvDetach(v); }
+            return;
+        }
+
+        // —— 情况 2：按钮组容器 ——
         NSArray<UIView *> *buttons = _lvFindPillButtonsInView(v);
         if (buttons.count > 0) {
-            for (UIView *sv in buttons) {
-                NSString *title = nil;
-                if ([sv respondsToSelector:@selector(titleLabel)]) {
-                    @try {
-                        UILabel *lbl = [(UIButton *)sv titleLabel];
-                        title = lbl.text;
-                    } @catch (NSException *e) {}
-                }
-                NSString *lowTitle = title.lowercaseString;
+            _lvDetach(v);   // 关键：清掉容器上可能残留的挂载并恢复其背景，缝隙不再显示视频
+            for (NSUInteger i = 0; i < buttons.count; i++) {
+                UIView *sv = buttons[i];
+                NSString *lowTitle = _lvButtonTitle(sv).lowercaseString;
                 NSString *path = nil;
-                if ([lowTitle containsString:@"选项"] || [lowTitle containsString:@"option"]) {
-                    path = _lvOptionPath();
-                } else if ([lowTitle containsString:@"清除"] || [lowTitle containsString:@"clear"]) {
+                if ([lowTitle containsString:@"清除"] || [lowTitle containsString:@"clear"]) {
                     path = _lvClearPath();
+                } else if ([lowTitle containsString:@"选项"] || [lowTitle containsString:@"option"]) {
+                    path = _lvOptionPath();
+                } else {
+                    // 无标题按位置：左（第 1 个）=选项，右（其余）=清除
+                    path = (i == 0) ? _lvOptionPath() : _lvClearPath();
                 }
                 if (path.length) { _lvAttachWithPath(sv, path); }
                 else { _lvDetach(sv); }
             }
         } else {
-            // 无法识别单个按钮时，整个容器使用选项素材（用户通常只给容器区域一个素材）
-            NSString *path = _lvOptionPath();
-            if (path.length) { _lvAttachWithPath(v, path); }
-            else { _lvDetach(v); }
+            _lvDetach(v);   // 找不到单个按钮也不给容器挂背景
         }
     } @catch (NSException *e) {}
 }
@@ -737,9 +806,10 @@ static void _lvOnMatch(UIView *v) {
     }
     NSString *cls = NSStringFromClass([v class]);
     if (_lvIsActionButtonGroupView(cls)) {
-        _lvAttachActionButtonGroup(v);
+        _lvAttachActionButtonGroup(v);   // 按钮组：只给单个按钮挂素材，容器不挂
+    } else {
+        _lvAttach(v);                    // 通知卡片主体：挂主素材
     }
-    // 主通知卡片不再挂载背景，只保留按钮组背景
 }
 
 #pragma mark - iOS 16 锁屏通知显式 hook
@@ -875,9 +945,19 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
 
 static NSTimer *gPollTimer = nil;
 
-// 轮询扫描只命中动作按钮组，主卡片不再挂载背景
+// 轮询扫描命中：动作按钮组 或 通知卡片本体
 static BOOL _lvIsCardClass(NSString *cls) {
-    return _lvIsActionButtonGroupView(cls);
+    if (_lvIsActionButtonGroupView(cls)) return YES;
+    NSString *low = cls.lowercaseString;
+    if (![low containsString:@"notif"]) { return NO; }
+    if ([low containsString:@"stackdimming"]) { return NO; }
+    if ([low containsString:@"header"])       { return NO; }
+    if ([low containsString:@"listview"])     { return NO; }
+    if ([low containsString:@"sectionlist"])  { return NO; }
+    if ([low containsString:@"listcell"])     { return NO; }
+    return [low containsString:@"shortlook"] ||
+           [low containsString:@"banner"]     ||
+           [low containsString:@"longlook"];
 }
 
 static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
