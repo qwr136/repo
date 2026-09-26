@@ -139,6 +139,56 @@
     [self _switchMaterialForKey:@"LockVideoClearPath" title:@"选择清除按钮素材" sender:sender];
 }
 
+#pragma mark - 取消选择素材（写入空字符串，插件读取到空值即不再使用该素材）
+
+// 把指定 key 写成空字符串（而不是删除），表示"用户显式取消了该素材"
+- (void)_clearMaterialForKey:(NSString *)key {
+    @try {
+        NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
+                                  mutableCopy] ?: [NSMutableDictionary dictionary];
+        p[key] = @"";
+        [p writeToFile:kLVPrefsFile atomically:YES];
+
+        for (NSString *suite in @[@"com.xiaofei.notifybgvideo", @"com.xiaofei.notifybgvideo.prefs"]) {
+            CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFTypeRef)@"",
+                                     (__bridge CFStringRef)suite);
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+        }
+
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
+
+        NSString *identifier = nil;
+        if ([key isEqualToString:@"LockVideoPath"]) {
+            identifier = @"LockVideoMaterialLink";
+        } else if ([key isEqualToString:@"LockVideoOptionPath"]) {
+            identifier = @"LockVideoOptionMaterialLink";
+        } else if ([key isEqualToString:@"LockVideoClearPath"]) {
+            identifier = @"LockVideoClearMaterialLink";
+        }
+        if (identifier) {
+            [self _refreshMaterialRow:identifier prefsKey:key];
+        }
+        [self _showAlertTitle:@"已取消"
+                      message:[NSString stringWithFormat:@"已取消「%@」，对应区域将恢复系统原样。", [self _titleForKey:key]]];
+    } @catch (NSException *e) {
+        [self _showAlertTitle:@"出错" message:[e description]];
+    }
+}
+
+- (void)clearMainMaterial:(id)sender {
+    [self _clearMaterialForKey:@"LockVideoPath"];
+}
+
+- (void)clearOptionMaterial:(id)sender {
+    [self _clearMaterialForKey:@"LockVideoOptionPath"];
+}
+
+- (void)clearClearMaterial:(id)sender {
+    [self _clearMaterialForKey:@"LockVideoClearPath"];
+}
+
 #pragma mark - 从相册添加素材到素材目录（PHPicker：支持视频 / GIF / 图片）
 
 - (void)addFromAlbum:(id)sender {

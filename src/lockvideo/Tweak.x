@@ -195,6 +195,18 @@ static NSString *_lvPathForKey(NSString *key) {
 }
 
 static NSString *_lvPath(void) {
+    @try {
+        // 「取消选择素材」会写入空字符串：存在空值时不再自动扫描目录
+        id direct = _lvPrefs()[@"LockVideoPath"];
+        if ([direct isKindOfClass:[NSString class]] && ![direct length]) { return nil; }
+        for (NSString *suite in _lvSuites()) {
+            CFPreferencesAppSynchronize((__bridge CFStringRef)suite);
+            CFTypeRef cf = CFPreferencesCopyAppValue(CFSTR("LockVideoPath"), (__bridge CFStringRef)suite);
+            if (!cf) { continue; }
+            id val = CFBridgingRelease(cf);
+            if ([val isKindOfClass:[NSString class]] && ![val length]) { return nil; }
+        }
+    } @catch (NSException *e) {}
     NSString *saved = _lvPathForKey(@"LockVideoPath");
     if (saved) return saved;
     return _lvScanFiles().firstObject;
@@ -474,6 +486,32 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
 
 static void _lvAttachWithPath(UIView *v, NSString *path);
 
+// 防挂锁白名单：只允许两类视图挂载素材——
+//   1) 通知卡片本体（shortlook / banner / longlook）
+//   2) 按钮本身（UIButton 实例 / pill / ctbutton / actionbutton 等单个动作按钮类）
+// 其余一切视图（按钮组容器、pillcontent、actionview、content 大视图等）一律禁止，
+// 从根源上杜绝「按钮背后还有一个整体视图背景」的问题
+static BOOL _lvAllowedToAttach(UIView *v) {
+    if (!v) { return NO; }
+    @try {
+        NSString *cls = NSStringFromClass([v class]);
+        if (!cls) { return NO; }
+        // 按钮组/动作类容器：一律不允许挂载
+        if (_lvIsActionButtonGroupView(cls)) {
+            // 例外：类名匹配容器关键词但实际是单个按钮（不含 group 且是按钮类）
+            return (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]);
+        }
+        NSString *low = cls.lowercaseString;
+        if ([low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"]) {
+            return YES;
+        }
+        if ([v isKindOfClass:[UIButton class]]) { return YES; }
+        if (_lvIsPillButtonClass(cls)) { return YES; }
+        if ([low containsString:@"actionbutton"]) { return YES; }
+        return NO;
+    } @catch (NSException *e) { return NO; }
+}
+
 // 几何启发：识别「包含两个并排等尺寸子视图」的容器 —— 选项/清除按钮组的通用形状特征，
 // 不依赖类名，任何 iOS 版本都能命中
 static BOOL _lvLooksLikeButtonGroup(UIView *v) {
@@ -581,6 +619,11 @@ static void _lvRefresh(UIView *v) {
 
 static void _lvAttachWithPath(UIView *v, NSString *path) {
     if (!v || !path.length || !_lvEnabled()) { return; }
+    // 防挂锁：白名单以外的视图（按钮组容器等）一律不挂载，并清掉可能的历史残留
+    if (!_lvAllowedToAttach(v)) {
+        _lvDetach(v);
+        return;
+    }
     @try {
         objc_setAssociatedObject(v, &kPathKey, path, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
@@ -1082,25 +1125,14 @@ static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
 }
 
 // 清理历史版本残留的非法挂载：
-// 视图带挂载记录但既不是合法卡片本体、也不在按钮组内（例如旧版本挂在
-// LongLookContentView 这类包含按钮区的大视图上）——一律卸载，防止按钮区露出素材
+// 视图带挂载记录但不在白名单内（例如旧版本挂在按钮组容器 / content 大视图上）——
+// 一律卸载，防止按钮区露出素材
 static void _lvCleanupStaleAttachments(void) {
     @try {
         NSMutableArray<UIView *> *stale = [NSMutableArray array];
         for (UIView *v in _lvAttachedViews) {
             if (!v || !v.window) { continue; }
-            NSString *cls = NSStringFromClass([v class]);
-            if (_lvIsCardClass(cls)) { continue; }   // 合法卡片挂载点
-            // 按钮组内的按钮属于合法挂载（祖先存在 action group 容器）
-            BOOL inGroup = NO;
-            UIView *p = v.superview;
-            int up = 0;
-            while (p && up < 6) {
-                if (_lvIsActionButtonGroupView(NSStringFromClass([p class]))) { inGroup = YES; break; }
-                p = p.superview;
-                up++;
-            }
-            if (inGroup) { continue; }
+            if (_lvAllowedToAttach(v)) { continue; }   // 白名单内的合法挂载点
             [stale addObject:v];
         }
         for (UIView *v in stale) {
