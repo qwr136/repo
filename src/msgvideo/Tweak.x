@@ -24,7 +24,7 @@ static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gAppActive = YES;
 static int gUpdateCount = 0;
 static int gPollCount = 0;
-static BOOL gInMessages = NO;   // 只有注入到「信息」App 时才干活（其它进程只写日志当探针）
+static BOOL gInMessages = NO;   // 注入到「信息」App 时才干活（其它进程只写一行探针，不干活）
 
 #pragma mark - 偏好（直接读文件 + 系统偏好双保险）
 
@@ -468,12 +468,7 @@ static void _mvUpdateWindow(UIWindow *w) {
 static void _mvPollTick(void) {
     @try {
         if (!gInMessages) {
-            // 探针进程：只写心跳，绝不动界面
-            gPollCount++;
-            if (gPollCount % 20 == 1) {
-                _mvLog([NSString stringWithFormat:@"探针心跳: 进程=%@（不是信息App，不干活）",
-                        [[NSProcessInfo processInfo] processName]]);
-            }
+            // 非信息App进程：只记录、绝不动界面（启动探针已在 %ctor 写过了，这里不重复刷屏）
             return;
         }
         if (!_mvEnabled()) {
@@ -587,8 +582,14 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
 
 %ctor {
     @try {
-        NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
-        gInMessages = [bid isEqualToString:@"com.apple.MobileSMS"];
+        // 判断当前进程：只要进程名或 bundle 含 "mobilesms" 就当作信息App。
+        // 用宽松匹配而非精确 isEqualToString，避免早期注入时 mainBundle 未就绪，
+        // 导致 bundleIdentifier 返回非预期值而被误判为「非信息App」从而被静默。
+        NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+        NSString *pname = [[NSProcessInfo processInfo] processName] ?: @"";
+        NSString *tag = [[NSString stringWithFormat:@"%@ %@", bid, pname] lowercaseString];
+        gInMessages = ([tag containsString:@"mobilesms"]);
+        BOOL isSB = [bid isEqualToString:@"com.apple.springboard"];
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL, _mvPrefsChanged, kMVNotify, NULL,
@@ -607,15 +608,18 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
                 @try { if (gPlayer) { [gPlayer pause]; } } @catch (NSException *e) {}
             }];
 
-        _mvLog([NSString stringWithFormat:@"进程: %@ bundle=%@ 信息App=%d",
-                [[NSProcessInfo processInfo] processName], bid ?: @"(无)", gInMessages]);
+        // 全局探针：dylib 一旦被任意进程加载就写一行（进程名 + bundle），方便确认落点。
+        _mvLog([NSString stringWithFormat:@"dylib 已加载: 进程=%@ bundle=%@ 信息App=%d",
+                pname, bid ?: @"(无)", gInMessages]);
         if (!gInMessages) {
-            _mvLog(@"探针: dylib 已加载，但当前不是信息App，只记录不干活");
+            _mvLog([NSString stringWithFormat:@"探针: 当前是%@，不是信息App，只记录不干活",
+                    isSB ? @"SpringBoard" : (bid.length ? bid : pname)]);
+        } else {
+            _mvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 透明度=%.2f 视频=%@ 目录存在=%d",
+                    _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
+                    [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
         }
-        _mvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 透明度=%.2f 视频=%@ 目录存在=%d",
-                _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
-                [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
-        _mvLog(@"===== 1.0.4 信息视频背景 加载完成 =====");
+        _mvLog(@"===== 1.0.5 信息视频背景 加载完成 =====");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{

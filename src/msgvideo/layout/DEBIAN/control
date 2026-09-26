@@ -1,6 +1,6 @@
 Package: com.xiaofei.msgbgvideo
 Name: 信息视频背景
-Version: 1.0.4
+Version: 1.0.5
 Architecture: iphoneos-arm
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.4 - 修复日志不生成（自动建素材目录+兜底日志）与默认未开启的问题，注入过滤增加 MobileSMS 可执行文件，新增心跳与视图树诊断
+Changelog: 1.0.5 - 修复MobileSMS注入后不生效：过滤规则增加Executables双保险命中MobileSMS，激活判定改宽松匹配(进程名/bundle含mobilesms)，去掉gQuiet静默，新增全局dylib加载探针日志用于确认注入落点
