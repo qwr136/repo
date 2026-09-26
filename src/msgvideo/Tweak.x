@@ -5,6 +5,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <substrate.h>
+#import <sys/sysctl.h>
+#import <string.h>
 
 #define kMVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.msgbgvideo.plist"
 #define kMVNotify    CFSTR("com.xiaofei.msgbgvideo/ReloadPrefs")
@@ -468,7 +470,18 @@ static void _mvUpdateWindow(UIWindow *w) {
 static void _mvPollTick(void) {
     @try {
         if (!gInMessages) {
-            // 非信息App进程：只记录、绝不动界面（启动探针已在 %ctor 写过了，这里不重复刷屏）
+            // 非信息App进程（如 SpringBoard）：周期性探测 MobileSMS 是否在运行，绝不动界面。
+            // 用来客观区分「用户没冷启动信息App」与「注入层排除了MobileSMS」。
+            gPollCount++;
+            if (gPollCount % 20 == 1) {
+                BOOL ms = _mvProcRunning("MobileSMS");
+                _mvLog([NSString stringWithFormat:
+                    @"探针: MobileSMS 进程=%@ | 本插件现运行于 %@（未被注入到 MobileSMS）%@",
+                    ms ? @"运行中" : @"未运行",
+                    [[NSProcessInfo processInfo] processName],
+                    ms ? @"→ 疑似注入层排除了MobileSMS，请检查 Choicy/TweakRestrict/Dopamine 设置"
+                       : @"→ 请冷启动「信息」App 后再看本日志"]);
+            }
             return;
         }
         if (!_mvEnabled()) {
@@ -580,6 +593,27 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
     @try { _mvReloadPrefs(); _mvPollTick(); } @catch (NSException *e) {}
 }
 
+#pragma mark - 进程探测（SpringBoard 探针用）
+
+// 用 sysctl(KERN_PROC_ALL) 枚举进程，判断某个名字的进程是否在运行。
+// 目的：客观确认到底是「用户没冷启动信息App（MobileSMS 根本没运行）」，
+// 还是「MobileSMS 在运行但本插件没被注入到它（注入层问题）」。
+static BOOL _mvProcRunning(const char *substr) {
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0) { return NO; }
+    struct kinfo_proc *procs = (struct kinfo_proc *)malloc(size);
+    if (!procs) { return NO; }
+    if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) { free(procs); return NO; }
+    int count = (int)(size / sizeof(struct kinfo_proc));
+    BOOL found = NO;
+    for (int i = 0; i < count; i++) {
+        if (strstr(procs[i].kp_proc.p_comm, substr) != NULL) { found = YES; break; }
+    }
+    free(procs);
+    return found;
+}
+
 %ctor {
     @try {
         // 判断当前进程：只要进程名或 bundle 含 "mobilesms" 就当作信息App。
@@ -612,14 +646,16 @@ static void _mvPrefsChanged(CFNotificationCenterRef center, void *observer,
         _mvLog([NSString stringWithFormat:@"dylib 已加载: 进程=%@ bundle=%@ 信息App=%d",
                 pname, bid ?: @"(无)", gInMessages]);
         if (!gInMessages) {
-            _mvLog([NSString stringWithFormat:@"探针: 当前是%@，不是信息App，只记录不干活",
-                    isSB ? @"SpringBoard" : (bid.length ? bid : pname)]);
+            BOOL ms = _mvProcRunning("MobileSMS");
+            _mvLog([NSString stringWithFormat:@"探针: 当前是%@，不是信息App，只记录不干活；MobileSMS 进程=%@",
+                    isSB ? @"SpringBoard" : (bid.length ? bid : pname),
+                    ms ? @"运行中" : @"未运行"]);
         } else {
             _mvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 透明度=%.2f 视频=%@ 目录存在=%d",
                     _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
                     [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
         }
-        _mvLog(@"===== 1.0.5 信息视频背景 加载完成 =====");
+        _mvLog(@"===== 1.0.6 信息视频背景 加载完成 =====");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
