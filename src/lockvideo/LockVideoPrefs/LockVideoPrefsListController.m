@@ -220,7 +220,8 @@
 }
 
 // 把 PHPicker 给出的临时文件（视频/GIF）拷贝到素材目录
-// 注意：loadFileRepresentation 给的 URL 只在回调内有效，必须在这里同步拷贝
+// 关键：loadFileRepresentation 给的 URL 只在回调内有效，必须立刻拷贝
+// 修复：长视频用 NSFileCoordinator + mapped reading，避免 dataWithContentsOfURL 把整个文件读进内存导致 OOM 失败
 - (void)_copyPickedFile:(NSURL *)url fallbackExt:(NSString *)fallbackExt completion:(void(^)(NSString *path))cb {
     if (!url) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -237,10 +238,47 @@
     NSString *dst = [kLVVideoDir stringByAppendingPathComponent:
         [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
     [fm removeItemAtPath:dst error:nil];
-    NSError *err = nil;
-    if (![fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&err]) {
+
+    NSError *copyErr = nil;
+    BOOL ok = NO;
+
+    // 方案 A：直接 copyItem（iOS 上对 PHPicker 的临时 URL 通常有效，但长视频可能因后台清理失败）
+    if ([fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&copyErr]) {
+        ok = YES;
+    } else {
+        // 方案 B：用 NSFileCoordinator 协调读 + 流式写入（mapped reading，大文件友好）
+        copyErr = nil;
+        NSFileCoordinator *coord = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+        [coord coordinateReadingItemAtURL:url
+                                   options:NSFileCoordinatorReadingWithoutChanges
+                            writingItemAtURL:[NSURL fileURLWithPath:dst]
+                                   options:NSFileCoordinatorWritingForReplacing
+                                     error:&copyErr
+                                byAccessor:^(NSURL *readURL, NSURL *writeURL) {
+            NSError *readErr = nil;
+            // mapped reading：内核态 mmap，物理内存压力下也不会 OOM
+            NSData *data = [NSData dataWithContentsOfURL:readURL
+                                                  options:NSDataReadingMappedIfSafe
+                                                    error:&readErr];
+            if (data && data.length > 0) {
+                NSError *writeErr = nil;
+                if ([data writeToURL:writeURL
+                             options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUnlessOpen
+                               error:&writeErr]) {
+                    ok = YES;
+                } else {
+                    copyErr = writeErr;
+                }
+            } else {
+                copyErr = readErr ?: [NSError errorWithDomain:@"LockVideoPrefs" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"读取文件失败"}];
+            }
+        }];
+    }
+
+    if (!ok) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self _showAlertTitle:@"添加失败" message:err.localizedDescription ?: @"复制失败"];
+            [self _showAlertTitle:@"添加失败"
+                          message:[NSString stringWithFormat:@"复制失败：%@", copyErr.localizedDescription ?: @"未知错误，可能是视频过大或相册未授权"]];
         });
         return;
     }

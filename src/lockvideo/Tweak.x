@@ -15,11 +15,8 @@ static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
 static char kImgKey;
-static char kHideDoneKey;   // 标记"背景已隐藏"，避免每帧递归遍历导致卡顿
-static char kOrigBgKey;     // 保存原始 backgroundColor，关闭插件时能精确恢复卡片原貌
-static char kWasHiddenKey;  // 记录子视图原始 hidden 状态（避免关闭插件时误把原本就隐藏的视图显示出来）
-static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在，避免弱引用丢失导致卸载失败
+static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 
 #pragma mark - 偏好（直接读文件）
@@ -292,43 +289,17 @@ static BOOL _lvIsNotificationView(UIView *v) {
 
 #pragma mark - 挂载
 
-// 递归隐藏卡片里所有模糊/背景子视图（UIVisualEffectView 等），让视频能直接当卡片背景，
-// 不再被任何灰色/模糊层挡在下面。文字/icon 等内容子视图不动。
-// 第一次进入时把卡片自身的 backgroundColor 原值保存到 kOrigBgKey，关闭插件时能 1:1 还原。
+// 递归隐藏卡片里所有模糊/背景子视图 —— 已废弃（v1.0.53 起不再修改通知卡片任何视觉属性）。
+// 通知卡片的渲染管线完全交给系统；hook 只插入视频/图片层，关闭插件时移除该层即可恢复原貌。
+// 保留空实现仅为防止调用点残留引用。
 static void _lvHideBackgroundsRecursive(UIView *v) {
-    if (objc_getAssociatedObject(v, &kHideDoneKey)) { return; }   // 已处理过则跳过整棵子树递归，避免滑动/动画时每帧卡顿
-    @try {
-        // 第一次隐藏时保存原始 backgroundColor（NSNull 表示原本是 nil）
-        if (!objc_getAssociatedObject(v, &kOrigBgKey)) {
-            id orig = v.backgroundColor ?: (id)[NSNull null];
-            objc_setAssociatedObject(v, &kOrigBgKey, orig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        // 清掉卡片自身的背景色
-        if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
-            v.backgroundColor = [UIColor clearColor];
-        }
-        for (UIView *s in v.subviews) {
-            NSString *cls = NSStringFromClass(s.class);
-            NSString *low = cls.lowercaseString;
-            BOOL isBlur = [s isKindOfClass:[UIVisualEffectView class]] ||
-                          [low containsString:@"blur"]   || [low containsString:@"effect"] ||
-                          [low containsString:@"backdrop"] || [low containsString:@"material"] ||
-                          [low containsString:@"vibrancy"] || [low containsString:@"backgroundview"];
-            if (isBlur && !s.hidden) {
-                // 记录原始 hidden 状态（用于关闭插件时精确恢复，不影响原本就隐藏的视图）
-                if (!objc_getAssociatedObject(s, &kWasHiddenKey)) {
-                    objc_setAssociatedObject(s, &kWasHiddenKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                }
-                s.hidden = YES;
-                _lvLogOnce(cls, @"隐藏卡片背景");
-            }
-            // 递归处理子视图（背景可能嵌套）
-            if (s.subviews.count > 0 && s.subviews.count < 20) {
-                _lvHideBackgroundsRecursive(s);
-            }
-        }
-        objc_setAssociatedObject(v, &kHideDoneKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    } @catch (NSException *e) {}
+    (void)v;
+}
+
+// 恢复卡片原始背景 —— 同上，已废弃。保留空实现。
+static void _lvRestoreBackgroundsRecursive(UIView *v) {
+    if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }
+    objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // 视频插到卡片最底层（index 0）——卡片自己的背景层已隐藏，所以视频直接可见，
@@ -347,7 +318,7 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
 // 统一刷新：每帧更新背景层尺寸 + 隐藏卡片模糊层（同时支持视频层与图片层）
 static void _lvRefresh(UIView *v) {
     @try {
-        _lvHideBackgroundsRecursive(v);
+        // v1.0.53 起 hook 不再修改通知卡片背景 → 移除 _lvHideBackgroundsRecursive 调用
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         if (l) {
             _lvInsertLayer(v, l);
@@ -393,7 +364,7 @@ static void _lvAttach(UIView *v) {
             [v insertSubview:iv atIndex:0];   // 确保在最底层
             iv.frame = v.bounds;
             iv.alpha = (float)_lvAlpha();
-            _lvHideBackgroundsRecursive(v);
+            // v1.0.53 起 hook 不再修改通知卡片背景
             _lvLogOnce(NSStringFromClass(v.class),
                        [NSString stringWithFormat:@"图片挂载尺寸 %.0fx%.0f 透明度 %.2f",
                         v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
@@ -427,8 +398,8 @@ static void _lvAttach(UIView *v) {
         }
         if (l.player != p) { l.player = p; }   // 素材切换后更新引用
 
-        // 先把卡片里所有模糊/背景子视图隐藏掉，避免视频被灰底盖住
-        _lvHideBackgroundsRecursive(v);
+        // v1.0.53 起 hook 不再修改通知卡片背景；视频层直接作为最底层 sublayer 插入，
+        // 通知卡片的原生视觉（包括任何系统自带的毛玻璃/半透明）由系统自动呈现，关闭插件时只需移除本层。
         _lvInsertLayer(v, l);
         [_lvAttachedViews addObject:v];
         l.frame = v.bounds;
@@ -444,37 +415,13 @@ static void _lvAttach(UIView *v) {
 
 #pragma mark - 卸载（关闭「启用」时即时移除背景，无需注销）
 
-// 恢复卡片原始背景：把之前被隐藏的模糊/背景子视图重新显示，背景色还原到挂载前的原值
-static void _lvRestoreBackgroundsRecursive(UIView *v) {
-    if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }   // 从没隐藏过则跳过
-    @try {
-        // 恢复原始 backgroundColor（可能是具体颜色，也可能是 nil）
-        id origBg = objc_getAssociatedObject(v, &kOrigBgKey);
-        if (origBg && origBg != [NSNull null]) {
-            v.backgroundColor = (UIColor *)origBg;
-        } else {
-            v.backgroundColor = nil;
-        }
-        objc_setAssociatedObject(v, &kOrigBgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        for (UIView *s in v.subviews) {
-            NSString *cls = NSStringFromClass(s.class);
-            NSString *low = cls.lowercaseString;
-            BOOL isBlur = [s isKindOfClass:[UIVisualEffectView class]] ||
-                          [low containsString:@"blur"]   || [low containsString:@"effect"] ||
-                          [low containsString:@"backdrop"] || [low containsString:@"material"] ||
-                          [low containsString:@"vibrancy"] || [low containsString:@"backgroundview"];
-            if (isBlur) {
-                // 还原到原始 hidden 状态（避免把原本就隐藏的视图错误显示）
-                id wasH = objc_getAssociatedObject(s, &kWasHiddenKey);
-                s.hidden = (wasH ? [wasH boolValue] : NO);
-                objc_setAssociatedObject(s, &kWasHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            }
-            if (s.subviews.count > 0 && s.subviews.count < 20) {
-                _lvRestoreBackgroundsRecursive(s);
-            }
-        }
-        objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);   // 清除标记
-    } @catch (NSException *e) {}
+// 恢复卡片原始背景：已废弃（见上面同名函数说明，v1.0.53 起 hook 不再修改通知卡片视觉属性）
+
+// 恢复卡片原始背景 —— 已废弃（见 _lvRestoreBackgroundsRecursive 注释）。
+// 保留函数符号仅为防止调用点残留引用时编译失败。
+static void _lvRestoreBackgroundsRecursive_inline_removed(UIView *v) {
+    if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }
+    objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // 前向声明：恢复函数（detached 时调用）
@@ -489,43 +436,28 @@ static void _lvDetach(UIView *v) {
         if (l) { [l removeFromSuperlayer]; objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-        _lvRestoreBackgroundsRecursive(v);
+        // v1.0.53 起不再修改通知卡片的视觉属性 —— 无需"恢复背景"
     } @catch (NSException *e) {}
 }
 
-// 卸载所有已挂载视图（关闭「启用」时调用）。双重保险：
-//   1) 遍历强引用集合 _lvAttachedViews（已挂视频/图片层的视图）
-//   2) 遍历所有 UIWindow 找任何带 kHideDoneKey 标记的视图强制恢复
-//      —— 防止 NSHashTable 弱引用集合里对象已 nil、或 swizzle 顺序导致 attached views 漏记
+// 卸载所有已挂载视图（关闭「启用」时调用）。
+// v1.0.53 起 hook 不再修改通知卡片的视觉属性，所以只需要移除我们插入的视频/图片层即可。
+// 通知卡片的原生外观由系统自动呈现，不会被本 hook 任何操作改变。
 static void _lvDetachAll(void) {
     @try {
-        // 保险 1: 强引用集合里的视图
         for (UIView *v in [_lvAttachedViews copy]) {
             _lvDetach(v);
         }
         [_lvAttachedViews removeAllObjects];
-
-        // 保险 2: 遍历所有 UIWindow 找残留标记强制恢复（防止漏网）
-        @try {
-            id app = [UIApplication sharedApplication];
-            NSArray *wins = nil;
-            @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
-            for (UIWindow *w in wins) {
-                if (!w || w.hidden) continue;
-                _lvScanAndRestoreInView(w);
-            }
-        } @catch (NSException *e) {}
     } @catch (NSException *e) {}
 }
 
+// _lvScanAndRestoreInView 已废弃（v1.0.53 不再需要扫描恢复背景），保留为 no-op 防止调用残留。
+static void _lvScanAndRestoreInView(UIView *v) { (void)v; }
+
 // 在一棵视图树里递归找任何带 kHideDoneKey 标记的视图并恢复其原始外观
-static void _lvScanAndRestoreInView(UIView *v) {
-    @try {
-        if (objc_getAssociatedObject(v, &kHideDoneKey)) {
-            _lvRestoreBackgroundsRecursive(v);
-        }
-        for (UIView *s in v.subviews) { _lvScanAndRestoreInView(s); }
-    } @catch (NSException *e) {}
+static void _lvScanAndRestoreInView_unused_removed(UIView *v) {
+    (void)v;
 }
 
 #pragma mark - 仅限锁屏（灵动岛/前台横幅不挂载、不出声）
