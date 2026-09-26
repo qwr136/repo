@@ -37,6 +37,11 @@ jobs:
           make package FINALPACKAGE=1 ARCHS="arm64 arm64e" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           ls -la packages/
 
+      - name: Repack deb to gzip (iOS 兼容)
+        run: |
+          cd "$GITHUB_WORKSPACE/src/lockvideo/packages"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/repack_gzip.py"
+
       - name: Publish build log (for debugging)
         if: always()
         run: |
