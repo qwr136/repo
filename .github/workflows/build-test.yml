@@ -1,0 +1,55 @@
+name: Build Tweak (test, artifact only)
+
+on:
+  push:
+    branches: [fix/island-sound]
+  workflow_dispatch:
+
+# 仅读权限：从机制上保证本流程不会回推 debs/Packages/Release 到源
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew install ldid xz dpkg
+
+      - name: Setup Theos
+        run: |
+          git clone --recursive --depth=1 https://github.com/theos/theos.git $HOME/theos
+          mkdir -p $HOME/theos/sdks
+          curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
+          ls $HOME/theos/sdks
+
+      - name: Build (arm64 + arm64e 真 fat binary)
+        run: |
+          export THEOS=$HOME/theos
+          cd src/lockvideo
+          make clean
+          # macOS Apple 工具链：编真正的 arm64 + arm64e 双架构，无需 cputype 伪装
+          make package FINALPACKAGE=1 ARCHS="arm64 arm64e" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          ls -la packages/
+
+      - name: Verify binaries
+        run: |
+          cd "$GITHUB_WORKSPACE/src/lockvideo"
+          BIN=$(find .theos -path "*LockVideoPrefs.bundle/LockVideoPrefs" | head -1)
+          DYLIB=$(find .theos -name "LockVideo.dylib" | head -1)
+          echo "== prefs =="
+          file "$BIN"
+          lipo -info "$BIN"
+          echo "== dylib =="
+          file "$DYLIB"
+          lipo -info "$DYLIB"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: src/lockvideo/packages/*.deb

@@ -15,6 +15,7 @@ static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
 static char kImgKey;
+static char kHideDoneKey;   // 标记"背景已隐藏"，避免每帧递归遍历导致卡顿
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
@@ -281,7 +282,7 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if ([low containsString:@"listcell"])     { return NO; }   // 卡片外层容器，视频会被内部卡片盖住看不见
         if ([low containsString:@"content"])      { return NO; }   // 内容视图，交给 shortlook 统一处理
         // 只挂用户实际看到的圆角卡片本体
-        return [low containsString:@"shortlook"] || [low containsString:@"banner"];
+        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
     } @catch (NSException *e) { return NO; }
 }
 
@@ -290,6 +291,7 @@ static BOOL _lvIsNotificationView(UIView *v) {
 // 递归隐藏卡片里所有模糊/背景子视图（UIVisualEffectView 等），让视频能直接当卡片背景，
 // 不再被任何灰色/模糊层挡在下面。文字/icon 等内容子视图不动。
 static void _lvHideBackgroundsRecursive(UIView *v) {
+    if (objc_getAssociatedObject(v, &kHideDoneKey)) { return; }   // 已处理过则跳过整棵子树递归，避免滑动/动画时每帧卡顿
     @try {
         // 清掉卡片自身的背景色
         if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
@@ -311,6 +313,7 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
                 _lvHideBackgroundsRecursive(s);
             }
         }
+        objc_setAssociatedObject(v, &kHideDoneKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } @catch (NSException *e) {}
 }
 
@@ -423,10 +426,72 @@ static void _lvAttach(UIView *v) {
     }
 }
 
+#pragma mark - 仅限锁屏（灵动岛/前台横幅不挂载、不出声）
+
+// 判断某个 window 是否为锁屏（CoverSheet）窗口
+static BOOL _lvIsLockScreenWindow(UIWindow *w) {
+    if (!w) { return NO; }
+    NSString *c = NSStringFromClass([w class]);
+    return [c containsString:@"CoverSheet"] || [c containsString:@"LockScreen"];
+}
+
+// 当前是否存在锁屏窗口（窗口类名兜底判断）
+static BOOL _lvHasLockScreenWindow(void) {
+    @try {
+        id app = [UIApplication sharedApplication];
+        NSArray *wins = nil;
+        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+        for (UIWindow *w in wins) {
+            if (_lvIsLockScreenWindow(w)) { return YES; }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
+// 真实锁屏可见性：优先用系统锁屏管理器（比窗口类名更可靠，能正确排除解锁后的桌面横幅/灵动岛）
+static BOOL _lvIsLockScreenVisible(void) {
+    @try {
+        static Class lsMgr = Nil;
+        static SEL sharedSel = NULL;
+        static SEL visibleSel = NULL;
+        static BOOL probed = NO;
+        if (!probed) {
+            probed = YES;
+            for (NSString *cn in @[@"SBLockScreenManager", @"CSLockScreenManager"]) {
+                Class c = objc_getClass(cn.UTF8String);
+                if (!c) { continue; }
+                if ([c instancesRespondToSelector:@selector(isLockScreenVisible)]) {
+                    visibleSel = @selector(isLockScreenVisible);
+                }
+                SEL s = @selector(sharedInstance);
+                if (![c respondsToSelector:s]) { s = @selector(mainInstance); }
+                if ([c respondsToSelector:s]) { sharedSel = s; }
+                if (visibleSel && sharedSel) { lsMgr = c; break; }
+            }
+        }
+        if (lsMgr && sharedSel && visibleSel) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            id inst = [lsMgr performSelector:sharedSel];
+            if (inst && [inst respondsToSelector:visibleSel]) {
+                return (BOOL)[inst performSelector:visibleSel];
+            }
+#pragma clang diagnostic pop
+        }
+    } @catch (NSException *e) {}
+    return _lvHasLockScreenWindow();   // 兜底：看是否存在锁屏窗口
+}
+
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");   // 不再依赖诊断模式，必记
     if (!_lvEnabled()) {
-        _lvLogOnce(@"状态", @"开关「启用」是关闭的，跳过挂载");
+        if (gPlayer) { [gPlayer pause]; }
+        return;
+    }
+    // 仅当设备处于锁屏（通知应显示视频+声音）才挂载；
+    // 解锁后的桌面横幅/灵动岛一律不挂载、不出声
+    if (!_lvIsLockScreenVisible()) {
+        if (gPlayer) { [gPlayer pause]; }
         return;
     }
     _lvAttach(v);
@@ -438,7 +503,10 @@ static void _lvOnMatch(UIView *v) {
 %hook NCNotificationShortLookView
 - (void)didMoveToWindow {
     %orig;
-    @try { if (((UIView *)self).window) { _lvOnMatch((UIView *)self); } } @catch (NSException *e) {}
+    @try {
+        UIView *sv = (UIView *)self;
+        if (sv.window) { _lvOnMatch(sv); }   // 内部已做锁屏判断：锁屏才挂，否则停声
+    } @catch (NSException *e) {}
 }
 - (void)layoutSubviews {
     %orig;
@@ -453,7 +521,7 @@ static void (*_orig_didMoveToWindow)(UIView *, SEL);
 static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
     _orig_didMoveToWindow(self, _cmd);
     @try {
-        if (self.window && _lvIsNotificationView(self)) { _lvOnMatch(self); }
+        if (self.window && _lvIsNotificationView(self)) { _lvOnMatch(self); }   // 内部已做锁屏判断
     } @catch (NSException *e) {}
 }
 
@@ -461,7 +529,7 @@ static void (*_orig_layoutSubviews)(UIView *, SEL);
 static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
     _orig_layoutSubviews(self, _cmd);
     @try {
-        if (_lvIsNotificationView(self)) { _lvRefresh(self); }
+        if (_lvIsNotificationView(self) && self.window) { _lvRefresh(self); }
     } @catch (NSException *e) {}
 }
 
@@ -561,15 +629,16 @@ static void _lvPollTick(void) {
             if (gPlayer) { [gPlayer pause]; }
             return;
         }
+        // 仅在锁屏时挂载/播放；解锁状态（桌面横幅/灵动岛）直接停声返回
+        if (!_lvIsLockScreenVisible()) {
+            if (gPlayer) { [gPlayer pause]; }
+            return;
+        }
         id app = [UIApplication sharedApplication];
         NSArray *wins = nil;
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
         BOOL foundAnyCard = NO;
         for (UIWindow *w in wins) {
-            NSString *c = NSStringFromClass([w class]);
-            // 锁屏（CoverSheet）窗口；iOS16 起锁屏都在这个窗口里
-            if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
-                ![c containsString:@"Banner"]) { continue; }
             if (w.hidden || w.alpha <= 0.01) { continue; }
             BOOL found = NO;
             _lvScanAndAttach(w, &found);
@@ -627,6 +696,13 @@ static void _lvPollTick(void) {
             } @catch (NSException *e) {}
         });
 
+        // 预创建播放器：锁屏出现前先把 AVPlayer 建好，避免下滑锁屏消息时因首次创建播放器而卡顿
+        if (_lvEnabled() && !_lvIsImageAsset()) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                @try { _lvPlayer(); } @catch (NSException *e) {}
+            });
+        }
+
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
                                         _lvPrefsChanged,
@@ -650,7 +726,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.46 加载完成（新增 GIF/图片背景支持） =====");
+        _lvLog(@"===== 1.0.49 加载完成（仅锁屏出视频/声音 + 防卡顿） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
