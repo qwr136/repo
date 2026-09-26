@@ -8,6 +8,9 @@
 #import <sys/sysctl.h>
 #import <string.h>
 
+// 前向声明：定义见文件末尾 %ctor 之前，供 _mvPollTick 等调用
+static BOOL _mvProcRunning(const char *substr);
+
 #define kMVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.msgbgvideo.plist"
 #define kMVNotify    CFSTR("com.xiaofei.msgbgvideo/ReloadPrefs")
 #define kMVVideoDir  @"/var/mobile/信息视频"
