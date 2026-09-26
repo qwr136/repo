@@ -10,7 +10,7 @@
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/插件日志.txt"   // 全方位问题诊断日志（需手动开启）
 #define kLVFlushLog  CFSTR("com.xiaofei.notifybgvideo/FlushLog")
-#define kLVVersion   @"1.0.85"
+#define kLVVersion   @"1.0.86"
 
 // 问题日志的分类名（声音 / 卡顿 / 失效 是重点，其余按要求全量收集）
 #define kLVCatSound    @"声音"
@@ -49,6 +49,7 @@ static char kActivityHostKey;  // 标记实时活动卡片的 PLPlatterView 宿�
 static char kRecheckKey;       // 活动内容视图上：已安排的「类型复核」次数（NSNumber），到上限后停止
 static char kKindKey;          // 活动内容视图上：最终确定的类型（NSNumber / LVActivityKind），内容视图销毁即自动释放
 static char kKindProbeKey;     // 活动内容视图上：已定为普通活动后，是否做过一次「是不是漏判的播放器」复查
+static char kKindDumpKey;      // 活动内容视图上：本次出现是否已经往日志里打过一次真实子视图结构
 static char kExpectedKey;      // 「应挂素材」短时缓存
 static char kExpectedStampKey;
 static char kCoverKey;         // 「背景裁剪结果」短时缓存（NSValue / CGRect）
@@ -97,6 +98,8 @@ static BOOL _lvIsActivityHost(UIView *v);
 // 整个 dylib 直接编译不过（1.0.82 就是因为漏了这两个声明而没有出包）
 static BOOL _lvIsActivityContentClass(NSString *cls);
 static BOOL _lvIsNowPlayingActivityView(UIView *v);
+static NSInteger _lvNowPlayingState(void);          // -1 拿不到 / 0 没在播 / 1 正在播
+static BOOL _lvIsLockScreenVisible(void);           // 锁屏是否还在前台（只在 sound 裁定里也会用到，必须先声明）
 static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded);
 static LVActivityKind _lvResolvedKindForView(UIView *v);
 static void _lvOnMatch(UIView *v);
@@ -1020,9 +1023,11 @@ static void _lvResetAllPlayers(void) {
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
+// 暂停必须连声音一起掐掉：只 pause 不 muted 的话，正在缓冲/回到开头重新拉流的播放器
+// 仍可能在下一次 seek 之后自己响起来 —— 用户听到的就是「明明划走了还在放」。
 static void _lvPauseAllPlayers(void) {
     @try {
-        for (AVPlayer *p in gAllPlayers) { [p pause]; }
+        for (AVPlayer *p in gAllPlayers) { p.muted = YES; [p pause]; }
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
@@ -1039,6 +1044,72 @@ static void _lvPlayAllVisiblePlayers(void) {
 }
 
 #pragma mark - 视图识别
+
+// 当前是否真的有媒体在播（-1 拿不到=不表态 / 0 没有 / 1 有）
+// 给「几何猜测」兜一层保险：压根没有东西在放，就别把实时活动误判成播放器
+static NSInteger _lvNowPlayingState(void) {
+    @try {
+        Class mc = objc_getClass("SBMediaController");
+        if (!mc) { return -1; }
+        SEL shared = [mc respondsToSelector:@selector(sharedInstance)] ? @selector(sharedInstance) : @selector(mainInstance);
+        if (![mc respondsToSelector:shared]) { return -1; }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id inst = [mc performSelector:shared];
+#pragma clang diagnostic pop
+        if (!inst) { return -1; }
+        if ([inst respondsToSelector:@selector(nowPlayingApplication)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            id app = [inst performSelector:@selector(nowPlayingApplication)];
+#pragma clang diagnostic pop
+            return app ? 1 : 0;
+        }
+        if ([inst respondsToSelector:@selector(isPlaying)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            BOOL playing = (BOOL)[inst performSelector:@selector(isPlaying)];
+#pragma clang diagnostic pop
+            return playing ? 1 : 0;
+        }
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+    return -1;
+}
+
+// 把活动卡片的子视图结构打成一串可读文本（类名 + 尺寸 + 无障碍标签），每次出现只记一次。
+// 这是彻底分清「实时活动」和「锁屏媒体播放器」的关键证据：不同系统版本 / 不同 App 的
+// 容器类名完全不一样，靠猜永远会有漏网的，必须看到真实类名才补得准。
+static NSString *_lvSubtreeDigest(UIView *root) {
+    NSMutableString *out = [NSMutableString string];
+    @try {
+        NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+        int nodes = 0;
+        while (stack.count && nodes < 70 && out.length < 900) {
+            UIView *cur = [stack lastObject];
+            [stack removeLastObject];
+            nodes++;
+            NSString *cls = NSStringFromClass([cur class]);
+            CGSize sz = cur.bounds.size;
+            [out appendFormat:@"%@(%.0fx%.0f)", cls, sz.width, sz.height];
+            NSString *al = nil;
+            @try { al = cur.accessibilityLabel; } @catch (NSException *e) { al = nil; }
+            if (al.length) { [out appendFormat:@"[%@]", al]; }
+            [out appendString:@" > "];
+            for (UIView *c in cur.subviews) { [stack addObject:c]; }
+        }
+        if (out.length > 3) { [out replaceCharactersInRange:NSMakeRange(out.length - 3, 3) withString:@""]; }
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+    return out.length ? out : @"(空)";
+}
+
+static void _lvDumpActivityStructureOnce(UIView *v) {
+    if (!_lvLogging() || !v) { return; }
+    if (objc_getAssociatedObject(v, &kKindDumpKey)) { return; }
+    objc_setAssociatedObject(v, &kKindDumpKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    _lvNote(kLVCatActivity, @"卡片真实结构（据此区分实时活动/播放器）：%@", _lvSubtreeDigest(v));
+}
+
+static void _lvAttachWithPath(UIView *v, NSString *path);
 
 // 实时活动（Live Activity）内容宿主：锁屏音乐播放、外卖进度等卡片的内容层
 // dump 实测类名：CSActivityItemContentView（列表内实时活动 / 授权弹窗里都有）
@@ -1098,14 +1169,17 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
             strongMarkers = @[
                 @"nowplaying", @"nowplayingcontent", @"nowplayinglive", @"nowplayingitem",
                 @"nowplayingheader", @"nowplayingartwork", @"nowplayingmetadata",
+                @"nowplayingwidget", @"nowplayinglockscreen", @"nowplayingmodule",
                 @"mediacontrols", @"mediacontrolsview", @"mediacontrolstime",
                 @"mediacontrolstransport", @"mediacontrolsvolume", @"mediacontrolsrouting",
+                @"mediaplayer", @"mediawidget", @"mediaartwork", @"mediaplayback",
                 @"mruimedia", @"mrnowplaying", @"mruartwork", @"mrutransport", @"mruvolume",
                 @"mruroute", @"mrumetadata", @"mrcontent", @"mrplatter", @"mrmedia", @"mrroute",
                 @"csmediacontrols", @"csnowplaying", @"csnowplayingview", @"csnowplayingtransport",
                 @"mpmediacontrols", @"mpmediacontrolsparent", @"mproute", @"mpvolume",
                 @"mptransport", @"mpartwork", @"mpbutton",
-                @"transportslider", @"transportbutton", @"volumecontainer", @"routingbutton",
+                @"transportslider", @"transportbutton", @"transportcontrols",
+                @"volumecontainer", @"volumeview", @"volumeslider", @"routingbutton",
                 @"ellipsisbutton", @"routebutton", @"stepthrough", @"progressslider"
             ];
             weakMarkers = @[
@@ -1121,11 +1195,14 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
 
         NSInteger weakHits = 0;
         NSUInteger nodes = 0;
+        BOOL sawSlider = NO;          // 音量条 —— 只有媒体卡才有
+        BOOL sawArtwork = NO;         // 接近正方的封面图（≥52pt）
+        NSInteger smallControls = 0;  // 播控小按钮的个数
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         while (stack.count) {
             UIView *cur = [stack lastObject];
             [stack removeLastObject];
-            if (++nodes > 260) { break; }
+            if (++nodes > 300) { break; }
             NSString *low = NSStringFromClass([cur class]).lowercaseString;
             BOOL hitStrong = NO;
             for (NSString *m in strongMarkers) {
@@ -1138,8 +1215,18 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
             for (NSString *m in weakMarkers) {
                 if ([low containsString:m]) { weakHits++; break; }
             }
+            if (!sawSlider && [cur isKindOfClass:[UISlider class]]) { sawSlider = YES; }
+            if (!sawArtwork && [cur isKindOfClass:[UIImageView class]]) {
+                CGSize sz = cur.bounds.size;
+                if (sz.width >= 52.0 && sz.height >= 52.0 &&
+                    (fabs(sz.width - sz.height) / MAX(sz.width, sz.height)) < 0.18) {
+                    sawArtwork = YES;
+                }
+            }
             // 播控按钮的无障碍标签：只对真正的可点击控件采样，避免读到容器继承来的 label 误判
             if ([cur isKindOfClass:[UIControl class]]) {
+                CGSize sz = cur.bounds.size;
+                if (sz.width > 0.0 && sz.width < 76.0 && sz.height > 0.0 && sz.height < 76.0) { smallControls++; }
                 NSString *al = nil;
                 @try {
                     if ([cur respondsToSelector:@selector(accessibilityLabel)]) { al = [cur accessibilityLabel]; }
@@ -1156,6 +1243,34 @@ static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded) {
                 }
             }
             [stack addObjectsFromArray:cur.subviews];
+        }
+
+        // 祖先链也扫一层：有些系统版本把媒体控件放在卡片的父容器里，只读子树会漏掉
+        NSInteger hop = 0;
+        for (UIView *cur = root.superview; cur && hop < 5; cur = cur.superview) {
+            hop++;
+            NSString *low = NSStringFromClass([cur class]).lowercaseString;
+            BOOL hit = NO;
+            for (NSString *m in strongMarkers) {
+                if ([low containsString:m]) { hit = YES; break; }
+            }
+            if (hit) {
+                if (loaded) { *loaded = YES; }
+                return LVActivityKindNowPlaying;
+            }
+        }
+
+        // 纯几何猜测：不看类名也能认出「音乐播放器」的外形特征（音量条 / 封面 + 播控按钮）。
+        // 前提是系统确实有东西在播 —— 否则宁可按普通实时活动处理，不至于两边都判错。
+        if (_lvNowPlayingState() != 0) {
+            if (sawSlider) {
+                if (loaded) { *loaded = YES; }
+                return LVActivityKindNowPlaying;
+            }
+            if (sawArtwork && smallControls >= 2) {
+                if (loaded) { *loaded = YES; }
+                return LVActivityKindNowPlaying;
+            }
         }
         if (loaded) { *loaded = (nodes >= 6); }
         if (weakHits >= 2) { return LVActivityKindNowPlaying; }
@@ -1177,7 +1292,13 @@ static NSString *_lvResolvedPathForKind(LVActivityKind kind) {
     NSString *pp = _lvPlayerPath();
     NSString *ap = _lvActivityPath();
     if (kind == LVActivityKindNowPlaying) {
-        if (pp.length) { return pp; }
+        if (pp.length) {
+            if (_lvPathIsImageAsset(pp)) {
+                _lvIssue(kLVCatAsset, @"播放器素材选的是图片（%@）：不会有画面也不会有声音，想在播放器上看到视频请在这里换成 MP4/MOV",
+                         pp.lastPathComponent);
+            }
+            return pp;
+        }
         if (ap.length) { return ap; }
         return _lvPath();
     }
@@ -1203,10 +1324,54 @@ static UIView *_lvFindActivityContentInHost(UIView *host) {
     return nil;
 }
 
+// 手动兜底：自动识别在某些 App / 某些系统版本上会彻底失灵（整棵子树全是通用类名），
+// 与其让用户干瞪眼，不如让他在设置里直接指定「锁屏上第几张卡是播放器」。
+// rule=1 最上面那张，rule=2 最下面那张；rule=0 表示仍然走自动识别。
+static NSInteger _lvPlayerPosRule(void) {
+    @try {
+        id v = _lvPrefs()[@"LockVideoPlayerPosRule"];
+        if ([v respondsToSelector:@selector(integerValue)]) { return [v integerValue]; }
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+    return 0;
+}
+
+static LVActivityKind _lvKindByPosition(UIView *v, NSInteger rule) {
+    @try {
+        UIView *probe = _lvFindActivityPlatterHost(v) ?: v;
+        NSMutableArray<UIView *> *cards = [NSMutableArray array];
+        for (UIView *x in [_lvAttachedTable() allObjects]) {
+            if (!x || !x.window) { continue; }
+            NSString *cls = NSStringFromClass([x class]);
+            if (!_lvIsActivityContentClass(cls) && !_lvIsActivityHost(x)) { continue; }
+            if ([cards indexOfObjectIdenticalTo:x] != NSNotFound) { continue; }
+            [cards addObject:x];
+        }
+        if ([cards indexOfObjectIdenticalTo:probe] == NSNotFound) { [cards addObject:probe]; }
+        if (cards.count <= 1) { return LVActivityKindGeneral; }   // 只有一张卡就没什么好分的
+        [cards sortUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+            CGFloat ya = CGRectGetMidY([a convertRect:a.bounds toView:nil]);
+            CGFloat yb = CGRectGetMidY([b convertRect:b.bounds toView:nil]);
+            if (fabs(ya - yb) > 4.0) { return ya < yb ? NSOrderedAscending : NSOrderedDescending; }
+            CGFloat xa = CGRectGetMidX([a convertRect:a.bounds toView:nil]);
+            CGFloat xb = CGRectGetMidX([b convertRect:b.bounds toView:nil]);
+            return xa < xb ? NSOrderedAscending : NSOrderedDescending;
+        }];
+        NSUInteger idx = [cards indexOfObjectIdenticalTo:probe];
+        NSUInteger target = (rule == 1) ? 0 : (cards.count - 1);
+        LVActivityKind k = (idx != NSNotFound && idx == target) ? LVActivityKindNowPlaying : LVActivityKindGeneral;
+        _lvNote(kLVCatActivity, @"按位置判定：第 %lu/%lu 张卡 → %@",
+                (unsigned long)(idx == NSNotFound ? 0 : idx + 1), (unsigned long)cards.count,
+                k == LVActivityKindNowPlaying ? @"播放器" : @"普通活动");
+        return k;
+    } @catch (NSException *e) { _lvExcept(__func__, e); return LVActivityKindGeneral; }
+}
+
 // 综合「已确定的类型」与「当下检测结果」给出最终类型。
 // 已定为播放器就钉住不放；已定为普通活动仍留一次升级机会（媒体控件可能是后加载的）。
 static LVActivityKind _lvResolvedKindForView(UIView *v) {
     @try {
+        NSInteger posRule = _lvPlayerPosRule();
+        if (posRule != 0) { return _lvKindByPosition(v, posRule); }   // 用户手动指定优先
         UIView *content = nil;
         if (_lvIsActivityContentClass(NSStringFromClass([v class]))) {
             content = v;
@@ -1538,44 +1703,110 @@ static BOOL _lvViewEffectivelyVisible(UIView *v) {
     } @catch (NSException *e) { _lvExcept(__func__, e); return NO; }
 }
 
-// 「选项/清除」按钮的音频控制：
-//   左滑按钮真的显示出来 → 正常出声（跟随「视频声音」开关）
-//   不左滑（按钮隐藏 / 移出屏幕）→ 静音并暂停，绝不漏声音；主卡片视频不受影响
-static void _lvApplyButtonAudio(UIView *v) {
+// —— 统一声音裁定 ——
+// 漏声的真正根因就在这一段：旧版只对「单个按钮」做可见性判断，
+// 通知卡片 / 实时活动 / 宿主视图 只要 window 还在就无条件 [p play]，
+// 卡片划出屏幕、被折叠、锁屏被盖住之后声音照样在跑 —— 用户听到的「漏声」就是这么来的。
+// 现在所有挂了素材的视图都归这一个函数管，规则只有三条：
+//   ① 锁屏不可见            → 静音 + 暂停
+//   ② 视图不可见且没人共用它 → 静音 + 暂停
+//   ③ 视图可见              → 按「视频声音」开关决定 muted，并 play
+static void _lvApplyAudioPolicy(UIView *v) {
     @try {
-        if (!v) { return; }
-        NSString *cls = NSStringFromClass([v class]);
-        if (!_lvIsSingleActionButtonClass(cls) && ![v isKindOfClass:[UIButton class]]) { return; }
+        if (!v || !v.window) { return; }   // 没有 window 说明正在被搬动，属瞬时状态，交给整体兜底处理
         NSString *path = objc_getAssociatedObject(v, &kPathKey);
         if (!path.length || _lvPathIsImageAsset(path)) { return; }   // 图片/GIF 本来就没有声音
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
-        AVPlayer *p = l.player;
+        AVPlayer *p = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
         if (!p) { return; }
-        NSString *title = _lvButtonTitle(v);
-        NSString *who = [NSString stringWithFormat:@"按钮「%@」(%@)", title ?: @"无标题", NSStringFromClass([v class])];
+        NSString *cls = NSStringFromClass([v class]);
+        NSString *who = _lvIsSingleActionButtonClass(cls)
+            ? [NSString stringWithFormat:@"按钮「%@」(%@)", _lvButtonTitle(v) ?: @"无标题", cls]
+            : cls;
+        if (!_lvEnabled() || !_lvIsLockScreenVisible()) {
+            if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 锁屏不可见 → 静音并暂停", who); }
+            p.muted = YES;
+            [p pause];
+            return;
+        }
         if (_lvViewEffectivelyVisible(v)) {
             if (_lvPlayerHasOtherVisibleView(p, v)) {
-                _lvIssue(kLVCatSound, @"%@ 与卡片共用同一个播放器，声音状态按共享处理（无法单独静音/出声）", who);
+                _lvNote(kLVCatSound, @"%@ 与别的可见卡片共用播放器，声音按共享状态处理", who);
             } else {
-                p.muted = !_lvSound();  // 仅当无人共用时才按开关设声音
+                p.muted = !_lvSound();
             }
             [p play];
-        } else {
-            // 按钮不可见：仅当没有其它可见视图共用此播放器时才静音+暂停，避免冻结共享的视频
-            if (_lvPlayerHasOtherVisibleView(p, v)) {
-                _lvNote(kLVCatSound, @"%@ 不可见，但播放器被可见卡片共用，保持出声", who);
+            return;
+        }
+        if (_lvPlayerHasOtherVisibleView(p, v)) {
+            _lvNote(kLVCatSound, @"%@ 不可见，但播放器被可见卡片共用，保持出声", who);
+            return;
+        }
+        if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 不可见 → 静音并暂停（不再漏声）", who); }
+        p.muted = YES;
+        [p pause];
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+}
+
+// 孤儿播放器兜底：视图被系统回收/复用之后，AVPlayer 可能还被 gAllPlayers 持有着继续播。
+// 这一类漏声最难复现，所以干脆用反向规则彻底堵死：
+// 只有「至少有一个可见视图正在用它」的播放器才允许出声，其余一律静音并暂停。
+// 为避免下拉过程中卡片被临时摘窗导致声音一突一突，留了 0.6 秒宽限期。
+static NSMutableDictionary<NSValue *, NSNumber *> *gSeenVisible = nil;
+static void _lvEnforceAudioPolicy(void) {
+    @try {
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        if (!gSeenVisible) { gSeenVisible = [NSMutableDictionary dictionary]; }
+        BOOL allowAnything = (_lvEnabled() && _lvIsLockScreenVisible());
+        NSMutableSet<AVPlayer *> *allowed = [NSMutableSet set];
+        if (allowAnything) {
+            for (UIView *v in [_lvAttachedTable() allObjects]) {
+                if (!_lvViewEffectivelyVisible(v)) { continue; }
+                NSString *path = objc_getAssociatedObject(v, &kPathKey);
+                if (!path.length || _lvPathIsImageAsset(path)) { continue; }
+                AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+                AVPlayer *p = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
+                if (!p) { continue; }
+                [allowed addObject:p];
+                gSeenVisible[[NSValue valueWithNonretainedObject:p]] = @(now);
+            }
+        }
+        BOOL want = _lvSound();
+        for (AVPlayer *p in gAllPlayers) {
+            NSValue *pk = [NSValue valueWithNonretainedObject:p];
+            if ([allowed containsObject:p]) {
+                if (p.muted == want) {   // muted 应当等于 !want，不一致说明有人绕过裁定改过它
+                    _lvIssue(kLVCatSound, @"播放器声音状态与开关不一致，已就地纠正（声音开关=%d）", want);
+                }
+                p.muted = !want;
             } else {
-                if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 不可见 → 静音并暂停", who); }
+                NSTimeInterval last = [gSeenVisible[pk] doubleValue];
+                if (last > 0 && (now - last) < 0.6) { continue; }   // 宽限期内，可能是换卡片的瞬间
+                if (p.rate > 0.01) { _lvNote(kLVCatSound, @"没有可见视图在用这个播放器却还在播 → 静音并暂停"); }
                 p.muted = YES;
                 [p pause];
+                [gSeenVisible removeObjectForKey:pk];   // 记录只服务于宽限期，用完就丢，免得无限堆积
             }
         }
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
-static void _lvUpdateButtonAudioEverywhere(void) {
+// layoutSubviews 会逐帧来，但整套裁定只是「十几个视图 + 几个播放器」，
+// 节流到 0.25 秒已经足够快（人耳听不出差别），却能把每帧的开销压到几乎为零。
+static NSTimeInterval gAudioPolicyStamp = 0;
+static void _lvEnforceAudioPolicyThrottled(void) {
     @try {
-        for (UIView *v in [_lvAttachedTable() allObjects]) { _lvApplyButtonAudio(v); }
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        if (now - gAudioPolicyStamp < 0.25) { return; }
+        gAudioPolicyStamp = now;
+        _lvEnforceAudioPolicy();
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+}
+
+static void _lvApplyAudioPolicyEverywhere(void) {
+    @try {
+        for (UIView *v in [_lvAttachedTable() allObjects]) { _lvApplyAudioPolicy(v); }
+        _lvEnforceAudioPolicy();
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
@@ -2040,14 +2271,8 @@ static void _lvRefresh(UIView *v) {
             _lvInsertLayer(v, l);
             l.frame = _lvCoverFrameForHost(v);
             l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
-            if (v.window && p && !_lvPathIsImageAsset(path)) {
-                NSString *cls = NSStringFromClass([v class]);
-                if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
-                    if (_lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑按钮可见才播
-                } else {
-                    [p play];
-                }
-            }
+            _lvApplyAudioPolicy(v);            // 可见才响、不可见必须静音暂停：统一裁定，不在这里自己 play
+            _lvEnforceAudioPolicyThrottled();  // 顺手把「没人用还在响」的孤儿播放器掐掉
         }
         if (iv) {
             if (iv.superview != v) { _lvInsertImageView(v, iv); }
@@ -2168,14 +2393,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         } else {
             l.opacity = targetOpacity;
         }
-        {
-            NSString *cls = NSStringFromClass([v class]);
-            if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
-                if (_lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑可见才播，不左滑保持静音暂停
-            } else {
-                [p play];
-            }
-        }
+        _lvApplyAudioPolicy(v);   // 挂载完成立刻套用统一裁定：不可见（比如还没左滑出来的按钮）保持静音暂停
         _lvPrepareHostBackgroundsNow(v);
         CGRect coverFrame = l.frame;
         _lvLogOnce(NSStringFromClass(v.class),
@@ -2492,8 +2710,12 @@ static void _lvHandleActivityMatch(UIView *v) {
             objc_setAssociatedObject(host, &kActivityHostKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
 
+        _lvDumpActivityStructureOnce(v);   // 真实子视图结构写进日志：日后补准「播放器」判据全靠它
         BOOL loaded = NO;
-        LVActivityKind kind = _lvDetectKindIn(host, &loaded);
+        LVActivityKind kind = LVActivityKindUnknown;
+        NSInteger posRule = _lvPlayerPosRule();
+        if (posRule != 0) { kind = _lvKindByPosition(v, posRule); }
+        if (kind == LVActivityKindUnknown) { kind = _lvDetectKindIn(host, &loaded); }
         if (kind == LVActivityKindUnknown) {
             // 内容还没加载完 —— 先什么都别挂。
             // 旧版这时候会按「普通活动」挂实时活动素材，素材没设就一路回退到主素材，
@@ -2661,6 +2883,12 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         // 设置刚被改写：立刻丢掉偏好缓存 —— 否则下一帧还在用旧值（也算是「失效」的一种表现）
         _lvPrefsInvalidate();
         _lvNote(kLVCatPrefs, @"收到设置变更通知");
+        // 「实时活动/播放器」素材或区分方式改了：立刻让卡片上的判定缓存失效，下一帧就重算，
+        // 否则用户改完设置要等卡片重新出现才生效（看起来就像设置「失效」了）
+        for (UIView *v in [_lvAttachedTable() allObjects]) {
+            objc_setAssociatedObject(v, &kExpectedStampKey, @0, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kKindProbeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         BOOL nowEnabled = _lvEnabled();
         // 可视化调试开关翻转时，先把残留的描边覆盖层清干净
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -2701,7 +2929,7 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
             _lvAllowAutoLockForPlayer(p);
         }
         _lvNote(kLVCatSound, @"声音开关=%d，已同步 %lu 个播放器", want, (unsigned long)gAllPlayers.count);
-        _lvUpdateButtonAudioEverywhere();   // 按钮素材立刻按可见性修正，不漏声
+        _lvApplyAudioPolicyEverywhere();   // 按钮素材立刻按可见性修正，不漏声
 
         // 收集当前激活的 path
         NSMutableSet<NSString *> *active = [NSMutableSet set];
@@ -2906,14 +3134,16 @@ static void _lvPollTick(void) {
             _lvScanAndAttach(w, &found);
             if (found) { foundAnyCard = YES; }
         }
-        if (foundAnyCard) { _lvPlayAllVisiblePlayers(); }
+        if (foundAnyCard) { _lvPlayAllVisiblePlayers(); }   // 只是「补播」，最终声音状态仍由下面的统一裁定决定
         else {
             _lvPauseAllPlayers();
             if (gPollRounds % 20 == 0) { _lvNote(kLVCatFail, @"连续 %ld 轮轮询都没找到任何通知卡片", (long)gPollRounds); }
         }
-        _lvUpdateButtonAudioEverywhere();   // 选项/清除：不左滑时静音暂停，不漏声音
-        LV_PERF_CHECK(kLVCatPerf, 20.0,
-                      @"每轮轮询扫描（遍历全部窗口找卡片）耗时 %.1f ms（预算 20ms）");
+        _lvApplyAudioPolicyEverywhere();   // 所有视图：不可见的一律静音暂停，绝不漏声
+        // 预算放宽到 30ms：轮询每 1.5 秒才走一次，它并不落在下拉动画的某一帧里，
+        // 真正的掉帧取决于单帧内的刷新耗时，这里报得太紧只会让日志充满噪音。
+        LV_PERF_CHECK(kLVCatPerf, 30.0,
+                      @"每轮轮询扫描（遍历全部窗口找卡片）耗时 %.1f ms（预算 30ms）");
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
@@ -2986,7 +3216,7 @@ static void _lvPollTick(void) {
                 _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（全方位问题收集日志：声音/卡顿/失效 + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
+        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（统一声音裁定（不再漏声） + 实时活动/播放器分离（含手动指定） + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
     } @catch (NSException *e) { _lvExcept(__func__, e);
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

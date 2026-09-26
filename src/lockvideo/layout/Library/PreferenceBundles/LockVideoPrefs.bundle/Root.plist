@@ -216,6 +216,40 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footer</key>
+			<string>锁屏上的「实时活动」和「媒体播放器」在系统里用的是同一套容器，不同 App / 不同系统版本长得还不一样，自动识别偶尔会失灵（表现就是两张卡用同一个背景）。失灵时可以在这里直接指定：锁屏上从上往下数，哪一张是播放器。改完不用注销，下一秒就生效。</string>
+			<key>label</key>
+			<string>实时活动 / 播放器 区分</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSegmentCell</string>
+			<key>default</key>
+			<integer>0</integer>
+			<key>defaults</key>
+			<string>com.xiaofei.notifybgvideo</string>
+			<key>key</key>
+			<string>LockVideoPlayerPosRule</string>
+			<key>label</key>
+			<string>播放器是第几张卡</string>
+			<key>validTitles</key>
+			<array>
+				<string>自动识别</string>
+				<string>最上面</string>
+				<string>最下面</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<integer>0</integer>
+				<integer>1</integer>
+				<integer>2</integer>
+			</array>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footer</key>
 			<string>默认关闭，不影响日常使用。打开后，插件会把运行中所有不对劲的地方记成日志，重点覆盖「声音 / 卡顿 / 失效」三类：
 · 声音：该响不响、不该响的响了、按钮和卡片抢同一个播放器等导致静音/暂停失效
 · 卡顿：某一帧里我们自己的刷新/裁剪/轮询超时(超过 8ms)，以及视频解码跟不上被系统中断
