@@ -33,6 +33,26 @@ Author: Simon
 Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
 Name: 控制中心发光
 
+Package: com.xiaofei.msgbgvideo
+Version: 1.0.1
+Architecture: iphoneos-arm64
+Maintainer: 小飞 <[email protected]>
+Installed-Size: 352
+Depends: mobilesubstrate | ellekit
+Filename: debs/com.xiaofei.msgbgvideo_1.0.1_iphoneos-arm64.deb
+Size: 21820
+MD5sum: 22a40225730df9634f8c0f441fdb30e2
+SHA1: 2b234301fde4260e46376691ee31a4db47c8fcff
+SHA256: f2a1f20d7592123f488f070355f0951ce42351bfc9e58ef6761600b337bb4e0e
+Section: Tweaks (rootless)
+Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
+Author: 小飞
+Changelog: 1.0.1 - 首个版本：信息 App 全屏视频背景，支持启用开关、切换视频、声音开关（默认开）、透明度调节，素材放在 /var/mobile/信息视频
+Depiction: https://qwr136.github.io/repo/
+Icon: https://qwr136.github.io/repo/CydiaIcon.png
+Name: 信息视频背景
+Sileodepiction: https://qwr136.github.io/repo/
+
 Package: com.xiaofei.notifybgvideo
 Version: 1.0.45
 Architecture: iphoneos-arm64
