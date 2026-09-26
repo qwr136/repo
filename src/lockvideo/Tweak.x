@@ -514,6 +514,15 @@ static void _lvPlayAllVisiblePlayers(void) {
 
 #pragma mark - 视图识别
 
+// 实时活动（Live Activity）内容宿主：锁屏音乐播放、外卖进度等卡片的内容层
+// dump 实测类名：CSActivityItemContentView（列表内实时活动 / 授权弹窗里都有）
+static BOOL _lvIsActivityContentClass(NSString *cls) {
+    if (!cls) return NO;
+    NSString *low = cls.lowercaseString;
+    return [low containsString:@"csactivityitemcontentview"] ||
+           [low containsString:@"activityitemcontentview"];
+}
+
 static BOOL _lvIsActionButtonGroupView(NSString *cls) {
     if (!cls) return NO;
     NSString *low = cls.lowercaseString;
@@ -560,6 +569,7 @@ static BOOL _lvIsNotificationView(UIView *v) {
         NSString *cls = NSStringFromClass([v class]);
         if (!cls) { return NO; }
         if (_lvIsActionButtonGroupView(cls)) return YES;
+        if (_lvIsActivityContentClass(cls)) return YES;   // 实时活动内容宿主视同卡片
         NSString *low = cls.lowercaseString;
         if (![low containsString:@"notification"]) { return NO; }
         if ([low containsString:@"stackdimming"]) { return NO; }
@@ -628,6 +638,7 @@ static void _lvDetach(UIView *v);
 // 只针对通知卡片本体（shortlook / banner / longlook）
 static BOOL _lvIsCardHostClass(NSString *cls) {
     if (!cls) { return NO; }
+    if (_lvIsActivityContentClass(cls)) { return YES; }   // 实时活动内容宿主按卡片宿主处理
     NSString *low = cls.lowercaseString;
     return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
 }
@@ -786,6 +797,7 @@ static BOOL _lvAllowedToAttach(UIView *v) {
         if ([low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"]) {
             return YES;
         }
+        if (_lvIsActivityContentClass(cls)) { return YES; }   // 实时活动内容宿主允许挂主素材
         if ([v isKindOfClass:[UIButton class]]) { return YES; }
         if (_lvIsPillButtonClass(cls)) { return YES; }
         if ([low containsString:@"actionbutton"]) { return YES; }
@@ -1698,6 +1710,7 @@ static void _lvStopPollTimer(void) {
 static BOOL _lvIsCardClass(NSString *cls) {
     if (!cls) { return NO; }
     if (_lvIsActionButtonGroupView(cls)) return YES;
+    if (_lvIsActivityContentClass(cls)) return YES;   // 实时活动内容宿主视同卡片，挂主素材
     NSString *low = cls.lowercaseString;
     if (![low containsString:@"notif"]) { return NO; }
     if ([low containsString:@"stackdimming"]) { return NO; }
@@ -1844,7 +1857,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.76 加载完成（关闭恢复原生背景更彻底 + 选项清除左滑才出声 + 日志只在调试时写） =====");
+        _lvLog(@"===== 1.0.77 加载完成（实时活动卡片支持挂主素材背景视频） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
