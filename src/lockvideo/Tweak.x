@@ -477,6 +477,10 @@ static void _lvRestoreBackgroundsRecursive(UIView *v) {
     } @catch (NSException *e) {}
 }
 
+// 前向声明：恢复函数（detached 时调用）
+static void _lvRestoreBackgroundsRecursive(UIView *v);
+static void _lvScanAndRestoreInView(UIView *v);
+
 // 把视频层 + 图片层从某个视图上卸掉，并恢复其原生外观
 static void _lvDetach(UIView *v) {
     if (!v) { return; }
