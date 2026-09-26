@@ -17,6 +17,7 @@ static NSMutableDictionary<NSString *, id> *gObserverMap = nil;
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
+static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
 static char kOrigHiddenKey;
 static char kOrigAlphaKey;
@@ -491,6 +492,12 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
                 _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
                 continue;
             }
+            // 卡片自身的整块毛玻璃：保留显示，视频叠在它上面；
+            // 被裁剪掉的按钮区因此露出系统原样，而不是透出壁纸
+            if (objc_getAssociatedObject(sv, &kKeepBgKey)) {
+                _lvRestoreBackgroundsRecursive(sv);
+                continue;
+            }
             if (_lvIsBackgroundView(sv)) {
                 if (!objc_getAssociatedObject(sv, &kOrigHiddenKey)) {
                     objc_setAssociatedObject(sv, &kOrigHiddenKey, @(sv.hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -522,18 +529,25 @@ static BOOL _lvIsCardHostClass(NSString *cls) {
 // 找到卡片自身的整块背景层（毛玻璃 / 材质 / 暗化视图）在 sublayers 里的索引，找不到返回 -1。
 // 找到后我们把视频层插到它「上面一层」——这样系统毛玻璃保留下来，
 // 视频被裁剪掉的区域（按钮区）露出的就是真正的系统原样，而不是透出壁纸/别的视频。
+// 卡片自身的整块背景层（毛玻璃 / 材质）判定：覆盖面积够大、且不是列表级暗化层
+static BOOL _lvIsKeepableBackdrop(UIView *sv, UIView *host) {
+    if (!sv || !host || !_lvIsBackgroundView(sv)) { return NO; }
+    NSString *low = NSStringFromClass([sv class]).lowercaseString;
+    if ([low containsString:@"stackdimming"]) { return NO; }
+    CGRect f = sv.frame;
+    if (f.size.width < host.bounds.size.width * 0.6) { return NO; }
+    if (f.size.height < host.bounds.size.height * 0.6) { return NO; }
+    return YES;
+}
+
 static int _lvTopFullCoverBackgroundIndex(UIView *v) {
     int idx = -1;
     @try {
-        CGFloat hostW = v.bounds.size.width;
-        CGFloat hostH = v.bounds.size.height;
-        if (hostW < 8.0 || hostH < 8.0) { return -1; }
+        if (v.bounds.size.width < 8.0 || v.bounds.size.height < 8.0) { return -1; }
         NSArray<UIView *> *subs = v.subviews;
         for (NSUInteger i = 0; i < subs.count; i++) {
             UIView *sv = subs[i];
-            if (!_lvIsBackgroundView(sv)) { continue; }
-            CGRect f = sv.frame;
-            if (f.size.width < hostW * 0.6 || f.size.height < hostH * 0.6) { continue; }
+            if (!_lvIsKeepableBackdrop(sv, v)) { continue; }
             NSUInteger li = [v.layer.sublayers indexOfObject:sv.layer];
             if (li == NSNotFound) { continue; }
             if ((int)li > idx) { idx = (int)li; }
@@ -542,14 +556,23 @@ static int _lvTopFullCoverBackgroundIndex(UIView *v) {
     return idx;
 }
 
-// 卡片：保留系统毛玻璃（视频叠在它上面）；按钮等小视图：沿用旧的隐藏背景办法
+// 卡片：先把自身的整块系统背景标记为「保留」，再照旧隐藏其余背景层；
+// 视频层插到保留背景的上面一层 —— 被裁剪掉的按钮区就露出真正的系统原样
 static void _lvPrepareHostBackgrounds(UIView *v) {
     if (!v) { return; }
-    if (_lvIsCardHostClass(NSStringFromClass([v class])) && _lvTopFullCoverBackgroundIndex(v) >= 0) {
-        _lvRestoreBackgroundsRecursive(v);
-    } else {
-        _lvHideBackgroundsRecursive(v);
+    if (_lvIsCardHostClass(NSStringFromClass([v class]))) {
+        for (UIView *sv in v.subviews) {
+            if (!_lvIsKeepableBackdrop(sv, v)) { continue; }
+            objc_setAssociatedObject(sv, &kKeepBgKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            NSNumber *h = objc_getAssociatedObject(sv, &kOrigHiddenKey);
+            if (h) { sv.hidden = [h boolValue]; objc_setAssociatedObject(sv, &kOrigHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+            NSNumber *a = objc_getAssociatedObject(sv, &kOrigAlphaKey);
+            if (a) { sv.alpha = [a floatValue]; objc_setAssociatedObject(sv, &kOrigAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+            UIColor *c = objc_getAssociatedObject(sv, &kOrigBgColorKey);
+            if (c) { sv.backgroundColor = c; objc_setAssociatedObject(sv, &kOrigBgColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        }
     }
+    _lvHideBackgroundsRecursive(v);
 }
 
 // 图片素材是 UIView，同样要插到卡片系统毛玻璃「上面一层」，否则会被毛玻璃盖住
@@ -558,13 +581,10 @@ static void _lvInsertImageView(UIView *v, UIImageView *iv) {
     NSInteger target = 0;
     if (_lvIsCardHostClass(NSStringFromClass([v class]))) {
         NSArray<UIView *> *subs = v.subviews;
-        CGFloat hostW = v.bounds.size.width, hostH = v.bounds.size.height;
         for (NSUInteger i = 0; i < subs.count; i++) {
             UIView *sv = subs[i];
             if (sv == iv) { continue; }
-            if (!_lvIsBackgroundView(sv)) { continue; }
-            CGRect f = sv.frame;
-            if (f.size.width < hostW * 0.6 || f.size.height < hostH * 0.6) { continue; }
+            if (!_lvIsKeepableBackdrop(sv, v)) { continue; }
             NSInteger at = (NSInteger)[subs indexOfObject:sv];
             if (cur != NSNotFound && (NSInteger)cur < at) { target = at; }   // 移除自身后索引 -1
             else { target = at + 1; }
