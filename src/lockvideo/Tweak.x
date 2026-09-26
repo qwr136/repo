@@ -374,6 +374,9 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
     [v.layer insertSublayer:l atIndex:0];
 }
 
+// _lvRefresh 关闭时会调用 _lvDetach，先声明
+static void _lvDetach(UIView *v);
+
 // 统一刷新：每帧更新背景层尺寸，并确保系统毛玻璃/背景层处于隐藏状态
 static void _lvRefresh(UIView *v) {
     @try {
