@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.78
+Version: 1.0.79
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.78 - 实时活动独立素材：设置面板新增「实时活动素材」选择（在从相册添加素材上面），锁屏实时活动卡片优先使用该素材做背景视频，未设置时回退主素材；设置面板入口图标更换为新图标；本版本不发布到源，仅提供 deb 文件
+Changelog: 1.0.79 - 实时活动视频铺满可见卡片：不再挂载到尺寸会被裁剪的 CSActivityItemContentView，而是向上找到 PLPlatterView 作为宿主并铺满其可见 bounds，授权弹窗保持系统原样不挂素材；修复多视图使用同一视频素材时会卡住的问题：移除按 path 共享 AVPlayer 的缓存，每个挂载视图创建独立 AVPlayer 与循环 observer，彻底避免多个 AVPlayerLayer 共用同一个 AVPlayer 导致的冲突；设置面板入口图标改为 panel@3x.png；本版本不发布到源

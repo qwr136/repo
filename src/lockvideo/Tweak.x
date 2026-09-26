@@ -12,11 +12,13 @@
 #define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
-static NSMutableDictionary<NSString *, AVPlayer *> *gPlayerMap = nil;
-static NSMutableDictionary<NSString *, id> *gObserverMap = nil;
+static NSMutableSet<AVPlayer *> *gAllPlayers = nil;     // 每个挂载视图独立播放器，避免同素材多视图共用卡住
+static NSMutableDictionary<AVPlayer *, id> *gObserverMap = nil;
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
+static char kPlayerKey;        // 记录 view 专属的 AVPlayer（不再按 path 共享）
+static char kActivityHostKey;  // 标记实时活动卡片的 PLPlatterView 宿主
 static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
@@ -27,11 +29,14 @@ static char kOrigCornerKey;    // 备份：宿主 layer.cornerRadius（关闭插
 static char kOrigMasksKey;     // 备份：宿主 layer.masksToBounds（关闭插件时还原）
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
+static NSSet<NSString *> *gLastActivePaths = nil;    // 上一次激活的素材路径集合，变化时重置全部播放器
 
 #pragma mark - 偏好（直接读文件）
 
 static void _lvLog(NSString *line);
 static void _lvLogOnce(NSString *cls, NSString *action);
+static NSArray<UIView *> *_lvFindPillButtonsInView(UIView *v);
+static NSString *_lvButtonTitle(UIView *btn);
 
 static NSArray<NSString *> *_lvSuites(void) {
     return @[@"com.xiaofei.notifybgvideo", @"com.xiaofei.notifybgvideo.prefs"];
@@ -382,7 +387,7 @@ static UIView *_lvBetterDumpRoot(UIView *v) {
     return best;
 }
 
-#pragma mark - 播放器（按 path 缓存，支持多素材）
+#pragma mark - 播放器（每个挂载视图独立一个 AVPlayer，避免同素材多视图共用导致卡住/花屏）
 
 static void _lvAllowAutoLockForPlayer(AVPlayer *p) {
     @try {
@@ -443,15 +448,16 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
             _lvLogOnce(@"扫描结果", [NSString stringWithFormat:@"%@ 里没有找到视频文件", kLVVideoDir]);
             return nil;
         }
-        AVPlayer *player = gPlayerMap[path];
-        if (!player) {
-            AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
-            if (!item) { return nil; }
-            player = [AVPlayer playerWithPlayerItem:item];
-            player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-            player.muted = !_lvSound();
-            _lvAllowAutoLockForPlayer(player);
-            gPlayerMap[path] = player;
+        // 每个挂载视图都创建独立播放器：多个 AVPlayerLayer 不能共用同一个 AVPlayer，否则只能一个显示，甚至会卡住
+        AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL fileURLWithPath:path]];
+        if (!item) { return nil; }
+        AVPlayer *player = [AVPlayer playerWithPlayerItem:item];
+        player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+        player.muted = !_lvSound();
+        _lvAllowAutoLockForPlayer(player);
+        if (!gAllPlayers) { gAllPlayers = [NSMutableSet set]; }
+        if (!gObserverMap) { gObserverMap = [NSMutableDictionary dictionary]; }
+        [gAllPlayers addObject:player];
 
             __weak AVPlayer *wp = player;
             id observer = [[NSNotificationCenter defaultCenter]
@@ -468,12 +474,8 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
                         completionHandler:^(BOOL d) { [p play]; }];
                 } @catch (NSException *e) {}
             }];
-            gObserverMap[path] = observer;
+            gObserverMap[player] = observer;
             _lvLog([NSString stringWithFormat:@"播放器创建: %@ 声音=%d", path, _lvSound()]);
-        } else {
-            player.muted = !_lvSound();
-            _lvAllowAutoLockForPlayer(player);
-        }
         return player;
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"player 异常: %@", e]);
@@ -481,36 +483,42 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
     }
 }
 
-static void _lvResetPlayerForPath(NSString *path) {
+static void _lvDetachPlayer(AVPlayer *player) {
+    if (!player) { return; }
     @try {
-        id observer = gObserverMap[path];
+        id observer = gObserverMap[player];
         if (observer) {
             [[NSNotificationCenter defaultCenter] removeObserver:observer];
-            [gObserverMap removeObjectForKey:path];
+            [gObserverMap removeObjectForKey:player];
         }
-        AVPlayer *player = gPlayerMap[path];
-        if (player) { [player pause]; [gPlayerMap removeObjectForKey:path]; }
+        [player pause];
+        [gAllPlayers removeObject:player];
     } @catch (NSException *e) {}
 }
 
 static void _lvResetAllPlayers(void) {
     @try {
-        for (NSString *path in [gPlayerMap allKeys]) {
-            _lvResetPlayerForPath(path);
+        for (AVPlayer *p in [gAllPlayers copy]) {
+            _lvDetachPlayer(p);
         }
+        [gAllPlayers removeAllObjects];
     } @catch (NSException *e) {}
 }
 
 static void _lvPauseAllPlayers(void) {
     @try {
-        for (AVPlayer *p in gPlayerMap.allValues) { [p pause]; }
+        for (AVPlayer *p in gAllPlayers) { [p pause]; }
     } @catch (NSException *e) {}
 }
 
 static void _lvPlayAllVisiblePlayers(void) {
     @try {
-        for (NSString *path in gPlayerMap) {
-            if (!_lvPathIsImageAsset(path)) { [gPlayerMap[path] play]; }
+        for (UIView *v in [_lvAttachedViews copy]) {
+            AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+            AVPlayer *p = l.player ?: objc_getAssociatedObject(v, &kPlayerKey);
+            if (p && _lvViewEffectivelyVisible(v) && !_lvPathIsImageAsset(objc_getAssociatedObject(v, &kPathKey))) {
+                [p play];
+            }
         }
     } @catch (NSException *e) {}
 }
@@ -524,6 +532,34 @@ static BOOL _lvIsActivityContentClass(NSString *cls) {
     NSString *low = cls.lowercaseString;
     return [low containsString:@"csactivityitemcontentview"] ||
            [low containsString:@"activityitemcontentview"];
+}
+
+// 实时活动卡片的可见宿主：从 CSActivityItemContentView 向上找到 PLPlatterView，
+// 这样视频层覆盖的是整个可见卡片区域，而不是尺寸更大/会被裁剪的内容视图
+static UIView *_lvFindActivityPlatterHost(UIView *v) {
+    @try {
+        for (UIView *cur = v; cur; cur = cur.superview) {
+            NSString *cls = NSStringFromClass([cur class]).lowercaseString;
+            if ([cls isEqualToString:@"plplatterview"]) { return cur; }
+            if ([cls containsString:@"platterview"] && ![cls containsString:@"custom"] &&
+                ![cls containsString:@"action"] && ![cls containsString:@"content"]) {
+                return cur;
+            }
+        }
+    } @catch (NSException *e) {}
+    return nil;
+}
+
+// 实时活动授权弹窗（"允许 xxx 的实时活动？" / "不允许/允许"）不做背景视频
+static BOOL _lvIsActivityAuthorizationAlert(UIView *v) {
+    @try {
+        NSArray<UIView *> *btns = _lvFindPillButtonsInView(v);
+        for (UIView *btn in btns) {
+            NSString *t = _lvButtonTitle(btn).lowercaseString;
+            if ([t containsString:@"允许"] || [t containsString:@"不允许"]) { return YES; }
+        }
+    } @catch (NSException *e) {}
+    return NO;
 }
 
 static BOOL _lvIsActionButtonGroupView(NSString *cls) {
@@ -573,6 +609,7 @@ static BOOL _lvIsNotificationView(UIView *v) {
         if (!cls) { return NO; }
         if (_lvIsActionButtonGroupView(cls)) return YES;
         if (_lvIsActivityContentClass(cls)) return YES;   // 实时活动内容宿主视同卡片
+        if (_lvIsActivityHost(v)) { return YES; }           // 已被标记的实时活动宿主（PLPlatterView）也需要刷新
         NSString *low = cls.lowercaseString;
         if (![low containsString:@"notification"]) { return NO; }
         if ([low containsString:@"stackdimming"]) { return NO; }
@@ -644,6 +681,11 @@ static BOOL _lvIsCardHostClass(NSString *cls) {
     if (_lvIsActivityContentClass(cls)) { return YES; }   // 实时活动内容宿主按卡片宿主处理
     NSString *low = cls.lowercaseString;
     return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
+}
+
+static BOOL _lvIsActivityHost(UIView *v) {
+    if (!v) { return NO; }
+    return objc_getAssociatedObject(v, &kActivityHostKey) != nil;
 }
 
 // 找到卡片自身的整块背景层（毛玻璃 / 材质 / 暗化视图）在 sublayers 里的索引，找不到返回 -1。
@@ -801,6 +843,7 @@ static BOOL _lvAllowedToAttach(UIView *v) {
             return YES;
         }
         if (_lvIsActivityContentClass(cls)) { return YES; }   // 实时活动内容宿主允许挂主素材
+        if (_lvIsActivityHost(v)) { return YES; }             // 已被标记为实时活动可见宿主（PLPlatterView）
         if ([v isKindOfClass:[UIButton class]]) { return YES; }
         if (_lvIsPillButtonClass(cls)) { return YES; }
         if ([low containsString:@"actionbutton"]) { return YES; }
@@ -1146,7 +1189,11 @@ static void _lvRefresh(UIView *v) {
             return;
         }
         if (l && path.length) {
-            AVPlayer *p = _lvPlayerForPath(path);
+            AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
+            if (!p) {
+                p = _lvPlayerForPath(path);
+                objc_setAssociatedObject(v, &kPlayerKey, p, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
             if (p && l.player != p) { l.player = p; }
             _lvInsertLayer(v, l);
             l.frame = _lvCoverFrameForHost(v);
@@ -1177,6 +1224,11 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         return;
     }
     @try {
+        // 素材路径变了：把旧播放器/图层彻底卸掉再重建，避免同视图堆叠多个素材
+        NSString *oldPath = objc_getAssociatedObject(v, &kPathKey);
+        if (oldPath.length && ![oldPath isEqualToString:path]) {
+            _lvDetach(v);
+        }
         objc_setAssociatedObject(v, &kPathKey, path, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         // ===== 图片 / GIF 分支 =====
@@ -1227,7 +1279,11 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         }
 
         // ===== 视频分支 =====
-        AVPlayer *p = _lvPlayerForPath(path);
+        AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
+        if (!p) {
+            p = _lvPlayerForPath(path);
+            objc_setAssociatedObject(v, &kPlayerKey, p, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         UIImageView *oldIv = objc_getAssociatedObject(v, &kImgKey);
         if (oldIv) {
             [oldIv removeFromSuperview];
@@ -1446,11 +1502,17 @@ static void _lvRestoreBackgroundsRecursive(UIView *v, int depth) {
 static void _lvDetach(UIView *v) {
     if (!v) { return; }
     @try {
+        // 先停掉并释放这个视图专属的播放器（含循环播放 observer）
+        AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
+        if (p) { _lvDetachPlayer(p); }
+        objc_setAssociatedObject(v, &kPlayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         if (l) { [l removeFromSuperlayer]; objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         objc_setAssociatedObject(v, &kPathKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kActivityHostKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);   // 实时活动宿主标记也清掉
         _lvRestoreBackgroundsRecursive(v, 0);
     } @catch (NSException *e) {}
 }
@@ -1534,8 +1596,20 @@ static void _lvOnMatch(UIView *v) {
     if (_lvIsActionButtonGroupView(cls)) {
         _lvAttachActionButtonGroup(v);   // 按钮组：只给单个按钮挂素材，容器不挂
     } else if (_lvIsActivityContentClass(cls)) {
-        NSString *ap = _lvActivityPath();
-        _lvAttachWithPath(v, ap.length ? ap : _lvPath());   // 实时活动：优先独立素材，没设置就回退主素材
+        if (_lvIsActivityAuthorizationAlert(v)) {
+            _lvDetach(v);   // 授权弹窗保持系统原样
+            return;
+        }
+        UIView *host = _lvFindActivityPlatterHost(v);
+        if (host) {
+            objc_setAssociatedObject(host, &kActivityHostKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            NSString *ap = _lvActivityPath();
+            _lvAttachWithPath(host, ap.length ? ap : _lvPath());   // 实时活动：视频铺满 PLPlatterView，优先独立素材
+        } else {
+            // 找不到宿主就回退到内容视图本身
+            NSString *ap = _lvActivityPath();
+            _lvAttachWithPath(v, ap.length ? ap : _lvPath());
+        }
     } else {
         _lvAttach(v);                    // 通知卡片主体：挂主素材
     }
@@ -1588,14 +1662,20 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
         if (((UIView *)self).window) {
             UIView *v = (UIView *)self;
             NSString *path = _lvPath();
-            AVPlayer *p = _lvPlayerForPath(path);
-            if (p && _lvEnabled()) {
+            if (!_lvEnabled() || !path.length) { return; }
+            AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
+            if (!p) {
+                p = _lvPlayerForPath(path);
+                objc_setAssociatedObject(v, &kPlayerKey, p, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            if (p) {
                 AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
                 if (!l) {
                     l = [AVPlayerLayer playerLayerWithPlayer:p];
                     l.videoGravity = AVLayerVideoGravityResizeAspectFill;
                     objc_setAssociatedObject(v, &kLayerKey, l, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 }
+                if (l.player != p) { l.player = p; }
                 l.frame = v.bounds;
                 [v.layer addSublayer:l];
                 [_lvAttachedViews addObject:v];
@@ -1654,7 +1734,7 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         }
 
         // 声音变化同步到所有播放器
-        for (AVPlayer *p in gPlayerMap.allValues) {
+        for (AVPlayer *p in gAllPlayers) {
             p.muted = !_lvSound();
             _lvAllowAutoLockForPlayer(p);
         }
@@ -1671,12 +1751,11 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         if (clr.length)  [active addObject:clr];
         if (act.length)  [active addObject:act];
 
-        // 清理不再需要的播放器
-        NSMutableArray<NSString *> *toRemove = [NSMutableArray array];
-        for (NSString *path in gPlayerMap) {
-            if (![active containsObject:path]) { [toRemove addObject:path]; }
+        // 素材路径发生变化：彻底重置全部播放器并重新挂载，避免旧播放器残留导致卡住或不同步
+        if (!gLastActivePaths || ![active isEqualToSet:gLastActivePaths]) {
+            gLastActivePaths = [active copy];
+            _lvResetAllPlayers();
         }
-        for (NSString *path in toRemove) { _lvResetPlayerForPath(path); }
 
         dispatch_async(dispatch_get_main_queue(), ^{
             @try { _lvPollTick(); } @catch (NSException *e) {}
@@ -1835,24 +1914,11 @@ static void _lvPollTick(void) {
             } @catch (NSException *e) {}
         });
 
-        gPlayerMap = [NSMutableDictionary dictionary];
+        gAllPlayers = [NSMutableSet set];
         gObserverMap = [NSMutableDictionary dictionary];
         if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
 
-        if (_lvEnabled()) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                @try {
-                    NSString *main = _lvPath();
-                    if (main.length && !_lvPathIsImageAsset(main)) { _lvPlayerForPath(main); }
-                    NSString *opt = _lvOptionPath();
-                    if (opt.length && !_lvPathIsImageAsset(opt)) { _lvPlayerForPath(opt); }
-                    NSString *clr = _lvClearPath();
-                    if (clr.length && !_lvPathIsImageAsset(clr)) { _lvPlayerForPath(clr); }
-                    NSString *act = _lvActivityPath();
-                    if (act.length && !_lvPathIsImageAsset(act)) { _lvPlayerForPath(act); }
-                } @catch (NSException *e) {}
-            });
-        }
+        // 不再在 ctor 里预创建播放器：每个挂载视图独立一个 AVPlayer，等视图出现时再按需创建，避免同素材多播放器冲突
 
         gWasEnabled = _lvEnabled();
 
@@ -1868,7 +1934,7 @@ static void _lvPollTick(void) {
                 _lvActivityPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.78 加载完成（实时活动独立素材 + 设置面板新图标） =====");
+        _lvLog(@"===== 1.0.79 加载完成（实时活动铺满卡片 + 同素材独立播放器防卡 + 面板图标 panel@3x） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

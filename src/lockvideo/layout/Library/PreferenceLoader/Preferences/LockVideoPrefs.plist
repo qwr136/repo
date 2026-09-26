@@ -11,7 +11,7 @@
 		<key>detail</key>
 		<string>LockVideoPrefsListController</string>
 		<key>icon</key>
-		<string>panel.png</string>
+		<string>panel@3x.png</string>
 		<key>isController</key>
 		<true/>
 		<key>label</key>
