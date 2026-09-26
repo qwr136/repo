@@ -21,6 +21,7 @@ static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
 static char kPlayerKey;        // 记录 view 当前使用的 AVPlayer（可能与其他同路径视图共享，按引用计数管理生命周期）
 static char kActivityHostKey;  // 标记实时活动卡片的 PLPlatterView 宿主
+static char kRecheckKey;       // 标记活动视图已安排「延迟复核 NowPlaying 类型」，避免重复 dispatch
 static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
@@ -296,11 +297,15 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
             }
             NSUInteger subLayers = 0;
             @try { subLayers = v.layer.sublayers.count; } @catch (NSException *e) {}
-            [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f hidden=%d alpha=%.2f bg=%@ 图层=%lu%@\n",
+            NSString *actTag = @"";
+            if (_lvIsActivityContentClass(cls)) {
+                actTag = _lvIsNowPlayingActivityView(v) ? @" [播放器]" : @" [活动]";
+            }
+            [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f hidden=%d alpha=%.2f bg=%@ 图层=%lu%@%@\n",
              [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
              cls, v.frame.origin.x, v.frame.origin.y,
              v.frame.size.width, v.frame.size.height,
-             (int)v.hidden, v.alpha, bgDesc, (unsigned long)subLayers, mtl];
+             (int)v.hidden, v.alpha, bgDesc, (unsigned long)subLayers, mtl, actTag];
 
             if (path) {
                 AVPlayerLayer *pl = objc_getAssociatedObject(v, &kLayerKey);
@@ -623,16 +628,26 @@ static BOOL _lvIsActivityAuthorizationAlert(UIView *v) {
 }
 
 // 判断一个实时活动是否是「正在播放 / Now Playing」widget（锁屏音乐播放器）
-// 通过递归检查子视图类名是否包含音乐播放控件相关标记
+// 通过递归检查子视图类名是否包含音乐播放控件相关标记。
+// 覆盖 iOS 16/17/18 系统媒体控件常见类名（不同机型/版本命名有差异，故列表较宽）。
 static BOOL _lvIsNowPlayingActivityView(UIView *v) {
     if (!v) return NO;
     @try {
         NSArray<NSString *> *markers = @[
+            // Now Playing / 媒体框架通用前缀
             @"nowplaying", @"nowplayingcontent", @"nowplayinglive", @"nowplayingitem",
-            @"mpmediacontrols", @"mpmediacontrolsparent", @"mrplatter", @"mrplatternowplaying",
-            @"mrplattercontrols", @"mrplatterplayback", @"mproute", @"mpvolume", @"mpbutton",
-            @"mptransport", @"mpartwork", @"csmediacontrols", @"csnowplayingtransport",
-            @"csnowplayingview", @"transportbutton"
+            @"nowplayingheader", @"nowplayingartwork", @"nowplayingmetadata",
+            // MediaControls 系列
+            @"mediacontrols", @"mediacontrolsview", @"mediacontrolstime",
+            @"mediacontrolstransport", @"mediacontrolsvolume", @"mediacontrolsrouting",
+            // MRUI / MR 媒体远程框架（iOS 16+ 锁屏播放器常用）
+            @"mruimedia", @"mrcontent", @"mrplatter", @"mrroute", @"mrvolume",
+            @"mrmedia", @"mrnowplaying",
+            // 媒体路由 / 音量 / 传输控件
+            @"csmediacontrols", @"csnowplaying", @"csnowplayingtransport", @"csnowplayingview",
+            @"transportbutton", @"transportslider", @"volumecontainer", @"routingbutton",
+            @"playback", @"mpartwork", @"mptransport", @"mproute", @"mpvolume", @"mpbutton",
+            @"music", @"skip", @"scrubber", @"ellipsisbutton", @"routebutton"
         ];
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:v];
         while (stack.count) {
@@ -646,6 +661,27 @@ static BOOL _lvIsNowPlayingActivityView(UIView *v) {
         }
     } @catch (NSException *e) {}
     return NO;
+}
+
+// 根据视图当前的真实类型，算出「此刻最应该挂的素材路径」
+// 用于：①锁屏下拉动画/内容延迟加载导致首次挂载类型判断不准时，在 _lvRefresh 里纠正；
+//       ②活动卡片若属于 Now Playing 应走播放器素材，否则走实时活动素材，都为空回退主素材。
+// 返回 nil 表示「不干预」（例如普通通知卡片，保持原挂载即可）。
+static NSString *_lvExpectedPathForView(UIView *v) {
+    if (!v) return nil;
+    @try {
+        NSString *cls = NSStringFromClass([v class]);
+        if (_lvIsActivityContentClass(cls) || _lvIsActivityHost(v)) {
+            if (_lvIsNowPlayingActivityView(v)) {
+                NSString *pp = _lvPlayerPath();
+                if (pp.length) return pp;
+            }
+            NSString *ap = _lvActivityPath();
+            if (ap.length) return ap;
+            return _lvPath();   // 实时活动/播放器都没设 → 回退主素材
+        }
+    } @catch (NSException *e) {}
+    return nil;
 }
 
 static BOOL _lvIsActionButtonGroupView(NSString *cls) {
@@ -1278,6 +1314,14 @@ static void _lvRefresh(UIView *v) {
             _lvDetach(v);
             return;
         }
+        // 锁屏下拉动画 / 内容延迟加载可能让首次挂载时的类型判断不准（活动卡片被暂挂成主素材、
+        // 或 Now Playing 子视图未就位被误判成普通活动）。这里按「当前真实类型」重算应挂素材，
+        // 若与已挂载的不同则重挂，消除「首帧消息视频 → 后变正确视频」的闪烁。
+        NSString *expected = _lvExpectedPathForView(v);
+        if (expected.length && ![expected isEqualToString:path]) {
+            _lvAttachWithPath(v, expected);
+            return;
+        }
         if (l && path.length) {
             AVPlayer *p = objc_getAssociatedObject(v, &kPlayerKey);
             if (!p || ![gAllPlayers containsObject:p]) {   // 播放器可能已被重置销毁，需重建
@@ -1701,6 +1745,15 @@ static void _lvOnMatch(UIView *v) {
             NSString *ap = _lvIsNowPlayingActivityView(v) ? _lvPlayerPath() : _lvActivityPath();
             _lvAttachWithPath(v, ap.length ? ap : _lvPath());
         }
+        // 锁屏下拉/内容加载时，子视图（媒体控件）可能尚未就位，导致上面误判成「非播放器」。
+        // 安排一次延迟复核：等下一轮 runloop 子视图加载后再重新判定并（必要时）重挂播放器素材。
+        // 用 kRecheckKey 确保每个活动视图只复核一次，且不清零（避免 _lvOnMatch 递归再次派发造成循环）。
+        if (!objc_getAssociatedObject(v, &kRecheckKey)) {
+            objc_setAssociatedObject(v, &kRecheckKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                @try { if (v.window) { _lvOnMatch(v); } } @catch (NSException *e) {}
+            });
+        }
     } else {
         _lvAttach(v);                    // 通知卡片主体：挂主素材
     }
@@ -2029,7 +2082,7 @@ static void _lvPollTick(void) {
                 _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.81 加载完成（同素材按路径复用单播放器 + Now Playing 独立播放器素材 + 面板图标 panel@3x） =====");
+        _lvLog(@"===== 1.0.82 加载完成（Now Playing 识别扩展 + 延迟复核 + 首帧回退修复 + 调试标注 [播放器]/[活动]） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
