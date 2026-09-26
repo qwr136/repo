@@ -31,14 +31,14 @@
 		<dict>
 			<key>action</key>
 			<string>switchMaterial:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
 			<key>detailText</key>
 			<string></string>
 			<key>identifier</key>
 			<string>LockVideoMaterialLink</string>
 			<key>label</key>
 			<string>选择消息素材</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -63,6 +63,18 @@
 			<string>LockVideoClearMaterialLink</string>
 			<key>label</key>
 			<string>选择清除素材</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>switchActivityMaterial:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>detailText</key>
+			<string></string>
+			<key>identifier</key>
+			<string>LockVideoActivityMaterialLink</string>
+			<key>label</key>
+			<string>实时活动素材</string>
 		</dict>
 		<dict>
 			<key>action</key>

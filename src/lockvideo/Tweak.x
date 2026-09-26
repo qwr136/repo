@@ -226,6 +226,7 @@ static NSString *_lvPath(void) {
 
 static NSString *_lvOptionPath(void) { return _lvPathForKey(@"LockVideoOptionPath"); }
 static NSString *_lvClearPath(void)  { return _lvPathForKey(@"LockVideoClearPath"); }
+static NSString *_lvActivityPath(void){ return _lvPathForKey(@"LockVideoActivityPath"); }   // 实时活动独立素材
 
 #pragma mark - 诊断日志
 
@@ -308,9 +309,11 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
         NSString *mainP = _lvPath();
         NSString *optP = _lvOptionPath();
         NSString *clrP = _lvClearPath();
+        NSString *actP = _lvActivityPath();
         [s appendFormat:@"  当前素材=%@\n", mainP ? mainP.lastPathComponent : @"未设置（卡片不会有背景）"];
         [s appendFormat:@"  选项素材=%@\n", optP ? optP.lastPathComponent : @"未设置"];
         [s appendFormat:@"  清除素材=%@\n", clrP ? clrP.lastPathComponent : @"未设置"];
+        [s appendFormat:@"  实时活动素材=%@\n", actP ? actP.lastPathComponent : @"未设置（回退主素材）"];
         [s appendFormat:@"  素材目录文件数=%lu\n", (unsigned long)_lvScanFiles().count];
 
         [s appendFormat:@"\n===== 挂载了素材的视图（共 %lu 个）=====\n", (unsigned long)attached.count];
@@ -1530,6 +1533,9 @@ static void _lvOnMatch(UIView *v) {
     NSString *cls = NSStringFromClass([v class]);
     if (_lvIsActionButtonGroupView(cls)) {
         _lvAttachActionButtonGroup(v);   // 按钮组：只给单个按钮挂素材，容器不挂
+    } else if (_lvIsActivityContentClass(cls)) {
+        NSString *ap = _lvActivityPath();
+        _lvAttachWithPath(v, ap.length ? ap : _lvPath());   // 实时活动：优先独立素材，没设置就回退主素材
     } else {
         _lvAttach(v);                    // 通知卡片主体：挂主素材
     }
@@ -1659,9 +1665,11 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         NSString *main = _lvPath();
         NSString *opt = _lvOptionPath();
         NSString *clr = _lvClearPath();
+        NSString *act = _lvActivityPath();
         if (main.length) [active addObject:main];
         if (opt.length)  [active addObject:opt];
         if (clr.length)  [active addObject:clr];
+        if (act.length)  [active addObject:act];
 
         // 清理不再需要的播放器
         NSMutableArray<NSString *> *toRemove = [NSMutableArray array];
@@ -1840,6 +1848,8 @@ static void _lvPollTick(void) {
                     if (opt.length && !_lvPathIsImageAsset(opt)) { _lvPlayerForPath(opt); }
                     NSString *clr = _lvClearPath();
                     if (clr.length && !_lvPathIsImageAsset(clr)) { _lvPlayerForPath(clr); }
+                    NSString *act = _lvActivityPath();
+                    if (act.length && !_lvPathIsImageAsset(act)) { _lvPlayerForPath(act); }
                 } @catch (NSException *e) {}
             });
         }
@@ -1853,11 +1863,12 @@ static void _lvPollTick(void) {
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
 
-        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 目录存在=%d",
+        _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 实时活动=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
+                _lvActivityPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.77 加载完成（实时活动卡片支持挂主素材背景视频） =====");
+        _lvLog(@"===== 1.0.78 加载完成（实时活动独立素材 + 设置面板新图标） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
