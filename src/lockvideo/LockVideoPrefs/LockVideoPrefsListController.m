@@ -29,7 +29,10 @@
     for (NSString *f in files) {
         NSString *ext = [f pathExtension].lowercaseString;
         if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
-            [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"]) {
+            [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"] ||
+            [ext isEqualToString:@"gif"] || [ext isEqualToString:@"png"] ||
+            [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
+            [ext isEqualToString:@"heic"]) {
             return f;
         }
     }
@@ -76,7 +79,10 @@
     for (NSString *f in [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil]) {
         NSString *ext = [f pathExtension].lowercaseString;
         if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
-            [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"]) {
+            [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"] ||
+            [ext isEqualToString:@"gif"] || [ext isEqualToString:@"png"] ||
+            [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
+            [ext isEqualToString:@"heic"]) {
             [files addObject:[kLVVideoDir stringByAppendingPathComponent:f]];
         }
     }
@@ -85,7 +91,7 @@
     if (files.count == 0) {
         UIAlertController *empty = [UIAlertController
             alertControllerWithTitle:@"没有素材"
-            message:[NSString stringWithFormat:@"%@ 里没有视频文件。\n请先用 Filza 把 mp4/mov 放进这个文件夹。", kLVVideoDir]
+            message:[NSString stringWithFormat:@"%@ 里没有素材。\n请先用 Filza 把 mp4/mov/gif/png 放进这个文件夹。", kLVVideoDir]
             preferredStyle:UIAlertControllerStyleAlert];
         [empty addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:empty animated:YES completion:nil];

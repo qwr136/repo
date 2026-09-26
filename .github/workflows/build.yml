@@ -69,9 +69,35 @@ jobs:
           dpkg-scanpackages --multiversion debs /dev/null > Packages
           gzip -k -f Packages
           xz -k -f Packages
+
+          # 生成 Release 元数据（含 Packages 校验和），否则 Sileo 添加源时校验失败
+          python3 - <<'PY'
+          import hashlib, datetime
+          files = ["Packages","Packages.gz","Packages.xz"]
+          now = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S UTC')
+          lines = [
+            "Origin: xiaofei",
+            "Label: xiaofei",
+            "Suite: stable",
+            "Version: 1.0",
+            "Codename: xiaofei",
+            "Architectures: iphoneos-arm64 iphoneos-arm64e",
+            "Components: main",
+            "Description: xiaofei 的 Sileo 越狱插件源 — 自制 tweak + 同步插件",
+            f"Date: {now}",
+          ]
+          for algo, name in [("md5","MD5Sum"),("sha1","SHA1"),("sha256","SHA256")]:
+            lines.append(name + ":")
+            for f in files:
+              data = open(f,"rb").read()
+              lines.append(f" {hashlib.new(algo, data).hexdigest()}  {len(data)}  {f}")
+          open("Release","w").write("\n".join(lines) + "\n")
+          print(open("Release").read())
+          PY
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add debs Packages Packages.gz Packages.xz
+          git add debs Packages Packages.gz Packages.xz Release
           if git diff --cached --quiet; then
             echo "没有变化"
           else

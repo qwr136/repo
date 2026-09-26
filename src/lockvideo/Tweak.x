@@ -3,6 +3,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <substrate.h>
+#import <ImageIO/ImageIO.h>
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
@@ -13,6 +14,7 @@ static AVPlayer *gPlayer = nil;
 static NSString *gCurrentPath = nil;
 static id gLoopObserver = nil;
 static char kLayerKey;
+static char kImgKey;
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 
 #pragma mark - 偏好（直接读文件）
@@ -104,7 +106,10 @@ static NSArray<NSString *> *_lvScanFiles(void) {
         for (NSString *f in [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil]) {
             NSString *ext = [f pathExtension].lowercaseString;
             if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
-                [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"]) {
+                [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"] ||
+                [ext isEqualToString:@"gif"] || [ext isEqualToString:@"png"] ||
+                [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
+                [ext isEqualToString:@"heic"]) {
                 [out addObject:[kLVVideoDir stringByAppendingPathComponent:f]];
             }
         }
@@ -159,8 +164,58 @@ static void _lvAllowAutoLockForPlayer(AVPlayer *p) {
     } @catch (NSException *e) {}
 }
 
+// 判断当前素材是否为图片/GIF（而非视频）
+static BOOL _lvIsImageAsset(void) {
+    NSString *path = _lvPath();
+    if (![path isKindOfClass:[NSString class]] || !path.length) { return NO; }
+    NSString *ext = [path pathExtension].lowercaseString;
+    return [ext isEqualToString:@"gif"] || [ext isEqualToString:@"png"] ||
+           [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
+           [ext isEqualToString:@"heic"];
+}
+
+// 用 ImageIO 拆帧生成动画 UIImage（GIF 用）；静态图直接返回单帧。
+// 注意：animatedImage 不会随视图生命周期停止，对通知卡片这种短命视图影响很小。
+static UIImage *_lvAnimatedImage(NSString *path) {
+    @try {
+        NSURL *url = [NSURL fileURLWithPath:path];
+        CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
+        if (!src) { return nil; }
+        size_t count = CGImageSourceGetCount(src);
+        if (count == 0) { CFRelease(src); return nil; }
+        NSMutableArray<UIImage *> *frames = [NSMutableArray array];
+        double total = 0.0;
+        const double kMinF = 0.02;   // 每帧最小 20ms，避免 GIF 里 0 延迟导致不播
+        for (size_t i = 0; i < count; i++) {
+            CGImageRef cg = CGImageSourceCreateImageAtIndex(src, i, NULL);
+            if (!cg) { continue; }
+            [frames addObject:[UIImage imageWithCGImage:cg]];
+            CFRelease(cg);
+            NSDictionary *props = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(src, i, NULL);
+            double dur = kMinF;
+            NSDictionary *gifp = props[(NSString *)kCGImagePropertyGIFDictionary];
+            if (gifp) {
+                NSNumber *n = gifp[(NSString *)kCGImagePropertyGIFUnclampedDelayTime];
+                if (!n) { n = gifp[(NSString *)kCGImagePropertyGIFDelayTime]; }
+                if (n) { dur = [n doubleValue]; }
+            }
+            if (!(dur > kMinF)) { dur = kMinF; }
+            total += dur;
+        }
+        CFRelease(src);
+        if (frames.count == 0) { return nil; }
+        if (frames.count == 1) { return frames.firstObject; }
+        return [UIImage animatedImageWithImages:frames duration:total];
+    } @catch (NSException *e) { return nil; }
+}
+
 static AVPlayer *_lvPlayer(void) {
     @try {
+        // 当前素材若为图片/GIF，则不创建视频播放器（交给图片分支处理；壁纸视频模式也跳过）
+        if (_lvIsImageAsset()) {
+            _lvLogOnce(@"素材", [NSString stringWithFormat:@"当前为图片/GIF，跳过视频模式: %@", _lvPath()]);
+            return nil;
+        }
         if (!gPlayer) {
             NSString *path = _lvPath();
             if (!path) {
@@ -272,9 +327,62 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
     [v.layer insertSublayer:l atIndex:0];
 }
 
+// 统一刷新：每帧更新背景层尺寸 + 隐藏卡片模糊层（同时支持视频层与图片层）
+static void _lvRefresh(UIView *v) {
+    @try {
+        _lvHideBackgroundsRecursive(v);
+        AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+        if (l) {
+            _lvInsertLayer(v, l);
+            l.frame = v.bounds;
+            if (v.window && gPlayer) { [gPlayer play]; }
+        }
+        UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
+        if (iv) {
+            if (iv.superview != v) { [v insertSubview:iv atIndex:0]; }
+            iv.frame = v.bounds;
+        }
+    } @catch (NSException *e) {}
+}
+
 static void _lvAttach(UIView *v) {
     if (!v || !_lvEnabled()) { return; }
     @try {
+        // ===== 图片 / GIF 分支 =====
+        if (_lvIsImageAsset()) {
+            // 若之前挂过视频层，先清理，避免两种背景叠加
+            AVPlayerLayer *oldL = objc_getAssociatedObject(v, &kLayerKey);
+            if (oldL) { [oldL removeFromSuperlayer]; objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+            if (gPlayer) { [gPlayer pause]; }
+
+            UIImage *img = _lvAnimatedImage(_lvPath());
+            if (!img) {
+                _lvLogOnce(NSStringFromClass(v.class), @"图片/GIF 解码失败，请确认文件完整");
+                return;
+            }
+            UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
+            if (!iv) {
+                iv = [[UIImageView alloc] initWithFrame:v.bounds];
+                iv.contentMode = UIViewContentModeScaleAspectFill;
+                iv.layer.cornerRadius = 18.0;
+                iv.layer.masksToBounds = YES;
+                iv.clipsToBounds = YES;
+                objc_setAssociatedObject(v, &kImgKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                [v insertSubview:iv atIndex:0];
+                _lvLogOnce(NSStringFromClass(v.class), @"已挂载图片/GIF");
+            }
+            iv.image = img;
+            [v insertSubview:iv atIndex:0];   // 确保在最底层
+            iv.frame = v.bounds;
+            iv.alpha = (float)_lvAlpha();
+            _lvHideBackgroundsRecursive(v);
+            _lvLogOnce(NSStringFromClass(v.class),
+                       [NSString stringWithFormat:@"图片挂载尺寸 %.0fx%.0f 透明度 %.2f",
+                        v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
+            return;
+        }
+
+        // ===== 视频分支（原有逻辑） =====
         AVPlayer *p = _lvPlayer();
 
         if (!p) {
@@ -327,16 +435,7 @@ static void _lvOnMatch(UIView *v) {
 }
 - (void)layoutSubviews {
     %orig;
-    @try {
-        UIView *v = (UIView *)self;
-        AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
-        if (l) {
-            _lvHideBackgroundsRecursive(v);   // 重新隐藏背景
-            _lvInsertLayer(v, l);
-            l.frame = v.bounds;
-            if (v.window && gPlayer) { [gPlayer play]; }
-        }
-    } @catch (NSException *e) {}
+    @try { _lvRefresh((UIView *)self); } @catch (NSException *e) {}
 }
 %end
 %end
@@ -355,15 +454,7 @@ static void (*_orig_layoutSubviews)(UIView *, SEL);
 static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
     _orig_layoutSubviews(self, _cmd);
     @try {
-        if (_lvIsNotificationView(self)) {
-            AVPlayerLayer *l = objc_getAssociatedObject(self, &kLayerKey);
-            if (l) {
-                _lvHideBackgroundsRecursive(self);   // 每次布局都重新隐藏背景
-                _lvInsertLayer(self, l);
-                l.frame = self.bounds;
-                if (self.window && gPlayer) { [gPlayer play]; }
-            }
-        }
+        if (_lvIsNotificationView(self)) { _lvRefresh(self); }
     } @catch (NSException *e) {}
 }
 
@@ -546,7 +637,7 @@ static void _lvPollTick(void) {
             }
             _lvLog([NSString stringWithFormat:@"系统偏好: %@", s]);
         }
-        _lvLog(@"===== 1.0.45 加载完成（基于 1.0.35，自动熄屏修复） =====");
+        _lvLog(@"===== 1.0.46 加载完成（新增 GIF/图片背景支持） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
