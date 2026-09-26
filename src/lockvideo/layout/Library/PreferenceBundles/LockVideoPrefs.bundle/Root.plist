@@ -31,20 +31,14 @@
 		<dict>
 			<key>action</key>
 			<string>switchMaterial:</string>
-			<key>cellClass</key>
-			<string>LockVideoMaterialCell</string>
 			<key>detailText</key>
 			<string></string>
-			<key>hidesDisclosureIndicator</key>
-			<true/>
 			<key>identifier</key>
 			<string>LockVideoMaterialLink</string>
 			<key>label</key>
 			<string>选择当前素材</string>
-			<key>placeholder</key>
-			<string></string>
-			<key>value</key>
-			<string></string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -56,11 +50,27 @@
 		</dict>
 		<dict>
 			<key>action</key>
-			<string>clearMaterial:</string>
+			<string>switchOptionMaterial:</string>
 			<key>cell</key>
 			<string>PSButtonCell</string>
+			<key>detailText</key>
+			<string></string>
+			<key>identifier</key>
+			<string>LockVideoOptionMaterialLink</string>
 			<key>label</key>
-			<string>清除当前素材</string>
+			<string>选择选项按钮素材</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>switchClearMaterial:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>detailText</key>
+			<string></string>
+			<key>identifier</key>
+			<string>LockVideoClearMaterialLink</string>
+			<key>label</key>
+			<string>选择清除按钮素材</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

@@ -8,7 +8,9 @@
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVVideoDir  @"/var/mobile/通知视频"
 
-@interface LockVideoPrefsListController () <PHPickerViewControllerDelegate>
+@interface LockVideoPrefsListController () <PHPickerViewControllerDelegate> {
+    NSString *_currentSelectKey;   // 记录当前打开的是哪个素材选择器
+}
 @end
 
 @implementation LockVideoPrefsListController
@@ -20,45 +22,29 @@
     return _specifiers;
 }
 
-// 从 prefs 读出当前播放的视频文件名（用于自定义 LockVideoMaterialCell 显示）
-- (NSString *)_currentVideoName {
+// 从 prefs 读出指定 key 的素材文件名
+- (NSString *)_currentVideoNameForKey:(NSString *)key {
     NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile];
-    NSString *path = prefs[@"LockVideoPath"];
+    NSString *path = prefs[key];
     if ([path isKindOfClass:[NSString class]] && path.length) {
         return [path lastPathComponent];
     }
-    // 没显式选过就用目录里第一个视频作为兜底
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray *files = [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil];
-    for (NSString *f in files) {
-        NSString *ext = [f pathExtension].lowercaseString;
-        if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
-            [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"] ||
-            [ext isEqualToString:@"gif"] || [ext isEqualToString:@"png"] ||
-            [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
-            [ext isEqualToString:@"heic"]) {
-            return f;
-        }
-    }
-    return @"";   // 目录里也没视频时为空，单元格显示空白
+    return @"";
 }
 
-// 刷新「选择素材」那一行：选完素材后立即让单元格显示新文件名
-- (void)_refreshCurrentMaterialRow {
+// 刷新指定 identifier 的素材选择行
+- (void)_refreshMaterialRow:(NSString *)identifier prefsKey:(NSString *)key {
     @try {
         PSSpecifier *target = nil;
         for (PSSpecifier *sp in [self specifiers]) {
-            if ([[sp identifier] isEqualToString:@"LockVideoMaterialLink"]) { target = sp; break; }
+            if ([[sp identifier] isEqualToString:identifier]) { target = sp; break; }
         }
         if (target) {
-            NSString *name = [self _currentVideoName];
-            // 没选素材时显示空白（不再显示「未选择」提示字）
-            NSString *display = name.length
-                ? [NSString stringWithFormat:@"（%@）", name] : @"";
+            NSString *name = [self _currentVideoNameForKey:key];
+            NSString *display = name.length ? [NSString stringWithFormat:@"（%@）", name] : @"";
             [target setProperty:display forKey:@"detailText"];
             [target setProperty:display forKey:@"value"];
 
-            // 拿到已显示的 cell 并主动刷新（reloadSpecifier 未必一定触发框架的 refreshCellContentsWithSpecifier:）
             @try {
                 PSTableCell *cached = [self cachedCellForSpecifier:target];
                 if (cached && [cached isKindOfClass:[PSTableCell class]]) {
@@ -73,11 +59,15 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self _refreshCurrentMaterialRow];
+    [self _refreshMaterialRow:@"LockVideoMaterialLink" prefsKey:@"LockVideoPath"];
+    [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:@"LockVideoOptionPath"];
+    [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:@"LockVideoClearPath"];
 }
 
-// 弹出选择界面：列出 /var/mobile/通知视频 里所有视频，点选播放
-- (void)switchMaterial:(id)sender {
+// 通用素材选择器：把 key 对应的 prefs 项设为用户选中的文件
+- (void)_switchMaterialForKey:(NSString *)key title:(NSString *)title sender:(id)sender {
+    _currentSelectKey = key;
+
     NSFileManager *fm = [NSFileManager defaultManager];
     NSMutableArray *files = [NSMutableArray array];
     for (NSString *f in [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil]) {
@@ -95,44 +85,58 @@
     if (files.count == 0) {
         UIAlertController *empty = [UIAlertController
             alertControllerWithTitle:@"没有素材"
-            message:[NSString stringWithFormat:@"%@ 里没有素材。\n请先用 Filza 把 mp4/mov/gif/png 放进这个文件夹。", kLVVideoDir]
+            message:[NSString stringWithFormat:@"%@ 里没有素材。\n请先用 Filza 把 mp4/mov/gif/png 放进这个文件夹，或用「从相册添加素材」。", kLVVideoDir]
             preferredStyle:UIAlertControllerStyleAlert];
         [empty addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:empty animated:YES completion:nil];
         return;
     }
 
-    // 当前选中的素材
-    NSMutableDictionary *prefs = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
-                                  mutableCopy] ?: [NSMutableDictionary dictionary];
-    NSString *cur = prefs[@"LockVideoPath"];
+    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kLVPrefsFile] ?: @{};
+    NSString *cur = prefs[key];
 
-    // 选择界面：每个视频一个选项，当前选中的打勾
     UIAlertController *sheet = [UIAlertController
-        alertControllerWithTitle:[NSString stringWithFormat:@"选择素材（%lu 个）", (unsigned long)files.count]
+        alertControllerWithTitle:title
         message:nil
         preferredStyle:UIAlertControllerStyleActionSheet];
 
     for (NSString *f in files) {
         NSString *name = [f lastPathComponent];
-        NSString *title = [f isEqualToString:cur] ? [@"✓ " stringByAppendingString:name] : name;
-        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        NSString *actionTitle = [f isEqualToString:cur] ? [@"✓ " stringByAppendingString:name] : name;
+        [sheet addAction:[UIAlertAction actionWithTitle:actionTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
                                       mutableCopy] ?: [NSMutableDictionary dictionary];
-            p[@"LockVideoPath"] = f;
+            p[key] = f;
             [p writeToFile:kLVPrefsFile atomically:YES];
 
-            // 通知 SpringBoard 立即切换
             CFNotificationCenterPostNotification(
                 CFNotificationCenterGetDarwinNotifyCenter(),
                 CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
 
-            // 立刻刷新设置面板的「当前素材」那一行
-            [self _refreshCurrentMaterialRow];
+            // 刷新对应行
+            if ([key isEqualToString:@"LockVideoPath"]) {
+                [self _refreshMaterialRow:@"LockVideoMaterialLink" prefsKey:key];
+            } else if ([key isEqualToString:@"LockVideoOptionPath"]) {
+                [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
+            } else if ([key isEqualToString:@"LockVideoClearPath"]) {
+                [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
+            }
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)switchMaterial:(id)sender {
+    [self _switchMaterialForKey:@"LockVideoPath" title:@"选择当前素材" sender:sender];
+}
+
+- (void)switchOptionMaterial:(id)sender {
+    [self _switchMaterialForKey:@"LockVideoOptionPath" title:@"选择选项按钮素材" sender:sender];
+}
+
+- (void)switchClearMaterial:(id)sender {
+    [self _switchMaterialForKey:@"LockVideoClearPath" title:@"选择清除按钮素材" sender:sender];
 }
 
 #pragma mark - 从相册添加素材到素材目录（PHPicker：支持视频 / GIF / 图片）
@@ -140,7 +144,6 @@
 - (void)addFromAlbum:(id)sender {
     @try {
         PHPickerConfiguration *cfg = [[PHPickerConfiguration alloc] init];
-        // 同时支持视频与图片（含 GIF），PHPicker 会自动显示所有类型
         cfg.filter = [PHPickerFilter anyFilterMatchingSubfilters:@[
             [PHPickerFilter imagesFilter],
             [PHPickerFilter videosFilter]
@@ -157,11 +160,10 @@
 // PHPicker 代理：选中后由系统给出 NSItemProvider，我们据此判断类型并落盘
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
-    if (results.count == 0) return;   // 用户取消
+    if (results.count == 0) return;
     PHPickerResult *result = results.firstObject;
     NSItemProvider *provider = result.itemProvider;
 
-    // 1) 视频（含 mov/mp4/m4v 等所有 public.movie 类型）
     if ([provider hasItemConformingToTypeIdentifier:@"public.movie"]) {
         [provider loadFileRepresentationForTypeIdentifier:@"public.movie"
             completionHandler:^(NSURL *url, NSError *err) {
@@ -172,7 +174,6 @@
             }];
         return;
     }
-    // 2) GIF：优先保留为 .gif 文件（保留动画）；PHPicker 会给出 com.compuserve.gif 标识
     if ([provider hasItemConformingToTypeIdentifier:@"com.compuserve.gif"]) {
         [provider loadFileRepresentationForTypeIdentifier:@"com.compuserve.gif"
             completionHandler:^(NSURL *url, NSError *err) {
@@ -183,7 +184,6 @@
             }];
         return;
     }
-    // 3) 普通图片（jpg/png/heic 等）
     if ([provider hasItemConformingToTypeIdentifier:@"public.image"]) {
         [provider loadObjectOfClass:[UIImage class]
             completionHandler:^(id<NSItemProviderReading> obj, NSError *err) {
@@ -220,8 +220,6 @@
 }
 
 // 把 PHPicker 给出的临时文件（视频/GIF）拷贝到素材目录
-// 关键：loadFileRepresentation 给的 URL 只在回调内有效，必须立刻拷贝
-// 修复 v1.0.54：长视频改用 POSIX 分块流式拷贝，避免一次性读全内存或原子写入双份空间导致 OOM / 磁盘不足失败
 - (void)_copyPickedFile:(NSURL *)url fallbackExt:(NSString *)fallbackExt completion:(void(^)(NSString *path))cb {
     if (!url) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -242,12 +240,9 @@
     __block NSError *copyErr = nil;
     __block BOOL ok = NO;
 
-    // 方案 A：直接 copyItem（iOS 上对 PHPicker 的临时 URL 通常有效）
     if ([fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&copyErr]) {
         ok = YES;
     } else {
-        // 方案 B：用 NSFileCoordinator 协调安全域读写，内部再尝试一次 copyItem，
-        // 仍失败则走 POSIX 分块流式拷贝（256KB 缓冲区，几乎不占内存）
         copyErr = nil;
         NSFileCoordinator *coord = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
         [coord coordinateReadingItemAtURL:url
@@ -270,7 +265,6 @@
     }
 
     if (ok) {
-        // 取消文件保护，确保锁屏/SpringBoard 随时可读
         [fm setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:dst error:nil];
     } else {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -327,21 +321,36 @@
 }
 
 // 落盘后写 prefs + 通知 SpringBoard + 刷新设置面板
+// 相册导入默认写入当前正在选择的 key；如果没有打开选择器，则默认写入主素材
 - (void)_finishAddWithPath:(NSString *)path {
     if (!path) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
                                   mutableCopy] ?: [NSMutableDictionary dictionary];
-        p[@"LockVideoPath"] = path;
+        NSString *key = _currentSelectKey ?: @"LockVideoPath";
+        p[key] = path;
         [p writeToFile:kLVPrefsFile atomically:YES];
-        // 通知 SpringBoard 立即应用新素材
+
         CFNotificationCenterPostNotification(
             CFNotificationCenterGetDarwinNotifyCenter(),
             CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
-        [self _refreshCurrentMaterialRow];
+
+        if ([key isEqualToString:@"LockVideoPath"]) {
+            [self _refreshMaterialRow:@"LockVideoMaterialLink" prefsKey:key];
+        } else if ([key isEqualToString:@"LockVideoOptionPath"]) {
+            [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
+        } else if ([key isEqualToString:@"LockVideoClearPath"]) {
+            [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
+        }
         [self _showAlertTitle:@"已添加素材"
-                      message:[NSString stringWithFormat:@"已保存到素材目录：\n%@", path]];
+                      message:[NSString stringWithFormat:@"已保存到素材目录：\n%@\n并设为「%@」", path, [self _titleForKey:key]]];
     });
+}
+
+- (NSString *)_titleForKey:(NSString *)key {
+    if ([key isEqualToString:@"LockVideoOptionPath"]) return @"选项按钮素材";
+    if ([key isEqualToString:@"LockVideoClearPath"]) return @"清除按钮素材";
+    return @"当前素材";
 }
 
 // 生成素材文件名时间戳（相册_YYYYMMDD_HHMMSS）
@@ -357,28 +366,6 @@
                                                         preferredStyle:UIAlertControllerStyleAlert];
     [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
-}
-
-// 清除当前选择的素材：移除 LockVideoPath 并通知 SpringBoard
-- (void)clearMaterial:(id)sender {
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"清除选择素材"
-                         message:@"确定要清除当前选择的素材吗？\n清除后将不再显示任何通知背景视频/图片，直到重新选择素材。"
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
-                                  mutableCopy] ?: [NSMutableDictionary dictionary];
-        [p removeObjectForKey:@"LockVideoPath"];
-        [p writeToFile:kLVPrefsFile atomically:YES];
-        // 通知 SpringBoard 立即刷新（无素材时不挂载）
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
-        [self _refreshCurrentMaterialRow];
-        [self _showAlertTitle:@"已清除" message:@"当前素材已清除，请到「选择素材」重新选择或从相册添加。"];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)respring:(id)sender {
