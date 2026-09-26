@@ -537,10 +537,15 @@ static BOOL _lvIsPillButtonClass(NSString *cls) {
 }
 
 // 单个动作按钮（非 group 容器）
+// 关键：PLPlatterActionButtonsView 类名含 actionbutton 又不含 group，
+// 曾被误判成单个按钮，导致按钮组容器整块挂上素材——这就是「选项下面还有一层同款视频」的元凶
 static BOOL _lvIsSingleActionButtonClass(NSString *cls) {
     if (!cls) { return NO; }
     NSString *low = cls.lowercaseString;
-    if ([low containsString:@"group"]) { return NO; }
+    if ([low containsString:@"group"])       { return NO; }
+    if ([low containsString:@"buttonsview"]) { return NO; }   // PLPlatterActionButtonsView（按钮组容器）
+    if ([low containsString:@"presenting"])  { return NO; }   // PLActionButtonsPresentingView
+    if ([low containsString:@"pillcontent"]) { return NO; }   // PLPillContentView（菜单容器）
     if ([low containsString:@"actionbutton"]) { return YES; }
     return _lvIsPillButtonClass(cls);
 }
@@ -1687,7 +1692,7 @@ static void _lvPollTick(void) {
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.72 加载完成（只认卡片/按钮组/按钮 + 按钮区强制诊断导出） =====");
+        _lvLog(@"===== 1.0.73 加载完成（修复按钮组容器误挂素材——选项下面那层同款视频的元凶） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
