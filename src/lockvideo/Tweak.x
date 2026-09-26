@@ -335,7 +335,7 @@ static void _lvRefresh(UIView *v) {
         if (l) {
             _lvInsertLayer(v, l);
             l.frame = v.bounds;
-            if (v.window && gPlayer) { [gPlayer play]; }
+            if (v.window && gPlayer && !_lvIsImageAsset()) { [gPlayer play]; }
         }
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) {
@@ -384,6 +384,13 @@ static void _lvAttach(UIView *v) {
 
         // ===== 视频分支（原有逻辑） =====
         AVPlayer *p = _lvPlayer();
+
+        // 若之前挂过图片/GIF 层，先清理，避免图片盖在视频上面（图片↔视频切换即时生效）
+        UIImageView *oldIv = objc_getAssociatedObject(v, &kImgKey);
+        if (oldIv) {
+            [oldIv removeFromSuperview];
+            objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
 
         if (!p) {
             // 找不到视频文件：直接记一行日志退出，不再做绿色诊断层
@@ -485,6 +492,8 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
 
 #pragma mark - 设置变化回调（C 函数，ARC 下 block 不能转 CFNotificationCallback）
 
+static void _lvPollTick(void);   // 前向声明：供偏好变更回调立即重扫描使用
+
 static void _lvPrefsChanged(CFNotificationCenterRef center,
                             void *observer,
                             CFStringRef name,
@@ -498,6 +507,10 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
             gPlayer.muted = !_lvSound();   // 只改了声音 -> 即时生效
             _lvAllowAutoLockForPlayer(gPlayer);
         }
+        // 设置变化后立刻重新扫描并挂载，避免等轮询(1.5s)才生效
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @try { _lvPollTick(); } @catch (NSException *e) {}
+        });
     } @catch (NSException *e) {}
 }
 
@@ -565,7 +578,7 @@ static void _lvPollTick(void) {
         // 没有通知卡片可见 → 暂停视频播放，避免空闲时也在循环
         // 有卡片 → 确保继续播放（attach 也会 play，这里再保一次）
         if (gPlayer) {
-            if (foundAnyCard) { [gPlayer play]; }
+            if (foundAnyCard && !_lvIsImageAsset()) { [gPlayer play]; }
             else { [gPlayer pause]; }
         }
     } @catch (NSException *e) {}
