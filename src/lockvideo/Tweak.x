@@ -382,6 +382,19 @@ static BOOL _lvIsPillButtonClass(NSString *cls) {
     return NO;
 }
 
+// 单个动作按钮（非 group 容器）
+static BOOL _lvIsSingleActionButtonClass(NSString *cls) {
+    if (!cls) { return NO; }
+    NSString *low = cls.lowercaseString;
+    if ([low containsString:@"group"]) { return NO; }
+    if ([low containsString:@"actionbutton"]) { return YES; }
+    return _lvIsPillButtonClass(cls);
+}
+
+static void _lvRestoreBackgroundsRecursive(UIView *v);
+static void _lvScanAndRestoreInView(UIView *v);
+static void _lvDetach(UIView *v);
+
 // 动作按钮组（含单个动作按钮）或通知卡片本体（shortlook/banner/longlook）
 static BOOL _lvIsNotificationView(UIView *v) {
     @try {
@@ -420,6 +433,13 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
         objc_setAssociatedObject(v, &kHideDoneKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         for (UIView *sv in v.subviews) {
+            NSString *svCls = NSStringFromClass([sv class]);
+            // 「选项/清除」按钮区不隐藏系统背景：整块区域保持系统原样，
+            // 只有按钮本身（由 _lvAttachActionButtonGroup 挂载）显示素材
+            if (_lvIsActionButtonGroupView(svCls) || _lvIsSingleActionButtonClass(svCls)) {
+                _lvRestoreBackgroundsRecursive(sv);   // 清掉历史版本残留的隐藏标记
+                continue;
+            }
             if (_lvIsBackgroundView(sv)) {
                 if (!objc_getAssociatedObject(sv, &kOrigHiddenKey)) {
                     objc_setAssociatedObject(sv, &kOrigHiddenKey, @(sv.hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -438,7 +458,6 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
     } @catch (NSException *e) {}
 }
 
-static void _lvRestoreBackgroundsRecursive(UIView *v);
 static void _lvScanAndRestoreInView(UIView *v);
 static void _lvDetach(UIView *v);
 
@@ -454,6 +473,36 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
 }
 
 static void _lvAttachWithPath(UIView *v, NSString *path);
+
+// 计算宿主视图上素材背景层应覆盖的区域：
+// 若子树里存在「选项/清除」按钮区，则背景层只覆盖按钮区上方的卡片部分，
+// 按钮区露出系统原样（只有按钮本身有素材背景）；找不到按钮区时铺满整个视图
+static CGRect _lvCoverFrameForHost(UIView *v) {
+    CGRect frame = v.bounds;
+    if (!v) { return frame; }
+    @try {
+        NSMutableArray<UIView *> *stack = [NSMutableArray array];
+        for (UIView *sv in v.subviews) { [stack addObject:sv]; }
+        int visited = 0;
+        while (stack.count > 0 && visited < 500) {
+            UIView *sv = stack.firstObject;
+            [stack removeObjectAtIndex:0];
+            visited++;
+            NSString *cls = NSStringFromClass([sv class]);
+            if (_lvIsActionButtonGroupView(cls) || _lvIsSingleActionButtonClass(cls)) {
+                CGRect f = [v convertRect:sv.bounds fromView:sv];
+                CGFloat bottom = f.origin.y - 6.0;
+                if (bottom >= 20.0 && bottom < frame.size.height) {
+                    frame.size.height = bottom;
+                }
+                _lvRestoreBackgroundsRecursive(sv);   // 顺带清掉历史版本残留的隐藏标记
+                return frame;
+            }
+            for (UIView *c in sv.subviews) { [stack addObject:c]; }
+        }
+    } @catch (NSException *e) {}
+    return frame;
+}
 
 // 统一刷新：每帧更新背景层尺寸，并确保系统毛玻璃/背景层处于隐藏状态
 static void _lvRefresh(UIView *v) {
@@ -474,13 +523,13 @@ static void _lvRefresh(UIView *v) {
             AVPlayer *p = _lvPlayerForPath(path);
             if (p && l.player != p) { l.player = p; }
             _lvInsertLayer(v, l);
-            l.frame = v.bounds;
+            l.frame = _lvCoverFrameForHost(v);
             l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             if (v.window && p && !_lvPathIsImageAsset(path)) { [p play]; }
         }
         if (iv) {
             if (iv.superview != v) { [v insertSubview:iv atIndex:0]; }
-            iv.frame = v.bounds;
+            iv.frame = _lvCoverFrameForHost(v);
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
         _lvHideBackgroundsRecursive(v);
@@ -516,7 +565,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
             }
             iv.image = img;
             [v insertSubview:iv atIndex:0];
-            iv.frame = v.bounds;
+            iv.frame = _lvCoverFrameForHost(v);
             iv.alpha = (float)_lvAlpha();
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
 
@@ -526,9 +575,10 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
             }
 
             _lvHideBackgroundsRecursive(v);
+            CGRect coverFrame = iv.frame;
             _lvLogOnce(NSStringFromClass(v.class),
                        [NSString stringWithFormat:@"图片挂载尺寸 %.0fx%.0f 透明度 %.2f",
-                        v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
+                        coverFrame.size.width, coverFrame.size.height, _lvAlpha()]);
             return;
         }
 
@@ -557,14 +607,15 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
 
         _lvInsertLayer(v, l);
         [_lvAttachedViews addObject:v];
-        l.frame = v.bounds;
+        l.frame = _lvCoverFrameForHost(v);
         l.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         l.opacity = (float)_lvAlpha();
         [p play];
         _lvHideBackgroundsRecursive(v);
+        CGRect coverFrame = l.frame;
         _lvLogOnce(NSStringFromClass(v.class),
                    [NSString stringWithFormat:@"挂载尺寸 %.0fx%.0f 透明度 %.2f",
-                    v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
+                    coverFrame.size.width, coverFrame.size.height, _lvAlpha()]);
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"attach 异常: %@", e]);
     }
@@ -620,15 +671,6 @@ static NSString *_lvButtonTitle(UIView *btn) {
         }
     } @catch (NSException *e) {}
     return nil;
-}
-
-// 单个动作按钮（非 group 容器）
-static BOOL _lvIsSingleActionButtonClass(NSString *cls) {
-    if (!cls) { return NO; }
-    NSString *low = cls.lowercaseString;
-    if ([low containsString:@"group"]) { return NO; }
-    if ([low containsString:@"actionbutton"]) { return YES; }
-    return _lvIsPillButtonClass(cls);
 }
 
 // 按钮组挂载策略：
