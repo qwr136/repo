@@ -423,10 +423,36 @@ static void _lvAttach(UIView *v) {
     }
 }
 
+#pragma mark - 仅限锁屏（灵动岛/前台横幅不挂载、不出声）
+
+// 判断某个 window 是否为锁屏（CoverSheet）窗口
+static BOOL _lvIsLockScreenWindow(UIWindow *w) {
+    if (!w) { return NO; }
+    NSString *c = NSStringFromClass([w class]);
+    return [c containsString:@"CoverSheet"] || [c containsString:@"LockScreen"];
+}
+
+// 判断视图是否处于锁屏窗口中（向上回溯找 window）
+static BOOL _lvViewOnLockScreen(UIView *v) {
+    @try {
+        UIWindow *w = v.window;
+        if (!w) {
+            w = (UIWindow *)v;
+            while (w && ![w isKindOfClass:[UIWindow class]]) { w = (UIWindow *)w.superview; }
+        }
+        return _lvIsLockScreenWindow(w);
+    } @catch (NSException *e) { return NO; }
+}
+
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");   // 不再依赖诊断模式，必记
     if (!_lvEnabled()) {
         _lvLogOnce(@"状态", @"开关「启用」是关闭的，跳过挂载");
+        return;
+    }
+    // 仅锁屏通知才挂载视频/声音；灵动岛、前台横幅（解锁后收到的消息）一律不挂载
+    if (!_lvViewOnLockScreen(v)) {
+        if (gPlayer) { [gPlayer pause]; }
         return;
     }
     _lvAttach(v);
@@ -438,7 +464,11 @@ static void _lvOnMatch(UIView *v) {
 %hook NCNotificationShortLookView
 - (void)didMoveToWindow {
     %orig;
-    @try { if (((UIView *)self).window) { _lvOnMatch((UIView *)self); } } @catch (NSException *e) {}
+    @try {
+        UIView *sv = (UIView *)self;
+        if (sv.window && _lvViewOnLockScreen(sv)) { _lvOnMatch(sv); }
+        else if (sv.window && gPlayer) { [gPlayer pause]; }   // 非锁屏窗口（灵动岛/前台）出现时停声
+    } @catch (NSException *e) {}
 }
 - (void)layoutSubviews {
     %orig;
@@ -453,7 +483,11 @@ static void (*_orig_didMoveToWindow)(UIView *, SEL);
 static void _lv_didMoveToWindow(UIView *self, SEL _cmd) {
     _orig_didMoveToWindow(self, _cmd);
     @try {
-        if (self.window && _lvIsNotificationView(self)) { _lvOnMatch(self); }
+        if (self.window && _lvIsNotificationView(self) && _lvViewOnLockScreen(self)) {
+            _lvOnMatch(self);
+        } else if (self.window && !_lvViewOnLockScreen(self) && gPlayer) {
+            [gPlayer pause];   // 前台/灵动岛窗口出现时立刻停声
+        }
     } @catch (NSException *e) {}
 }
 
@@ -461,7 +495,7 @@ static void (*_orig_layoutSubviews)(UIView *, SEL);
 static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
     _orig_layoutSubviews(self, _cmd);
     @try {
-        if (_lvIsNotificationView(self)) { _lvRefresh(self); }
+        if (_lvIsNotificationView(self) && self.window && _lvViewOnLockScreen(self)) { _lvRefresh(self); }
     } @catch (NSException *e) {}
 }
 
@@ -566,10 +600,8 @@ static void _lvPollTick(void) {
         @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
         BOOL foundAnyCard = NO;
         for (UIWindow *w in wins) {
-            NSString *c = NSStringFromClass([w class]);
-            // 锁屏（CoverSheet）窗口；iOS16 起锁屏都在这个窗口里
-            if (![c containsString:@"CoverSheet"] && ![c containsString:@"LockScreen"] &&
-                ![c containsString:@"Banner"]) { continue; }
+            // 只处理锁屏（CoverSheet）窗口；灵动岛/前台横幅（解锁后收到的消息）不在此窗口，自然被排除
+            if (!_lvIsLockScreenWindow(w)) { continue; }
             if (w.hidden || w.alpha <= 0.01) { continue; }
             BOOL found = NO;
             _lvScanAndAttach(w, &found);
