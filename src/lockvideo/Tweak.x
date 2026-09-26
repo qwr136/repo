@@ -10,7 +10,7 @@
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/插件日志.txt"   // 全方位问题诊断日志（需手动开启）
 #define kLVFlushLog  CFSTR("com.xiaofei.notifybgvideo/FlushLog")
-#define kLVVersion   @"1.0.84"
+#define kLVVersion   @"1.0.85"
 
 // 问题日志的分类名（声音 / 卡顿 / 失效 是重点，其余按要求全量收集）
 #define kLVCatSound    @"声音"
@@ -51,6 +51,10 @@ static char kKindKey;          // 活动内容视图上：最终确定的类型�
 static char kKindProbeKey;     // 活动内容视图上：已定为普通活动后，是否做过一次「是不是漏判的播放器」复查
 static char kExpectedKey;      // 「应挂素材」短时缓存
 static char kExpectedStampKey;
+static char kCoverKey;         // 「背景裁剪结果」短时缓存（NSValue / CGRect）
+static char kCoverStampKey;
+static char kCoverSignKey;     // 缓存签名：视图尺寸 + 直接子视图个数
+static char kBgStampKey;       // 背景层隐藏处理的节流时间戳
 static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
@@ -1428,6 +1432,7 @@ static int _lvTopFullCoverBackgroundIndex(UIView *v) {
 // 视频层插到保留背景的上面一层 —— 被裁剪掉的按钮区就露出真正的系统原样
 static void _lvPrepareHostBackgrounds(UIView *v) {
     if (!v) { return; }
+    LV_PERF_BEGIN();
     if (_lvIsCardHostClass(NSStringFromClass([v class]))) {
         for (UIView *sv in v.subviews) {
             if (!_lvIsKeepableBackdrop(sv, v)) { continue; }
@@ -1441,6 +1446,31 @@ static void _lvPrepareHostBackgrounds(UIView *v) {
         }
     }
     _lvHideBackgroundsRecursive(v);
+    LV_PERF_CHECK(kLVCatPerf, 3.0,
+                  @"背景层隐藏处理 %@ 耗时 %.1f ms（预算 3ms）",
+                  NSStringFromClass([v class]));
+}
+
+// 背景隐藏处理不必每帧都做：系统极少自己去复活那些背景层，
+// 而这一步要递归整棵子树（现在的通知卡片动辄几百层子视图）。
+// 每帧递归 = 下拉动画期间最大的重复开销，降到每 0.2 秒一次；
+// 刚挂载/刚换素材这种必须马上正确的时刻走 _lvPrepareHostBackgroundsNow 强制一次。
+static void _lvPrepareHostBackgroundsThrottled(UIView *v) {
+    if (!v) { return; }
+    @try {
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        NSNumber *last = objc_getAssociatedObject(v, &kBgStampKey);
+        if (last && (now - [last doubleValue]) < 0.2) { return; }
+        objc_setAssociatedObject(v, &kBgStampKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } @catch (NSException *e) { _lvExcept(__func__, e); }
+    _lvPrepareHostBackgrounds(v);
+}
+
+// 立刻做一次背景隐藏处理（挂载 / 换素材时用）
+static void _lvPrepareHostBackgroundsNow(UIView *v) {
+    if (!v) { return; }
+    objc_setAssociatedObject(v, &kBgStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    _lvPrepareHostBackgrounds(v);
 }
 
 // 图片素材是 UIView，同样要插到卡片系统毛玻璃「上面一层」，否则会被毛玻璃盖住
@@ -1464,6 +1494,7 @@ static void _lvInsertImageView(UIView *v, UIImageView *iv) {
 }
 
 static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
+    LV_PERF_BEGIN();
     BOOL isCard = _lvIsCardHostClass(NSStringFromClass([v class]));
     int bg = isCard ? _lvTopFullCoverBackgroundIndex(v) : -1;
     NSUInteger cur = (l.superlayer == v.layer) ? [v.layer.sublayers indexOfObject:l] : NSNotFound;
@@ -1475,9 +1506,17 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
     } else {
         target = (unsigned)bg + 1;
     }
-    if (cur != NSNotFound && cur == target) { return; }
+    if (cur != NSNotFound && cur == target) {
+        LV_PERF_CHECK(kLVCatPerf, 2.0,
+                      @"视频图层定位 %@ 耗时 %.1f ms（预算 2ms）",
+                      NSStringFromClass([v class]));
+        return;
+    }
     [l removeFromSuperlayer];
     [v.layer insertSublayer:l atIndex:target];
+    LV_PERF_CHECK(kLVCatPerf, 2.0,
+                  @"视频图层定位 %@ 耗时 %.1f ms（预算 2ms）",
+                  NSStringFromClass([v class]));
 }
 
 #pragma mark - 按钮素材声音（左滑可见才出声）
@@ -1615,7 +1654,9 @@ static BOOL _lvIsButtonAreaView(UIView *sv, UIView *host) {
 // 扫描整棵子树找出所有「按钮区」候选，取其中最靠上的那个，把背景层裁到它上方，
 // 按钮区及下方一律不铺素材（露出系统原样，只有按钮本身显示自己的素材）。
 // 找不到按钮区时铺满整个视图。
-static CGRect _lvCoverFrameForHost(UIView *v) {
+// 真正的计算：往下遍历整棵子树找「按钮区」，决定素材层裁到哪一行结束。
+// 最坏要访问 1200 个节点，所以外面包了一层短时缓存。
+static CGRect _lvCoverFrameComputed(UIView *v) {
     CGRect frame = v.bounds;
     if (!v) { return frame; }
     LV_PERF_BEGIN();
@@ -1675,6 +1716,35 @@ static CGRect _lvCoverFrameForHost(UIView *v) {
                   @"背景裁剪计算 %@ 耗时 %.1f ms（预算 4ms）",
                   NSStringFromClass([v class]));
     return frame;
+}
+
+// 带缓存的入口 —— 这里是下拉卡顿最大的一笔开销：
+// layoutSubviews 每帧都会调用它，而它原本每帧都要 BFS 扫一遍整棵子树找按钮区，
+// 一张普通通知卡片动辄几百个子节点，等于每帧白白全树遍历一次。
+// 签名取「bounds 尺寸 + 直接子视图个数」：这两样没变，按钮区位置基本不可能变，
+// 直接复用上次算好的 frame；签名变了或超过 0.15 秒才真的重算。
+static CGRect _lvCoverFrameForHost(UIView *v) {
+    CGRect def = v ? v.bounds : CGRectZero;
+    if (!v) { return def; }
+    @try {
+        NSString *sign = [NSString stringWithFormat:@"%.1f|%.1f|%lu",
+                          v.bounds.size.width, v.bounds.size.height,
+                          (unsigned long)v.subviews.count];
+        NSValue *cached = objc_getAssociatedObject(v, &kCoverKey);
+        NSString *oldSign = objc_getAssociatedObject(v, &kCoverSignKey);
+        NSNumber *stamp = objc_getAssociatedObject(v, &kCoverStampKey);
+        if (cached && oldSign && stamp && [oldSign isEqualToString:sign]) {
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+            if ((now - [stamp doubleValue]) < 0.15) { return [cached CGRectValue]; }
+        }
+        CGRect result = _lvCoverFrameComputed(v);
+        NSTimeInterval t = [[NSDate date] timeIntervalSince1970];
+        objc_setAssociatedObject(v, &kCoverKey, [NSValue valueWithCGRect:result], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kCoverSignKey, sign, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kCoverStampKey, @(t), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return result;
+    } @catch (NSException *e) { _lvExcept(__func__, e); }
+    return def;
 }
 
 #pragma mark - 可视化调试：给通知视图每一层描边并标注类名
@@ -1768,6 +1838,10 @@ static void _lvForceRestoreAllInView(UIView *v, int depth) {
         objc_setAssociatedObject(v, &kKindProbeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kExpectedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kExpectedStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kCoverKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kCoverStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kCoverSignKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(v, &kBgStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(v, &kActivityHostKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         for (UIView *sv in [v.subviews copy]) { _lvForceRestoreAllInView(sv, depth + 1); }
     } @catch (NSException *e) { _lvExcept(__func__, e);}
@@ -1980,7 +2054,7 @@ static void _lvRefresh(UIView *v) {
             iv.frame = _lvCoverFrameForHost(v);
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
-        _lvPrepareHostBackgrounds(v);
+        _lvPrepareHostBackgroundsThrottled(v);
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
@@ -2041,7 +2115,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
                 v.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
             }
 
-            _lvPrepareHostBackgrounds(v);
+            _lvPrepareHostBackgroundsNow(v);
             CGRect coverFrame = iv.frame;
             _lvLogOnce(NSStringFromClass(v.class),
                        [NSString stringWithFormat:@"图片挂载尺寸 %.0fx%.0f 透明度 %.2f",
@@ -2102,7 +2176,7 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
                 [p play];
             }
         }
-        _lvPrepareHostBackgrounds(v);
+        _lvPrepareHostBackgroundsNow(v);
         CGRect coverFrame = l.frame;
         _lvLogOnce(NSStringFromClass(v.class),
                    [NSString stringWithFormat:@"挂载尺寸 %.0fx%.0f 透明度 %.2f",
@@ -2312,6 +2386,10 @@ static void _lvDetachAll(void) {
             objc_setAssociatedObject(v, &kKindProbeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(v, &kExpectedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(v, &kExpectedStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kCoverKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kCoverStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kCoverSignKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, &kBgStampKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             _lvDetach(v);
         }
         [_lvAttachedTable() removeAllObjects];
@@ -2550,7 +2628,9 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
                 }
                 if (l.player != p) { l.player = p; }
                 l.frame = v.bounds;
-                [v.layer addSublayer:l];
+                // 图层已经在层级里时不要再 add —— addSublayer 会把它挪到最上层，
+                // 锁屏每滑一次 didMoveToWindow 触发一次，壁纸素材就会盖住本该在它上面的东西
+                if (l.superlayer != v.layer) { [v.layer addSublayer:l]; }
                 [_lvAttachedTable() addObject:v];
                 [p play];
             }
