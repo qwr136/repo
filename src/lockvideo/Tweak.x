@@ -29,6 +29,9 @@ static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，�
 
 #pragma mark - 偏好（直接读文件）
 
+static void _lvLog(NSString *line);
+static void _lvLogOnce(NSString *cls, NSString *action);
+
 static NSArray<NSString *> *_lvSuites(void) {
     return @[@"com.xiaofei.notifybgvideo", @"com.xiaofei.notifybgvideo.prefs"];
 }
