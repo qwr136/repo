@@ -16,6 +16,7 @@ static id gLoopObserver = nil;
 static char kLayerKey;
 static char kImgKey;
 static char kHideDoneKey;
+static char kOrigHiddenKey;
 static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在，避免弱引用丢失导致卸载失败
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
@@ -290,17 +291,58 @@ static BOOL _lvIsNotificationView(UIView *v) {
 
 #pragma mark - 挂载
 
-// 递归隐藏卡片里所有模糊/背景子视图 —— 已废弃（v1.0.53 起不再修改通知卡片任何视觉属性）。
-// 通知卡片的渲染管线完全交给系统；hook 只插入视频/图片层，关闭插件时移除该层即可恢复原貌。
-// 保留空实现仅为防止调用点残留引用。
-static void _lvHideBackgroundsRecursive(UIView *v) {
-    (void)v;
+// 判断一个 view 是否为系统通知卡片的毛玻璃/背景层
+static BOOL _lvIsBackgroundView(UIView *v) {
+    NSString *cls = NSStringFromClass([v class]);
+    if (!cls) return NO;
+    NSString *low = cls.lowercaseString;
+    // UIVisualEffectView：iOS 通用毛玻璃背景
+    // MTMaterialView / MTBackdropView 等：iOS 18+ 锁屏通知卡片的私有材质层
+    if ([low containsString:@"visualeffect"]) return YES;
+    if ([low containsString:@"backdrop"]) return YES;
+    if ([low containsString:@"mtmaterial"]) return YES;
+    if ([low containsString:@"dimming"]) return YES;
+    return NO;
 }
 
-// 恢复卡片原始背景 —— 同上，已废弃。保留空实现。
+// 递归隐藏卡片里所有系统背景/模糊子视图，让素材层真正可见
+// 并记录每个视图的原始 hidden 状态，关闭插件时 1:1 还原
+static void _lvHideBackgroundsRecursive(UIView *v) {
+    if (!v) return;
+    @try {
+        if (objc_getAssociatedObject(v, &kHideDoneKey)) return;   // 本卡片已处理过
+        objc_setAssociatedObject(v, &kHideDoneKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        for (UIView *sv in v.subviews) {
+            if (_lvIsBackgroundView(sv)) {
+                NSNumber *orig = @(sv.hidden);
+                objc_setAssociatedObject(sv, &kOrigHiddenKey, orig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                sv.hidden = YES;
+            } else {
+                // 继续递归，但只处理一层背景层即可；避免误伤内容子视图
+                _lvHideBackgroundsRecursive(sv);
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
+// 恢复卡片原始背景：还原被隐藏的系统背景/模糊子视图
 static void _lvRestoreBackgroundsRecursive(UIView *v) {
-    if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }
-    objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!v) return;
+    @try {
+        if (!objc_getAssociatedObject(v, &kHideDoneKey)) return;
+        objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        for (UIView *sv in v.subviews) {
+            NSNumber *orig = objc_getAssociatedObject(sv, &kOrigHiddenKey);
+            if (orig) {
+                sv.hidden = [orig boolValue];
+                objc_setAssociatedObject(sv, &kOrigHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            } else {
+                _lvRestoreBackgroundsRecursive(sv);
+            }
+        }
+    } @catch (NSException *e) {}
 }
 
 // 视频插到卡片最底层（index 0）——卡片自己的背景层已隐藏，所以视频直接可见，
@@ -316,10 +358,9 @@ static void _lvInsertLayer(UIView *v, AVPlayerLayer *l) {
     [v.layer insertSublayer:l atIndex:0];
 }
 
-// 统一刷新：每帧更新背景层尺寸 + 隐藏卡片模糊层（同时支持视频层与图片层）
+// 统一刷新：每帧更新背景层尺寸，并确保系统毛玻璃/背景层处于隐藏状态
 static void _lvRefresh(UIView *v) {
     @try {
-        // v1.0.53 起 hook 不再修改通知卡片背景 → 移除 _lvHideBackgroundsRecursive 调用
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         if (l) {
             _lvInsertLayer(v, l);
@@ -331,6 +372,8 @@ static void _lvRefresh(UIView *v) {
             if (iv.superview != v) { [v insertSubview:iv atIndex:0]; }
             iv.frame = v.bounds;
         }
+        // v1.0.55 起：为了让素材可见，隐藏系统自带的毛玻璃/背景层（幂等，已处理则跳过）
+        _lvHideBackgroundsRecursive(v);
     } @catch (NSException *e) {}
 }
 
@@ -365,7 +408,8 @@ static void _lvAttach(UIView *v) {
             [v insertSubview:iv atIndex:0];   // 确保在最底层
             iv.frame = v.bounds;
             iv.alpha = (float)_lvAlpha();
-            // v1.0.53 起 hook 不再修改通知卡片背景
+            // 隐藏系统毛玻璃/背景层，让图片素材可见；关闭时还原
+            _lvHideBackgroundsRecursive(v);
             _lvLogOnce(NSStringFromClass(v.class),
                        [NSString stringWithFormat:@"图片挂载尺寸 %.0fx%.0f 透明度 %.2f",
                         v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
@@ -399,13 +443,14 @@ static void _lvAttach(UIView *v) {
         }
         if (l.player != p) { l.player = p; }   // 素材切换后更新引用
 
-        // v1.0.53 起 hook 不再修改通知卡片背景；视频层直接作为最底层 sublayer 插入，
-        // 通知卡片的原生视觉（包括任何系统自带的毛玻璃/半透明）由系统自动呈现，关闭插件时只需移除本层。
+        // v1.0.55：视频层插入最底层，并隐藏系统自带的毛玻璃/背景层，让视频真正可见；
+        // 关闭插件时恢复这些背景层，卡片原貌还原。
         _lvInsertLayer(v, l);
         [_lvAttachedViews addObject:v];
         l.frame = v.bounds;
         l.opacity = (float)_lvAlpha();   // 视频淡一点，文字才看得清
         [p play];
+        _lvHideBackgroundsRecursive(v);
         _lvLogOnce(NSStringFromClass(v.class),
                    [NSString stringWithFormat:@"挂载尺寸 %.0fx%.0f 透明度 %.2f",
                     v.bounds.size.width, v.bounds.size.height, _lvAlpha()]);
@@ -437,7 +482,8 @@ static void _lvDetach(UIView *v) {
         if (l) { [l removeFromSuperlayer]; objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
         if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-        // v1.0.53 起不再修改通知卡片的视觉属性 —— 无需"恢复背景"
+        // v1.0.55：恢复被隐藏的系统毛玻璃/背景层，让卡片回到插件开启前状态
+        _lvRestoreBackgroundsRecursive(v);
     } @catch (NSException *e) {}
 }
 
