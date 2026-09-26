@@ -7,6 +7,9 @@
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVVideoDir  @"/var/mobile/通知视频"
 
+@interface LockVideoPrefsListController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@end
+
 @implementation LockVideoPrefsListController
 
 - (NSArray *)specifiers {
@@ -129,6 +132,104 @@
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+#pragma mark - 从相册添加素材到素材目录
+
+- (void)addFromAlbum:(id)sender {
+    @try {
+        if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
+            [self _showAlertTitle:@"无法访问相册" message:@"当前设备不支持相册访问。"];
+            return;
+        }
+        UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+        picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+        // public.movie = 视频，public.image = 图片/GIF
+        picker.mediaTypes = @[@"public.movie", @"public.image"];
+        picker.videoQuality = UIImagePickerControllerQualityTypeHigh;
+        picker.delegate = self;
+        [self presentViewController:picker animated:YES completion:nil];
+    } @catch (NSException *e) {
+        [self _showAlertTitle:@"出错" message:[e description]];
+    }
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker
+    didFinishPickingMediaWithInfo:(NSDictionary *)info {
+    @try {
+        NSString *type = info[UIImagePickerControllerMediaType];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *dir = kLVVideoDir;
+        if (![fm fileExistsAtPath:dir]) {
+            [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+
+        NSString *savedPath = nil;
+        if ([type isEqualToString:@"public.movie"]) {
+            NSURL *url = info[UIImagePickerControllerMediaURL];
+            if (url) {
+                NSString *ext = [url pathExtension].lowercaseString;
+                if (ext.length == 0) { ext = @"mp4"; }
+                NSString *dst = [dir stringByAppendingPathComponent:
+                    [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
+                [fm removeItemAtPath:dst error:nil];
+                if ([fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:nil]) {
+                    savedPath = dst;
+                }
+            }
+        } else {
+            UIImage *img = info[UIImagePickerControllerOriginalImage];
+            if (img) {
+                NSData *data = UIImageJPEGRepresentation(img, 0.9);
+                NSString *ext = @"jpg";
+                if (!data) { data = UIImagePNGRepresentation(img); ext = @"png"; }
+                NSString *dst = [dir stringByAppendingPathComponent:
+                    [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
+                if (data && [data writeToFile:dst atomically:YES]) { savedPath = dst; }
+            }
+        }
+
+        [picker dismissViewControllerAnimated:YES completion:^{
+            if (savedPath) {
+                NSMutableDictionary *p = [[NSMutableDictionary dictionaryWithContentsOfFile:kLVPrefsFile]
+                                          mutableCopy] ?: [NSMutableDictionary dictionary];
+                p[@"LockVideoPath"] = savedPath;
+                [p writeToFile:kLVPrefsFile atomically:YES];
+                // 通知 SpringBoard 立即应用新素材
+                CFNotificationCenterPostNotification(
+                    CFNotificationCenterGetDarwinNotifyCenter(),
+                    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs"), NULL, NULL, YES);
+                [self _refreshCurrentMaterialRow];
+                [self _showAlertTitle:@"已添加素材"
+                              message:[NSString stringWithFormat:@"已保存到素材目录：\n%@", savedPath]];
+            } else {
+                [self _showAlertTitle:@"添加失败" message:@"无法保存所选素材，请重试。"];
+            }
+        }];
+    } @catch (NSException *e) {
+        [picker dismissViewControllerAnimated:YES completion:^{
+            [self _showAlertTitle:@"出错" message:[e description]];
+        }];
+    }
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+// 生成素材文件名时间戳（相册_YYYYMMDD_HHMMSS）
+- (NSString *)_stamp {
+    NSDateFormatter *f = [[NSDateFormatter alloc] init];
+    [f setDateFormat:@"yyyyMMdd_HHmmss"];
+    return [@"相册_" stringByAppendingString:[f stringFromDate:[NSDate date]]];
+}
+
+- (void)_showAlertTitle:(NSString *)title message:(NSString *)msg {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:title
+                                                               message:msg
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
 }
 
 - (void)respring:(id)sender {

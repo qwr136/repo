@@ -17,6 +17,8 @@ static char kLayerKey;
 static char kImgKey;
 static char kHideDoneKey;   // 标记"背景已隐藏"，避免每帧递归遍历导致卡顿
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
+static NSHashTable *_lvAttachedViews = nil;   // 弱引用集合：记录所有已挂载视频/图片层的视图（关闭时即时卸载）
+static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 
 #pragma mark - 偏好（直接读文件）
 
@@ -372,6 +374,7 @@ static void _lvAttach(UIView *v) {
                 iv.clipsToBounds = YES;
                 objc_setAssociatedObject(v, &kImgKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 [v insertSubview:iv atIndex:0];
+                [_lvAttachedViews addObject:v];
                 _lvLogOnce(NSStringFromClass(v.class), @"已挂载图片/GIF");
             }
             iv.image = img;
@@ -415,6 +418,7 @@ static void _lvAttach(UIView *v) {
         // 先把卡片里所有模糊/背景子视图隐藏掉，避免视频被灰底盖住
         _lvHideBackgroundsRecursive(v);
         _lvInsertLayer(v, l);
+        [_lvAttachedViews addObject:v];
         l.frame = v.bounds;
         l.opacity = (float)_lvAlpha();   // 视频淡一点，文字才看得清
         [p play];
@@ -424,6 +428,51 @@ static void _lvAttach(UIView *v) {
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"attach 异常: %@", e]);
     }
+}
+
+#pragma mark - 卸载（关闭「启用」时即时移除背景，无需注销）
+
+// 恢复卡片原始背景：把之前被隐藏的模糊/背景子视图重新显示，背景色清回透明
+static void _lvRestoreBackgroundsRecursive(UIView *v) {
+    if (!objc_getAssociatedObject(v, &kHideDoneKey)) { return; }   // 从没隐藏过则跳过
+    @try {
+        v.backgroundColor = nil;   // 清回透明，让原生模糊层重新可见
+        for (UIView *s in v.subviews) {
+            NSString *cls = NSStringFromClass(s.class);
+            NSString *low = cls.lowercaseString;
+            BOOL isBlur = [s isKindOfClass:[UIVisualEffectView class]] ||
+                          [low containsString:@"blur"]   || [low containsString:@"effect"] ||
+                          [low containsString:@"backdrop"] || [low containsString:@"material"] ||
+                          [low containsString:@"vibrancy"] || [low containsString:@"backgroundview"];
+            if (isBlur) { s.hidden = NO; }
+            if (s.subviews.count > 0 && s.subviews.count < 20) {
+                _lvRestoreBackgroundsRecursive(s);
+            }
+        }
+        objc_setAssociatedObject(v, &kHideDoneKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);   // 清除标记
+    } @catch (NSException *e) {}
+}
+
+// 把视频层 + 图片层从某个视图上卸掉，并恢复其原生外观
+static void _lvDetach(UIView *v) {
+    if (!v) { return; }
+    @try {
+        AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
+        if (l) { [l removeFromSuperlayer]; objc_setAssociatedObject(v, &kLayerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        UIImageView *iv = objc_getAssociatedObject(v, &kImgKey);
+        if (iv) { [iv removeFromSuperview]; objc_setAssociatedObject(v, &kImgKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        _lvRestoreBackgroundsRecursive(v);
+    } @catch (NSException *e) {}
+}
+
+// 卸载所有已挂载视图（关闭「启用」时调用）
+static void _lvDetachAll(void) {
+    @try {
+        for (UIView *v in [_lvAttachedViews allObjects]) {
+            _lvDetach(v);
+        }
+        [_lvAttachedViews removeAllObjects];
+    } @catch (NSException *e) {}
 }
 
 #pragma mark - 仅限锁屏（灵动岛/前台横幅不挂载、不出声）
@@ -568,6 +617,23 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
                             const void *object,
                             CFDictionaryRef userInfo) {
     @try {
+        // 检测「启用」开关翻转：关闭时立即卸载全部背景（无需注销），打开时立即重新挂载
+        BOOL nowEnabled = _lvEnabled();
+        if (nowEnabled != gWasEnabled) {
+            gWasEnabled = nowEnabled;
+            if (!nowEnabled) {
+                _lvDetachAll();                 // 立即移除所有已挂的视频/图片层并恢复卡片原貌
+                if (gPlayer) { [gPlayer pause]; }
+                _lvLog(@"启用=关：已即时卸载全部背景");
+            } else {
+                _lvLog(@"启用=开：立即重新挂载");
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    @try { _lvPollTick(); } @catch (NSException *e) {}
+                });
+            }
+            return;
+        }
+
         NSString *np = _lvPath();
         if (![np isEqualToString:gCurrentPath]) {
             _lvResetPlayer();          // 素材变了 -> 重建播放器
@@ -702,6 +768,10 @@ static void _lvPollTick(void) {
                 @try { _lvPlayer(); } @catch (NSException *e) {}
             });
         }
+
+        // 记录初始「启用」状态 + 初始化已挂载视图集合（用于开关即时生效 / 即时卸载）
+        gWasEnabled = _lvEnabled();
+        if (!_lvAttachedViews) { _lvAttachedViews = [NSHashTable weakObjectsHashTable]; }
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
