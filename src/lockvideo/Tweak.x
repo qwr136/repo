@@ -17,8 +17,9 @@ static char kLayerKey;
 static char kImgKey;
 static char kHideDoneKey;   // 标记"背景已隐藏"，避免每帧递归遍历导致卡顿
 static char kOrigBgKey;     // 保存原始 backgroundColor，关闭插件时能精确恢复卡片原貌
+static char kWasHiddenKey;  // 记录子视图原始 hidden 状态（避免关闭插件时误把原本就隐藏的视图显示出来）
 static NSMutableSet<NSString *> *gLoggedClasses = nil;
-static NSHashTable *_lvAttachedViews = nil;   // 弱引用集合：记录所有已挂载视频/图片层的视图（关闭时即时卸载）
+static NSMutableArray<UIView *> *_lvAttachedViews = nil;   // 强引用：关闭插件时确保视图还在，避免弱引用丢失导致卸载失败
 static BOOL gWasEnabled = NO;                 // 上一次「启用」状态，用于检测开关翻转
 
 #pragma mark - 偏好（直接读文件）
@@ -314,6 +315,10 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
                           [low containsString:@"backdrop"] || [low containsString:@"material"] ||
                           [low containsString:@"vibrancy"] || [low containsString:@"backgroundview"];
             if (isBlur && !s.hidden) {
+                // 记录原始 hidden 状态（用于关闭插件时精确恢复，不影响原本就隐藏的视图）
+                if (!objc_getAssociatedObject(s, &kWasHiddenKey)) {
+                    objc_setAssociatedObject(s, &kWasHiddenKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
                 s.hidden = YES;
                 _lvLogOnce(cls, @"隐藏卡片背景");
             }
@@ -458,7 +463,12 @@ static void _lvRestoreBackgroundsRecursive(UIView *v) {
                           [low containsString:@"blur"]   || [low containsString:@"effect"] ||
                           [low containsString:@"backdrop"] || [low containsString:@"material"] ||
                           [low containsString:@"vibrancy"] || [low containsString:@"backgroundview"];
-            if (isBlur) { s.hidden = NO; }
+            if (isBlur) {
+                // 还原到原始 hidden 状态（避免把原本就隐藏的视图错误显示）
+                id wasH = objc_getAssociatedObject(s, &kWasHiddenKey);
+                s.hidden = (wasH ? [wasH boolValue] : NO);
+                objc_setAssociatedObject(s, &kWasHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
             if (s.subviews.count > 0 && s.subviews.count < 20) {
                 _lvRestoreBackgroundsRecursive(s);
             }
@@ -479,13 +489,38 @@ static void _lvDetach(UIView *v) {
     } @catch (NSException *e) {}
 }
 
-// 卸载所有已挂载视图（关闭「启用」时调用）
+// 卸载所有已挂载视图（关闭「启用」时调用）。双重保险：
+//   1) 遍历强引用集合 _lvAttachedViews（已挂视频/图片层的视图）
+//   2) 遍历所有 UIWindow 找任何带 kHideDoneKey 标记的视图强制恢复
+//      —— 防止 NSHashTable 弱引用集合里对象已 nil、或 swizzle 顺序导致 attached views 漏记
 static void _lvDetachAll(void) {
     @try {
-        for (UIView *v in [_lvAttachedViews allObjects]) {
+        // 保险 1: 强引用集合里的视图
+        for (UIView *v in [_lvAttachedViews copy]) {
             _lvDetach(v);
         }
         [_lvAttachedViews removeAllObjects];
+
+        // 保险 2: 遍历所有 UIWindow 找残留标记强制恢复（防止漏网）
+        @try {
+            id app = [UIApplication sharedApplication];
+            NSArray *wins = nil;
+            @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
+            for (UIWindow *w in wins) {
+                if (!w || w.hidden) continue;
+                _lvScanAndRestoreInView(w);
+            }
+        } @catch (NSException *e) {}
+    } @catch (NSException *e) {}
+}
+
+// 在一棵视图树里递归找任何带 kHideDoneKey 标记的视图并恢复其原始外观
+static void _lvScanAndRestoreInView(UIView *v) {
+    @try {
+        if (objc_getAssociatedObject(v, &kHideDoneKey)) {
+            _lvRestoreBackgroundsRecursive(v);
+        }
+        for (UIView *s in v.subviews) { _lvScanAndRestoreInView(s); }
     } @catch (NSException *e) {}
 }
 
@@ -789,9 +824,9 @@ static void _lvPollTick(void) {
             });
         }
 
-        // 记录初始「启用」状态 + 初始化已挂载视图集合（用于开关即时生效 / 即时卸载）
+        // 记录初始「启用」状态 + 初始化已挂载视图集合（强引用，避免关闭插件时视图已释放）
         gWasEnabled = _lvEnabled();
-        if (!_lvAttachedViews) { _lvAttachedViews = [NSHashTable weakObjectsHashTable]; }
+        if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
