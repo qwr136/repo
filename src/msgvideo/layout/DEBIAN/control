@@ -1,6 +1,6 @@
 Package: com.xiaofei.msgbgvideo
 Name: 信息视频背景
-Version: 1.0.6
+Version: 1.0.7
 Architecture: iphoneos-arm
 Description: 信息 App 视频背景 — 给「信息」App 铺上一层视频背景。支持 mp4/mov 等格式，循环播放，可调透明度与声音。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.6 - 诊断探针增强：SpringBoard探针用sysctl探测MobileSMS进程是否在运行并写入日志，客观区分「未冷启动信息App」与「注入层排除MobileSMS」
+Changelog: 1.0.7 - 过滤规则精简为仅 Bundles（移除 Executables 这一在 Ellekit 上未充分验证的匹配项），消除 MobileSMS 可能因 Executables 解析失败而不被注入的隐患

@@ -658,7 +658,7 @@ static BOOL _mvProcRunning(const char *substr) {
                     _mvEnabled(), _mvSound(), _mvAlpha(), _mvPath() ?: @"(无)",
                     [[NSFileManager defaultManager] fileExistsAtPath:kMVVideoDir]]);
         }
-        _mvLog(@"===== 1.0.6 信息视频背景 加载完成 =====");
+        _mvLog(@"===== 1.0.7 信息视频背景 加载完成 =====");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
