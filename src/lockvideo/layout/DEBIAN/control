@@ -2,7 +2,7 @@ Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
 Version: 1.0.49
 Architecture: iphoneos-arm
-Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放，路径自由填写。
+Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
 Author: 小飞
 Section: Tweaks (rootless)
