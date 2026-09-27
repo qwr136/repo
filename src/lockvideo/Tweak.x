@@ -26,6 +26,9 @@ static NSMutableDictionary<NSString *, AVPlayer *> *gPlayerMap = nil;
 static NSMutableDictionary<NSString *, id> *gObserverMap = nil;
 // 屏幕是否熄灭：熄屏时所有背景视频一律静音 + 暂停，杜绝漏音
 static BOOL gScreenOff = NO;
+// 类名缓存：didMoveToWindow 高频路径用，避免重复字符串判断
+static NSMutableSet<NSString *> *gCardClsSet = nil;   // 已确认是卡片/按钮的类名
+static NSMutableSet<NSString *> *gSkipClsSet = nil;   // 已确认不是卡片的类名
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
@@ -742,17 +745,26 @@ static BOOL _lvIsPlayerContentView(UIView *av) {
     return NO;
 }
 
-// 动作按钮组（含单个动作按钮）/ 通知卡片壳（PLPlatterView）/ 旧版 shortlook/banner/longlook
+// 动作按钮组 / 通知卡片壳（PLPlatterView）/ 旧版 shortlook/banner/longlook
+// 高频路径：非 platterview 类走类名缓存，platterview 类依赖祖先链不缓存
 static BOOL _lvIsNotificationView(UIView *v) {
     @try {
         NSString *cls = NSStringFromClass([v class]);
         if (!cls) { return NO; }
-        if (_lvIsActionButtonGroupView(cls)) return YES;
         NSString *low = cls.lowercaseString;
-        if ([low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"]) {
-            return YES;
+        if ([low containsString:@"platterview"]) {
+            return _lvIsNotificationPlatter(v);   // 依赖祖先链，不缓存
         }
-        if (_lvIsNotificationPlatter(v)) return YES;   // iOS16 锁屏列表卡片（PLPlatterView）
+        @synchronized(gSkipClsSet) {
+            if ([gSkipClsSet containsObject:cls]) { return NO; }
+            if ([gCardClsSet  containsObject:cls]) { return YES; }
+        }
+        BOOL r = _lvIsActionButtonGroupView(cls) ||
+                 [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
+        @synchronized(gSkipClsSet) {
+            if (r) { [gCardClsSet addObject:cls]; } else { [gSkipClsSet addObject:cls]; }
+        }
+        return r;
     } @catch (NSException *e) {}
     return NO;
 }
@@ -1401,7 +1413,7 @@ static void _lvRefresh(UIView *v) {
             iv.frame = _lvCoverFrameForHost(v);
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
-        _lvPrepareHostBackgrounds(v);
+        // 性能：系统背景层隐藏只在挂载时做一次（_lvAttachWithPath），refresh 不每帧重做递归
     } @catch (NSException *e) {}
 }
 
@@ -1632,8 +1644,8 @@ static void _lvAttachActionButtonGroup(UIView *v) {
             }
             _lvLogOnce(NSStringFromClass([v class]),
                        [NSString stringWithFormat:@"按钮组识别: %@", [titles componentsJoinedByString:@" | "]]);
-            // 按钮区一出现就强制导出完整层级（覆盖按钮所在整条通知），定位按钮下方多余视图
-            _lvDumpHierarchy(_lvBetterDumpRoot(v), YES);
+            // 仅调试开时导出完整层级，正常使用不写盘，省 I/O
+            if (_lvDebugOutline()) { _lvDumpHierarchy(_lvBetterDumpRoot(v), YES); }
         } else {
             _lvDetach(v);   // 找不到单个按钮也不给容器挂背景
         }
@@ -1828,7 +1840,9 @@ static void (*_orig_layoutSubviews)(UIView *, SEL);
 static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
     _orig_layoutSubviews(self, _cmd);
     @try {
-        if (_lvIsNotificationView(self) && self.window) { _lvRefresh(self); }
+        // 性能：layoutSubviews 极频繁，只刷新已挂载素材的视图；
+        // 新卡片由 didMoveToWindow 发现并挂载，这里不再对每个 UIView 做卡片类名判断
+        if (self.window && objc_getAssociatedObject(self, &kPathKey)) { _lvRefresh(self); }
     } @catch (NSException *e) {}
 }
 
@@ -2028,7 +2042,11 @@ static void _lvCleanupStaleAttachments(void) {
 
 static void _lvPollTick(void) {
     @try {
-        _lvDebugScanActivityAndPlayer();   // 调试：仅「视图描边调试」开启时才有开销
+        // 性能：拆轻量帧——每 5 个 tick（约 1.5s）才做一次重活（调试扫描 + 残留清理），
+        // 其余 tick 只刷新已挂载视图的尺寸/播放，0.3s 常驻开销大幅降低
+        static int tickCnt = 0;
+        BOOL heavy = ((++tickCnt) % 5 == 0);
+        if (heavy) { _lvDebugScanActivityAndPlayer(); }
         if (!_lvEnabled()) {
             _lvPauseAllPlayers();
             return;
@@ -2038,9 +2056,8 @@ static void _lvPollTick(void) {
             _lvMuteAndPauseAll();          // 熄屏：静音 + 暂停，绝不漏音
             return;
         }
-        _lvCleanupStaleAttachments();      // 清掉不在白名单里的历史残留
-        // 轮询只维护「已经挂上素材」的视图（消息卡片 / 选项 / 清除），
-        // 不再遍历整棵视图树——新卡片由 didMoveToWindow / layoutSubviews 钩子即时挂载，不延迟。
+        if (heavy) { _lvCleanupStaleAttachments(); }
+        // 轮询只维护「已经挂上素材」的视图，不遍历整棵视图树
         BOOL anyVisible = NO;
         for (UIView *v in [_lvAttachedViews copy]) {
             if (!v || !v.window) { continue; }
@@ -2109,6 +2126,8 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
         gPlayerMap = [NSMutableDictionary dictionary];
         gObserverMap = [NSMutableDictionary dictionary];
         if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
+        if (!gCardClsSet) { gCardClsSet = [NSMutableSet set]; }
+        if (!gSkipClsSet) { gSkipClsSet = [NSMutableSet set]; }
 
         // 首次运行创建素材目录与「选项背景 / 清除背景」子文件夹
         @try {
@@ -2164,7 +2183,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.91 加载完成（基于 1.0.76 重来：iOS16 列表卡片 PLPlatterView 也能挂背景；新增实时活动/播放器独立素材与子文件夹；轮询0.3s；熄屏/非通知界面不漏音） =====");
+        _lvLog(@"===== 1.0.92 加载完成（基于 1.0.91：性能优化——layoutSubviews 只刷已挂载视图、类名缓存、背景隐藏只做一次、轮询拆轻量帧、dump 节流） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

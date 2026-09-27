@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.91
+Version: 1.0.92
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.91 - ①修复 iOS16 锁屏列表通知挂载：新增识别 NCNotificationListCell 内的卡片壳 PLPlatterView，列表里躺着的卡片也能挂上背景视频（之前只认 shortlook 导致 0 挂载）；②新增「实时背景素材」与「播放背景素材」两个独立素材槽及对应子文件夹「实时通知」「播放器」，播放器与实时活动按内容里的媒体控件自动区分（两者类名同为 CSActivityItemContentView），分别套不同背景；③轮询间隔 1.5s→0.3s，实时活动/播放器同样纳入轻量维护；④音频强化：点亮屏幕即时恢复出声，开启声音时非通知界面与熄屏一律静音不漏音，选项/清除左滑出才出声、收起即静音（实时活动卡片同样适用）
+Changelog: 1.0.92 - 性能优化（不改变挂载/识别逻辑，纯提速）：①layoutSubviews 钩子只刷新已挂载素材的视图，不再对每个 UIView 做卡片类名判断（最大收益）；②didMoveToWindow 加类名缓存，非 platterview 类命中即返回；③系统背景层隐藏只在挂载时做一次，refresh 不每帧重做递归；④轮询拆轻量帧，每 1.5s 才做一次调试扫描+残留清理，0.3s 常驻开销大降；⑤按钮组层级导出仅调试开时写盘。1.0.91 的 iOS16 列表卡片挂载、实时活动/播放器独立素材、熄屏不漏音等全部保留
