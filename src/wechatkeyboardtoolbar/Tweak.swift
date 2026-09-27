@@ -199,7 +199,7 @@ func wkOverrideCount(_ tb: UIView) {
 func wkDumpHierarchy(_ view: UIView?, indent: String = "") {
     guard let view = view else { return }
     let cls = String(describing: type(of: view))
-    NSLog("[WKTB] \(indent)\(cls) frame=\(NSStringFromCGRect(view.frame))")
+    NSLog("[WKTB] \(indent)\(cls) frame=\(String(describing: view.frame))")
     for s in view.subviews { wkDumpHierarchy(s, indent: indent + "  ") }
 }
 
