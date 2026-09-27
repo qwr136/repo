@@ -74,7 +74,8 @@ jobs:
           file "$DYLIB"
           lipo -info "$DYLIB"
 
-      - name: Publish to repo (deb + Packages 索引)
+      - name: Publish to repo (deb + Packages 索引)（仅手动触发时发布进源）
+        if: github.event_name == 'workflow_dispatch'
         run: |
           cd "$GITHUB_WORKSPACE"
           # 清掉本包旧 deb，放入新 deb
