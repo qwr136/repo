@@ -219,6 +219,8 @@ func wkDumpMethods(of cls: AnyClass?) {
 @_cdecl("WKSetup")
 func WKSetup() {
     wkReloadPrefs()
+    // 注入自检：开「调试日志」后可在 syslog 看到插件实际注入到哪个 bundle
+    NSLog("[WKTB] 插件已加载，进程 bundle id = \(Bundle.main.bundleIdentifier ?? "(nil)")，DebugLog=\(gDebug)")
     wkHookInputViewController()
     wkObservePrefs()
 }
