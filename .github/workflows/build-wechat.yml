@@ -28,16 +28,27 @@ jobs:
           mkdir -p $HOME/theos/sdks
           curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
 
-      - name: Fix Swift stdlib (theos SDK 缺 usr/lib/swift → 从 Xcode SDK 复制)
+      - name: 用 Xcode iPhoneOS SDK 替换 theos 自带 SDK（版本匹配、swiftmodules 完整）
         run: |
           export THEOS=$HOME/theos
-          export THEOS_SDK_PATH="$THEOS/sdks/iPhoneOS.sdk"
           XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
+          SDK_VER=$(basename "$XCODE_SDK" | sed -E 's/^iPhoneOS//; s/\.sdk$//')
+          echo "Xcode iPhoneOS SDK: $XCODE_SDK (ver=$SDK_VER)"
+          echo "=== theos/sdks 现有内容 ==="
+          ls -la "$THEOS/sdks" 2>&1 | head
           if [ -n "$XCODE_SDK" ] && [ -d "$XCODE_SDK/usr/lib/swift" ]; then
-            mkdir -p "$THEOS_SDK_PATH/usr/lib"
-            cp -R "$XCODE_SDK/usr/lib/swift" "$THEOS_SDK_PATH/usr/lib/swift"
-            echo "=== 已复制 Xcode Swift 标准库到 theos SDK ==="
-            ls -d "$THEOS_SDK_PATH/usr/lib/swift/_Concurrency.swiftmodule" 2>&1 || true
+            # theos/sdks 自带的 iPhoneOS14.5.sdk 是老 SDK，其预编译 swiftmodules 与
+            # Xcode 26 的 swift-frontend 不兼容 → 隐式导入 _Concurrency 失败并 signal 6 崩溃。
+            # 直接把 theos SDK 指向 Xcode 自带的、版本完全匹配的 iPhoneOS SDK（符号链接）。
+            for d in iPhoneOS.sdk iPhoneOS14.5.sdk iPhoneOS14.0.sdk "iPhoneOS${SDK_VER}.sdk"; do
+              rm -rf "$THEOS/sdks/$d"; ln -s "$XCODE_SDK" "$THEOS/sdks/$d"
+            done
+            # CI 内把 Makefile 的 TARGET 改成 Xcode 匹配版本 + 安全 min deployment（不落库）
+            sed -i.bak -E "s/iphone:[0-9.]+:[0-9.]+/iphone:${SDK_VER}:15.0/" src/wechatkeyboardtoolbar/Makefile
+            echo "=== 改后 TARGET ==="; grep TARGET src/wechatkeyboardtoolbar/Makefile
+            echo "=== swiftmodules 检查 ==="
+            ls -d "$XCODE_SDK/usr/lib/swift/arm64-apple-ios.swiftmodule" 2>&1 || true
+            ls "$XCODE_SDK/usr/lib/swift/arm64-apple-ios.swiftmodule/_Concurrency.swiftmodule" 2>&1 | head || true
           else
             echo "!!! 未找到 Xcode iPhoneOS SDK 的 usr/lib/swift: $XCODE_SDK"
           fi
@@ -45,6 +56,7 @@ jobs:
       - name: Build (arm64 + arm64e fat, -Onone 避免 GitHub runner 上 swiftc 被 OOM kill)
         run: |
           export THEOS=$HOME/theos
+          export THEOS_SDK_PATH="$THEOS/sdks/iPhoneOS.sdk"
           cd src/wechatkeyboardtoolbar
           make clean
           # 不用 FINALPACKAGE → swift 走 -Onone，内存占用大幅降低，绕开 signal 9 (OOM)
