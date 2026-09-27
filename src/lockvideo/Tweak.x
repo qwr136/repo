@@ -5,6 +5,7 @@
 #import <objc/message.h>
 #import <substrate.h>
 #import <ImageIO/ImageIO.h>
+#import <stdlib.h>
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
@@ -15,6 +16,8 @@
 // 熄屏（屏幕熄灭）系统通知：用于立刻静音暂停，杜绝熄屏漏音
 #define kLVScreenBlankNotify CFSTR("com.apple.springboard.hasBlankedScreen")
 #define kLVScreenLockNotify  CFSTR("com.apple.springboard.lockcomplete")
+// 面板「立即注销」按钮 → SpringBoard 里的插件收到后执行 respring
+#define kLVRespringNotify    CFSTR("com.xiaofei.notifybgvideo/Respring")
 #define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
 #define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
@@ -697,6 +700,23 @@ static BOOL _lvIsNotificationPlatter(UIView *v) {
         if ([pc containsString:@"notification"]) { return YES; }
     }
     return NO;
+}
+
+// 在子树里找实时活动 / 播放器内容视图（CSActivityItemContentView）。
+// 含这个内容的卡片 = 实时活动 / 播放器（Now Playing）卡片 → 不挂视频背景（该功能已移除）。
+static UIView *_lvFindActivityContentView(UIView *v) {
+    if (!v) { return nil; }
+    @try {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:v];
+        int visited = 0;
+        while (stack.count > 0 && visited < 200) {
+            UIView *cur = stack.lastObject; [stack removeLastObject]; visited++;
+            NSString *c = NSStringFromClass([cur class]).lowercaseString;
+            if ([c containsString:@"activityitemcontent"]) { return cur; }
+            for (UIView *s in cur.subviews) { [stack addObject:s]; }
+        }
+    } @catch (NSException *e) {}
+    return nil;
 }
 
 // 判断实时活动内容视图是否为「播放器」（Now Playing）：内部含媒体控制控件即为播放器，
@@ -1762,8 +1782,13 @@ static void _lvOnMatch(UIView *v) {
         _lvAttachActionButtonGroup(v);   // 选项 / 清除按钮：左滑可见才出声
         return;
     }
-    // 卡片壳（含实时活动 / 播放器卡片）：统一挂主素材
+    // 卡片壳：实时活动 / 播放器（Now Playing）卡片不挂视频背景（功能已移除，保持系统原样）；
+    // 普通消息通知卡片挂主素材
     if (_lvIsNotificationPlatter(v)) {
+        if (_lvFindActivityContentView(v)) {
+            _lvLogOnce(NSStringFromClass(v.class), @"实时活动/播放器卡片：不挂背景（功能已移除）");
+            return;
+        }
         _lvAttachWithPath(v, _lvPath());
         return;
     }
@@ -1853,6 +1878,16 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
 static void _lvPollTick(void);
 static void _lvStartPollTimer(void);
 static void _lvStopPollTimer(void);
+
+// 面板「立即注销」：收到通知后延迟片刻执行 exit(0)，launchd 会自动重新拉起 SpringBoard（即注销）。
+// 无论插件是否启用都注册此监听（ctor 开头就挂），否则开关关闭状态下面板无法注销。
+static void _lvRespringNotifyCB(CFNotificationCenterRef center,
+                                void *observer, CFStringRef name,
+                                const void *object, CFDictionaryRef info) {
+    _lvLog(@"收到面板注销请求：0.3 秒后执行 respring");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ exit(0); });
+}
 
 static void _lvPrefsChanged(CFNotificationCenterRef center,
                             void *observer,
@@ -2029,7 +2064,15 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
 
 %ctor {
     @try {
-        // 启用开关只在注销加载时读一次：关闭 → 不挂钩子、不建目录、不注册监听，插件彻底失效（零开销）。
+        // 注销请求监听：无论插件开关状态如何都保留（设置面板「立即注销」按钮依赖它）
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvRespringNotifyCB,
+                                        kLVRespringNotify,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+
+        // 启用开关只在注销加载时读一次：关闭 → 不挂钩子、不建目录、不初始化，插件彻底失效（零开销）。
         // 打开开关后注销（respring）即生效。
         gEnabledAtLaunch = _lvBool(@"LockVideoEnabled");
         if (!gEnabledAtLaunch) {
@@ -2124,7 +2167,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.94 加载完成（基于 1.0.92：移除实时活动/播放器素材与子文件夹；启用开关改为注销生效/注销后彻底失效） =====");
+        _lvLog(@"===== 1.0.95 加载完成（基于 1.0.92：实时活动/播放器卡片不再挂视频背景；启用开关开/关弹窗一键注销） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

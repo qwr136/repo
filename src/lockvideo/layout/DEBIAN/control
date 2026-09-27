@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.94
+Version: 1.0.95
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.94 - 基于 1.0.92 重新出发：①移除「实时背景素材」「播放背景素材」两个设置项及对应子文件夹「实时通知」「播放器」，实时活动/播放器卡片统一使用主素材，设置面板回归 消息/选项/清除 三项；②启用开关改为注销生效模式：开关状态只在注销（respring）加载时读取一次——开启后注销才生效；关闭后注销插件彻底失效（不挂钩子、不建目录、不注册监听，零开销），运行中翻转开关不再立即生效。1.0.92 的性能优化（layoutSubviews 只刷已挂载视图、类名缓存、轮询拆轻量帧等）与熄屏不漏音逻辑全部保留
+Changelog: 1.0.95 - ①实时活动 / 播放器（Now Playing）卡片的视频背景功能彻底移除：这两类卡片不再挂任何背景视频、保持系统原样，视频背景只作用于普通消息通知卡片（选项/清除按钮素材不受影响）；②启用开关改为弹窗确认：在设置面板拨动「启用」开关后立即弹窗，点「立即注销」马上重启 SpringBoard——开启后注销即生效、关闭后注销即彻底失效；注销按钮优先让 SpringBoard 内的插件自行退出（任何开关状态下都可靠），sbreload 作兜底；开关状态仍在注销时读取一次，运行中不翻转

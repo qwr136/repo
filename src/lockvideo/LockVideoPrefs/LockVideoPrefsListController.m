@@ -436,12 +436,38 @@
 }
 
 - (void)respring:(id)sender {
+    // 优先：发通知让 SpringBoard 里的插件自己 exit(0)（mobile 权限下最可靠，
+    // 插件在 ctor 最开头就注册了这个监听，开关关闭状态也保留）
+    CFNotificationCenterPostNotification(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        CFSTR("com.xiaofei.notifybgvideo/Respring"), NULL, NULL, YES);
+    // 兜底：sbreload / killall（部分环境可用）
     char * const argv[] = { (char *)"sbreload", NULL };
     pid_t pid = 0;
     posix_spawn(&pid, "/var/jb/usr/bin/sbreload", NULL, NULL, argv, NULL);
     posix_spawn(&pid, "/usr/bin/sbreload", NULL, NULL, argv, NULL);
     char * const kargv[] = { (char *)"killall", (char *)"backboardd", NULL };
     posix_spawn(&pid, "/usr/bin/killall", NULL, NULL, kargv, NULL);
+}
+
+// 启用开关：开启 / 关闭都弹窗，点「立即注销」马上重启 SpringBoard 使开关生效/失效
+- (void)toggleEnabled:(PSSpecifier *)sender {
+    @try {
+        BOOL now = NO;
+        @try { now = [[self readPreferenceValue:sender] boolValue]; } @catch (NSException *e) {}
+        NSString *title = now ? @"插件已开启" : @"插件已关闭";
+        NSString *msg = now
+            ? @"需要注销后插件才会生效。点「立即注销」马上重启 SpringBoard（即注销）。"
+            : @"需要注销后插件才会彻底失效。点「立即注销」马上重启 SpringBoard（即注销）。";
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                       message:msg
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"立即注销" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+            [self respring:self];
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"稍后再说" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+    } @catch (NSException *e) {}
 }
 
 @end
