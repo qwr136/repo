@@ -10,6 +10,9 @@
 // 选项 / 清除按钮素材的独立子文件夹：素材分别放在这里，互不干扰
 #define kLVOptionDir @"/var/mobile/通知视频/选项背景"
 #define kLVClearDir  @"/var/mobile/通知视频/清除背景"
+// 实时活动 / 播放器（Now Playing）背景素材的独立子文件夹
+#define kLVLiveDir   @"/var/mobile/通知视频/实时通知"
+#define kLVPlayerDir @"/var/mobile/通知视频/播放器"
 
 @interface LockVideoPrefsListController () <PHPickerViewControllerDelegate> {
     NSString *_currentSelectKey;   // 记录当前打开的是哪个素材选择器
@@ -65,6 +68,8 @@
     [self _refreshMaterialRow:@"LockVideoMaterialLink" prefsKey:@"LockVideoPath"];
     [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:@"LockVideoOptionPath"];
     [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:@"LockVideoClearPath"];
+    [self _refreshMaterialRow:@"LockVideoLiveMaterialLink" prefsKey:@"LockVideoLivePath"];
+    [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:@"LockVideoPlayerPath"];
 }
 
 // 通用素材选择器：把 key 对应的 prefs 项设为用户选中的文件
@@ -128,6 +133,10 @@
                 [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
             } else if ([key isEqualToString:@"LockVideoClearPath"]) {
                 [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
+            } else if ([key isEqualToString:@"LockVideoLivePath"]) {
+                [self _refreshMaterialRow:@"LockVideoLiveMaterialLink" prefsKey:key];
+            } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
+                [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:key];
             }
         }]];
     }
@@ -145,6 +154,14 @@
 
 - (void)switchClearMaterial:(id)sender {
     [self _switchMaterialForKey:@"LockVideoClearPath" title:@"选择清除素材" sender:sender];
+}
+
+- (void)switchLiveMaterial:(id)sender {
+    [self _switchMaterialForKey:@"LockVideoLivePath" title:@"选择实时背景素材" sender:sender];
+}
+
+- (void)switchPlayerMaterial:(id)sender {
+    [self _switchMaterialForKey:@"LockVideoPlayerPath" title:@"选择播放背景素材" sender:sender];
 }
 
 #pragma mark - 取消选择素材（写入空字符串，插件读取到空值即不再使用该素材）
@@ -174,6 +191,10 @@
             identifier = @"LockVideoOptionMaterialLink";
         } else if ([key isEqualToString:@"LockVideoClearPath"]) {
             identifier = @"LockVideoClearMaterialLink";
+        } else if ([key isEqualToString:@"LockVideoLivePath"]) {
+            identifier = @"LockVideoLiveMaterialLink";
+        } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
+            identifier = @"LockVideoPlayerMaterialLink";
         }
         if (identifier) {
             [self _refreshMaterialRow:identifier prefsKey:key];
@@ -195,6 +216,14 @@
 
 - (void)clearClearMaterial:(id)sender {
     [self _clearMaterialForKey:@"LockVideoClearPath"];
+}
+
+- (void)clearLiveMaterial:(id)sender {
+    [self _clearMaterialForKey:@"LockVideoLivePath"];
+}
+
+- (void)clearPlayerMaterial:(id)sender {
+    [self _clearMaterialForKey:@"LockVideoPlayerPath"];
 }
 
 #pragma mark - 从相册添加素材到素材目录（PHPicker：支持视频 / GIF / 图片）
@@ -401,6 +430,10 @@
             [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
         } else if ([key isEqualToString:@"LockVideoClearPath"]) {
             [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
+        } else if ([key isEqualToString:@"LockVideoLivePath"]) {
+            [self _refreshMaterialRow:@"LockVideoLiveMaterialLink" prefsKey:key];
+        } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
+            [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:key];
         }
         [self _showAlertTitle:@"已添加素材"
                       message:[NSString stringWithFormat:@"已保存到素材目录：\n%@\n并设为「%@」", path, [self _titleForKey:key]]];
@@ -410,13 +443,18 @@
 - (NSString *)_titleForKey:(NSString *)key {
     if ([key isEqualToString:@"LockVideoOptionPath"]) return @"选项按钮素材";
     if ([key isEqualToString:@"LockVideoClearPath"]) return @"清除按钮素材";
+    if ([key isEqualToString:@"LockVideoLivePath"]) return @"实时活动背景素材";
+    if ([key isEqualToString:@"LockVideoPlayerPath"]) return @"播放器背景素材";
     return @"当前素材";
 }
 
-// 不同素材 key 对应不同的素材目录：选项→选项背景、清除→清除背景、其余→顶层目录
+// 不同素材 key 对应不同的素材目录：选项→选项背景、清除→清除背景、
+// 实时活动→实时通知、播放器→播放器，其余（消息素材）→顶层目录
 - (NSString *)_dirForKey:(NSString *)key {
     if ([key isEqualToString:@"LockVideoOptionPath"]) return kLVOptionDir;
     if ([key isEqualToString:@"LockVideoClearPath"]) return kLVClearDir;
+    if ([key isEqualToString:@"LockVideoLivePath"]) return kLVLiveDir;
+    if ([key isEqualToString:@"LockVideoPlayerPath"]) return kLVPlayerDir;
     return kLVVideoDir;
 }
 

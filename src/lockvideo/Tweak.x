@@ -12,6 +12,9 @@
 // 选项 / 清除按钮素材的独立子文件夹（插件首次运行时自动创建）
 #define kLVOptionDir @"/var/mobile/通知视频/选项背景"
 #define kLVClearDir  @"/var/mobile/通知视频/清除背景"
+// 实时活动 / 播放器（Now Playing）背景素材的独立子文件夹
+#define kLVLiveDir   @"/var/mobile/通知视频/实时通知"
+#define kLVPlayerDir @"/var/mobile/通知视频/播放器"
 // 熄屏（屏幕熄灭）系统通知：用于立刻静音暂停，杜绝熄屏漏音
 #define kLVScreenBlankNotify CFSTR("com.apple.springboard.hasBlankedScreen")
 #define kLVScreenLockNotify  CFSTR("com.apple.springboard.lockcomplete")
@@ -186,6 +189,9 @@ static BOOL _lvIsNowPlayingDebugClass(NSString *cls) {
            [low containsString:@"music"];
 }
 
+// 前向声明：_lvDumpHierarchy 位于本函数定义之前，需要先声明后使用
+static BOOL _lvIsPlayerContentView(UIView *av);
+
 static BOOL _lvSound(void) {
     @try {
         id v = _lvPrefs()[@"LockVideoSound"];
@@ -263,6 +269,8 @@ static NSString *_lvPath(void) {
 
 static NSString *_lvOptionPath(void) { return _lvPathForKey(@"LockVideoOptionPath"); }
 static NSString *_lvClearPath(void)  { return _lvPathForKey(@"LockVideoClearPath"); }
+static NSString *_lvLivePath(void)   { return _lvPathForKey(@"LockVideoLivePath"); }
+static NSString *_lvPlayerPath(void) { return _lvPathForKey(@"LockVideoPlayerPath"); }
 
 #pragma mark - 诊断日志
 
@@ -322,10 +330,16 @@ static void _lvDumpHierarchy(UIView *root, BOOL force) {
             }
             NSUInteger subLayers = 0;
             @try { subLayers = v.layer.sublayers.count; } @catch (NSException *e) {}
-            // 调试标注：实时活动 / 播放器视图在结构里直接标出来，便于对照类名
+            // 调试标注：实时活动 / 播放器视图在结构里直接标出来，便于对照类名。
+            // 两者类名都叫 CSActivityItemContentView，只能靠内部媒体控件区分。
             NSString *dbgTag = @"";
-            if (_lvIsNowPlayingDebugClass(cls))      { dbgTag = @" [播放器]"; }
-            else if (_lvIsActivityDebugClass(cls))   { dbgTag = @" [实时活动]"; }
+            if ([cls containsString:@"activityitemcontent"]) {
+                dbgTag = _lvIsPlayerContentView(v) ? @" [播放器]" : @" [实时活动]";
+            } else if (_lvIsNowPlayingDebugClass(cls)) {
+                dbgTag = @" [播放器]";
+            } else if (_lvIsActivityDebugClass(cls)) {
+                dbgTag = @" [实时活动]";
+            }
             [s appendFormat:@"%@%@ frame=%.0f,%.0f %.0fx%.0f hidden=%d alpha=%.2f bg=%@ 图层=%lu%@%@\n",
              [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
              cls, v.frame.origin.x, v.frame.origin.y,
@@ -620,7 +634,11 @@ static void _lvPlayAllVisiblePlayers(void) {
     @try {
         if (gScreenOff) { _lvMuteAndPauseAll(); return; }
         for (NSString *path in gPlayerMap) {
-            if (!_lvPathIsImageAsset(path)) { [gPlayerMap[path] play]; }
+            AVPlayer *p = gPlayerMap[path];
+            if (!_lvPathIsImageAsset(path)) {
+                p.muted = !_lvSound();   // 点亮/恢复时重置出声（按钮静音由 _lvUpdateButtonAudioEverywhere 接管）
+                [p play];
+            }
         }
     } @catch (NSException *e) {}
 }
@@ -667,22 +685,76 @@ static BOOL _lvIsSingleActionButtonClass(NSString *cls) {
 static void _lvRestoreBackgroundsRecursive(UIView *v, int depth);
 static void _lvDetach(UIView *v);
 
-// 动作按钮组（含单个动作按钮）或通知卡片本体（shortlook/banner/longlook）
+// 通知相关的卡片壳（PLPlatterView）：祖先链含 NCNotification* 才是锁屏通知卡片，
+// 避免误挂控制中心等其它 PLPlatterView。挂背景视频就用这一层，视频透出毛玻璃。
+static BOOL _lvIsNotificationPlatter(UIView *v) {
+    if (!v) { return NO; }
+    NSString *cls = NSStringFromClass([v class]).lowercaseString;
+    if (![cls containsString:@"platterview"]) { return NO; }
+    if ([cls containsString:@"custom"] || [cls containsString:@"content"] ||
+        [cls containsString:@"action"]) { return NO; }
+    for (UIView *c = v; c; c = c.superview) {
+        NSString *pc = NSStringFromClass([c class]).lowercaseString;
+        if ([pc containsString:@"notification"]) { return YES; }
+    }
+    return NO;
+}
+
+// 在子树里找实时活动 / 播放器内容视图（CSActivityItemContentView）
+static UIView *_lvFindActivityContentView(UIView *v) {
+    if (!v) { return nil; }
+    @try {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:v];
+        int visited = 0;
+        while (stack.count > 0 && visited < 200) {
+            UIView *cur = stack.lastObject; [stack removeLastObject]; visited++;
+            NSString *c = NSStringFromClass([cur class]).lowercaseString;
+            if ([c containsString:@"activityitemcontent"]) { return cur; }
+            for (UIView *s in cur.subviews) { [stack addObject:s]; }
+        }
+    } @catch (NSException *e) {}
+    return nil;
+}
+
+// 判断实时活动内容视图是否为「播放器」（Now Playing）：内部含媒体控制控件即为播放器，
+// 否则为实时活动（外卖/打车等 App 的 Live Activity）。两者类名完全相同（CSActivityItemContentView），
+// 只能靠内容里的媒体控件区分。
+static BOOL _lvIsPlayerContentView(UIView *av) {
+    if (!av) { return NO; }
+    @try {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:av];
+        int visited = 0;
+        while (stack.count > 0 && visited < 300) {
+            UIView *cur = stack.lastObject; [stack removeLastObject]; visited++;
+            NSString *c = NSStringFromClass([cur class]).lowercaseString;
+            if ([c containsString:@"transportbutton"] || [c containsString:@"volume"] ||
+                [c containsString:@"route"] || [c containsString:@"playback"] ||
+                [c containsString:@"music"] || [c containsString:@"nowplaying"] ||
+                [c containsString:@"mediacontrols"] || [c containsString:@"mrcontent"] ||
+                [c containsString:@"mrroute"] || [c containsString:@"mruimedia"] ||
+                [c containsString:@"mpbutton"] || [c containsString:@"mpcontrols"] ||
+                [c containsString:@"playpause"] || [c containsString:@"scrubber"]) {
+                return YES;
+            }
+            for (UIView *s in cur.subviews) { [stack addObject:s]; }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
+// 动作按钮组（含单个动作按钮）/ 通知卡片壳（PLPlatterView）/ 旧版 shortlook/banner/longlook
 static BOOL _lvIsNotificationView(UIView *v) {
     @try {
         NSString *cls = NSStringFromClass([v class]);
         if (!cls) { return NO; }
         if (_lvIsActionButtonGroupView(cls)) return YES;
         NSString *low = cls.lowercaseString;
-        if (![low containsString:@"notification"]) { return NO; }
-        if ([low containsString:@"stackdimming"]) { return NO; }
-        if ([low containsString:@"header"])       { return NO; }
-        if ([low containsString:@"listview"])     { return NO; }
-        if ([low containsString:@"sectionlist"])  { return NO; }
-        if ([low containsString:@"listcell"])     { return NO; }
-        if ([low containsString:@"content"])      { return NO; }
-        return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
-    } @catch (NSException *e) { return NO; }
+        if ([low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"]) {
+            return YES;
+        }
+        if (_lvIsNotificationPlatter(v)) return YES;   // iOS16 锁屏列表卡片（PLPlatterView）
+    } @catch (NSException *e) {}
+    return NO;
 }
 
 #pragma mark - 挂载
@@ -738,11 +810,15 @@ static void _lvHideBackgroundsRecursive(UIView *v) {
 
 static void _lvDetach(UIView *v);
 
-// 只针对通知卡片本体（shortlook / banner / longlook）
+// 卡片本体：shortlook / banner / longlook / 通知 PLPlatterView / NCNotificationListCell
 static BOOL _lvIsCardHostClass(NSString *cls) {
     if (!cls) { return NO; }
     NSString *low = cls.lowercaseString;
-    return [low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"];
+    if ([low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"]) return YES;
+    if ([low containsString:@"platterview"] && ![low containsString:@"custom"] &&
+        ![low containsString:@"content"] && ![low containsString:@"action"]) return YES;
+    if ([low containsString:@"listcell"]) return YES;
+    return NO;
 }
 
 // 找到卡片自身的整块背景层（毛玻璃 / 材质 / 暗化视图）在 sublayers 里的索引，找不到返回 -1。
@@ -899,6 +975,7 @@ static BOOL _lvAllowedToAttach(UIView *v) {
         if ([low containsString:@"shortlook"] || [low containsString:@"banner"] || [low containsString:@"longlook"]) {
             return YES;
         }
+        if (_lvIsNotificationPlatter(v)) { return YES; }   // 通知卡片壳：承载消息/实时/播放背景
         if ([v isKindOfClass:[UIButton class]]) { return YES; }
         if (_lvIsPillButtonClass(cls)) { return YES; }
         if ([low containsString:@"actionbutton"]) { return YES; }
@@ -1223,7 +1300,7 @@ static void _lvDebugDraw(UIView *root) {
                     NSString *tag = @"";
                     if (attached)     { tag = @" ★素材"; }
                     else if (isNp)    { tag = @" ▶播放器"; }
-                    else if (isAct)   { tag = @" ●实时活动"; }
+                    else if (isAct)   { tag = _lvIsPlayerContentView(sv) ? @" ▶播放器" : @" ●实时活动"; }
                     NSString *txt = [NSString stringWithFormat:@"%@ %.0fx%.0f%@",
                                      cls, f.size.width, f.size.height, tag];
                     tl.string = txt;
@@ -1315,7 +1392,7 @@ static void _lvRefresh(UIView *v) {
                 if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
                     if (!gScreenOff && _lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑按钮可见才播；熄屏一律不播
                 } else {
-                    if (!gScreenOff) { [p play]; }   // 熄屏不漏音
+                    if (!gScreenOff) { p.muted = !_lvSound(); [p play]; }   // 跟随声音开关；熄屏已在前拦截
                 }
             }
         }
@@ -1679,7 +1756,6 @@ static BOOL _lvIsLockScreenVisible(void) {
 static void _lvOnMatch(UIView *v) {
     _lvLogOnce(NSStringFromClass(v.class), @"命中通知视图");
     _lvDebugDraw(v);
-    _lvDumpHierarchy(_lvBetterDumpRoot(v), NO);
     if (!_lvEnabled()) {
         _lvDetach(v);
         _lvPauseAllPlayers();
@@ -1691,10 +1767,25 @@ static void _lvOnMatch(UIView *v) {
     }
     NSString *cls = NSStringFromClass([v class]);
     if (_lvIsActionButtonGroupView(cls)) {
-        _lvAttachActionButtonGroup(v);   // 按钮组：只给单个按钮挂素材，容器不挂
-    } else {
-        _lvAttach(v);                    // 通知卡片主体：挂主素材
+        _lvAttachActionButtonGroup(v);   // 选项 / 清除按钮：左滑可见才出声
+        return;
     }
+    // 卡片壳：根据内部内容选不同背景素材（消息 / 实时活动 / 播放器 互斥，不叠两层，避免卡顿）
+    if (_lvIsNotificationPlatter(v)) {
+        UIView *activity = _lvFindActivityContentView(v);
+        if (activity && _lvIsPlayerContentView(activity)) {
+            _lvLogOnce(NSStringFromClass(v.class), @"识别为播放器 → 用播放背景素材");
+            _lvAttachWithPath(v, _lvPlayerPath());
+        } else if (activity) {
+            _lvLogOnce(NSStringFromClass(v.class), @"识别为实时活动 → 用实时背景素材");
+            _lvAttachWithPath(v, _lvLivePath());
+        } else {
+            _lvAttachWithPath(v, _lvPath());   // 普通通知（非实时活动）：用消息素材
+        }
+        return;
+    }
+    // 旧版 shortlook / banner / longlook 卡片：挂主素材
+    _lvAttachWithPath(v, _lvPath());
 }
 
 #pragma mark - iOS 16 锁屏通知显式 hook
@@ -1829,9 +1920,13 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
         NSString *main = _lvPath();
         NSString *opt = _lvOptionPath();
         NSString *clr = _lvClearPath();
+        NSString *live = _lvLivePath();
+        NSString *player = _lvPlayerPath();
         if (main.length) [active addObject:main];
         if (opt.length)  [active addObject:opt];
         if (clr.length)  [active addObject:clr];
+        if (live.length) [active addObject:live];
+        if (player.length) [active addObject:player];
 
         // 清理不再需要的播放器
         NSMutableArray<NSString *> *toRemove = [NSMutableArray array];
@@ -1858,7 +1953,7 @@ static void _lvStartPollTimer(void) {
             return;
         }
         if (gPollTimer) { return; }
-        gPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
+        gPollTimer = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:YES block:^(NSTimer *t) {
             @try { _lvPollTick(); } @catch (NSException *e) {}
         }];
     } @catch (NSException *e) {}
@@ -2004,7 +2099,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
             @try {
                 if (_lvEnabled()) {
                     _lvStartPollTimer();
-                    _lvLog(@"轮询扫描已启动(每1.5秒)");
+                    _lvLog(@"轮询扫描已启动(每0.3秒)");
                 } else {
                     _lvLog(@"插件默认关闭：轮询未启动");
                 }
@@ -2018,7 +2113,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
         // 首次运行创建素材目录与「选项背景 / 清除背景」子文件夹
         @try {
             NSFileManager *fm = [NSFileManager defaultManager];
-            for (NSString *d in @[kLVVideoDir, kLVOptionDir, kLVClearDir]) {
+            for (NSString *d in @[kLVVideoDir, kLVOptionDir, kLVClearDir, kLVLiveDir, kLVPlayerDir]) {
                 if (![fm fileExistsAtPath:d]) {
                     [fm createDirectoryAtPath:d withIntermediateDirectories:YES attributes:nil error:nil];
                 }
@@ -2034,6 +2129,10 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
                     if (opt.length && !_lvPathIsImageAsset(opt)) { _lvPlayerForPath(opt); }
                     NSString *clr = _lvClearPath();
                     if (clr.length && !_lvPathIsImageAsset(clr)) { _lvPlayerForPath(clr); }
+                    NSString *live = _lvLivePath();
+                    if (live.length && !_lvPathIsImageAsset(live)) { _lvPlayerForPath(live); }
+                    NSString *player = _lvPlayerPath();
+                    if (player.length && !_lvPathIsImageAsset(player)) { _lvPlayerForPath(player); }
                 } @catch (NSException *e) {}
             });
         }
@@ -2065,7 +2164,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.90 加载完成（基于 1.0.76 重来：轮询只维护已挂视图；选项/清除独立子文件夹；熄屏静音暂停不漏音） =====");
+        _lvLog(@"===== 1.0.91 加载完成（基于 1.0.76 重来：iOS16 列表卡片 PLPlatterView 也能挂背景；新增实时活动/播放器独立素材与子文件夹；轮询0.3s；熄屏/非通知界面不漏音） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
