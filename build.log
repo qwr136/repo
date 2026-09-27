@@ -10,114 +10,18 @@ Building for production...
 [7/9] Compiling SwiftcOutputParser FileLock.swift
 [7/9] Write Objects.LinkFileList
 [8/9] Linking parse-swiftc-output
-Build complete! (5.18s)
+Build complete! (5.12s)
 [0;32m==> [1;39mCompiling Tweak.swift (arm64)…[m
 <unknown>:0: [1;33mwarning: [1;39munable to perform implicit import of "_Concurrency" module: no such module found[0;0m
 <unknown>:0: [1;34mremark: [1;39munable to perform implicit import of "_StringProcessing" module: no such module found[0;0m
-Tweak.swift:176:17: [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m174 |[0;0m         return
-[0;36m175 |[0;0m     }
-[0;36m176 |[0;0m     let w = Int(CGImageGetWidth(img)), h = Int(CGImageGetHeight(img))
-    [0;36m|[0;0m                 `- [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m177 |[0;0m     guard w > 0, h > 0, w * h <= 900000 else { return }
-[0;36m178 |[0;0m     let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:222:18: [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m220 |[0;0m /* Return the width of `image'. */
-[0;36m221 |[0;0m 
-[0;36m222 |[0;0m CG_EXTERN size_t CGImageGetWidth(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m223 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m224 |[0;0m 
-
-Tweak.swift:176:48: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m174 |[0;0m         return
-[0;36m175 |[0;0m     }
-[0;36m176 |[0;0m     let w = Int(CGImageGetWidth(img)), h = Int(CGImageGetHeight(img))
-    [0;36m|[0;0m                                                `- [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m177 |[0;0m     guard w > 0, h > 0, w * h <= 900000 else { return }
-[0;36m178 |[0;0m     let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:227:18: [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m225 |[0;0m /* Return the height of `image'. */
-[0;36m226 |[0;0m 
-[0;36m227 |[0;0m CG_EXTERN size_t CGImageGetHeight(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m229 |[0;0m 
-
-Tweak.swift:203:17: [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m201 |[0;0m func rkModeColorFromCtx(_ ctx: CGContext) -> UIColor? {
-[0;36m202 |[0;0m     guard let img = ctx.makeImage() else { return nil }
-[0;36m203 |[0;0m     let w = Int(CGImageGetWidth(img)), h = Int(CGImageGetHeight(img))
-    [0;36m|[0;0m                 `- [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m204 |[0;0m     guard w > 0, h > 0 else { return nil }
-[0;36m205 |[0;0m     let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:222:18: [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m220 |[0;0m /* Return the width of `image'. */
-[0;36m221 |[0;0m 
-[0;36m222 |[0;0m CG_EXTERN size_t CGImageGetWidth(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m223 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m224 |[0;0m 
-
-Tweak.swift:203:48: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m201 |[0;0m func rkModeColorFromCtx(_ ctx: CGContext) -> UIColor? {
-[0;36m202 |[0;0m     guard let img = ctx.makeImage() else { return nil }
-[0;36m203 |[0;0m     let w = Int(CGImageGetWidth(img)), h = Int(CGImageGetHeight(img))
-    [0;36m|[0;0m                                                `- [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m204 |[0;0m     guard w > 0, h > 0 else { return nil }
-[0;36m205 |[0;0m     let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:227:18: [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m225 |[0;0m /* Return the height of `image'. */
-[0;36m226 |[0;0m 
-[0;36m227 |[0;0m CG_EXTERN size_t CGImageGetHeight(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m229 |[0;0m 
-
 Tweak.swift:234:31: [1;31merror: [1;39mconditional downcast to CoreFoundation type 'CGImage' will always succeed[0;0m
 [0;36m232 |[0;0m func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
 [0;36m233 |[0;0m     guard let layer = layer, depth <= 4 else { return nil }
 [0;36m234 |[0;0m     if let c = layer.contents as? CGImage {
     [0;36m|[0;0m                               |- [1;31merror: [1;39mconditional downcast to CoreFoundation type 'CGImage' will always succeed[0;0m
     [0;36m|[0;0m                               `- [1;39mnote: [1;39mdid you mean to explicitly compare the CFTypeIDs of 'contents' and 'CGImage'?[0;0m
-[0;36m235 |[0;0m         let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
+[0;36m235 |[0;0m         let w = Int(c.width), h = Int(c.height)
 [0;36m236 |[0;0m         guard w > 0, h > 0 else { return nil }
-
-Tweak.swift:235:21: [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m233 |[0;0m     guard let layer = layer, depth <= 4 else { return nil }
-[0;36m234 |[0;0m     if let c = layer.contents as? CGImage {
-[0;36m235 |[0;0m         let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
-    [0;36m|[0;0m                     `- [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m236 |[0;0m         guard w > 0, h > 0 else { return nil }
-[0;36m237 |[0;0m         let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:222:18: [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m220 |[0;0m /* Return the width of `image'. */
-[0;36m221 |[0;0m 
-[0;36m222 |[0;0m CG_EXTERN size_t CGImageGetWidth(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m223 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m224 |[0;0m 
-
-Tweak.swift:235:50: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m233 |[0;0m     guard let layer = layer, depth <= 4 else { return nil }
-[0;36m234 |[0;0m     if let c = layer.contents as? CGImage {
-[0;36m235 |[0;0m         let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
-    [0;36m|[0;0m                                                  `- [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m236 |[0;0m         guard w > 0, h > 0 else { return nil }
-[0;36m237 |[0;0m         let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:227:18: [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m225 |[0;0m /* Return the height of `image'. */
-[0;36m226 |[0;0m 
-[0;36m227 |[0;0m CG_EXTERN size_t CGImageGetHeight(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m229 |[0;0m 
 
 Tweak.swift:255:31: [1;31merror: [1;39mconditional downcast to CoreFoundation type 'CGImage' will always succeed[0;0m
 [0;36m253 |[0;0m func rkRecolorLayerTree(layer: CALayer?, target: UIColor, depth: Int) {
@@ -125,40 +29,8 @@ Tweak.swift:255:31: [1;31merror: [1;39mconditional downcast to CoreFoundation 
 [0;36m255 |[0;0m     if let c = layer.contents as? CGImage {
     [0;36m|[0;0m                               |- [1;31merror: [1;39mconditional downcast to CoreFoundation type 'CGImage' will always succeed[0;0m
     [0;36m|[0;0m                               `- [1;39mnote: [1;39mdid you mean to explicitly compare the CFTypeIDs of 'contents' and 'CGImage'?[0;0m
-[0;36m256 |[0;0m         let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
+[0;36m256 |[0;0m         let w = Int(c.width), h = Int(c.height)
 [0;36m257 |[0;0m         if w > 0, h > 0, w * h <= 600000 {
-
-Tweak.swift:256:21: [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m254 |[0;0m     guard let layer = layer, depth <= 5 else { return }
-[0;36m255 |[0;0m     if let c = layer.contents as? CGImage {
-[0;36m256 |[0;0m         let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
-    [0;36m|[0;0m                     `- [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
-[0;36m257 |[0;0m         if w > 0, h > 0, w * h <= 600000 {
-[0;36m258 |[0;0m             let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:222:18: [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m220 |[0;0m /* Return the width of `image'. */
-[0;36m221 |[0;0m 
-[0;36m222 |[0;0m CG_EXTERN size_t CGImageGetWidth(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetWidth' was obsoleted in Swift 3[0;0m
-[0;36m223 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m224 |[0;0m 
-
-Tweak.swift:256:50: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m254 |[0;0m     guard let layer = layer, depth <= 5 else { return }
-[0;36m255 |[0;0m     if let c = layer.contents as? CGImage {
-[0;36m256 |[0;0m         let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
-    [0;36m|[0;0m                                                  `- [1;31merror: [1;39m'CGImageGetHeight' has been replaced by property 'CGImage.height'[0;0m
-[0;36m257 |[0;0m         if w > 0, h > 0, w * h <= 600000 {
-[0;36m258 |[0;0m             let bpr = w * 4
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:227:18: [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m225 |[0;0m /* Return the height of `image'. */
-[0;36m226 |[0;0m 
-[0;36m227 |[0;0m CG_EXTERN size_t CGImageGetHeight(CGImageRef cg_nullable image)
-    [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
-[0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
-[0;36m229 |[0;0m 
 
 Tweak.swift:296:15: [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
 [0;36m294 |[0;0m // MARK: - 各入口 hook
@@ -225,65 +97,136 @@ Tweak.swift:394:54: [1;33mwarning: [1;39mconditional downcast from 'AnyClass?'
 [0;36m395 |[0;0m     gKeyViewCls = cls
 [0;36m396 |[0;0m     rkHookDisplayLayer(cls: cls)
 
+Tweak.swift:413:36: [1;33mwarning: [1;39mleft side of nil coalescing operator '??' has non-optional type 'UIScreen', so the right side is never used[0;0m
+[0;36m411 |[0;0m         let alert = UIAlertController(title: "键盘同色诊断", message: msg, preferredStyle: .alert)
+[0;36m412 |[0;0m         alert.addAction(UIAlertAction(title: "OK", style: .default))
+[0;36m413 |[0;0m         let screen = [4;39mUIScreen.main[0;0m ?? UIScreen()
+    [0;36m|[0;0m                                    `- [1;33mwarning: [1;39mleft side of nil coalescing operator '??' has non-optional type 'UIScreen', so the right side is never used[0;0m
+[0;36m414 |[0;0m         let win = UIWindow(frame: screen.bounds)
+[0;36m415 |[0;0m         win.rootViewController = UIViewController()
+
+Tweak.swift:510:23: [1;33mwarning: [1;39mconditional cast from 'UIView' to 'NSObject' always succeeds[0;0m
+[0;36m508 |[0;0m     rkDiag("keys=\(keys.count) 123键找到=\(hasMore) 回车键找到=\(hasReturn)")
+[0;36m509 |[0;0m     if let ret = keys.first(where: { rkIsReturn($0) }) {
+[0;36m510 |[0;0m         let dt = (ret as? NSObject)?.value(forKeyPath: "key.displayType")
+    [0;36m|[0;0m                       `- [1;33mwarning: [1;39mconditional cast from 'UIView' to 'NSObject' always succeeds[0;0m
+[0;36m511 |[0;0m         rkDiag("回车键 displayType=\(dt ?? "nil")")
+[0;36m512 |[0;0m     }
+
+Tweak.swift:513:56: [1;33mwarning: [1;39mconditional downcast from 'UIView?' to 'UIView' does nothing[0;0m
+[0;36m511 |[0;0m         rkDiag("回车键 displayType=\(dt ?? "nil")")
+[0;36m512 |[0;0m     }
+[0;36m513 |[0;0m     if let ret = [4;39mkeys.first(where: { rkIsReturn($0) })[0;0m as? [4;39mUIView[0;0m, let lay = ret.layer as CALayer? {
+    [0;36m|[0;0m                                                        `- [1;33mwarning: [1;39mconditional downcast from 'UIView?' to 'UIView' does nothing[0;0m
+[0;36m514 |[0;0m         rkDiag("回车键 layer.contents=\((lay.contents as? CGImage) != nil ? "有图" : "nil")")
+[0;36m515 |[0;0m     }
+
 Please submit a bug report (https://swift.org/contributing/#reporting-bugs) and include the crash backtrace.
 Stack dump:
 0.	Program arguments: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend -frontend -c Tweak.swift -emit-module-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.swiftmodule -emit-module-doc-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.swiftdoc -emit-module-source-info-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.swiftsourceinfo -emit-dependencies-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/master.f895b7b1.Td -emit-objc-header-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/generated/ReturnKeyColor-Swift.h -emit-abi-descriptor-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.abi.json -target arm64-apple-ios14.5 -Xllvm -aarch64-use-tbi -enable-objc-interop -stack-check -sdk /Users/runner/theos/sdks/iPhoneOS14.5.sdk -I /Users/runner/theos/include/iphone -I /Users/runner/theos/include -I /Users/runner/theos/vendor/include -I /Users/runner/theos/include/_fallback -F /Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/PrivateFrameworks -F /Users/runner/theos/vendor/lib/iphone/rootless -F /Users/runner/theos/lib/iphone/rootless -no-color-diagnostics -Xcc -fno-color-diagnostics -g -debug-info-format=dwarf -dwarf-version=4 -swift-version 5 -O -D THEOS_SWIFT -D TARGET_IPHONE -new-driver-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-driver -color-diagnostics -empty-abi-descriptor -resource-dir /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift -file-compilation-dir /Users/runner/work/repo/repo/src/returnkeycolor -Xcc -fcolor-diagnostics -Xcc -DTARGET_IPHONE=1 -Xcc -Os -Xcc -Wall -Xcc -ggdb -Xcc -Wno-unused-command-line-argument -Xcc -Qunused-arguments -Xcc -F/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/PrivateFrameworks -Xcc -F/Users/runner/theos/vendor/lib/iphone/rootless -Xcc -F/Users/runner/theos/lib/iphone/rootless -Xcc -Werror -Xcc -D -Xcc THEOS_PACKAGE_INSTALL_PREFIX=\"/var/jb\" -Xcc -isysroot -Xcc /Users/runner/theos/sdks/iPhoneOS14.5.sdk -Xcc -target -Xcc arm64-apple-ios14.5 -Xcc -resource-dir -Xcc /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/../lib/swift/clang -Xcc -fobjc-arc -Xcc -DTHEOS_INSTANCE_NAME=\"ReturnKeyColor\" -Xcc -fmodules -Xcc -fcxx-modules -Xcc -fmodule-name=ReturnKeyColor -Xcc -fbuild-session-file=/Users/runner/work/repo/repo/src/returnkeycolor/.theos/build_session -Xcc -fmodules-prune-after=345600 -Xcc -fmodules-prune-interval=86400 -Xcc -fmodules-validate-once-per-build-session -Xcc -arch -Xcc arm64 -Xcc -stdlib=libc++ -Xcc -fobjc-arc -no-auto-bridging-header-chaining -module-name ReturnKeyColor -disable-clang-spi -target-sdk-version 14.5 -target-sdk-name iphoneos14.5 -external-plugin-path /Users/runner/Developer/usr/lib/swift/host/plugins#/Users/runner/Developer/usr/bin/swift-plugin-server -external-plugin-path /Users/runner/Developer/usr/local/lib/swift/host/plugins#/Users/runner/Developer/usr/bin/swift-plugin-server -in-process-plugin-server-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/libSwiftInProcPluginServer.dylib -plugin-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins -plugin-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/local/lib/swift/host/plugins -enable-default-cmo -parse-as-library -num-threads 1 -o /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/Tweak.swift.f895b7b1.o
 1.	Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
 2.	Compiling with effective version 5.10
 3.	While evaluating request TypeCheckPrimaryFileRequest(source_file "Tweak.swift")
-4.	While evaluating request TypeCheckFunctionBodyRequest(ReturnKeyColor.(file).rkTintFromKey@Tweak.swift:459:6)
-5.	While type-checking statement at [Tweak.swift:459:35 - line:467:1] RangeText="{
+4.	While evaluating request TypeCheckFunctionBodyRequest(ReturnKeyColor.(file).rkTintKeyboard(root:)@Tweak.swift:469:6)
+5.	While type-checking statement at [Tweak.swift:469:35 - line:521:1] RangeText="{
     guard rkEnabled() else { return }
-    guard let root = rkKeyboardRoot(key) else { return }
-    let now = Date.timeIntervalSinceReferenceDate
-    let last = objc_getAssociatedObject(root, &kRKGenKey) as? NSNumber
-    if let l = last, now - l.doubleValue < 0.4 { return }
-    objc_setAssociatedObject(root, &kRKGenKey, NSNumber(value: now), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    DispatchQueue.main.async { rkTintKeyboard(root: root) }
+    let keys = rkCollectKeys(root: root)
+    guard !keys.isEmpty else { return }
+    rkInstallLayerHooks()
+
+    let style = currentStyle()
+    if let _ = gFuncColor, gFuncColorStyle != style { gFuncColor = nil }
+
+    if gFuncColor == nil {
+        for kv in keys {
+            guard rkIsMore(kv) else { continue }
+            var c = rkVisualColor(view: kv)
+            if c == nil { c = rkColorFromLayerTree(layer: kv.layer, depth: 0) }
+            if let col = c, !rkIsBlue(col) {
+                gFuncColor = col
+                gFuncColorStyle = style
+                rkDiag("取色(123键)=\(rkRGBStr(col))")
+                break
+            }
+        }
+    }
+    if gFuncColor == nil {
+        gFails += 1
+        if gFails > 20 {
+            gFuncColor = (style == .dark)
+                ? UIColor(red: 0.357, green: 0.373, blue: 0.392, alpha: 1.0)
+                : UIColor(red: 0.671, green: 0.690, blue: 0.729, alpha: 1.0)
+            gFuncColorStyle = style
+            rkDiag("取色失败改用兜底灰")
+        } else {
+            rkDiag("123键取色暂未成功(fails=\(gFails))")
+            rkShowDiagIfNeeded()
+            return
+        }
+    }
+
+    let hasReturn = keys.contains { rkIsReturn($0) }
+    let hasMore = keys.contains { rkIsMore($0) }
+    rkDiag("keys=\(keys.count) 123键找到=\(hasMore) 回车键找到=\(hasReturn)")
+    if let ret = keys.first(where: { rkIsReturn($0) }) {
+        let dt = (ret as? NSObject)?.value(forKeyPath: "key.displayType")
+        rkDiag("回车键 displayType=\(dt ?? "nil")")
+    }
+    if let ret = keys.first(where: { rkIsReturn($0) }) as? UIView, let lay = ret.layer as CALayer? {
+        rkDiag("回车键 layer.contents=\((lay.contents as? CGImage) != nil ? "有图" : "nil")")
+    }
+
+    if let _ = gFuncColor {
+        DispatchQueue.main.async { rkForceRedraw(root: root) }
+    }
+    rkShowDiagIfNeeded()
 "
-6.	While type-checking expression at [Tweak.swift:466:5 - line:466:59] RangeText="DispatchQueue.main.async { rkTintKeyboard(root: root) "
-7.	While type-checking-target starting at Tweak.swift:466:24
+6.	While type-checking statement at [Tweak.swift:517:5 - line:519:5] RangeText="if let _ = gFuncColor {
+        DispatchQueue.main.async { rkForceRedraw(root: root) }
+    "
+7.	While type-checking statement at [Tweak.swift:517:27 - line:519:5] RangeText="{
+        DispatchQueue.main.async { rkForceRedraw(root: root) }
+    "
+8.	While type-checking expression at [Tweak.swift:518:9 - line:518:62] RangeText="DispatchQueue.main.async { rkForceRedraw(root: root) "
+9.	While type-checking-target starting at Tweak.swift:518:28
 Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
-0  swift-frontend           0x0000000106a5d08c llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 56
-1  swift-frontend           0x0000000106a5a52c llvm::sys::RunSignalHandlers() + 172
-2  swift-frontend           0x0000000106a5d67c SignalHandler(int, __siginfo*, void*) + 356
-3  libsystem_platform.dylib 0x0000000186179744 _sigtramp + 56
-4  swift-frontend           0x00000001021b3810 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 56
-5  swift-frontend           0x00000001021b3810 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 56
-6  swift-frontend           0x00000001021b38b0 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 216
-7  swift-frontend           0x00000001021b4684 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 3756
-8  swift-frontend           0x00000001021b53e0 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 7176
-9  swift-frontend           0x00000001021b3a04 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 556
-10 swift-frontend           0x00000001021b53e0 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 7176
-11 swift-frontend           0x00000001018e4960 swift::constraints::Solution::simplifyType(swift::Type, bool, bool) const + 324
-12 swift-frontend           0x000000010179537c (anonymous namespace)::SetExprTypes::walkToExprPost(swift::Expr*) + 224
-13 swift-frontend           0x0000000101e4ef30 (anonymous namespace)::Traversal::visitDynamicMemberRefExpr(swift::DynamicMemberRefExpr*) + 112
-14 swift-frontend           0x0000000101e4eb0c (anonymous namespace)::Traversal::visit(swift::Expr*) + 1168
-15 swift-frontend           0x0000000101e54838 (anonymous namespace)::Traversal::visit(swift::ArgumentList*) + 260
-16 swift-frontend           0x0000000101e511ac (anonymous namespace)::Traversal::visitApplyExpr(swift::ApplyExpr*) + 196
-17 swift-frontend           0x0000000101e4e6d0 (anonymous namespace)::Traversal::visit(swift::Expr*) + 84
-18 swift-frontend           0x00000001017857b8 (anonymous namespace)::ExprRewriter::finishApply(swift::ApplyExpr*, swift::Type, swift::constraints::ConstraintLocatorBuilder, swift::constraints::ConstraintLocatorBuilder) + 6632
-19 swift-frontend           0x000000010178c73c (anonymous namespace)::ExprRewriter::visitApplyExpr(swift::ApplyExpr*) + 356
-20 swift-frontend           0x0000000101768838 (anonymous namespace)::ExprWalker::walkToExprPost(swift::Expr*) + 76
-21 swift-frontend           0x0000000101763220 (anonymous namespace)::ExprWalker::rewriteTarget(swift::constraints::SyntacticElementTarget) + 2876
-22 swift-frontend           0x0000000101762360 swift::constraints::ConstraintSystem::applySolution(swift::constraints::Solution&, swift::constraints::SyntacticElementTarget) + 7124
-23 swift-frontend           0x0000000101a4fcb0 swift::TypeChecker::typeCheckTarget(swift::constraints::SyntacticElementTarget&, swift::optionset::OptionSet<swift::TypeCheckExprFlags, unsigned int>, swift::DiagnosticTransaction*) + 1920
-24 swift-frontend           0x0000000101a4f4d0 swift::TypeChecker::typeCheckExpression(swift::constraints::SyntacticElementTarget&, swift::optionset::OptionSet<swift::TypeCheckExprFlags, unsigned int>, swift::DiagnosticTransaction*) + 400
-25 swift-frontend           0x0000000101b5f644 (anonymous namespace)::StmtChecker::typeCheckASTNode(swift::ASTNode&) + 404
-26 swift-frontend           0x0000000101b64314 swift::ASTVisitor<(anonymous namespace)::StmtChecker, void, swift::Stmt*, void, void, void, void>::visit(swift::Stmt*) + 300
-27 swift-frontend           0x0000000101b62130 bool (anonymous namespace)::StmtChecker::typeCheckStmt<swift::BraceStmt>(swift::BraceStmt*&) + 292
-28 swift-frontend           0x0000000101b61158 swift::TypeCheckFunctionBodyRequest::evaluate(swift::Evaluator&, swift::AbstractFunctionDecl*) const + 2284
-29 swift-frontend           0x0000000101fc2d94 swift::TypeCheckFunctionBodyRequest::OutputType swift::Evaluator::getResultUncached<swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckFunctionBodyRequest>(swift::Evaluator&, swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType)::'lambda'()>(swift::TypeCheckFunctionBodyRequest const&, swift::TypeCheckFunctionBodyRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckFunctionBodyRequest>(swift::Evaluator&, swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType)::'lambda'()) + 680
-30 swift-frontend           0x0000000101f14250 swift::AbstractFunctionDecl::getTypecheckedBody() const + 152
-31 swift-frontend           0x0000000101bb2118 swift::TypeCheckPrimaryFileRequest::evaluate(swift::Evaluator&, swift::SourceFile*) const + 1276
-32 swift-frontend           0x0000000101bbb3b0 swift::TypeCheckPrimaryFileRequest::OutputType swift::Evaluator::getResultUncached<swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckPrimaryFileRequest>(swift::Evaluator&, swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType)::'lambda'()>(swift::TypeCheckPrimaryFileRequest const&, swift::TypeCheckPrimaryFileRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckPrimaryFileRequest>(swift::Evaluator&, swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType)::'lambda'()) + 644
-33 swift-frontend           0x00000001009ea6e4 bool llvm::function_ref<bool (swift::SourceFile&)>::callback_fn<swift::CompilerInstance::performSema()::$_0>(long, swift::SourceFile&) + 156
-34 swift-frontend           0x00000001009e3a70 swift::CompilerInstance::forEachFileToTypeCheck(llvm::function_ref<bool (swift::SourceFile&)>) + 284
-35 swift-frontend           0x00000001009e3894 swift::CompilerInstance::performSema() + 456
-36 swift-frontend           0x00000001005cb608 performCompile(swift::CompilerInstance&, int&, swift::FrontendObserver*, llvm::ArrayRef<char const*>) + 548
-37 swift-frontend           0x00000001005c8818 swift::performFrontend(llvm::ArrayRef<char const*>, char const*, void*, swift::FrontendObserver*) + 3308
-38 swift-frontend           0x0000000100548424 swift::mainEntry(int, char const**) + 5224
-39 dyld                     0x0000000185da44e4 start + 6992
+0  swift-frontend           0x000000010904508c llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 56
+1  swift-frontend           0x000000010904252c llvm::sys::RunSignalHandlers() + 172
+2  swift-frontend           0x000000010904567c SignalHandler(int, __siginfo*, void*) + 356
+3  libsystem_platform.dylib 0x000000018cb69744 _sigtramp + 56
+4  swift-frontend           0x000000010433a040 swift::FunctionType::get(llvm::ArrayRef<swift::AnyFunctionType::Param>, swift::Type, std::__1::optional<swift::ASTExtInfo>) + 576
+5  swift-frontend           0x0000000104015ca8 swift::adjustFunctionTypeForConcurrency(swift::AnyFunctionType*, swift::ValueDecl*, swift::DeclContext*, unsigned int, bool, llvm::function_ref<swift::Type (swift::AbstractClosureExpr const*)>, llvm::function_ref<bool (swift::ClosureExpr const*)>, llvm::function_ref<swift::Type (swift::Type)>) + 3980
+6  swift-frontend           0x0000000103f6be24 swift::constraints::ConstraintSystem::adjustFunctionTypeForConcurrency(swift::FunctionType*, swift::Type, swift::ValueDecl*, swift::DeclContext*, unsigned int, bool, bool, swift::constraints::ConstraintLocatorBuilder) + 140
+7  swift-frontend           0x0000000103f71b94 swift::constraints::ConstraintSystem::getTypeOfMemberReferencePost(swift::constraints::OverloadChoice, swift::DeclContext*, swift::constraints::ConstraintLocator*, swift::Type, swift::Type) + 1880
+8  swift-frontend           0x0000000103f74a80 swift::constraints::ConstraintSystem::resolveOverload(swift::constraints::OverloadChoice, swift::DeclContext*, swift::constraints::ConstraintLocator*, swift::Type, swift::constraints::PreparedOverload*) + 1404
+9  swift-frontend           0x0000000103e08eb8 swift::constraints::ConstraintSystem::simplifyConstraint(swift::constraints::Constraint const&) + 4608
+10 swift-frontend           0x0000000103e32fb4 swift::constraints::DisjunctionStep::attempt(swift::constraints::DisjunctionChoice const&) + 180
+11 swift-frontend           0x0000000103e31e70 swift::constraints::BindingStep<swift::constraints::DisjunctionChoiceProducer>::take(bool) + 912
+12 swift-frontend           0x0000000103e1d450 swift::constraints::ConstraintSystem::solveImpl(llvm::SmallVectorImpl<swift::constraints::Solution>&) + 504
+13 swift-frontend           0x0000000103e20590 swift::constraints::ConstraintSystem::solve(llvm::SmallVectorImpl<swift::constraints::Solution>&, swift::FreeTypeVariableBinding) + 60
+14 swift-frontend           0x0000000103e1fc08 swift::constraints::ConstraintSystem::solve(swift::constraints::SyntacticElementTarget&, swift::FreeTypeVariableBinding) + 812
+15 swift-frontend           0x0000000104037c58 swift::TypeChecker::typeCheckTarget(swift::constraints::SyntacticElementTarget&, swift::optionset::OptionSet<swift::TypeCheckExprFlags, unsigned int>, swift::DiagnosticTransaction*) + 1832
+16 swift-frontend           0x00000001040374d0 swift::TypeChecker::typeCheckExpression(swift::constraints::SyntacticElementTarget&, swift::optionset::OptionSet<swift::TypeCheckExprFlags, unsigned int>, swift::DiagnosticTransaction*) + 400
+17 swift-frontend           0x0000000104147644 (anonymous namespace)::StmtChecker::typeCheckASTNode(swift::ASTNode&) + 404
+18 swift-frontend           0x000000010414c314 swift::ASTVisitor<(anonymous namespace)::StmtChecker, void, swift::Stmt*, void, void, void, void>::visit(swift::Stmt*) + 300
+19 swift-frontend           0x000000010414a130 bool (anonymous namespace)::StmtChecker::typeCheckStmt<swift::BraceStmt>(swift::BraceStmt*&) + 292
+20 swift-frontend           0x000000010414c6a4 swift::ASTVisitor<(anonymous namespace)::StmtChecker, void, swift::Stmt*, void, void, void, void>::visit(swift::Stmt*) + 1212
+21 swift-frontend           0x000000010414c178 bool (anonymous namespace)::StmtChecker::typeCheckStmt<swift::Stmt>(swift::Stmt*&) + 292
+22 swift-frontend           0x00000001041474fc (anonymous namespace)::StmtChecker::typeCheckASTNode(swift::ASTNode&) + 76
+23 swift-frontend           0x000000010414c314 swift::ASTVisitor<(anonymous namespace)::StmtChecker, void, swift::Stmt*, void, void, void, void>::visit(swift::Stmt*) + 300
+24 swift-frontend           0x000000010414a130 bool (anonymous namespace)::StmtChecker::typeCheckStmt<swift::BraceStmt>(swift::BraceStmt*&) + 292
+25 swift-frontend           0x0000000104149158 swift::TypeCheckFunctionBodyRequest::evaluate(swift::Evaluator&, swift::AbstractFunctionDecl*) const + 2284
+26 swift-frontend           0x00000001045aad94 swift::TypeCheckFunctionBodyRequest::OutputType swift::Evaluator::getResultUncached<swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckFunctionBodyRequest>(swift::Evaluator&, swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType)::'lambda'()>(swift::TypeCheckFunctionBodyRequest const&, swift::TypeCheckFunctionBodyRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckFunctionBodyRequest>(swift::Evaluator&, swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType)::'lambda'()) + 680
+27 swift-frontend           0x00000001044fc250 swift::AbstractFunctionDecl::getTypecheckedBody() const + 152
+28 swift-frontend           0x000000010419a118 swift::TypeCheckPrimaryFileRequest::evaluate(swift::Evaluator&, swift::SourceFile*) const + 1276
+29 swift-frontend           0x00000001041a33b0 swift::TypeCheckPrimaryFileRequest::OutputType swift::Evaluator::getResultUncached<swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckPrimaryFileRequest>(swift::Evaluator&, swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType)::'lambda'()>(swift::TypeCheckPrimaryFileRequest const&, swift::TypeCheckPrimaryFileRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckPrimaryFileRequest>(swift::Evaluator&, swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType)::'lambda'()) + 644
+30 swift-frontend           0x0000000102fd26e4 bool llvm::function_ref<bool (swift::SourceFile&)>::callback_fn<swift::CompilerInstance::performSema()::$_0>(long, swift::SourceFile&) + 156
+31 swift-frontend           0x0000000102fcba70 swift::CompilerInstance::forEachFileToTypeCheck(llvm::function_ref<bool (swift::SourceFile&)>) + 284
+32 swift-frontend           0x0000000102fcb894 swift::CompilerInstance::performSema() + 456
+33 swift-frontend           0x0000000102bb3608 performCompile(swift::CompilerInstance&, int&, swift::FrontendObserver*, llvm::ArrayRef<char const*>) + 548
+34 swift-frontend           0x0000000102bb0818 swift::performFrontend(llvm::ArrayRef<char const*>, char const*, void*, swift::FrontendObserver*) + 3308
+35 swift-frontend           0x0000000102b30424 swift::mainEntry(int, char const**) + 5224
+36 dyld                     0x000000018c7944e4 start + 6992
 
 error: compile command failed due to signal 11 (use -v to see invocation)
 make[4]: *** [internal-swift-ReturnKeyColor-arm64] Error 1
