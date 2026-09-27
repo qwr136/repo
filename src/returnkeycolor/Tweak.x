@@ -15,6 +15,11 @@
 #define kRKPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.returnkeycolor.plist"
 #define kRKLogFile   @"/var/mobile/Documents/键盘同色日志.txt"
 
+// UIKBKeyView 是 UIKit 私有键盘键帽视图：声明继承关系，否则 %hook 内
+// self.window / 传参给 UIView* 都会报前向类错误
+@interface UIKBKeyView : UIView
+@end
+
 static char kRKGenKey;
 
 #pragma mark - 偏好与日志
@@ -108,26 +113,23 @@ static NSString *RKDisplayString(UIView *v) {
     return nil;
 }
 
-// 找键帽 shape：fill 不透明（alpha>=0.99）且投影面积最大的 CAShapeLayer
-// （键帽立体阴影层的 fill 是半透明黑，会被 alpha 条件排除）
-static CAShapeLayer *RKKeycapShape(UIView *v) {
-    __block CAShapeLayer *best = nil;
-    __block CGFloat bestArea = 0;
-    __block void (^walk)(CALayer *) = nil;
-    walk = ^(CALayer *l) {
-        if ([l isKindOfClass:[CAShapeLayer class]]) {
-            CGColorRef f = ((CAShapeLayer *)l).fillColor;
-            if (f) {
-                CGFloat a = CGColorGetAlpha(f);
-                if (a >= 0.99) {
-                    CGFloat area = l.frame.size.width * l.frame.size.height;
-                    if (area > bestArea) { bestArea = area; best = (CAShapeLayer *)l; }
-                }
-            }
+// 递归收集：fill 不透明（alpha>=0.99）且投影面积最大的 CAShapeLayer（用普通函数避免 block 递归 retain cycle）
+static void RKWalkLargestShape(CALayer *l, CAShapeLayer **best, CGFloat *bestArea) {
+    if ([l isKindOfClass:[CAShapeLayer class]]) {
+        CGColorRef f = ((CAShapeLayer *)l).fillColor;
+        if (f && CGColorGetAlpha(f) >= 0.99) {
+            CGFloat area = l.frame.size.width * l.frame.size.height;
+            if (area > *bestArea) { *bestArea = area; *best = (CAShapeLayer *)l; }
         }
-        for (CALayer *sub in l.sublayers) { walk(sub); }
-    };
-    walk(v.layer);
+    }
+    for (CALayer *sub in l.sublayers) { RKWalkLargestShape(sub, best, bestArea); }
+}
+
+// 找键帽 shape（键帽立体阴影层的 fill 是半透明黑，会被 alpha 条件排除）
+static CAShapeLayer *RKKeycapShape(UIView *v) {
+    CAShapeLayer *best = nil;
+    CGFloat bestArea = 0;
+    RKWalkLargestShape(v.layer, &best, &bestArea);
     return best;
 }
 
@@ -167,8 +169,10 @@ static void RKTintKeyboard(UIView *root) {
                         UIColor *c = [UIColor colorWithCGColor:cap.fillColor];
                         if (!RKIsBlue(c) && !funcColor) {
                             funcColor = c;
-                            RKLog([NSString stringWithFormat:@"取到功能键色: %@ (键=%@)",
-                                   NSStringFromCGColor(cap.fillColor), txt]);
+                            CGFloat r = 0, g = 0, b = 0, a = 0;
+                            [c getRed:&r green:&g blue:&b alpha:&a];
+                            RKLog([NSString stringWithFormat:@"取到功能键色: (%.3f, %.3f, %.3f, %.3f) 键=%@",
+                                   r, g, b, a, txt]);
                         }
                     }
                 } else if (RKIsReturnString(txt)) {
