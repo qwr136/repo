@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Filter</key>
+	<dict>
+		<key>Bundles</key>
+		<array>
+			<!--
+			微信键盘是闭源输入法扩展，下面的 bundle id 是占位，请换成真实的键盘扩展 id。
+			查找方法（任选）：
+			  1) 在设备上用 Filza 看 /var/containers/Bundle/Application/<微信键盘>/ 里的
+			     扩展（PlugIns/*.appex/Info.plist 的 CFBundleIdentifier）；
+			  2) 或把本插件临时改成过滤 com.apple.UIKit 并开 DebugLog，切到微信键盘后
+			     在 syslog 里看进程对应的 bundle（NSLog 会带扩展包名）。
+			常见猜测：com.tencent.wckeyboard / com.tencent.WeChatKeyboard
+			-->
+			<string>com.tencent.wckeyboard</string>
+		</array>
+	</dict>
+</dict>
+</plist>

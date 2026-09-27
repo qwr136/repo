@@ -1,0 +1,72 @@
+name: Build WeChatKeyboardToolbar (macOS)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/wechatkeyboardtoolbar/**'
+
+# 仅读权限：本流程不回推 debs/Packages，只产出 artifact 供下载
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew install ldid xz dpkg
+
+      - name: Setup Theos
+        run: |
+          git clone --recursive --depth=1 https://github.com/theos/theos.git $HOME/theos
+          mkdir -p $HOME/theos/sdks
+          curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
+
+      - name: Fix Swift stdlib (theos SDK 缺 usr/lib/swift → 从 Xcode SDK 复制)
+        run: |
+          export THEOS=$HOME/theos
+          export THEOS_SDK_PATH="$THEOS/sdks/iPhoneOS.sdk"
+          XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
+          if [ -n "$XCODE_SDK" ] && [ -d "$XCODE_SDK/usr/lib/swift" ]; then
+            mkdir -p "$THEOS_SDK_PATH/usr/lib"
+            cp -R "$XCODE_SDK/usr/lib/swift" "$THEOS_SDK_PATH/usr/lib/swift"
+            echo "=== 已复制 Xcode Swift 标准库到 theos SDK ==="
+            ls -d "$THEOS_SDK_PATH/usr/lib/swift/_Concurrency.swiftmodule" 2>&1 || true
+          else
+            echo "!!! 未找到 Xcode iPhoneOS SDK 的 usr/lib/swift: $XCODE_SDK"
+          fi
+
+      - name: Build (arm64 + arm64e fat, -Onone 避免 GitHub runner 上 swiftc 被 OOM kill)
+        run: |
+          export THEOS=$HOME/theos
+          cd src/wechatkeyboardtoolbar
+          make clean
+          # 不用 FINALPACKAGE → swift 走 -Onone，内存占用大幅降低，绕开 signal 9 (OOM)
+          make package 2>&1 | tee "$GITHUB_WORKSPACE/wk-build.log"
+          ls -la packages/ 2>&1
+
+      - name: Repack deb to gzip (iOS 兼容，防 Bad Deb)
+        run: |
+          cd "$GITHUB_WORKSPACE/src/wechatkeyboardtoolbar/packages"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/repack_gzip.py"
+
+      - name: Verify deb (control 单行 + gzip + 架构 iphoneos-arm64)
+        run: |
+          cd "$GITHUB_WORKSPACE/src/wechatkeyboardtoolbar/packages"
+          for d in *.deb; do
+            dpkg-deb -I "$d" > /dev/null
+            dpkg-deb -c "$d" > /dev/null
+          done
+          python3 "$GITHUB_WORKSPACE/.github/scripts/verify_deb.py"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: src/wechatkeyboardtoolbar/packages/*.deb
