@@ -7,9 +7,9 @@ on:
     paths:
       - 'src/wechatkeyboardtoolbar/**'
 
-# 仅读权限：本流程不回推 debs/Packages，只产出 artifact 供下载
+# 需要写权限：把编好的 deb 提交到专用分支（绕开本机下载 Azure Blob 的 DNS 污染）
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -76,6 +76,19 @@ jobs:
             dpkg-deb -c "$d" > /dev/null
           done
           python3 "$GITHUB_WORKSPACE/.github/scripts/verify_deb.py"
+
+      - name: 提交 deb 到专用分支 wechat-deb（绕开本机下载 Azure Blob 的 DNS 污染）
+        if: success()
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p debs
+          cp src/wechatkeyboardtoolbar/packages/*.deb debs/
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B wechat-deb
+          git add debs/*.deb
+          git commit -m "CI: WeChatKeyboardToolbar deb [skip ci]" || echo "无变化"
+          git push --force origin wechat-deb
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
