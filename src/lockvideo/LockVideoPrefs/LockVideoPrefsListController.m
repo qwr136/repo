@@ -7,7 +7,6 @@
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVVideoDir  @"/var/mobile/通知视频"
-#define kLVLogFile   @"/var/mobile/通知视频/插件日志.txt"
 
 @interface LockVideoPrefsListController () <PHPickerViewControllerDelegate> {
     NSString *_currentSelectKey;   // 记录当前打开的是哪个素材选择器
@@ -63,85 +62,6 @@
     [self _refreshMaterialRow:@"LockVideoMaterialLink" prefsKey:@"LockVideoPath"];
     [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:@"LockVideoOptionPath"];
     [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:@"LockVideoClearPath"];
-    [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:@"LockVideoActivityPath"];
-    [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:@"LockVideoPlayerPath"];
-    [self _refreshLogRow];
-}
-
-#pragma mark - 问题收集日志（对应 Tweak 里那套「声音 / 卡顿 / 失效」全方位诊断）
-
-- (void)_refreshLogRow {
-    @try {
-        PSSpecifier *target = nil;
-        for (PSSpecifier *sp in [self specifiers]) {
-            if ([[sp identifier] isEqualToString:@"LockVideoExportLogLink"]) { target = sp; break; }
-        }
-        if (!target) { return; }
-        NSFileManager *fm = [NSFileManager defaultManager];
-        NSString *display = @"（暂无）";
-        if ([fm fileExistsAtPath:kLVLogFile]) {
-            unsigned long long sz = [[fm attributesOfItemAtPath:kLVLogFile error:nil] fileSize];
-            if (sz > 1024 * 1024) {
-                display = [NSString stringWithFormat:@"%.1f MB", sz / (1024.0 * 1024.0)];
-            } else {
-                display = [NSString stringWithFormat:@"%.1f KB", sz / 1024.0];
-            }
-        }
-        [target setProperty:display forKey:@"detailText"];
-        [target setProperty:display forKey:@"value"];
-        @try {
-            PSTableCell *cached = [self cachedCellForSpecifier:target];
-            if (cached && [cached isKindOfClass:[PSTableCell class]]) {
-                [cached refreshCellContentsWithSpecifier:target];
-            }
-        } @catch (NSException *e) {}
-        [self reloadSpecifier:target];
-    } @catch (NSException *e) {}
-}
-
-- (void)exportLog:(id)sender {
-    @try {
-        // 先通知 SpringBoard 把内存缓冲刷进文件，否则最后的几行可能还没落盘
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFSTR("com.xiaofei.notifybgvideo/FlushLog"), NULL, NULL, YES);
-
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            @try {
-                NSFileManager *fm = [NSFileManager defaultManager];
-                if (![fm fileExistsAtPath:kLVLogFile]) {
-                    [self _showAlertTitle:@"还没有日志"
-                                  message:@"日志文件不存在。\n请先把「收集插件问题日志」打开，回到锁屏复现一次问题，再回来导出。"];
-                    return;
-                }
-                NSURL *url = [NSURL fileURLWithPath:kLVLogFile];
-                NSArray *items = @[url];
-                UIActivityViewController *av =
-                    [[UIActivityViewController alloc] initWithActivityItems:items applicationActivities:nil];
-                if (av.popoverPresentationController) {
-                    av.popoverPresentationController.sourceView = self.view;
-                }
-                [self presentViewController:av animated:YES completion:nil];
-            } @catch (NSException *e) {
-                [self _showAlertTitle:@"导出失败" message:[e description]];
-            }
-        });
-    } @catch (NSException *e) {
-        [self _showAlertTitle:@"导出失败" message:[e description]];
-    }
-}
-
-- (void)clearLog:(id)sender {
-    @try {
-        NSFileManager *fm = [NSFileManager defaultManager];
-        [fm removeItemAtPath:kLVLogFile error:nil];
-        [fm removeItemAtPath:[kLVLogFile stringByAppendingString:@".old"] error:nil];
-        [self _refreshLogRow];
-        [self _showAlertTitle:@"已清空" message:@"问题日志已删除。再次出现问题时会重新生成。"];
-    } @catch (NSException *e) {
-        [self _showAlertTitle:@"出错" message:[e description]];
-    }
 }
 
 // 通用素材选择器：把 key 对应的 prefs 项设为用户选中的文件
@@ -200,10 +120,6 @@
                 [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
             } else if ([key isEqualToString:@"LockVideoClearPath"]) {
                 [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
-            } else if ([key isEqualToString:@"LockVideoActivityPath"]) {
-                [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:key];
-            } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
-                [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:key];
             }
         }]];
     }
@@ -221,14 +137,6 @@
 
 - (void)switchClearMaterial:(id)sender {
     [self _switchMaterialForKey:@"LockVideoClearPath" title:@"选择清除素材" sender:sender];
-}
-
-- (void)switchActivityMaterial:(id)sender {
-    [self _switchMaterialForKey:@"LockVideoActivityPath" title:@"实时活动素材" sender:sender];
-}
-
-- (void)switchPlayerMaterial:(id)sender {
-    [self _switchMaterialForKey:@"LockVideoPlayerPath" title:@"播放器素材" sender:sender];
 }
 
 #pragma mark - 取消选择素材（写入空字符串，插件读取到空值即不再使用该素材）
@@ -258,8 +166,6 @@
             identifier = @"LockVideoOptionMaterialLink";
         } else if ([key isEqualToString:@"LockVideoClearPath"]) {
             identifier = @"LockVideoClearMaterialLink";
-        } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
-            identifier = @"LockVideoPlayerMaterialLink";
         }
         if (identifier) {
             [self _refreshMaterialRow:identifier prefsKey:key];
@@ -485,10 +391,6 @@
             [self _refreshMaterialRow:@"LockVideoOptionMaterialLink" prefsKey:key];
         } else if ([key isEqualToString:@"LockVideoClearPath"]) {
             [self _refreshMaterialRow:@"LockVideoClearMaterialLink" prefsKey:key];
-        } else if ([key isEqualToString:@"LockVideoActivityPath"]) {
-            [self _refreshMaterialRow:@"LockVideoActivityMaterialLink" prefsKey:key];
-        } else if ([key isEqualToString:@"LockVideoPlayerPath"]) {
-            [self _refreshMaterialRow:@"LockVideoPlayerMaterialLink" prefsKey:key];
         }
         [self _showAlertTitle:@"已添加素材"
                       message:[NSString stringWithFormat:@"已保存到素材目录：\n%@\n并设为「%@」", path, [self _titleForKey:key]]];
@@ -496,11 +398,9 @@
 }
 
 - (NSString *)_titleForKey:(NSString *)key {
-    if ([key isEqualToString:@"LockVideoOptionPath"]) return @"选项素材";
-    if ([key isEqualToString:@"LockVideoClearPath"]) return @"清除素材";
-    if ([key isEqualToString:@"LockVideoActivityPath"]) return @"实时活动素材";
-    if ([key isEqualToString:@"LockVideoPlayerPath"]) return @"播放器素材";
-    return @"消息素材";
+    if ([key isEqualToString:@"LockVideoOptionPath"]) return @"选项按钮素材";
+    if ([key isEqualToString:@"LockVideoClearPath"]) return @"清除按钮素材";
+    return @"当前素材";
 }
 
 // 生成素材文件名时间戳（相册_YYYYMMDD_HHMMSS）

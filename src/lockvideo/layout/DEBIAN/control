@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.88
+Version: 1.0.89
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,5 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-
-Changelog: 1.0.88 - 修「刚注销/下滑时视频自动暂停」「锁屏后视频还在响(漏声)」「下拉控制中心视频很慢」三个同源问题：①锁屏状态判定加 0.25s 去抖——转场(下滑展开/下拉控制中心/锁屏滑动)瞬间 SBLockScreenManager 误报不在锁屏不再立即静音暂停，视频不再一突一突卡住；②新增屏幕熄灭立即静音(com.apple.springboard.lockcomplete/lockstate 通知 + UIScreen.brightness 自愈)，锁屏后视频彻底不响，根治漏声；③不可见且独占的卡片只静音不立即暂停，交给 0.6s 宽限的孤儿兜底去停，避免瞬时遮挡误停；④已挂素材的视图刷新加 0.12s 节流(_lvThrottledRefresh)，下拉控制中心/锁屏滑动时 layoutSubviews 成百次触发不再每帧全量重算，动画不卡。\n
+Changelog: 1.0.89 - 回到 1.0.76 稳定版本重新出发（1.0.77 至 1.0.88 的改动全部作废）：保留 1.0.76 的全部修复——关闭插件恢复原生背景更彻底、选项与清除按钮声音只在左滑时播放、日志与视图结构只在打开调试时写入；本版仅新增一项调试能力：「视图描边调试」现在能看到实时活动（Live Activity）与播放器（Now Playing）的视图，实时活动描洋红色粗框并标注 ●实时活动，播放器描黄色粗框并标注 ▶播放器，视图结构.txt 中同样以 [实时活动]/[播放器] 标注，便于定位这两类视图的类名与层级

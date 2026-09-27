@@ -31,14 +31,14 @@
 		<dict>
 			<key>action</key>
 			<string>switchMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
 			<key>detailText</key>
 			<string></string>
 			<key>identifier</key>
 			<string>LockVideoMaterialLink</string>
 			<key>label</key>
 			<string>选择消息素材</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -63,30 +63,6 @@
 			<string>LockVideoClearMaterialLink</string>
 			<key>label</key>
 			<string>选择清除素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>switchActivityMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>detailText</key>
-			<string></string>
-			<key>identifier</key>
-			<string>LockVideoActivityMaterialLink</string>
-			<key>label</key>
-			<string>实时活动素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>switchPlayerMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>detailText</key>
-			<string></string>
-			<key>identifier</key>
-			<string>LockVideoPlayerMaterialLink</string>
-			<key>label</key>
-			<string>播放器素材</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -211,101 +187,6 @@
 			<string>LockVideoDebugOutline</string>
 			<key>label</key>
 			<string>视图描边调试</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>footer</key>
-			<string>锁屏上的「实时活动」和「媒体播放器」在系统里用的是同一套容器，不同 App / 不同系统版本长得还不一样，自动识别偶尔会失灵（表现就是两张卡用同一个背景）。失灵时可以在这里直接指定：锁屏上从上往下数，哪一张是播放器。改完不用注销，下一秒就生效。</string>
-			<key>label</key>
-			<string>实时活动 / 播放器 区分</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSegmentCell</string>
-			<key>default</key>
-			<integer>0</integer>
-			<key>defaults</key>
-			<string>com.xiaofei.notifybgvideo</string>
-			<key>key</key>
-			<string>LockVideoPlayerPosRule</string>
-			<key>label</key>
-			<string>播放器是第几张卡</string>
-			<key>validTitles</key>
-			<array>
-				<string>自动识别</string>
-				<string>最上面</string>
-				<string>最下面</string>
-			</array>
-			<key>validValues</key>
-			<array>
-				<integer>0</integer>
-				<integer>1</integer>
-				<integer>2</integer>
-			</array>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>footer</key>
-			<string>默认关闭，不影响日常使用。打开后，插件会把运行中所有不对劲的地方记成日志，重点覆盖「声音 / 卡顿 / 失效」三类：
-· 声音：该响不响、不该响的响了、按钮和卡片抢同一个播放器等导致静音/暂停失效
-· 卡顿：某一帧里我们自己的刷新/裁剪/轮询超时(超过 8ms)，以及视频解码跟不上被系统中断
-· 失效：素材文件不存在、素材不被允许挂载、视频起不来、活动类型判不出来、图片找不到系统等
-另外系统会抛出的异常也会全部抓下来。
-日志写在 /var/mobile/通知视频/插件日志.txt，复现问题后点「导出日志」发给开发者即可。排查完请记得关掉。</string>
-			<key>label</key>
-			<string>问题收集日志（排查用）</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>com.xiaofei.notifybgvideo</string>
-			<key>key</key>
-			<string>LockVideoLogEnabled</string>
-			<key>label</key>
-			<string>收集插件问题日志</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.xiaofei.notifybgvideo/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>com.xiaofei.notifybgvideo</string>
-			<key>key</key>
-			<string>LockVideoLogVerbose</string>
-			<key>label</key>
-			<string>详细日志（连正常流程一起记）</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>exportLog:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>detailText</key>
-			<string></string>
-			<key>identifier</key>
-			<string>LockVideoExportLogLink</string>
-			<key>label</key>
-			<string>导出日志</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>clearLog:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>清空日志</string>
 		</dict>
 		<dict>
 			<key>action</key>
