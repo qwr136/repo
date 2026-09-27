@@ -2,18 +2,27 @@
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <substrate.h>
 #import <ImageIO/ImageIO.h>
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVNotify    CFSTR("com.xiaofei.notifybgvideo/ReloadPrefs")
 #define kLVVideoDir  @"/var/mobile/通知视频"
+// 选项 / 清除按钮素材的独立子文件夹（插件首次运行时自动创建）
+#define kLVOptionDir @"/var/mobile/通知视频/选项背景"
+#define kLVClearDir  @"/var/mobile/通知视频/清除背景"
+// 熄屏（屏幕熄灭）系统通知：用于立刻静音暂停，杜绝熄屏漏音
+#define kLVScreenBlankNotify CFSTR("com.apple.springboard.hasBlankedScreen")
+#define kLVScreenLockNotify  CFSTR("com.apple.springboard.lockcomplete")
 #define kLVLogFile   @"/var/mobile/通知视频/Hook日志.txt"
 #define kLVDumpFile  @"/var/mobile/通知视频/视图结构.txt"
 
 // path -> AVPlayer：支持主素材/选项素材/清除素材分别播放
 static NSMutableDictionary<NSString *, AVPlayer *> *gPlayerMap = nil;
 static NSMutableDictionary<NSString *, id> *gObserverMap = nil;
+// 屏幕是否熄灭：熄屏时所有背景视频一律静音 + 暂停，杜绝漏音
+static BOOL gScreenOff = NO;
 static char kLayerKey;
 static char kImgKey;
 static char kPathKey;          // 记录 view 当前挂载的素材路径
@@ -494,7 +503,7 @@ static AVPlayer *_lvPlayerForPath(NSString *path) {
                     [p seekToTime:kCMTimeZero
                   toleranceBefore:kCMTimeZero
                    toleranceAfter:kCMTimeZero
-                        completionHandler:^(BOOL d) { [p play]; }];
+                        completionHandler:^(BOOL d) { if (!gScreenOff) { [p play]; } }];
                 } @catch (NSException *e) {}
             }];
             gObserverMap[path] = observer;
@@ -536,8 +545,80 @@ static void _lvPauseAllPlayers(void) {
     } @catch (NSException *e) {}
 }
 
+// ===== 熄屏（屏幕熄灭）处理：杜绝「开了声音后熄屏还在响」=====
+// （gScreenOff 定义在文件顶部）
+
+// 探测屏幕是否亮着。探测不到私有 API 时返回 YES（当作亮屏），绝不误伤正常播放。
+static BOOL _lvIsScreenOn(void) {
+    @try {
+        static Class ctrlCls = Nil;
+        static SEL  onSel    = NULL;
+        static BOOL probed   = NO;
+        if (!probed) {
+            probed = YES;
+            NSArray *clsNames = @[@"SBBacklightController", @"SBScreenWakeController", @"SBDisplayController"];
+            NSArray *selNames = @[@"isScreenOn", @"screenIsOn", @"isBacklightOn",
+                                  @"isDisplayOn", @"isOn", @"backlightLevel"];
+            for (NSString *cn in clsNames) {
+                Class c = objc_getClass(cn.UTF8String);
+                if (!c) { continue; }
+                id inst = nil;
+                if ([c respondsToSelector:@selector(sharedInstance)]) {
+                    inst = [c performSelector:@selector(sharedInstance)];
+                }
+                if (!inst) { continue; }
+                for (NSString *sn in selNames) {
+                    SEL s = NSSelectorFromString(sn);
+                    if (inst && [inst respondsToSelector:s]) { ctrlCls = c; onSel = s; break; }
+                }
+                if (ctrlCls && onSel) { break; }
+            }
+        }
+        if (ctrlCls && onSel) {
+            id inst = [ctrlCls respondsToSelector:@selector(sharedInstance)]
+                      ? [ctrlCls performSelector:@selector(sharedInstance)] : nil;
+            if (inst) {
+                NSMethodSignature *sig = [inst methodSignatureForSelector:onSel];
+                const char *rt = sig ? sig.methodReturnType : NULL;
+                if (rt && (strcmp(rt, "B") == 0 || strcmp(rt, "c") == 0)) {
+                    BOOL (*fn)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
+                    return fn(inst, onSel);
+                }
+                if (rt && (strcmp(rt, "f") == 0 || strcmp(rt, "d") == 0)) {
+                    double (*fn)(id, SEL) = (double (*)(id, SEL))objc_msgSend;
+                    return fn(inst, onSel) > 0.0;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+    return YES;
+}
+
+// 熄屏：所有背景视频立刻静音 + 暂停（静音是双保险，防止暂停前那一帧还有声音漏出）
+static void _lvMuteAndPauseAll(void) {
+    @try {
+        for (AVPlayer *p in gPlayerMap.allValues) {
+            p.muted = YES;
+            [p pause];
+        }
+    } @catch (NSException *e) {}
+}
+
+// 根据屏幕真实亮灭状态刷新 gScreenOff；熄屏时立刻静音暂停
+static void _lvUpdateScreenState(void) {
+    @try {
+        BOOL on = _lvIsScreenOn();
+        gScreenOff = !on;
+        if (gScreenOff) { _lvMuteAndPauseAll(); }
+    } @catch (NSException *e) {}
+}
+
+// 播放前的统一守卫：熄屏时一律不播、不出声
+__attribute__((unused)) static BOOL _lvCanPlayNow(void) { return !gScreenOff; }
+
 static void _lvPlayAllVisiblePlayers(void) {
     @try {
+        if (gScreenOff) { _lvMuteAndPauseAll(); return; }
         for (NSString *path in gPlayerMap) {
             if (!_lvPathIsImageAsset(path)) { [gPlayerMap[path] play]; }
         }
@@ -783,7 +864,7 @@ static void _lvApplyButtonAudio(UIView *v) {
         AVPlayer *p = l.player;
         if (!p) { return; }
         if (_lvViewEffectivelyVisible(v)) {
-            p.muted = !_lvSound();
+            p.muted = gScreenOff ? YES : !_lvSound();   // 熄屏一律静音
         } else {
             p.muted = YES;
             [p pause];
@@ -1232,9 +1313,9 @@ static void _lvRefresh(UIView *v) {
             if (v.window && p && !_lvPathIsImageAsset(path)) {
                 NSString *cls = NSStringFromClass([v class]);
                 if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
-                    if (_lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑按钮可见才播
+                    if (!gScreenOff && _lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑按钮可见才播；熄屏一律不播
                 } else {
-                    [p play];
+                    if (!gScreenOff) { [p play]; }   // 熄屏不漏音
                 }
             }
         }
@@ -1335,9 +1416,9 @@ static void _lvAttachWithPath(UIView *v, NSString *path) {
         {
             NSString *cls = NSStringFromClass([v class]);
             if (_lvIsSingleActionButtonClass(cls) || [v isKindOfClass:[UIButton class]]) {
-                if (_lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑可见才播，不左滑保持静音暂停
+                if (!gScreenOff && _lvViewEffectivelyVisible(v)) { [p play]; }   // 左滑可见才播；熄屏一律不播
             } else {
-                [p play];
+                if (!gScreenOff) { [p play]; }   // 熄屏不漏音
             }
         }
         _lvPrepareHostBackgrounds(v);
@@ -1812,7 +1893,7 @@ static BOOL _lvIsCardClass(NSString *cls) {
            [low containsString:@"longlook"];
 }
 
-static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
+__attribute__((unused)) static void _lvScanAndAttach(UIView *root, BOOL *foundAny) {
     @try {
         NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
         int visited = 0;
@@ -1852,33 +1933,47 @@ static void _lvCleanupStaleAttachments(void) {
 
 static void _lvPollTick(void) {
     @try {
-        _lvDebugScanActivityAndPlayer();   // 调试：兜底扫描实时活动 / 播放器视图并描边
+        _lvDebugScanActivityAndPlayer();   // 调试：仅「视图描边调试」开启时才有开销
         if (!_lvEnabled()) {
             _lvPauseAllPlayers();
             return;
         }
-        if (!_lvIsLockScreenVisible()) {
-            _lvPauseAllPlayers();
+        _lvUpdateScreenState();            // 先确认屏幕是亮是灭
+        if (gScreenOff || !_lvIsLockScreenVisible()) {
+            _lvMuteAndPauseAll();          // 熄屏：静音 + 暂停，绝不漏音
             return;
         }
-        _lvCleanupStaleAttachments();   // 清理旧版本挂在按钮区大视图上的残留
-        id app = [UIApplication sharedApplication];
-        NSArray *wins = nil;
-        @try { wins = [app valueForKey:@"windows"]; } @catch (NSException *e) {}
-        BOOL foundAnyCard = NO;
-        for (UIWindow *w in wins) {
-            if (w.hidden || w.alpha <= 0.01) { continue; }
-            BOOL found = NO;
-            _lvScanAndAttach(w, &found);
-            if (found) { foundAnyCard = YES; }
+        _lvCleanupStaleAttachments();      // 清掉不在白名单里的历史残留
+        // 轮询只维护「已经挂上素材」的视图（消息卡片 / 选项 / 清除），
+        // 不再遍历整棵视图树——新卡片由 didMoveToWindow / layoutSubviews 钩子即时挂载，不延迟。
+        BOOL anyVisible = NO;
+        for (UIView *v in [_lvAttachedViews copy]) {
+            if (!v || !v.window) { continue; }
+            _lvRefresh(v);                 // 轻量：更新尺寸 / 可见性 / 播放状态
+            anyVisible = YES;
         }
-        if (foundAnyCard) { _lvPlayAllVisiblePlayers(); }
+        if (anyVisible) { _lvPlayAllVisiblePlayers(); }
         else { _lvPauseAllPlayers(); }
-        _lvUpdateButtonAudioEverywhere();   // 选项/清除：不左滑时静音暂停，不漏声音
+        _lvUpdateButtonAudioEverywhere();  // 选项/清除：不左滑时静音暂停，不漏声音
     } @catch (NSException *e) {}
 }
 
 #pragma mark - ctor
+
+// 屏幕熄灭 / 锁屏系统通知：立刻刷新屏幕状态并静音暂停，杜绝熄屏漏音
+static void _lvScreenStateNotify(CFNotificationCenterRef center,
+                                 void *observer, CFStringRef name,
+                                 const void *object, CFDictionaryRef info) {
+    @try {
+        _lvUpdateScreenState();
+        if (gScreenOff) {
+            _lvMuteAndPauseAll();          // 熄屏：立即静音 + 暂停
+        } else {
+            _lvPlayAllVisiblePlayers();    // 点亮：立即恢复播放
+            _lvUpdateButtonAudioEverywhere();
+        }
+    } @catch (NSException *e) {}
+}
 
 %ctor {
     @try {
@@ -1920,6 +2015,16 @@ static void _lvPollTick(void) {
         gObserverMap = [NSMutableDictionary dictionary];
         if (!_lvAttachedViews) { _lvAttachedViews = [NSMutableArray array]; }
 
+        // 首次运行创建素材目录与「选项背景 / 清除背景」子文件夹
+        @try {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            for (NSString *d in @[kLVVideoDir, kLVOptionDir, kLVClearDir]) {
+                if (![fm fileExistsAtPath:d]) {
+                    [fm createDirectoryAtPath:d withIntermediateDirectories:YES attributes:nil error:nil];
+                }
+            }
+        } @catch (NSException *e) {}
+
         if (_lvEnabled()) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 @try {
@@ -1942,11 +2047,25 @@ static void _lvPollTick(void) {
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
 
+        // 屏幕熄灭 / 锁屏：即刻静音暂停，不等轮询
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvScreenStateNotify,
+                                        kLVScreenBlankNotify,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvScreenStateNotify,
+                                        kLVScreenLockNotify,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.89 加载完成（基于 1.0.76 重来：视图描边调试可见实时活动/播放器视图） =====");
+        _lvLog(@"===== 1.0.90 加载完成（基于 1.0.76 重来：轮询只维护已挂视图；选项/清除独立子文件夹；熄屏静音暂停不漏音） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }

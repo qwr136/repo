@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.89
+Version: 1.0.90
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.89 - 回到 1.0.76 稳定版本重新出发（1.0.77 至 1.0.88 的改动全部作废）：保留 1.0.76 的全部修复——关闭插件恢复原生背景更彻底、选项与清除按钮声音只在左滑时播放、日志与视图结构只在打开调试时写入；本版仅新增一项调试能力：「视图描边调试」现在能看到实时活动（Live Activity）与播放器（Now Playing）的视图，实时活动描洋红色粗框并标注 ●实时活动，播放器描黄色粗框并标注 ▶播放器，视图结构.txt 中同样以 [实时活动]/[播放器] 标注，便于定位这两类视图的类名与层级
+Changelog: 1.0.90 - 在 1.0.76 基础上继续优化（1.0.77 至 1.0.88 仍未发布，本版为最新）：①轮询改为只维护「已经挂上素材」的视图（消息卡片 / 选项 / 清除），不再全量遍历视图树，更轻量更流畅，新卡片仍由钩子即时挂载；②新增「选项背景」「清除背景」子文件夹（位于 /var/mobile/通知视频/ 下），选项与清除按钮素材分别在各自子文件夹里管理，互不干扰；③新增熄屏不漏音：开启声音时，屏幕熄灭或锁屏后所有背景视频立即静音并暂停（监听系统熄屏/锁屏通知即时生效，不再有延迟漏音），屏幕点亮后自动恢复播放

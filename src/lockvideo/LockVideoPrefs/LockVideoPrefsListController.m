@@ -7,6 +7,9 @@
 
 #define kLVPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.notifybgvideo.plist"
 #define kLVVideoDir  @"/var/mobile/通知视频"
+// 选项 / 清除按钮素材的独立子文件夹：素材分别放在这里，互不干扰
+#define kLVOptionDir @"/var/mobile/通知视频/选项背景"
+#define kLVClearDir  @"/var/mobile/通知视频/清除背景"
 
 @interface LockVideoPrefsListController () <PHPickerViewControllerDelegate> {
     NSString *_currentSelectKey;   // 记录当前打开的是哪个素材选择器
@@ -67,17 +70,22 @@
 // 通用素材选择器：把 key 对应的 prefs 项设为用户选中的文件
 - (void)_switchMaterialForKey:(NSString *)key title:(NSString *)title sender:(id)sender {
     _currentSelectKey = key;
-
+    NSString *dir = [self _dirForKey:key];
     NSFileManager *fm = [NSFileManager defaultManager];
+    // 确保对应素材目录存在（首次进入时自动创建选项背景 / 清除背景 子文件夹）
+    if (![fm fileExistsAtPath:dir]) {
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+
     NSMutableArray *files = [NSMutableArray array];
-    for (NSString *f in [fm contentsOfDirectoryAtPath:kLVVideoDir error:nil]) {
+    for (NSString *f in [fm contentsOfDirectoryAtPath:dir error:nil]) {
         NSString *ext = [f pathExtension].lowercaseString;
         if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
             [ext isEqualToString:@"m4v"] || [ext isEqualToString:@"avi"] ||
             [ext isEqualToString:@"gif"] || [ext isEqualToString:@"png"] ||
             [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
             [ext isEqualToString:@"heic"]) {
-            [files addObject:[kLVVideoDir stringByAppendingPathComponent:f]];
+            [files addObject:[dir stringByAppendingPathComponent:f]];
         }
     }
     [files sortUsingSelector:@selector(compare:)];
@@ -85,7 +93,7 @@
     if (files.count == 0) {
         UIAlertController *empty = [UIAlertController
             alertControllerWithTitle:@"没有素材"
-            message:[NSString stringWithFormat:@"%@ 里没有素材。\n请先用 Filza 把 mp4/mov/gif/png 放进这个文件夹，或用「从相册添加素材」。", kLVVideoDir]
+            message:[NSString stringWithFormat:@"%@ 里没有素材。\n请先用 Filza 把 mp4/mov/gif/png 放进这个文件夹，或用「从相册添加素材」。", dir]
             preferredStyle:UIAlertControllerStyleAlert];
         [empty addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:empty animated:YES completion:nil];
@@ -248,10 +256,11 @@
                 NSData *data = UIImageJPEGRepresentation(img, 0.9);
                 NSString *ext = @"jpg";
                 if (!data) { data = UIImagePNGRepresentation(img); ext = @"png"; }
-                if (![fm fileExistsAtPath:kLVVideoDir]) {
-                    [fm createDirectoryAtPath:kLVVideoDir withIntermediateDirectories:YES attributes:nil error:nil];
+                NSString *dir = [self _dirForKey:_currentSelectKey ?: @"LockVideoPath"];
+                if (![fm fileExistsAtPath:dir]) {
+                    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
                 }
-                NSString *dst = [kLVVideoDir stringByAppendingPathComponent:
+                NSString *dst = [dir stringByAppendingPathComponent:
                     [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
                 if (![data writeToFile:dst atomically:YES]) {
                     dispatch_async(dispatch_get_main_queue(), ^{
@@ -278,12 +287,13 @@
         return;
     }
     NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:kLVVideoDir]) {
-        [fm createDirectoryAtPath:kLVVideoDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *dir = [self _dirForKey:_currentSelectKey ?: @"LockVideoPath"];
+    if (![fm fileExistsAtPath:dir]) {
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
     }
     NSString *ext = [url pathExtension].lowercaseString;
     if (ext.length == 0) ext = fallbackExt;
-    NSString *dst = [kLVVideoDir stringByAppendingPathComponent:
+    NSString *dst = [dir stringByAppendingPathComponent:
         [NSString stringWithFormat:@"%@.%@", [self _stamp], ext]];
     [fm removeItemAtPath:dst error:nil];
 
@@ -401,6 +411,13 @@
     if ([key isEqualToString:@"LockVideoOptionPath"]) return @"选项按钮素材";
     if ([key isEqualToString:@"LockVideoClearPath"]) return @"清除按钮素材";
     return @"当前素材";
+}
+
+// 不同素材 key 对应不同的素材目录：选项→选项背景、清除→清除背景、其余→顶层目录
+- (NSString *)_dirForKey:(NSString *)key {
+    if ([key isEqualToString:@"LockVideoOptionPath"]) return kLVOptionDir;
+    if ([key isEqualToString:@"LockVideoClearPath"]) return kLVClearDir;
+    return kLVVideoDir;
 }
 
 // 生成素材文件名时间戳（相册_YYYYMMDD_HHMMSS）
