@@ -1,3 +1,31 @@
+########## 诊断信息 ##########
+=== swiftc 版本（系统 xcrun）===
+swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+Target: arm64-apple-macosx26.0
+=== swiftc 版本（THEOS 默认）===
+swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+Target: arm64-apple-macosx26.0
+=== SDK 路径: /Users/runner/theos/sdks/iPhoneOS.sdk ===
+ls: /Users/runner/theos/sdks/iPhoneOS.sdk/usr/lib/swift: No such file or directory
+--- 查找 _Concurrency / _StringProcessing 模块 ---
+--- _Concurrency.swiftmodule 内容（看是 .swiftmodule 还是 .swiftinterface）---
+ls: /Users/runner/theos/sdks/iPhoneOS.sdk/usr/lib/swift/_Concurrency.swiftmodule: No such file or directory
+=== THEOS vendor/swift-support ===
+total 40
+drwxr-xr-x  10 runner  staff   320 Sep 27 19:04 .
+drwxr-xr-x  11 runner  staff   352 Sep 27 19:04 ..
+-rw-r--r--   1 runner  staff    48 Sep 27 19:04 .git
+-rw-r--r--   1 runner  staff    87 Sep 27 19:04 .gitignore
+drwxr-xr-x   3 runner  staff    96 Sep 27 19:04 .swiftpm
+-rw-r--r--   1 runner  staff  1062 Sep 27 19:04 LICENSE.md
+-rw-r--r--   1 runner  staff   623 Sep 27 19:04 Package.swift
+-rw-r--r--   1 runner  staff    81 Sep 27 19:04 README.md
+drwxr-xr-x   4 runner  staff   128 Sep 27 19:04 Sources
+drwxr-xr-x   4 runner  staff   128 Sep 27 19:04 Tests
+########## 诊断信息结束 ##########
+
+########## 正式构建 ##########
+[0;36m==> [1;39mCleaning…[m
 [0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
 [1;31m> [1;3;39mMaking all for tweak ReturnKeyColor…[m
 [0;34m==> [1;39mBuilding Swift support tools…[m
@@ -10,99 +38,62 @@ Building for production...
 [7/9] Compiling SwiftcOutputParser FileLock.swift
 [7/9] Write Objects.LinkFileList
 [8/9] Linking parse-swiftc-output
-Build complete! (10.25s)
+Build complete! (8.49s)
 [0;32m==> [1;39mCompiling Tweak.swift (arm64)…[m
 <unknown>:0: [1;33mwarning: [1;39munable to perform implicit import of "_Concurrency" module: no such module found[0;0m
 <unknown>:0: [1;34mremark: [1;39munable to perform implicit import of "_StringProcessing" module: no such module found[0;0m
-<module-includes>:1:9: [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m1 |[0;0m #import "Headers/CoreFoundation.h"
-  [0;36m|[0;0m         `- [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m2 |[0;0m #import "Headers/CFPlugInCOM.h"
-[0;36m3 |[0;0m 
+Tweak.swift:304:15: [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
+[0;36m302 |[0;0m // MARK: - 各入口 hook
+[0;36m303 |[0;0m func rkHookDisplayLayer(cls: AnyClass) {
+[0;36m304 |[0;0m     let sel = Selector(("displayLayer:"))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
+[0;36m305 |[0;0m     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject, layer: CALayer) in
+[0;36m306 |[0;0m         gOrigDisplayLayer?(me, sel, layer)
 
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreFoundation.framework/Headers/CoreFoundation.h:43:10: [1;31merror: [1;39m'CoreFoundation/CFBase.h' file not found[0;0m
- [0;36m41 |[0;0m #endif
- [0;36m42 |[0;0m 
- [0;36m43 |[0;0m #include <CoreFoundation/CFBase.h>
-    [0;36m|[0;0m          |- [1;31merror: [1;39m'CoreFoundation/CFBase.h' file not found[0;0m
-    [0;36m|[0;0m          `- [1;39mnote: [1;39mdid not find header 'CFBase.h' in framework 'CoreFoundation' (loaded from '/System/Library/Frameworks')[0;0m
- [0;36m44 |[0;0m #include <CoreFoundation/CFArray.h>
- [0;36m45 |[0;0m #include <CoreFoundation/CFBag.h>
+Tweak.swift:317:15: [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
+[0;36m315 |[0;0m 
+[0;36m316 |[0;0m func rkHookDrawLayer(cls: AnyClass) {
+[0;36m317 |[0;0m     let sel = Selector(("drawLayer:inContext:"))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
+[0;36m318 |[0;0m     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject, layer: CALayer, ctx: CGContext?) in
+[0;36m319 |[0;0m         gCurReturnKey = me
 
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/CoreFoundation.swiftmodule/arm64-apple-ios.swiftinterface:4:19: [1;31merror: [1;39mcould not build Objective-C module 'CoreFoundation'[0;0m
- [0;36m2 |[0;0m // swift-compiler-version: Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)
- [0;36m3 |[0;0m // swift-module-flags: -target arm64-apple-ios14.5 -enable-objc-interop -autolink-force-load -enable-library-evolution -module-link-name swiftCoreFoundation -swift-version 5 -enforce-exclusivity=checked -O -module-name CoreFoundation
- [0;36m4 |[0;0m @_exported import CoreFoundation
-   [0;36m|[0;0m                   `- [1;31merror: [1;39mcould not build Objective-C module 'CoreFoundation'[0;0m
- [0;36m5 |[0;0m import Swift
- [0;36m6 |[0;0m public protocol _CFObject : AnyObject, Swift.Hashable {
+Tweak.swift:357:15: [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
+[0;36m355 |[0;0m 
+[0;36m356 |[0;0m func rkHookDrawInContext(cls: AnyClass) {
+[0;36m357 |[0;0m     let sel = Selector(("drawInContext:"))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
+[0;36m358 |[0;0m     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject, ctx: CGContext?) in
+[0;36m359 |[0;0m         gOrigLayerDrawCtx?(me, sel, ctx)
 
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/Foundation.swiftmodule/arm64-apple-ios.swiftinterface:5:8: [1;31merror: [1;39mfailed to build module 'CoreFoundation'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)', while this compiler is 'Apple Swift version 6.3.3 effective-5.10 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)'). Please select a toolchain which matches the SDK.[0;0m
-   [0;36m3 |[0;0m // swift-module-flags: -target arm64-apple-ios14.5 -enable-objc-interop -autolink-force-load -enable-library-evolution -module-link-name swiftFoundation -swift-version 5 -enforce-exclusivity=unchecked -O -module-name Foundation
-   [0;36m4 |[0;0m import Combine
-   [0;36m5 |[0;0m import CoreFoundation
-     [0;36m|[0;0m        `- [1;31merror: [1;39mfailed to build module 'CoreFoundation'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)', while this compiler is 'Apple Swift version 6.3.3 effective-5.10 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)'). Please select a toolchain which matches the SDK.[0;0m
-   [0;36m6 |[0;0m import CoreGraphics
-   [0;36m7 |[0;0m import Darwin
+Tweak.swift:383:52: [1;33mwarning: [1;39mconditional downcast from 'AnyClass?' (aka 'Optional<any AnyObject.Type>') to 'AnyClass' (aka 'any AnyObject.Type') does nothing[0;0m
+[0;36m381 |[0;0m     gLayerHooksReady = true
+[0;36m382 |[0;0m     guard rkEnabled() else { return }
+[0;36m383 |[0;0m     gKeyViewCls = [4;39mNSClassFromString("UIKBKeyView")[0;0m as? [4;39mAnyClass[0;0m
+    [0;36m|[0;0m                                                    `- [1;33mwarning: [1;39mconditional downcast from 'AnyClass?' (aka 'Optional<any AnyObject.Type>') to 'AnyClass' (aka 'any AnyObject.Type') does nothing[0;0m
+[0;36m384 |[0;0m     var count: UInt32 = 0
+[0;36m385 |[0;0m     let list = objc_copyClassList(&count)
 
-<module-includes>:1:9: [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m1 |[0;0m #import "Headers/CoreFoundation.h"
-  [0;36m|[0;0m         `- [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m2 |[0;0m #import "Headers/CFPlugInCOM.h"
-[0;36m3 |[0;0m 
+Tweak.swift:390:13: [1;33mwarning: [1;39mconstant 'c' inferred to have type 'AnyClass' (aka 'any AnyObject.Type'), which may be unexpected[0;0m
+[0;36m388 |[0;0m     let layerCls = CALayer.self
+[0;36m389 |[0;0m     for i in 0..<Int(count) {
+[0;36m390 |[0;0m         let c = ptr[i]
+    [0;36m|[0;0m             |- [1;33mwarning: [1;39mconstant 'c' inferred to have type 'AnyClass' (aka 'any AnyObject.Type'), which may be unexpected[0;0m
+    [0;36m|[0;0m             `- [1;39mnote: [1;39madd an explicit type annotation to silence this warning[0;0m
+[0;36m391 |[0;0m         let nm = String(cString: class_getName(c))
+[0;36m392 |[0;0m         if !(nm.contains("KeyView") || nm.contains("KBKey")) { continue }
 
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CoreGraphics.h: 0:
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/CoreGraphics.swiftmodule/arm64-apple-ios.swiftinterface: 0:
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/UIKit.swiftmodule/arm64-apple-ios.swiftinterface:4:8: [1;31merror: [1;39mfailed to build module 'Foundation'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)', while this compiler is 'Apple Swift version 6.3.3 effective-5.10 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)'). Please select a toolchain which matches the SDK.[0;0m
-   [0;36m2 |[0;0m // swift-compiler-version: Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)
-   [0;36m3 |[0;0m // swift-module-flags: -target arm64-apple-ios14.5 -enable-objc-interop -autolink-force-load -enable-library-evolution -module-link-name swiftUIKit -swift-version 5 -enforce-exclusivity=checked -O -module-name UIKit
-   [0;36m4 |[0;0m import Foundation
-     [0;36m|[0;0m        `- [1;31merror: [1;39mfailed to build module 'Foundation'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)', while this compiler is 'Apple Swift version 6.3.3 effective-5.10 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)'). Please select a toolchain which matches the SDK.[0;0m
-   [0;36m5 |[0;0m import Swift
-   [0;36m6 |[0;0m @_exported import UIKit
+Tweak.swift:398:10: [1;33mwarning: [1;39m'unsafeBitCast' from 'AutoreleasingUnsafeMutablePointer<AnyClass>' (aka 'AutoreleasingUnsafeMutablePointer<any AnyObject.Type>') to 'UnsafeMutableRawPointer' can be replaced with 'UnsafeMutableRawPointer' initializer[0;0m
+[0;36m396 |[0;0m         rkHookDrawInContext(cls: c)
+[0;36m397 |[0;0m     }
+[0;36m398 |[0;0m     free(unsafeBitCast(ptr, to: UnsafeMutableRawPointer.self))
+    [0;36m|[0;0m          `- [1;33mwarning: [1;39m'unsafeBitCast' from 'AutoreleasingUnsafeMutablePointer<AnyClass>' (aka 'AutoreleasingUnsafeMutablePointer<any AnyObject.Type>') to 'UnsafeMutableRawPointer' can be replaced with 'UnsafeMutableRawPointer' initializer[0;0m
+[0;36m399 |[0;0m }
+[0;36m400 |[0;0m 
 
-<module-includes>:1:9: [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m1 |[0;0m #import "Headers/Foundation.h"
-  [0;36m|[0;0m         `- [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m2 |[0;0m 
+Please submit a bug report (https://swift.org/contributing/#reporting-bugs) and include the crash backtrace.
 
-Tweak.swift:1:8: [1;31merror: [1;39mfailed to build module 'UIKit'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)', while this compiler is 'Apple Swift version 6.3.3 effective-5.10 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)'). Please select a toolchain which matches the SDK.[0;0m
-  [0;36m1 |[0;0m import UIKit
-    [0;36m|[0;0m        `- [1;31merror: [1;39mfailed to build module 'UIKit'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 5.4 (swiftlang-1205.0.24.14 clang-1205.0.19.54)', while this compiler is 'Apple Swift version 6.3.3 effective-5.10 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)'). Please select a toolchain which matches the SDK.[0;0m
-  [0;36m2 |[0;0m import Foundation
-  [0;36m3 |[0;0m import ObjectiveC
-
-<module-includes>:1:9: [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m1 |[0;0m #import "Headers/UIKit.h"
-  [0;36m|[0;0m         `- [1;39mnote: [1;39min file included from <module-includes>:1:[0;0m
-[0;36m2 |[0;0m #import "Headers/UIGestureRecognizerSubclass.h"
-[0;36m3 |[0;0m #import "Headers/UIGraphicsRendererSubclass.h"
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreFoundation.framework/Headers/CoreFoundation.h:43:10: [1;31merror: [1;39m'CoreFoundation/CFBase.h' file not found[0;0m
- [0;36m41 |[0;0m #endif
- [0;36m42 |[0;0m 
- [0;36m43 |[0;0m #include <CoreFoundation/CFBase.h>
-    [0;36m|[0;0m          |- [1;31merror: [1;39m'CoreFoundation/CFBase.h' file not found[0;0m
-    [0;36m|[0;0m          `- [1;39mnote: [1;39mdid not find header 'CFBase.h' in framework 'CoreFoundation' (loaded from '/System/Library/Frameworks')[0;0m
- [0;36m44 |[0;0m #include <CoreFoundation/CFArray.h>
- [0;36m45 |[0;0m #include <CoreFoundation/CFBag.h>
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/CoreFoundation.swiftmodule/arm64-apple-ios.swiftinterface: 0:
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/Foundation.swiftmodule/arm64-apple-ios.swiftinterface: 0:
-<module-includes>: 0:
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CoreGraphics.h: 0:
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/CoreGraphics.swiftmodule/arm64-apple-ios.swiftinterface: 0:
-<module-includes>: 0:
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CoreGraphics.h:8:10: [1;31merror: [1;39m'CoreGraphics/CGBase.h' file not found[0;0m
- [0;36m6 |[0;0m #define COREGRAPHICS_H_
- [0;36m7 |[0;0m 
- [0;36m8 |[0;0m #include <CoreGraphics/CGBase.h>
-   [0;36m|[0;0m          |- [1;31merror: [1;39m'CoreGraphics/CGBase.h' file not found[0;0m
-   [0;36m|[0;0m          `- [1;39mnote: [1;39mdid not find header 'CGBase.h' in framework 'CoreGraphics' (loaded from '/System/Library/Frameworks')[0;0m
- [0;36m9 |[0;0m 
-[0;36m10 |[0;0m #include <CoreGraphics/CGAffineTransform.h>
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/usr/lib/swift/CoreGraphics.swiftmodule/arm64-apple-ios.swiftinterface: 0:
+error: compile command failed due to signal 11 (use -v to see invocation)
 make[4]: *** [internal-swift-ReturnKeyColor-arm64] Error 1
 make[3]: *** [/Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/.swift-stamp] Error 2
 make[2]: *** [/Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.dylib] Error 2
