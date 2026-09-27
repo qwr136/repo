@@ -1,6 +1,6 @@
 Package: com.xiaofei.returnkeycolor
 Name: 键盘回车键同色
-Version: 1.0.8
+Version: 1.0.9
 Architecture: iphoneos-arm
 Description: 把原生键盘蓝色回车键（发送/搜索/前往/换行/GO 等）的背景色改成与「123」功能键完全一致的键帽色。只改背景像素，字体大小、圆角、文字颜色全部保持原生，深浅色模式自动跟随，只对系统原生键盘生效。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.8 - 放弃 displayType 整包替换（那套会把背景+字体一起换成功能键样式，导致字体变大），改回纯像素改色：回车键 displayType 保持原生 → 字体/文字/排版 100% 原生，只在键帽位图绘制瞬间把蓝色像素换成 123 键的灰（alpha 保留，圆角/白字/抗锯齿原样）。新增三个绘制入口覆盖：UIKBKeyView 的 displayLayer(contents 图)/drawLayer(上下文)，以及运行时动态 hook 私有键帽图层(_UIKBKeyViewLayer 等 CALayer 子类)的 drawInContext；取色保留三条通道(小图众数/子层图/系统灰兜底)并在深浅色切换后重取。内置可选诊断：在 com.xiaofei.returnkeycolor.plist 加 RKDiagnose=true 后弹一次键盘会弹窗显示命中的绘制入口(不写任何文件)，用于定位真实绘制点。只原生键盘生效。
+Changelog: 1.0.9 - 用 Swift 重写（纯 Swift 主逻辑 + 极薄 ObjC constructor 入口），诊断版：诊断弹窗默认开启且用独立 UIWindow 挂载（不再依赖键盘 window 的 rootViewController，修复 1.0.8「没有弹窗」的根因）；弹窗会报告三个绘制入口各自是否命中、123 键取色值、回车键 displayType、layer.contents 是否为 nil，用于一次性定位真实绘制路径。改色逻辑不变：回车键 displayType 保持原生（字体/文字/排版 100% 原生），只在键帽位图绘制瞬间替换蓝色像素为 123 键的灰。只原生键盘生效。

@@ -12,7 +12,9 @@ THEOS_PACKAGE_SCHEME = rootless
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = ReturnKeyColor
-ReturnKeyColor_FILES = Tweak.x
-ReturnKeyColor_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function
+ReturnKeyColor_FILES = Tweak.m
+ReturnKeyColor_SWIFTFILES = Tweak.swift
+ReturnKeyColor_CFLAGS = -fobjc-arc
+ReturnKeyColor_SWIFTFLAGS = -Xcc -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk
