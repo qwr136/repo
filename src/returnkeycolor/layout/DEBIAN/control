@@ -1,6 +1,6 @@
 Package: com.xiaofei.returnkeycolor
 Name: 键盘回车键同色
-Version: 1.0.7
+Version: 1.0.8
 Architecture: iphoneos-arm
 Description: 把原生键盘蓝色回车键（发送/搜索/前往/换行/GO 等）的背景色改成与「123」功能键完全一致的键帽色。只改背景像素，字体大小、圆角、文字颜色全部保持原生，深浅色模式自动跟随，只对系统原生键盘生效。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.7 - 回到 1.0.4 那套（把回车键 Return-Key 的 displayType 换成 123 键 More-Key 的值，系统按功能键配色重画，实测能改色），并解决它字体变大的副作用：扫描键盘私有类里返回 UIFont / 文字颜色的方法，查回车键的字体时临时关掉 displayType 覆盖 → 键帽底色取 123 键的灰，字体大小与文字颜色仍是原生回车键那一套。另加两道像素兜底（UIKBKeyView 的 drawLayer/displayLayer、CALayer 的 drawInContext），只在键帽上还残留蓝色时才会动，因此与上面不冲突。装完强制重绘，当次弹键盘即可生效；不写任何日志与诊断文件；第三方键盘扩展进程不生效。
+Changelog: 1.0.8 - 放弃 displayType 整包替换（那套会把背景+字体一起换成功能键样式，导致字体变大），改回纯像素改色：回车键 displayType 保持原生 → 字体/文字/排版 100% 原生，只在键帽位图绘制瞬间把蓝色像素换成 123 键的灰（alpha 保留，圆角/白字/抗锯齿原样）。新增三个绘制入口覆盖：UIKBKeyView 的 displayLayer(contents 图)/drawLayer(上下文)，以及运行时动态 hook 私有键帽图层(_UIKBKeyViewLayer 等 CALayer 子类)的 drawInContext；取色保留三条通道(小图众数/子层图/系统灰兜底)并在深浅色切换后重取。内置可选诊断：在 com.xiaofei.returnkeycolor.plist 加 RKDiagnose=true 后弹一次键盘会弹窗显示命中的绘制入口(不写任何文件)，用于定位真实绘制点。只原生键盘生效。
