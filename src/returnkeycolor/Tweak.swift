@@ -124,6 +124,13 @@ func rkIsBlue(_ c: UIColor?) -> Bool {
     return rkIsBluePixel(r, g, b)
 }
 
+// 避免 Swift 对 CGImage(CF 类型) 的条件下转报 "always succeeds"：先转 NSObject 再用 CFGetTypeID 判断
+func rkAsCGImage(_ v: Any?) -> CGImage? {
+    guard let obj = v as? NSObject else { return nil }
+    if CFGetTypeID(obj as CFTypeRef) != CGImageGetTypeID() { return nil }
+    return (obj as! CGImage)
+}
+
 // MARK: - 位图工具
 func rkModeColor(buf: UnsafeMutablePointer<UInt8>, n: Int) -> UIColor? {
     var freq: [String: Int] = [:]
@@ -231,7 +238,7 @@ func rkVisualColor(view: UIView) -> UIColor? {
 
 func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
     guard let layer = layer, depth <= 4 else { return nil }
-    if let c = layer.contents as? CGImage {
+    if let c = rkAsCGImage(layer.contents) {
         let w = Int(c.width), h = Int(c.height)
         guard w > 0, h > 0 else { return nil }
         let bpr = w * 4
@@ -252,7 +259,7 @@ func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
 
 func rkRecolorLayerTree(layer: CALayer?, target: UIColor, depth: Int) {
     guard let layer = layer, depth <= 5 else { return }
-    if let c = layer.contents as? CGImage {
+    if let c = rkAsCGImage(layer.contents) {
         let w = Int(c.width), h = Int(c.height)
         if w > 0, h > 0, w * h <= 600000 {
             let bpr = w * 4
@@ -511,7 +518,7 @@ func rkTintKeyboard(root: UIView) {
         rkDiag("回车键 displayType=\(dt ?? "nil")")
     }
     if let ret = keys.first(where: { rkIsReturn($0) }) as? UIView, let lay = ret.layer as CALayer? {
-        rkDiag("回车键 layer.contents=\((lay.contents as? CGImage) != nil ? "有图" : "nil")")
+        rkDiag("回车键 layer.contents=\((rkAsCGImage(lay.contents) != nil ? "有图" : "nil"))")
     }
 
     if let _ = gFuncColor {
