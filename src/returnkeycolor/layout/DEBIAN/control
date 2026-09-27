@@ -1,8 +1,8 @@
 Package: com.xiaofei.returnkeycolor
 Name: 键盘回车键同色
-Version: 1.0.2
+Version: 1.0.3
 Architecture: iphoneos-arm
-Description: 把原生键盘右下角的回车键（发送/搜索/前往/换行/GO 等蓝色键帽）改成与「123」功能键完全一致的灰色。颜色实时取自当前键盘的 123 键，深浅色模式自动跟随，只影响回车键不碰其他按键。
+Description: 把原生键盘右下角的回车键（发送/搜索/前往/换行/GO 等蓝色键帽）改成与「123」功能键完全一致的键帽色。不再硬改图层颜色，而是在运行时接管系统对「蓝色键」的判定，让系统自己按普通功能键配色重画，深浅色模式与第三方键盘主题自动跟随。
 Maintainer: 小飞 <[email protected]>
 Author: 小飞
 Section: Tweaks (rootless)
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.2 - 修复取色失败（日志显示「未找到 123 键」）：键在 layoutSubviews 时尚未挂到父视图，旧逻辑只拿回车键自己当扫描根，看不到整块键盘的 123 键；改为优先键盘布局容器、未挂载时用所在 window 作根，保证扫描到全部按键；新增键帽色众数取灰（123 键文字取不到时，按字母键色之外的非蓝高频色取功能键灰，深浅色均准确）；新增触发节流与日志节流，消除 3 秒几十条的日志洪水；按下高亮改为强制立即重染
+Changelog: 1.0.3 - 重做改色思路（前几版无效的根因：iOS 16 键帽是一整张预渲染位图，改 CAShapeLayer 的 fillColor 日志成功但屏幕不变）。本版运行时扫描键盘私有类，接管方法名带 blue 的判定入口（返回 BOOL）与蓝色配色入口（返回 UIColor），回车键一律判定为「非蓝键」，由系统用普通功能键配色重画，效果与 123 键一致且自动适配深浅色；同时从 123 键实时取色（渲染 8x8 位图取颜色众数）作为配色双保险；装完接管后强制当前键盘重绘，当次弹出即可生效；扫描 0 命中时才退回旧的图层染色兜底；日志默认关闭，诊断文件写在 /var/mobile/Documents/键盘结构.txt

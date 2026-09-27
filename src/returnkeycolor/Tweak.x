@@ -1,52 +1,55 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <substrate.h>
+#import <QuartzCore/QuartzCore.h>
+#include <stdlib.h>
+#include <string.h>
 
-// 键盘回车键同色：把原生键盘右下角的蓝色回车键（发送 / 搜索 / 前往 / 换行 / GO 等）
-// 改成和「123」功能键一模一样的键帽灰。
+// 键盘回车键同色 1.0.3
+// 目标：把原生键盘的蓝色回车键（发送 / 搜索 / 前往 / 换行 / GO…）改成和「123」功能键一模一样的键帽色。
 //
-// 原理：iOS 键盘键帽是私有类 UIKBKeyView，键帽背景是它 layer 树里的 CAShapeLayer。
-//   ① 从同一键盘上「123 / #+=」键的键帽 layer 里实时取灰色（和 123 完全一样，深浅色自动跟随）
-//   ② 把回车键（文字命中 发送/搜索/… 或键帽为系统蓝）的蓝色 shape 全部染成这个灰
-//   ③ 只染"蓝"不改其他颜色，操作天然幂等；按下高亮恢复蓝色后会在 touch 结束时再修一次
+// 1.0.0~1.0.2 失败的根因：iOS 16 的键帽不是用 CAShapeLayer 的 fillColor 画的，
+// 而是一整张预渲染好的位图（圆角 + 底色 + 文字在一起），所以改 fillColor 日志显示成功、屏幕上纹丝不动。
 //
-// 日志：/var/mobile/Documents/键盘同色日志.txt（排查用，可在偏好里关）
+// 本版做法：不去猜那张位图在哪，而是让系统自己按「非蓝色键」重新渲染 —— 运行时扫一遍键盘私有类，
+// 找到判定「这个键是不是蓝色键」的方法（方法名里带 blue、返回 BOOL），把回车键的判定结果改成 NO。
+// 系统判定不是蓝键，就会用普通功能键的配色重画，效果和 123 键一致，且深浅色 / 键盘主题自动跟随。
+// 再顺手接管「蓝色键用什么颜色」的方法，返回从 123 键实时取到的颜色做双保险。
+// 万一系统里根本没有这类方法（0 命中），才退回位图层的染色兜底。
 
 #define kRKPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.returnkeycolor.plist"
 #define kRKLogFile   @"/var/mobile/Documents/键盘同色日志.txt"
 #define kRKDumpFile  @"/var/mobile/Documents/键盘结构.txt"
 
-// UIKBKeyView 是 UIKit 私有键盘键帽视图：声明继承关系，否则 %hook 内
-// self.window / 传参给 UIView* 都会报前向类错误
+// UIKBKeyView 是 UIKit 私有键盘键帽视图：声明继承关系，否则 %hook 内 self.window / 传 UIView* 都报前向类错误
 @interface UIKBKeyView : UIView
 @end
 
 static char kRKGenKey;
 
-#pragma mark - 偏好与日志
+static BOOL  gHooksReady = NO;   // 是否已扫过键盘私有类
+static int   gHookSwitch = 0;    // 命中的「是不是蓝键」判定方法数
+static int   gHookColor  = 0;    // 命中的「蓝键颜色」方法数
+static UIColor *gFuncColor = nil;// 从 123 键实时取到的键帽色
+static NSMutableSet *gHooked = nil;   // 已替换的方法，避免父类子类重复替换
+static NSMutableArray *gHitLog = nil; // 命中清单，写进诊断文件
+
+#pragma mark - 偏好 / 日志
 
 static NSDictionary *_rkPrefs(void) {
     return [NSDictionary dictionaryWithContentsOfFile:kRKPrefsFile] ?: @{};
 }
 
-static BOOL RKEnabled(void) {
+static BOOL RKPrefBool(NSString *k, BOOL def) {
     @try {
-        id v = _rkPrefs()[@"RKEnabled"];
+        id v = _rkPrefs()[k];
         if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
     } @catch (NSException *e) {}
-    return YES;
-}
-
-static BOOL RKLogEnabled(void) {
-    @try {
-        id v = _rkPrefs()[@"RKLogEnabled"];
-        if ([v respondsToSelector:@selector(boolValue)]) { return [v boolValue]; }
-    } @catch (NSException *e) {}
-    return YES;
+    return def;
 }
 
 static void RKLog(NSString *line) {
-    if (!RKLogEnabled()) { return; }
+    if (!RKPrefBool(@"RKLogEnabled", NO)) { return; }
     @try {
         NSFileManager *fm = [NSFileManager defaultManager];
         if (![fm fileExistsAtPath:kRKLogFile]) {
@@ -63,11 +66,11 @@ static void RKLog(NSString *line) {
     } @catch (NSException *e) {}
 }
 
-#pragma mark - 判定
+#pragma mark - 文字判定
 
-// 回车键的显示文字（各形态）
+// 回车键的各种显示文字
 static BOOL RKIsReturnString(NSString *s) {
-    if (s.length == 0) { return NO; }
+    if (![s isKindOfClass:[NSString class]] || s.length == 0) { return NO; }
     static NSArray *w = nil;
     if (!w) {
         w = @[@"发送", @"搜索", @"前往", @"回车", @"换行", @"确认", @"确定", @"完成", @"加入",
@@ -80,15 +83,219 @@ static BOOL RKIsReturnString(NSString *s) {
     return NO;
 }
 
-// 功能键文字（取色基准）
+// 功能键文字（取色基准：123 / #+= / ABC）
 static BOOL RKIsFuncString(NSString *s) {
-    if (s.length == 0) { return NO; }
+    if (![s isKindOfClass:[NSString class]] || s.length == 0) { return NO; }
     NSString *low = s.lowercaseString;
     return [low isEqualToString:@"123"] || [low isEqualToString:@"#+="] || [low isEqualToString:@"abc"];
 }
 
-// 系统蓝键帽判定（systemBlue ≈ (0, 0.478, 1)：蓝分量显著高于红绿才判蓝，
-// 普通灰键帽 b-r≈0.06、白键 b-r=0、黑键 b=0 都不会误伤）
+// 大小写不敏感子串匹配（C 串）
+static BOOL RKHas(const char *hay, const char *needle) {
+    if (!hay || !needle || !*needle) { return NO; }
+    size_t nl = strlen(needle);
+    for (const char *p = hay; *p; p++) {
+        size_t i = 0;
+        while (i < nl && p[i] && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) { i++; }
+        if (i == nl) { return YES; }
+    }
+    return NO;
+}
+
+// 取对象上的显示文字：displayString → stringRepresentation → name/title/text → 递归它的 key
+static NSString *RKTextOf(id obj, int depth) {
+    if (!obj || depth > 3) { return nil; }
+    @try {
+        static NSArray *ks = nil;
+        if (!ks) { ks = @[@"displayString", @"stringRepresentation", @"representedString", @"name", @"title", @"text"]; }
+        for (NSString *k in ks) {
+            id v = nil;
+            BOOL got = NO;
+            @try { v = [obj valueForKey:k]; got = YES; } @catch (NSException *e) {}
+            if (got && [v isKindOfClass:[NSString class]] && [(NSString *)v length]) { return v; }
+        }
+        id sub = nil;
+        BOOL hasSub = NO;
+        @try { sub = [obj valueForKey:@"key"]; hasSub = YES; } @catch (NSException *e) {}
+        if (hasSub && sub && sub != obj) { return RKTextOf(sub, depth + 1); }
+    } @catch (NSException *e) {}
+    return nil;
+}
+
+// 这个对象是不是「回车键」（发送 / 搜索…）：先按文字判，取不到文字就问系统自己的属性
+static BOOL RKIsReturnObj(id obj) {
+    if (!obj) { return NO; }
+    if (RKIsReturnString(RKTextOf(obj, 0))) { return YES; }
+    @try {
+        static NSArray *ks = nil;
+        if (!ks) { ks = @[@"isReturnKey", @"isReturn", @"returnKey"]; }
+        for (NSString *k in ks) {
+            if (![obj respondsToSelector:NSSelectorFromString(k)]) { continue; }
+            id v = nil;
+            @try { v = [obj valueForKey:k]; } @catch (NSException *e) { continue; }
+            if ([v respondsToSelector:@selector(boolValue)] && [v boolValue]) { return YES; }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
+#pragma mark - 从 123 键实时取色（把键渲染成 8x8 位图，取出现最多的颜色）
+
+static UIColor *RKVisualColorOfView(UIView *v) {
+    CGSize sz = v.bounds.size;
+    if (sz.width < 6.0 || sz.height < 6.0) { return nil; }
+    const int W = 8, H = 8;
+    unsigned char *buf = (unsigned char *)calloc((size_t)(W * H * 4), 1);
+    if (!buf) { return nil; }
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = NULL;
+    if (cs) {
+        ctx = CGBitmapContextCreate(buf, W, H, 8, W * 4, cs,
+                                    kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedLast);
+        CGColorSpaceRelease(cs);
+    }
+    if (!ctx) { free(buf); return nil; }
+    CGContextScaleCTM(ctx, (CGFloat)W / sz.width, (CGFloat)H / sz.height);
+    @try { [v.layer renderInContext:ctx]; } @catch (NSException *e) {}
+    CGContextRelease(ctx);
+
+    NSMutableDictionary *freq = [NSMutableDictionary dictionary];
+    NSMutableDictionary *samp = [NSMutableDictionary dictionary];
+    for (int i = 0; i < W * H; i++) {
+        unsigned char a = buf[i * 4 + 3];
+        if (a < 250) { continue; }                       // 跳过圆角外的透明像素
+        NSString *k = [NSString stringWithFormat:@"%d_%d_%d",
+                       buf[i * 4 + 0] / 8, buf[i * 4 + 1] / 8, buf[i * 4 + 2] / 8];
+        freq[k] = @([freq[k] intValue] + 1);
+        if (!samp[k]) { samp[k] = @[@(buf[i * 4 + 0]), @(buf[i * 4 + 1]), @(buf[i * 4 + 2])]; }
+    }
+    free(buf);
+
+    NSString *best = nil; int bn = 0;
+    for (NSString *k in freq) {
+        int n = [freq[k] intValue];
+        if (n > bn) { bn = n; best = k; }
+    }
+    if (!best) { return nil; }
+    NSArray *c = samp[best];                             // 文字只占键面一小部分，众数就是键帽底色
+    return [UIColor colorWithRed:[c[0] floatValue] / 255.0
+                           green:[c[1] floatValue] / 255.0
+                            blue:[c[2] floatValue] / 255.0
+                           alpha:1.0];
+}
+
+#pragma mark - 运行时接管「蓝键」判定（核心）
+
+// meta = YES 时扫的是类方法（元类）；ident 用 +/- 前缀区分，避免和同名实例方法冲突
+static void RKScanClass(Class c, BOOL meta) {
+    unsigned n = 0;
+    Method *ms = class_copyMethodList(c, &n);
+    if (!ms) { return; }
+    for (unsigned i = 0; i < n; i++) {
+        Method m = ms[i];
+        SEL sel = method_getName(m);
+        const char *nm = sel_getName(sel);
+        if (!RKHas(nm, "blue")) { continue; }            // 只碰名字里带 blue 的
+        NSString *ident = [NSString stringWithFormat:@"%@[%s %s]", meta ? @"+" : @"-", class_getName(c), nm];
+        if ([gHooked containsObject:ident]) { continue; }
+
+        char rt[64]; rt[0] = 0;
+        method_getReturnType(m, rt, sizeof rt);
+        unsigned na = method_getNumberOfArguments(m);
+        IMP orig = method_getImplementation(m);
+        if (!orig) { continue; }
+
+        // ① 「这个键是不是蓝色键」：返回 BOOL 且无参。回车键一律回答 NO → 系统按普通功能键配色重画
+        if ((rt[0] == 'B' || rt[0] == 'c') && na == 2) {
+            IMP ni = imp_implementationWithBlock(^BOOL(id me) {
+                BOOL isRet = NO;
+                @try { isRet = RKIsReturnObj(me); } @catch (NSException *e) {}
+                if (isRet) { return NO; }
+                return ((BOOL (*)(id, SEL))orig)(me, sel);
+            });
+            method_setImplementation(m, ni);
+            [gHooked addObject:ident];
+            gHookSwitch++;
+            [gHitLog addObject:[NSString stringWithFormat:@"[判定] %@[%s %s] → 回车键返回 NO", meta ? @"+" : @"-", class_getName(c), nm]];
+            continue;
+        }
+
+        // ② / ②b 带一个参数：- (BOOL)xxxBluexxx:(id)key 或 :(long long)state
+        if ((rt[0] == 'B' || rt[0] == 'c') && na == 3) {
+            char at[64]; at[0] = 0;
+            method_getArgumentType(m, 2, at, sizeof at);
+            if (at[0] == '@') {
+                IMP ni = imp_implementationWithBlock(^BOOL(id me, id arg) {
+                    BOOL isRet = NO;
+                    @try { isRet = RKIsReturnObj(arg) || RKIsReturnObj(me); } @catch (NSException *e) {}
+                    if (isRet) { return NO; }
+                    return ((BOOL (*)(id, SEL, id))orig)(me, sel, arg);
+                });
+                method_setImplementation(m, ni);
+                [gHooked addObject:ident];
+                gHookSwitch++;
+                [gHitLog addObject:[NSString stringWithFormat:@"[判定] %@[%s %s] → 回车键返回 NO", meta ? @"+" : @"-", class_getName(c), nm]];
+            } else if (strchr("ilqILQScB", at[0])) {
+                // 参数是 state / type 这类整数，只能按 self 判断
+                IMP ni = imp_implementationWithBlock(^BOOL(id me, long long x) {
+                    BOOL isRet = NO;
+                    @try { isRet = RKIsReturnObj(me); } @catch (NSException *e) {}
+                    if (isRet) { return NO; }
+                    return ((BOOL (*)(id, SEL, long long))orig)(me, sel, x);
+                });
+                method_setImplementation(m, ni);
+                [gHooked addObject:ident];
+                gHookSwitch++;
+                [gHitLog addObject:[NSString stringWithFormat:@"[判定] %@[%s %s] (int参数) → 回车键返回 NO", meta ? @"+" : @"-", class_getName(c), nm]];
+            }
+            continue;
+        }
+
+        // ③ 「蓝色键用什么颜色」：返回 UIColor 且无参 → 直接给从 123 键取到的颜色
+        if (rt[0] == '@' && RKHas(nm, "color") && na == 2) {
+            IMP ni = imp_implementationWithBlock(^id(id me) {
+                UIColor *cc = nil;
+                @try { cc = gFuncColor; } @catch (NSException *e) {}
+                if (cc) { return cc; }
+                return ((id (*)(id, SEL))orig)(me, sel);
+            });
+            method_setImplementation(m, ni);
+            [gHooked addObject:ident];
+            gHookColor++;
+            [gHitLog addObject:[NSString stringWithFormat:@"[颜色] %@[%s %s] → 返回 123 键色", meta ? @"+" : @"-", class_getName(c), nm]];
+        }
+    }
+    free(ms);
+}
+
+static int RKInstallHooks(void) {
+    if (gHooksReady) { return gHookSwitch + gHookColor; }
+    gHooksReady = YES;
+    if (!RKPrefBool(@"RKEnabled", YES)) { return 0; }
+    gHooked = [NSMutableSet set];
+    gHitLog = [NSMutableArray array];
+    @try {
+        int cnt = 0;
+        Class *cls = objc_copyClassList(&cnt);
+        if (!cls) { return; }
+        for (int i = 0; i < cnt; i++) {
+            Class c = cls[i];
+            const char *cn = class_getName(c);
+            if (strncmp(cn, "UIKB", 4) != 0 && !RKHas(cn, "Keyboard")) { continue; }
+            for (Class p = c; p && p != [NSObject class]; p = class_getSuperclass(p)) { RKScanClass(p, NO); }
+            Class meta = object_getClass(c);
+            if (meta && class_isMetaClass(meta)) { RKScanClass(meta, YES); }
+        }
+        free(cls);
+        RKLog([NSString stringWithFormat:@"接管完成：判定方法 %d 个，颜色方法 %d 个", gHookSwitch, gHookColor]);
+    } @catch (NSException *e) {
+        RKLog([NSString stringWithFormat:@"接管异常: %@", e]);
+    }
+    return gHookSwitch + gHookColor;
+}
+
+#pragma mark - 兜底：直接改键帽图层（1.0.2 的老办法，仅在上面 0 命中时使用）
+
 static BOOL RKIsBlue(UIColor *c) {
     if (!c) { return NO; }
     CGFloat r = 0, g = 0, b = 0, a = 0;
@@ -96,194 +303,16 @@ static BOOL RKIsBlue(UIColor *c) {
     return (b > 0.55) && ((b - r) > 0.30) && ((b - g) > 0.15);
 }
 
-// 取键上文字：UIKBKeyView.displayString → key.displayString → key.stringRepresentation
-static NSString *RKDisplayString(UIView *v) {
-    @try {
-        id s = nil;
-        @try { s = [v valueForKey:@"displayString"]; } @catch (NSException *e) {}
-        if ([s isKindOfClass:[NSString class]] && [(NSString *)s length]) { return s; }
-        id k = nil;
-        @try { k = [v valueForKey:@"key"]; } @catch (NSException *e) {}
-        if (k) {
-            @try { s = [k valueForKey:@"displayString"]; } @catch (NSException *e) {}
-            if ([s isKindOfClass:[NSString class]] && [(NSString *)s length]) { return s; }
-            @try { s = [k valueForKey:@"stringRepresentation"]; } @catch (NSException *e) {}
-            if ([s isKindOfClass:[NSString class]] && [(NSString *)s length]) { return s; }
-        }
-    } @catch (NSException *e) {}
-    return nil;
-}
-
-// 递归收集：fill 不透明（alpha>=0.99）且投影面积最大的 CAShapeLayer（用普通函数避免 block 递归 retain cycle）
-static void RKWalkLargestShape(CALayer *l, CAShapeLayer **best, CGFloat *bestArea) {
-    if ([l isKindOfClass:[CAShapeLayer class]]) {
-        CGColorRef f = ((CAShapeLayer *)l).fillColor;
-        if (f && CGColorGetAlpha(f) >= 0.99) {
-            CGFloat area = l.frame.size.width * l.frame.size.height;
-            if (area > *bestArea) { *bestArea = area; *best = (CAShapeLayer *)l; }
-        }
-    }
-    for (CALayer *sub in l.sublayers) { RKWalkLargestShape(sub, best, bestArea); }
-}
-
-// 找键帽 shape（键帽立体阴影层的 fill 是半透明黑，会被 alpha 条件排除）
-static CAShapeLayer *RKKeycapShape(UIView *v) {
-    CAShapeLayer *best = nil;
-    CGFloat bestArea = 0;
-    RKWalkLargestShape(v.layer, &best, &bestArea);
-    return best;
-}
-
-#pragma mark - 诊断 dump（一次性，用于定位键帽到底是哪一层画的）
-
-static NSString *RKRGBStr(UIColor *c) {
-    CGFloat r = 0, g = 0, b = 0, a = 0;
-    if (![c getRed:&r green:&g blue:&b alpha:&a]) { return @"?"; }
-    return [NSString stringWithFormat:@"(%.3f,%.3f,%.3f,%.2f)", r, g, b, a];
-}
-
-static void RKDumpLayer(CALayer *l, int depth, NSMutableString *out) {
-    if (depth > 7) { return; }
-    NSString *pad = [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0];
-    NSString *fill = @"-";
-    if ([l isKindOfClass:[CAShapeLayer class]]) {
-        CGColorRef f = ((CAShapeLayer *)l).fillColor;
-        if (f) { fill = RKRGBStr([UIColor colorWithCGColor:f]); }
-    }
-    NSString *bg = l.backgroundColor ? RKRGBStr([UIColor colorWithCGColor:l.backgroundColor]) : @"-";
-    [out appendFormat:@"%@%@ | frame %.0f,%.0f %.0fx%.0f | fill %@ | bg %@ | contents=%@ | op=%.2f | hidden=%d\n",
-        pad, NSStringFromClass([l class]),
-        l.frame.origin.x, l.frame.origin.y, l.frame.size.width, l.frame.size.height,
-        fill, bg, (l.contents ? @"有图" : @"无"), l.opacity, l.hidden];
-    for (CALayer *s in l.sublayers) { RKDumpLayer(s, depth + 1, out); }
-}
-
-// 列出对象的属性（含父类），找出 displayType / style / type 这类关键字段
-static void RKDumpProps(id obj, NSString *title, NSMutableString *out) {
-    if (!obj) { return; }
-    [out appendFormat:@"-- %@ (%@) --\n", title, NSStringFromClass([obj class])];
-    int dumped = 0;
-    for (Class c = [obj class]; c && dumped < 40; c = class_getSuperclass(c)) {
-        unsigned n = 0;
-        objc_property_t *ps = class_copyPropertyList(c, &n);
-        for (unsigned i = 0; i < n && dumped < 40; i++) {
-            NSString *key = [NSString stringWithUTF8String:property_getName(ps[i])];
-            @try {
-                id val = [obj valueForKey:key];
-                NSString *desc;
-                if (val == nil) { desc = @"nil"; }
-                else if ([val isKindOfClass:[NSString class]] || [val isKindOfClass:[NSNumber class]]) { desc = [val description]; }
-                else if ([val isKindOfClass:[UIColor class]]) { desc = RKRGBStr(val); }
-                else { desc = [NSString stringWithFormat:@"<%@>", NSStringFromClass([val class])]; }
-                if (desc.length > 50) { desc = [desc substringToIndex:50]; }
-                [out appendFormat:@"   %@ = %@\n", key, desc];
-                dumped++;
-            } @catch (NSException *e) {}
-        }
-        free(ps);
-    }
-}
-
-// 列出类里和「颜色/样式/类型」相关的方法名，找真正能改色的入口
-static void RKDumpMethods(Class cls, NSMutableString *out) {
-    if (!cls) { return; }
-    [out appendFormat:@"-- %@ 相关方法 --\n", NSStringFromClass(cls)];
-    NSArray *kws = @[@"color", @"fill", @"style", @"type", @"render", @"appearance", @"display"];
-    unsigned n = 0;
-    Method *ms = class_copyMethodList(cls, &n);
-    for (unsigned i = 0; i < n; i++) {
-        NSString *sn = NSStringFromSelector(method_getName(ms[i]));
-        NSString *low = sn.lowercaseString;
-        for (NSString *k in kws) {
-            if ([low containsString:k]) { [out appendFormat:@"   %@\n", sn]; break; }
-        }
-    }
-    free(ms);
-}
-
-static void RKDumpKey(UIView *kv, NSString *tag, NSMutableString *out) {
-    [out appendFormat:@"\n===== %@ | %@ | %.0fx%.0f =====\n",
-     tag, NSStringFromClass([kv class]), kv.frame.size.width, kv.frame.size.height];
-    [out appendFormat:@"  文字: %@\n", RKDisplayString(kv) ?: @"(取不到)"];
-    id keyObj = nil;
-    @try { keyObj = [kv valueForKey:@"key"]; } @catch (NSException *e) {}
-    if (keyObj) { RKDumpProps(keyObj, @"key(UIKBTree)", out); }
-    CAShapeLayer *cap = RKKeycapShape(kv);
-    if (cap && cap.fillColor) {
-        [out appendFormat:@"  当前判定的键帽 fill: %@\n", RKRGBStr([UIColor colorWithCGColor:cap.fillColor])];
-    }
-    [out appendFormat:@"  --- layer 树 ---\n"];
-    RKDumpLayer(kv.layer, 1, out);
-}
-
-static BOOL gDumpDone = NO;
-
-// 键盘首次出现时 dump 一次：回车键 / 123 键 / 一个普通字母键 的真实结构与颜色
-static void RKDumpOnce(NSArray *keys) {
-    if (gDumpDone) { return; }
-    @try {
-        NSMutableString *out = [NSMutableString string];
-        [out appendFormat:@"键盘结构诊断 (共 %lu 个键)\n", (unsigned long)keys.count];
-
-        UIView *retKey = nil, *funcKey = nil, *normalKey = nil;
-        for (UIView *kv in keys) {
-            NSString *txt = RKDisplayString(kv);
-            CAShapeLayer *cap = RKKeycapShape(kv);
-            BOOL blue = (cap && cap.fillColor && RKIsBlue([UIColor colorWithCGColor:cap.fillColor]));
-            if (!retKey && (RKIsReturnString(txt) || blue)) { retKey = kv; }
-            else if (!funcKey && RKIsFuncString(txt)) { funcKey = kv; }
-            else if (!normalKey && txt.length && !RKIsReturnString(txt) && !RKIsFuncString(txt)) { normalKey = kv; }
-        }
-
-        if (retKey) { RKDumpKey(retKey, @"回车键(蓝)", out); }
-        if (funcKey) { RKDumpKey(funcKey, @"123功能键(取色基准)", out); }
-        if (normalKey) { RKDumpKey(normalKey, @"普通键", out); }
-
-        Class treeCls = NSClassFromString(@"UIKBTree");
-        if (treeCls) { RKDumpMethods(treeCls, out); }
-        RKDumpMethods(NSClassFromString(@"UIKBKeyView"), out);
-
-        [out writeToFile:kRKDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        gDumpDone = YES;
-        RKLog(@"结构诊断已写入 键盘结构.txt");
-    } @catch (NSException *e) {
-        RKLog([NSString stringWithFormat:@"dump 异常: %@", e]);
-    }
-}
-
-#pragma mark - 染色
-
-// 把视图 layer 树里所有"蓝色"的 CAShapeLayer 染成 target（幂等：灰了就不再动）
 static void RKTintBlueShapes(CALayer *l, UIColor *target) {
     if ([l isKindOfClass:[CAShapeLayer class]]) {
         CAShapeLayer *sh = (CAShapeLayer *)l;
-        if (sh.fillColor && RKIsBlue([UIColor colorWithCGColor:sh.fillColor])) {
-            sh.fillColor = target.CGColor;
-        }
+        if (sh.fillColor && RKIsBlue([UIColor colorWithCGColor:sh.fillColor])) { sh.fillColor = target.CGColor; }
     }
     for (CALayer *sub in l.sublayers) { RKTintBlueShapes(sub, target); }
 }
 
-// 全键盘扫描：① 从 123 键取灰 ② 给回车键染色
-// 颜色量化（用于统计键帽色众数）
-static NSString *RKColorKey(UIColor *c) {
-    CGFloat r = 0, g = 0, b = 0, a = 0;
-    if (![c getRed:&r green:&g blue:&b alpha:&a]) { return @"?"; }
-    return [NSString stringWithFormat:@"%d_%d_%d", (int)(r * 40), (int)(g * 40), (int)(b * 40)];
-}
+#pragma mark - 键收集 / 强制重画
 
-// 日志节流：同一 key 3 秒内只写一次（键盘每次布局都会触发，避免日志刷屏）
-static void RKLogThrottled(NSString *key, NSString *line) {
-    static NSMutableDictionary *last = nil;
-    if (!last) { last = [NSMutableDictionary dictionary]; }
-    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    NSNumber *t = last[key];
-    if (t && (now - t.doubleValue) < 3.0) { return; }
-    last[key] = @(now);
-    RKLog(line);
-}
-
-// 收集键盘上的所有键
 static NSArray<UIView *> *RKCollectKeys(UIView *root) {
     Class keyViewCls = NSClassFromString(@"UIKBKeyView");
     if (!root || !keyViewCls) { return @[]; }
@@ -299,118 +328,172 @@ static NSArray<UIView *> *RKCollectKeys(UIView *root) {
     return out;
 }
 
-// 取「功能键灰」（要和 123 键一致）：
-//   ① 直接命中 123 / #+= / ABC 键的键帽色
-//   ② 取不到文字时用键帽色众数：出现最多的是字母键色（白/深灰），排除它，
-//      剩下出现最多的非蓝色就是功能键灰（shift / 123 / 删除 / 地球键共用同一个灰）
-static UIColor *RKPickFuncColor(NSArray<UIView *> *keys) {
-    for (UIView *kv in keys) {
-        NSString *txt = RKDisplayString(kv);
-        if (!RKIsFuncString(txt)) { continue; }
-        CAShapeLayer *cap = RKKeycapShape(kv);
-        if (!cap || !cap.fillColor) { continue; }
-        UIColor *c = [UIColor colorWithCGColor:cap.fillColor];
-        if (!RKIsBlue(c)) {
-            CGFloat r = 0, g = 0, b = 0, a = 0;
-            [c getRed:&r green:&g blue:&b alpha:&a];
-            RKLogThrottled(@"func123", [NSString stringWithFormat:@"命中 123 键取色 (%.3f, %.3f, %.3f)", r, g, b]);
-            return c;
-        }
+// 扫描根：键盘布局容器优先；键还没挂上去时用 window
+static UIView *RKKeyboardRoot(UIView *key) {
+    for (UIView *v = key; v; v = v.superview) {
+        if ([NSStringFromClass([v class]) hasPrefix:@"UIKeyboardLayout"]) { return v; }
     }
-
-    NSMutableDictionary *freq = [NSMutableDictionary dictionary];
-    NSMutableDictionary *sample = [NSMutableDictionary dictionary];
-    for (UIView *kv in keys) {
-        CAShapeLayer *cap = RKKeycapShape(kv);
-        if (!cap || !cap.fillColor) { continue; }
-        UIColor *c = [UIColor colorWithCGColor:cap.fillColor];
-        if (RKIsBlue(c)) { continue; }
-        NSString *k = RKColorKey(c);
-        freq[k] = @([freq[k] intValue] + 1);
-        if (!sample[k]) { sample[k] = c; }
-    }
-    NSString *mainKey = nil; int mainCount = 0;
-    for (NSString *k in freq) {
-        int n = [freq[k] intValue];
-        if (n > mainCount) { mainCount = n; mainKey = k; }
-    }
-    NSString *secondKey = nil; int secondCount = 0;
-    for (NSString *k in freq) {
-        if ([k isEqualToString:mainKey]) { continue; }
-        int n = [freq[k] intValue];
-        if (n > secondCount) { secondCount = n; secondKey = k; }
-    }
-    if (secondKey) {
-        UIColor *c = sample[secondKey];
-        CGFloat r = 0, g = 0, b = 0, a = 0;
-        [c getRed:&r green:&g blue:&b alpha:&a];
-        RKLogThrottled(@"funcFreq", [NSString stringWithFormat:@"键帽色统计取到功能键灰 (%.3f, %.3f, %.3f)", r, g, b]);
-        return c;
-    }
-    return nil;
+    return key.window;
 }
 
+// 接管判定只影响「下一次渲染」，所以装完 hook 要让当前键盘重画一次，当次就能看到效果
+static void RKForceRedraw(UIView *root) {
+    if (!root) { return; }
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+    int guard = 0;
+    while (stack.count && guard++ < 3000) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        [v setNeedsDisplay];
+        for (UIView *s in v.subviews) { [stack addObject:s]; }
+    }
+    [root setNeedsLayout];
+}
+
+#pragma mark - 诊断文件（一次；命中清单 + 候选方法，方便下次一次改准）
+
+static NSString *RKRGBStr(UIColor *c) {
+    CGFloat r = 0, g = 0, b = 0, a = 0;
+    if (![c getRed:&r green:&g blue:&b alpha:&a]) { return @"?"; }
+    return [NSString stringWithFormat:@"(%.3f,%.3f,%.3f,%.2f)", r, g, b, a];
+}
+
+static void RKDumpLayer(CALayer *l, int depth, NSMutableString *out) {
+    if (depth > 6) { return; }
+    NSString *pad = [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0];
+    NSString *fill = @"-";
+    if ([l isKindOfClass:[CAShapeLayer class]] && ((CAShapeLayer *)l).fillColor) {
+        fill = RKRGBStr([UIColor colorWithCGColor:((CAShapeLayer *)l).fillColor]);
+    }
+    NSString *bg = l.backgroundColor ? RKRGBStr([UIColor colorWithCGColor:l.backgroundColor]) : @"-";
+    [out appendFormat:@"%@%@ | %.0f,%.0f %.0fx%.0f | fill %@ | bg %@ | contents=%@ | op=%.2f\n",
+     pad, NSStringFromClass([l class]), l.frame.origin.x, l.frame.origin.y,
+     l.frame.size.width, l.frame.size.height, fill, bg, (l.contents ? @"有图" : @"无"), l.opacity];
+    for (CALayer *s in l.sublayers) { RKDumpLayer(s, depth + 1, out); }
+}
+
+static BOOL gDumpDone = NO;
+
+static void RKDumpOnce(NSArray *keys) {
+    if (gDumpDone) { return; }
+    gDumpDone = YES;
+    @try {
+        NSMutableString *o = [NSMutableString string];
+        [o appendFormat:@"键盘结构诊断 v1.0.3 (共 %lu 个键)\n", (unsigned long)keys.count];
+        [o appendFormat:@"命中：判定方法 %d 个 / 颜色方法 %d 个\n", gHookSwitch, gHookColor];
+        for (NSString *h in gHitLog) { [o appendFormat:@"  %@\n", h]; }
+        [o appendFormat:@"123 键取色：%@\n", gFuncColor ? RKRGBStr(gFuncColor) : @"(未取到)"];
+
+        UIView *retK = nil, *funcK = nil, *norK = nil;
+        for (UIView *kv in keys) {
+            NSString *t = RKTextOf(kv, 0);
+            if (!retK && RKIsReturnString(t)) { retK = kv; }
+            else if (!funcK && RKIsFuncString(t)) { funcK = kv; }
+            else if (!norK && t.length && !RKIsReturnString(t) && !RKIsFuncString(t)) { norK = kv; }
+        }
+        UIView *arr[3] = { retK, funcK, norK };
+        NSString *tag[3] = { @"回车键(蓝)", @"123功能键(基准)", @"普通键" };
+        for (int i = 0; i < 3; i++) {
+            UIView *kv = arr[i];
+            if (!kv) { continue; }
+            [o appendFormat:@"\n===== %@ | %@ | %.0fx%.0f =====\n", tag[i],
+             NSStringFromClass([kv class]), kv.frame.size.width, kv.frame.size.height];
+            [o appendFormat:@"  文字: %@\n", RKTextOf(kv, 0) ?: @"(取不到)"];
+            UIColor *vc = RKVisualColorOfView(kv);
+            [o appendFormat:@"  视觉取色: %@\n", vc ? RKRGBStr(vc) : @"?"];
+            [o appendString:@"  --- layer 树 ---\n"];
+            RKDumpLayer(kv.layer, 1, o);
+        }
+
+        // 候选方法清单：万一 0 命中，从这份清单里挑真正的改色入口
+        [o appendString:@"\n===== 含 blue / color 的键盘私有方法 =====\n"];
+        int cnt = 0;
+        Class *cls = objc_copyClassList(&cnt);
+        NSArray *kws = @[@"blue", @"keycap", @"keycolor", @"keycapcolor", @"appearance"];
+        if (cls) {
+            for (int i = 0; i < cnt; i++) {
+                Class c = cls[i];
+                const char *cn = class_getName(c);
+                if (strncmp(cn, "UIKB", 4) != 0 && !RKHas(cn, "Keyboard")) { continue; }
+                NSMutableArray *hits = [NSMutableArray array];
+                NSMutableSet *seen = [NSMutableSet set];
+                for (Class p = c; p && p != [NSObject class]; p = class_getSuperclass(p)) {
+                    unsigned n = 0; Method *ms = class_copyMethodList(p, &n);
+                    if (!ms) { continue; }
+                    for (unsigned j = 0; j < n; j++) {
+                        NSString *sn = NSStringFromSelector(method_getName(ms[j]));
+                        if ([seen containsObject:sn]) { continue; }
+                        NSString *lo = sn.lowercaseString;
+                        for (NSString *k in kws) {
+                            if ([lo containsString:k]) { [seen addObject:sn]; [hits addObject:sn]; break; }
+                        }
+                    }
+                    free(ms);
+                }
+                if (hits.count) {
+                    [o appendFormat:@"\n%@:\n", [NSString stringWithUTF8String:cn]];
+                    for (NSString *s in hits) { [o appendFormat:@"  %@\n", s]; }
+                }
+            }
+            free(cls);
+        }
+        [o writeToFile:kRKDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        RKLog(@"诊断已写入 键盘结构.txt");
+    } @catch (NSException *e) {}
+}
+
+#pragma mark - 主流程
+
 static void RKTintKeyboard(UIView *root) {
-    if (!root || !RKEnabled()) { return; }
+    if (!root) { return; }
     @try {
         NSArray *keys = RKCollectKeys(root);
         if (keys.count == 0) { return; }
-        RKDumpOnce(keys);
 
-        // 回车键：文字命中（发送/搜索/…）或键帽为系统蓝
-        NSMutableArray *returnKeys = [NSMutableArray array];
-        for (UIView *kv in keys) {
-            NSString *txt = RKDisplayString(kv);
-            if (RKIsReturnString(txt)) { [returnKeys addObject:kv]; continue; }
-            CAShapeLayer *cap = RKKeycapShape(kv);
-            if (cap && cap.fillColor && RKIsBlue([UIColor colorWithCGColor:cap.fillColor])) {
-                [returnKeys addObject:kv];
+        RKInstallHooks();   // 第一次弹键盘时键盘私有类一定已加载，这时扫最准
+
+        // 从 123 键取色（供颜色类方法替换用；判定法不需要它）
+        if (!gFuncColor) {
+            for (UIView *kv in keys) {
+                if (!RKIsFuncString(RKTextOf(kv, 0))) { continue; }
+                UIColor *c = RKVisualColorOfView(kv);
+                if (c && !RKIsBlue(c)) { gFuncColor = c; break; }
             }
         }
-        if (returnKeys.count == 0) { return; }
 
-        UIColor *funcColor = RKPickFuncColor(keys);
-        if (!funcColor) {
-            funcColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *t) {
-                return (t.userInterfaceStyle == UIUserInterfaceStyleDark)
-                    ? [UIColor colorWithRed:0.357 green:0.373 blue:0.392 alpha:1.0]
-                    : [UIColor colorWithRed:0.671 green:0.690 blue:0.729 alpha:1.0];
-            }];
-            RKLogThrottled(@"funcFallback", @"未识别到功能键灰，使用系统灰兜底");
+        RKDumpOnce(keys);
+
+        // 0 命中才用老办法硬改图层，避免两套逻辑互相打架
+        if (gHookSwitch == 0 && gHookColor == 0) {
+            UIColor *target = gFuncColor;
+            if (!target) {
+                target = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *t) {
+                    return (t.userInterfaceStyle == UIUserInterfaceStyleDark)
+                        ? [UIColor colorWithRed:0.357 green:0.373 blue:0.392 alpha:1.0]
+                        : [UIColor colorWithRed:0.671 green:0.690 blue:0.729 alpha:1.0];
+                }];
+            }
+            int hit = 0;
+            for (UIView *kv in keys) {
+                if (RKIsReturnString(RKTextOf(kv, 0))) { RKTintBlueShapes(kv.layer, target); hit++; }
+            }
+            RKLog([NSString stringWithFormat:@"兜底染色 %d 个键（未找到系统蓝键判定入口）", hit]);
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{ RKForceRedraw(root); });
         }
-
-        for (UIView *rk in returnKeys) { RKTintBlueShapes(rk.layer, funcColor); }
-        CGFloat r = 0, g = 0, b = 0, a = 0;
-        [funcColor getRed:&r green:&g blue:&b alpha:&a];
-        RKLogThrottled(@"tinted", [NSString stringWithFormat:@"已把 %lu 个回车键染成 (%.3f, %.3f, %.3f)，共扫描 %lu 个键",
-                                   (unsigned long)returnKeys.count, r, g, b, (unsigned long)keys.count]);
     } @catch (NSException *e) {
-        RKLog([NSString stringWithFormat:@"染色异常: %@", e]);
+        RKLog([NSString stringWithFormat:@"异常: %@", e]);
     }
 }
 
-// 扫描根：优先键盘布局容器；键还没挂到父视图时用它所在的 window
-// （旧版在这里直接拿自己当根，导致只能看到回车键一个，找不到 123 键）
-static UIView *RKKeyboardRoot(UIView *key) {
-    for (UIView *v = key; v; v = v.superview) {
-        NSString *cn = NSStringFromClass([v class]) ?: @"";
-        if ([cn hasPrefix:@"UIKeyboardLayout"]) { return v; }
-    }
-    UIView *top = key;
-    for (UIView *v = key; v; v = v.superview) { top = v; }
-    return key.window ?: top;
-}
-
-// 触发染色：同一根 0.4 秒节流；force 用于按下高亮后立刻重染
-static void RKTintFromKey(UIView *key, BOOL force) {
+static void RKTintFromKey(UIView *key) {
+    if (!key || !RKPrefBool(@"RKEnabled", YES)) { return; }
     @try {
         UIView *root = RKKeyboardRoot(key);
         if (!root) { return; }
         NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-        if (!force) {
-            NSNumber *last = objc_getAssociatedObject(root, &kRKGenKey);
-            if (last && (now - last.doubleValue) < 0.4) { return; }
-        }
+        NSNumber *last = objc_getAssociatedObject(root, &kRKGenKey);
+        if (last && (now - last.doubleValue) < 0.4) { return; }
         objc_setAssociatedObject(root, &kRKGenKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         dispatch_async(dispatch_get_main_queue(), ^{
             @try { RKTintKeyboard(root); } @catch (NSException *e) {}
@@ -424,23 +507,38 @@ static void RKTintFromKey(UIView *key, BOOL force) {
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window) { RKTintFromKey(self, NO); }
+    if (self.window) { RKTintFromKey(self); }
 }
 
 - (void)layoutSubviews {
     %orig;
-    RKTintFromKey(self, NO);
+    RKTintFromKey(self);
 }
 
-// 按下高亮可能把键帽恢复成原色（蓝），松手后立刻重染
+// 按下 / 松手后系统可能按原色重画，这里再补一次（用局部强引用，避免 block 直接捕获 self）
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
     %orig;
-    RKTintFromKey(self, YES);
+    UIKBKeyView *k = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *root = RKKeyboardRoot(k);
+        if (root) { RKTintKeyboard(root); }
+    });
 }
 
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
     %orig;
-    RKTintFromKey(self, YES);
+    UIKBKeyView *k = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *root = RKKeyboardRoot(k);
+        if (root) { RKTintKeyboard(root); }
+    });
 }
 
 %end
+
+%ctor {
+    @try {
+        // 进程启动时键盘私有类可能还没加载；没扫到就先不标记，等键盘真的弹出来再扫一次
+        if (RKPrefBool(@"RKInstallEarly", YES) && RKInstallHooks() == 0) { gHooksReady = NO; }
+    } @catch (NSException *e) {}
+}
