@@ -20,6 +20,8 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 # 真·PreferenceBundle（编译版）：bundle 内含可执行的 ListController
 # （参照 KeyboardCustomizerPrefs.bundle 的结构：Info.plist + Root.plist + 可执行二进制）
+# 注意：BUNDLE_NAME 必须显式声明，Theos 靠 *_NAME 登记 instance，否则整个 target 会被跳过
+BUNDLE_NAME = WeChatKeyboardToolbarPrefs
 WeChatKeyboardToolbarPrefs_FILES = Prefs/WeChatKeyboardToolbarPrefsRootListController.m
 WeChatKeyboardToolbarPrefs_INSTALL_PATH = /Library/PreferenceBundles
 WeChatKeyboardToolbarPrefs_FRAMEWORKS = UIKit
