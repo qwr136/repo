@@ -275,9 +275,9 @@ static int RKInstallHooks(void) {
     gHooked = [NSMutableSet set];
     gHitLog = [NSMutableArray array];
     @try {
-        int cnt = 0;
+        unsigned int cnt = 0;
         Class *cls = objc_copyClassList(&cnt);
-        if (!cls) { return; }
+        if (!cls) { return 0; }
         for (int i = 0; i < cnt; i++) {
             Class c = cls[i];
             const char *cn = class_getName(c);
@@ -407,7 +407,7 @@ static void RKDumpOnce(NSArray *keys) {
 
         // 候选方法清单：万一 0 命中，从这份清单里挑真正的改色入口
         [o appendString:@"\n===== 含 blue / color 的键盘私有方法 =====\n"];
-        int cnt = 0;
+        unsigned int cnt = 0;
         Class *cls = objc_copyClassList(&cnt);
         NSArray *kws = @[@"blue", @"keycap", @"keycolor", @"keycapcolor", @"appearance"];
         if (cls) {
