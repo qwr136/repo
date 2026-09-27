@@ -1,6 +1,6 @@
 Package: com.xiaofei.returnkeycolor
 Name: 键盘回车键同色
-Version: 1.0.3
+Version: 1.0.4
 Architecture: iphoneos-arm
 Description: 把原生键盘右下角的回车键（发送/搜索/前往/换行/GO 等蓝色键帽）改成与「123」功能键完全一致的键帽色。不再硬改图层颜色，而是在运行时接管系统对「蓝色键」的判定，让系统自己按普通功能键配色重画，深浅色模式与第三方键盘主题自动跟随。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.3 - 重做改色思路（前几版无效的根因：iOS 16 键帽是一整张预渲染位图，改 CAShapeLayer 的 fillColor 日志成功但屏幕不变）。本版运行时扫描键盘私有类，接管方法名带 blue 的判定入口（返回 BOOL）与蓝色配色入口（返回 UIColor），回车键一律判定为「非蓝键」，由系统用普通功能键配色重画，效果与 123 键一致且自动适配深浅色；同时从 123 键实时取色（渲染 8x8 位图取颜色众数）作为配色双保险；装完接管后强制当前键盘重绘，当次弹出即可生效；扫描 0 命中时才退回旧的图层染色兜底；日志默认关闭，诊断文件写在 /var/mobile/Documents/键盘结构.txt
+Changelog: 1.0.4 - 依据诊断文件重写（键盘模型 UIKBTree 的 name：回车键=Return-Key、123键=More-Key、空格=Space-Key；键帽不是子图层画的，而是 UIKBKeyView -displayLayer: 直接画进图层，所以前几版改 fillColor 完全无效）。主方案：接管 UIKBTree 的 displayType，学到 123 键的值后让回车键返回同一个值，系统自己按 123 键的样式渲染回车键，深浅色与主题自动跟随；兜底方案：displayLayer 画完后直接把位图里的蓝色像素替换为从 123 键实时取到的颜色（保留 alpha，圆角与白色文字不受影响），主方案生效时键帽已无蓝色像素会自动跳过。判定回车键改用 name 字段，中英文键盘通杀。
