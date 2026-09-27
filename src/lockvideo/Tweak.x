@@ -633,14 +633,35 @@ static void _lvUpdateScreenState(void) {
 // 播放前的统一守卫：熄屏时一律不播、不出声
 __attribute__((unused)) static BOOL _lvCanPlayNow(void) { return !gScreenOff; }
 
-static void _lvPlayAllVisiblePlayers(void) {
+// 收集当前真正可见（在 window 上）的挂载素材路径——只有这些需要播
+static NSMutableSet<NSString *> *_lvCollectVisiblePaths(void) {
+    NSMutableSet<NSString *> *set = [NSMutableSet set];
+    @try {
+        for (UIView *v in [_lvAttachedViews copy]) {
+            if (!v || !v.window) { continue; }
+            NSString *path = objc_getAssociatedObject(v, &kPathKey);
+            if (path.length) { [set addObject:path]; }
+        }
+    } @catch (NSException *e) {}
+    return set;
+}
+
+// 只播放 paths 里的素材，其余全部静音暂停——把同时解码的路数压到可见卡片需要的最小值。
+// iOS 硬解同时约 4~5 路，5 类素材（消息/选项/清除/实时/播放）全播就可能超限，超限转软解会卡。
+static void _lvPlayOnlyPaths(NSSet<NSString *> *paths) {
     @try {
         if (gScreenOff) { _lvMuteAndPauseAll(); return; }
         for (NSString *path in gPlayerMap) {
             AVPlayer *p = gPlayerMap[path];
-            if (!_lvPathIsImageAsset(path)) {
-                p.muted = !_lvSound();   // 点亮/恢复时重置出声（按钮静音由 _lvUpdateButtonAudioEverywhere 接管）
-                [p play];
+            if (!p) { continue; }
+            if ([paths containsObject:path]) {
+                if (!_lvPathIsImageAsset(path)) {
+                    p.muted = !_lvSound();   // 恢复出声（按钮静音由 _lvUpdateButtonAudioEverywhere 接管）
+                    if (p.timeControlStatus != AVPlayerTimeControlStatusPlaying) { [p play]; }
+                }
+            } else {
+                p.muted = YES;               // 不可见的素材：静音 + 暂停，不占解码路数
+                [p pause];
             }
         }
     } @catch (NSException *e) {}
@@ -2057,15 +2078,17 @@ static void _lvPollTick(void) {
             return;
         }
         if (heavy) { _lvCleanupStaleAttachments(); }
-        // 轮询只维护「已经挂上素材」的视图，不遍历整棵视图树
-        BOOL anyVisible = NO;
+        // 轮询只维护「已经挂上素材」的视图，不遍历整棵视图树；
+        // 同时收集可见卡片的素材路径，只播这些路（限制同时解码路数，防超硬解上限卡顿）
+        NSMutableSet<NSString *> *visiblePaths = [NSMutableSet set];
         for (UIView *v in [_lvAttachedViews copy]) {
             if (!v || !v.window) { continue; }
             _lvRefresh(v);                 // 轻量：更新尺寸 / 可见性 / 播放状态
-            anyVisible = YES;
+            NSString *path = objc_getAssociatedObject(v, &kPathKey);
+            if (path.length) { [visiblePaths addObject:path]; }
         }
-        if (anyVisible) { _lvPlayAllVisiblePlayers(); }
-        else { _lvPauseAllPlayers(); }
+        if (visiblePaths.count) { _lvPlayOnlyPaths(visiblePaths); }
+        else { _lvMuteAndPauseAll(); }
         _lvUpdateButtonAudioEverywhere();  // 选项/清除：不左滑时静音暂停，不漏声音
     } @catch (NSException *e) {}
 }
@@ -2081,7 +2104,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
         if (gScreenOff) {
             _lvMuteAndPauseAll();          // 熄屏：立即静音 + 暂停
         } else {
-            _lvPlayAllVisiblePlayers();    // 点亮：立即恢复播放
+            _lvPlayOnlyPaths(_lvCollectVisiblePaths());    // 点亮：立即恢复播放（只播可见卡片的素材）
             _lvUpdateButtonAudioEverywhere();
         }
     } @catch (NSException *e) {}
@@ -2183,7 +2206,7 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.92 加载完成（基于 1.0.91：性能优化——layoutSubviews 只刷已挂载视图、类名缓存、背景隐藏只做一次、轮询拆轻量帧、dump 节流） =====");
+        _lvLog(@"===== 1.0.93 加载完成（基于 1.0.92：限制同时解码路数——只播可见卡片的素材，其余静音暂停，防超硬解上限卡顿） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
