@@ -25,6 +25,9 @@ BUNDLE_NAME = WeChatKeyboardToolbarPrefs
 WeChatKeyboardToolbarPrefs_FILES = Prefs/WeChatKeyboardToolbarPrefsRootListController.m
 WeChatKeyboardToolbarPrefs_INSTALL_PATH = /Library/PreferenceBundles
 WeChatKeyboardToolbarPrefs_FRAMEWORKS = UIKit
-WeChatKeyboardToolbarPrefs_PRIVATE_FRAMEWORKS = Preferences
+# CI 用的是 Xcode 的 iPhoneOS SDK（公开 SDK 不含私有框架），链接 -framework Preferences
+# 会报 "framework 'Preferences' not found"。改为运行时解析符号：Preferences 在设置 App
+# 进程内本就加载，ListController 的符号届时自然可用。
+WeChatKeyboardToolbarPrefs_LDFLAGS = -undefined dynamic_lookup
 WeChatKeyboardToolbarPrefs_CFLAGS = -fobjc-arc
 include $(THEOS_MAKE_PATH)/bundle.mk
