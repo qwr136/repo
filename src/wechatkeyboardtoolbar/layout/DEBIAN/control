@@ -1,6 +1,6 @@
 Package: com.xiaofei.wechatkeyboardtoolbar
 Name: 微信键盘工具栏增强
-Version: 1.0.3
+Version: 1.0.4
 Architecture: iphoneos-arm64
 Description: 自定义微信输入法(WeType) 工具栏按钮数量（解除原版最多 7 个限制）与左右边距。配套系统设置面板（依赖 PreferenceLoader），含数值校验防止 UI 崩溃。
 Maintainer: 小飞 <[email protected]>

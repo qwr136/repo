@@ -17,3 +17,12 @@ WeChatKeyboardToolbar_CFLAGS = -fobjc-arc
 WeChatKeyboardToolbar_SWIFTFLAGS = -Xcc -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+# 真·PreferenceBundle（编译版）：bundle 内含可执行的 ListController
+# （参照 KeyboardCustomizerPrefs.bundle 的结构：Info.plist + Root.plist + 可执行二进制）
+WeChatKeyboardToolbarPrefs_FILES = Prefs/WeChatKeyboardToolbarPrefsRootListController.m
+WeChatKeyboardToolbarPrefs_INSTALL_PATH = /Library/PreferenceBundles
+WeChatKeyboardToolbarPrefs_FRAMEWORKS = UIKit
+WeChatKeyboardToolbarPrefs_PRIVATE_FRAMEWORKS = Preferences
+WeChatKeyboardToolbarPrefs_CFLAGS = -fobjc-arc
+include $(THEOS_MAKE_PATH)/bundle.mk

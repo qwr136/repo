@@ -7,9 +7,13 @@
 	<key>entry</key>
 	<dict>
 		<key>bundle</key>
-		<string>WeChatKeyboardToolbar</string>
+		<string>WeChatKeyboardToolbarPrefs</string>
+		<key>cell</key>
+		<string>PSLinkCell</string>
 		<key>isController</key>
-		<false/>
+		<true/>
+		<key>label</key>
+		<string>微信键盘工具栏增强</string>
 	</dict>
 </dict>
 </plist>
