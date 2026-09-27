@@ -86,19 +86,26 @@ func wkSwizzle(cls: AnyClass, sel: Selector, block: Any) -> IMP? {
 }
 
 // MARK: - 主入口 hook：键盘 InputViewController 即将出现
-var gOrigViewWillAppear: ((AnyObject, Selector, Bool) -> Void)?
+// ⚠️ ObjC 方法 IMP 的真实签名是 void (*)(id self, SEL _cmd, BOOL animated) —— 三参数。
+//    Swift block 必须显式带 _cmd，写成两参数会导致参数错位、直接把键盘扩展搞崩。
+typealias WKViewWillAppearIMP = @convention(c) (AnyObject, Selector, Bool) -> Void
+var gOrigViewWillAppear: WKViewWillAppearIMP?
+
 func wkHookInputViewController() {
-    // 注：微信键盘的主 VC 是 UIInputViewController 的子类。这里 hook 基类
-    // viewWillAppear:；若其子类重写了该方法，基类 hook 不一定命中——调试日志会
-    // 打印真实 VC 类名，必要时把 hook 目标换成精确子类即可。
     let sel = #selector(UIInputViewController.viewWillAppear(_:))
-    let imp = wkSwizzle(cls: UIInputViewController.self, sel: sel, block: { (me: AnyObject, animated: Bool) in
-        gOrigViewWillAppear?(me, sel, animated)   // 先调原始实现
-        wkOnKeyboardAppear(me)
-    } as Any)
-    if let imp = imp {
-        gOrigViewWillAppear = unsafeBitCast(imp, to: ((AnyObject, Selector, Bool) -> Void).self)
+    // 拿不到方法就放弃 hook，绝不破坏键盘
+    guard let m = class_getInstanceMethod(UIInputViewController.self, sel) else {
+        NSLog("[WKTB] hook 失败：未找到 viewWillAppear:，放弃（避免影响键盘）")
+        return
     }
+    // 保存原实现（三参数 C 调用约定）
+    gOrigViewWillAppear = unsafeBitCast(method_getImplementation(m), to: WKViewWillAppearIMP.self)
+
+    let block: @convention(block) (AnyObject, Selector, Bool) -> Void = { me, _cmd, animated in
+        gOrigViewWillAppear?(me, _cmd, animated)   // 必须调原实现，否则键盘 UI 不出现
+        wkOnKeyboardAppear(me)
+    }
+    method_setImplementation(m, imp_implementationWithBlock(block))
 }
 
 func wkOnKeyboardAppear(_ me: AnyObject) {
