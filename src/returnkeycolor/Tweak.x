@@ -14,6 +14,7 @@
 
 #define kRKPrefsFile @"/var/mobile/Library/Preferences/com.xiaofei.returnkeycolor.plist"
 #define kRKLogFile   @"/var/mobile/Documents/键盘同色日志.txt"
+#define kRKDumpFile  @"/var/mobile/Documents/键盘结构.txt"
 
 // UIKBKeyView 是 UIKit 私有键盘键帽视图：声明继承关系，否则 %hook 内
 // self.window / 传参给 UIView* 都会报前向类错误
@@ -133,6 +134,123 @@ static CAShapeLayer *RKKeycapShape(UIView *v) {
     return best;
 }
 
+#pragma mark - 诊断 dump（一次性，用于定位键帽到底是哪一层画的）
+
+static NSString *RKRGBStr(UIColor *c) {
+    CGFloat r = 0, g = 0, b = 0, a = 0;
+    if (![c getRed:&r green:&g blue:&b alpha:&a]) { return @"?"; }
+    return [NSString stringWithFormat:@"(%.3f,%.3f,%.3f,%.2f)", r, g, b, a];
+}
+
+static void RKDumpLayer(CALayer *l, int depth, NSMutableString *out) {
+    if (depth > 7) { return; }
+    NSString *pad = [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0];
+    NSString *fill = @"-";
+    if ([l isKindOfClass:[CAShapeLayer class]]) {
+        CGColorRef f = ((CAShapeLayer *)l).fillColor;
+        if (f) { fill = RKRGBStr([UIColor colorWithCGColor:f]); }
+    }
+    NSString *bg = l.backgroundColor ? RKRGBStr([UIColor colorWithCGColor:l.backgroundColor]) : @"-";
+    [out appendFormat:@"%@%@ | frame %.0f,%.0f %.0fx%.0f | fill %@ | bg %@ | contents=%@ | op=%.2f | hidden=%d\n",
+        pad, NSStringFromClass([l class]),
+        l.frame.origin.x, l.frame.origin.y, l.frame.size.width, l.frame.size.height,
+        fill, bg, (l.contents ? @"有图" : @"无"), l.opacity, l.hidden];
+    for (CALayer *s in l.sublayers) { RKDumpLayer(s, depth + 1, out); }
+}
+
+// 列出对象的属性（含父类），找出 displayType / style / type 这类关键字段
+static void RKDumpProps(id obj, NSString *title, NSMutableString *out) {
+    if (!obj) { return; }
+    [out appendFormat:@"-- %@ (%@) --\n", title, NSStringFromClass([obj class])];
+    int dumped = 0;
+    for (Class c = [obj class]; c && dumped < 40; c = class_getSuperclass(c)) {
+        unsigned n = 0;
+        objc_property_t *ps = class_copyPropertyList(c, &n);
+        for (unsigned i = 0; i < n && dumped < 40; i++) {
+            NSString *key = [NSString stringWithUTF8String:property_getName(ps[i])];
+            @try {
+                id val = [obj valueForKey:key];
+                NSString *desc;
+                if (val == nil) { desc = @"nil"; }
+                else if ([val isKindOfClass:[NSString class]] || [val isKindOfClass:[NSNumber class]]) { desc = [val description]; }
+                else if ([val isKindOfClass:[UIColor class]]) { desc = RKRGBStr(val); }
+                else { desc = [NSString stringWithFormat:@"<%@>", NSStringFromClass([val class])]; }
+                if (desc.length > 50) { desc = [desc substringToIndex:50]; }
+                [out appendFormat:@"   %@ = %@\n", key, desc];
+                dumped++;
+            } @catch (NSException *e) {}
+        }
+        free(ps);
+    }
+}
+
+// 列出类里和「颜色/样式/类型」相关的方法名，找真正能改色的入口
+static void RKDumpMethods(Class cls, NSMutableString *out) {
+    if (!cls) { return; }
+    [out appendFormat:@"-- %@ 相关方法 --\n", NSStringFromClass(cls)];
+    NSArray *kws = @[@"color", @"fill", @"style", @"type", @"render", @"appearance", @"display"];
+    unsigned n = 0;
+    Method *ms = class_copyMethodList(cls, &n);
+    for (unsigned i = 0; i < n; i++) {
+        NSString *sn = NSStringFromSelector(method_getName(ms[i]));
+        NSString *low = sn.lowercaseString;
+        for (NSString *k in kws) {
+            if ([low containsString:k]) { [out appendFormat:@"   %@\n", sn]; break; }
+        }
+    }
+    free(ms);
+}
+
+static void RKDumpKey(UIView *kv, NSString *tag, NSMutableString *out) {
+    [out appendFormat:@"\n===== %@ | %@ | %.0fx%.0f =====\n",
+     tag, NSStringFromClass([kv class]), kv.frame.size.width, kv.frame.size.height];
+    [out appendFormat:@"  文字: %@\n", RKDisplayString(kv) ?: @"(取不到)"];
+    id keyObj = nil;
+    @try { keyObj = [kv valueForKey:@"key"]; } @catch (NSException *e) {}
+    if (keyObj) { RKDumpProps(keyObj, @"key(UIKBTree)", out); }
+    CAShapeLayer *cap = RKKeycapShape(kv);
+    if (cap && cap.fillColor) {
+        [out appendFormat:@"  当前判定的键帽 fill: %@\n", RKRGBStr([UIColor colorWithCGColor:cap.fillColor])];
+    }
+    [out appendFormat:@"  --- layer 树 ---\n"];
+    RKDumpLayer(kv.layer, 1, out);
+}
+
+static BOOL gDumpDone = NO;
+
+// 键盘首次出现时 dump 一次：回车键 / 123 键 / 一个普通字母键 的真实结构与颜色
+static void RKDumpOnce(NSArray *keys) {
+    if (gDumpDone) { return; }
+    @try {
+        NSMutableString *out = [NSMutableString string];
+        [out appendFormat:@"键盘结构诊断 (共 %lu 个键)\n", (unsigned long)keys.count];
+
+        UIView *retKey = nil, *funcKey = nil, *normalKey = nil;
+        for (UIView *kv in keys) {
+            NSString *txt = RKDisplayString(kv);
+            CAShapeLayer *cap = RKKeycapShape(kv);
+            BOOL blue = (cap && cap.fillColor && RKIsBlue([UIColor colorWithCGColor:cap.fillColor]));
+            if (!retKey && (RKIsReturnString(txt) || blue)) { retKey = kv; }
+            else if (!funcKey && RKIsFuncString(txt)) { funcKey = kv; }
+            else if (!normalKey && txt.length && !RKIsReturnString(txt) && !RKIsFuncString(txt)) { normalKey = kv; }
+        }
+
+        if (retKey) { RKDumpKey(retKey, @"回车键(蓝)", out); }
+        if (funcKey) { RKDumpKey(funcKey, @"123功能键(取色基准)", out); }
+        if (normalKey) { RKDumpKey(normalKey, @"普通键", out); }
+
+        Class treeCls = NSClassFromString(@"UIKBTree");
+        if (treeCls) { RKDumpMethods(treeCls, out); }
+        RKDumpMethods(NSClassFromString(@"UIKBKeyView"), out);
+
+        [out writeToFile:kRKDumpFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        gDumpDone = YES;
+        RKLog(@"结构诊断已写入 键盘结构.txt");
+    } @catch (NSException *e) {
+        RKLog([NSString stringWithFormat:@"dump 异常: %@", e]);
+    }
+}
+
 #pragma mark - 染色
 
 // 把视图 layer 树里所有"蓝色"的 CAShapeLayer 染成 target（幂等：灰了就不再动）
@@ -237,6 +355,7 @@ static void RKTintKeyboard(UIView *root) {
     @try {
         NSArray *keys = RKCollectKeys(root);
         if (keys.count == 0) { return; }
+        RKDumpOnce(keys);
 
         // 回车键：文字命中（发送/搜索/…）或键帽为系统蓝
         NSMutableArray *returnKeys = [NSMutableArray array];
