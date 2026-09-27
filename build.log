@@ -10,26 +10,10 @@ Building for production...
 [7/9] Compiling SwiftcOutputParser FileLock.swift
 [7/9] Write Objects.LinkFileList
 [8/9] Linking parse-swiftc-output
-Build complete! (6.06s)
+Build complete! (10.22s)
 [0;32m==> [1;39mCompiling Tweak.swift (arm64)…[m
 <unknown>:0: [1;33mwarning: [1;39munable to perform implicit import of "_Concurrency" module: no such module found[0;0m
 <unknown>:0: [1;34mremark: [1;39munable to perform implicit import of "_StringProcessing" module: no such module found[0;0m
-Tweak.swift:130:41: [1;31merror: [1;39m'CGImageGetTypeID()' has been replaced by property 'CGImage.typeID'[0;0m
-[0;36m128 |[0;0m func rkAsCGImage(_ v: Any?) -> CGImage? {
-[0;36m129 |[0;0m     guard let obj = v as? NSObject else { return nil }
-[0;36m130 |[0;0m     if CFGetTypeID(obj as CFTypeRef) != CGImageGetTypeID() { return nil }
-    [0;36m|[0;0m                                         `- [1;31merror: [1;39m'CGImageGetTypeID()' has been replaced by property 'CGImage.typeID'[0;0m
-[0;36m131 |[0;0m     return (obj as! CGImage)
-[0;36m132 |[0;0m }
-
-/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGImage.h:75:20: [1;39mnote: [1;39m'CGImageGetTypeID()' was obsoleted in Swift 3[0;0m
- [0;36m73 |[0;0m /* Return the CFTypeID for CGImageRefs. */
- [0;36m74 |[0;0m 
- [0;36m75 |[0;0m CG_EXTERN CFTypeID CGImageGetTypeID(void)
-    [0;36m|[0;0m                    `- [1;39mnote: [1;39m'CGImageGetTypeID()' was obsoleted in Swift 3[0;0m
- [0;36m76 |[0;0m     CG_AVAILABLE_STARTING(10.2, 2.0);
- [0;36m77 |[0;0m 
-
 Tweak.swift:303:15: [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
 [0;36m301 |[0;0m // MARK: - 各入口 hook
 [0;36m302 |[0;0m func rkHookDisplayLayer(cls: AnyClass) {
