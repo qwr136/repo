@@ -162,7 +162,7 @@ func rkReplaceBlue(buf: UnsafeMutablePointer<UInt8>, n: Int, tr: CGFloat, tg: CG
 }
 
 func rkImageFromBuf(_ buf: UnsafeMutablePointer<UInt8>, w: Int, h: Int) -> CGImage? {
-    guard let cs = CGColorSpaceCreateDeviceRGB() else { return nil }
+    let cs = CGColorSpaceCreateDeviceRGB()
     let ctx = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                         space: cs, bitmapInfo: kRKPremulLastBig)
     return ctx?.makeImage()
@@ -179,7 +179,7 @@ func rkRecolorContext(ctx: CGContext, target: UIColor) {
     let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
     memset(buf, 0, bpr * h)
     defer { buf.deallocate() }
-    guard let cs = CGColorSpaceCreateDeviceRGB() else { return }
+    let cs = CGColorSpaceCreateDeviceRGB()
     guard let c = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
                             space: cs, bitmapInfo: kRKPremulLastBig) else { return }
     c.draw(img, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
@@ -206,7 +206,7 @@ func rkModeColorFromCtx(_ ctx: CGContext) -> UIColor? {
     let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
     memset(buf, 0, bpr * h)
     defer { buf.deallocate() }
-    guard let cs = CGColorSpaceCreateDeviceRGB() else { return nil }
+    let cs = CGColorSpaceCreateDeviceRGB()
     guard let c = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
                             space: cs, bitmapInfo: kRKPremulLastBig) else { return nil }
     c.draw(img, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
@@ -221,7 +221,7 @@ func rkVisualColor(view: UIView) -> UIColor? {
     let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: W * H * 4)
     memset(buf, 0, W * H * 4)
     defer { buf.deallocate() }
-    guard let cs = CGColorSpaceCreateDeviceRGB() else { return nil }
+    let cs = CGColorSpaceCreateDeviceRGB()
     guard let ctx = CGContext(data: buf, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W * 4,
                               space: cs, bitmapInfo: kRKPremulLastBig) else { return nil }
     ctx.scaleBy(x: CGFloat(W) / sz.width, y: CGFloat(H) / sz.height)
@@ -238,7 +238,7 @@ func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
         let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
         memset(buf, 0, bpr * h)
         defer { buf.deallocate() }
-        guard let cs = CGColorSpaceCreateDeviceRGB() else { return nil }
+        let cs = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
                                   space: cs, bitmapInfo: kRKPremulLastBig) else { return nil }
         ctx.draw(c, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
@@ -258,7 +258,7 @@ func rkRecolorLayerTree(layer: CALayer?, target: UIColor, depth: Int) {
             let bpr = w * 4
             let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
             memset(buf, 0, bpr * h)
-            guard let cs = CGColorSpaceCreateDeviceRGB() else { buf.deallocate(); return }
+            let cs = CGColorSpaceCreateDeviceRGB()
             guard let ctx = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
                                       space: cs, bitmapInfo: kRKPremulLastBig) else { buf.deallocate(); return }
             ctx.draw(c, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
@@ -410,9 +410,10 @@ func rkShowDiagIfNeeded() {
     DispatchQueue.main.async {
         let alert = UIAlertController(title: "键盘同色诊断", message: msg, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        let win = UIWindow(frame: UIScreen.main.bounds)
+        let screen = UIScreen.main ?? UIScreen()
+        let win = UIWindow(frame: screen.bounds)
         win.rootViewController = UIViewController()
-        win.windowLevel = UIWindow.Level.alert + 1
+        win.windowLevel = .alert
         win.makeKeyAndVisible()
         gDiagWindow = win
         win.rootViewController?.present(alert, animated: true, completion: nil)
