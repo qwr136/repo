@@ -127,7 +127,7 @@ func rkIsBlue(_ c: UIColor?) -> Bool {
 // 避免 Swift 对 CGImage(CF 类型) 的条件下转报 "always succeeds"：先转 NSObject 再用 CFGetTypeID 判断
 func rkAsCGImage(_ v: Any?) -> CGImage? {
     guard let obj = v as? NSObject else { return nil }
-    if CFGetTypeID(obj as CFTypeRef) != CGImageGetTypeID() { return nil }
+    if CFGetTypeID(obj as CFTypeRef) != CGImage.typeID { return nil }
     return (obj as! CGImage)
 }
 
