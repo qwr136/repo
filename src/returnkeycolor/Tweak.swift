@@ -300,7 +300,7 @@ func rkSwizzle(cls: AnyClass, sel: Selector, block: Any) -> IMP? {
 
 // MARK: - 各入口 hook
 func rkHookDisplayLayer(cls: AnyClass) {
-    let sel = Selector(("displayLayer:"))
+    let sel = #selector(CALayer.displayLayer(_:))
     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject, layer: CALayer) in
         gOrigDisplayLayer?(me, sel, layer)
         guard rkEnabled(), let color = gFuncColor, rkIsReturn(me) else { return }
@@ -313,7 +313,7 @@ func rkHookDisplayLayer(cls: AnyClass) {
 }
 
 func rkHookDrawLayer(cls: AnyClass) {
-    let sel = Selector(("drawLayer:inContext:"))
+    let sel = #selector(CALayer.draw(_:in:))
     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject, layer: CALayer, ctx: CGContext?) in
         gCurReturnKey = me
         gOrigDrawLayer?(me, sel, layer, ctx)
@@ -335,7 +335,7 @@ func rkHookDrawLayer(cls: AnyClass) {
 }
 
 func rkHookDidMoveToWindow(cls: AnyClass) {
-    let sel = #selector(NSObject.didMoveToWindow)
+    let sel = #selector(UIView.didMoveToWindow)
     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject) in
         gOrigDidMove?(me, sel)
         if let v = me as? UIView, v.window != nil { rkTintFromKey(v) }
@@ -353,7 +353,7 @@ func rkHookLayoutSubviews(cls: AnyClass) {
 }
 
 func rkHookDrawInContext(cls: AnyClass) {
-    let sel = Selector(("drawInContext:"))
+    let sel = #selector(CALayer.draw(in:))
     let imp = rkSwizzle(cls: cls, sel: sel, block: { (me: AnyObject, ctx: CGContext?) in
         gOrigLayerDrawCtx?(me, sel, ctx)
         guard rkEnabled(), let color = gFuncColor, let c = ctx else { return }
