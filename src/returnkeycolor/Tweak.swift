@@ -2,7 +2,6 @@ import UIKit
 import Foundation
 import ObjectiveC
 import CoreGraphics
-// (CI 诊断触发用占位注释 — 下一轮会删除)
 
 // 键盘回车键同色 — 诊断版（Swift 重写）
 //

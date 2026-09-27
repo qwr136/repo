@@ -31,49 +31,27 @@ jobs:
       - name: Build (arm64 + arm64e fat binary)
         run: |
           export THEOS=$HOME/theos
+          # 根因：theos/sdks 的 iPhoneOS.sdk 不含 usr/lib/swift（Swift 标准库模块），
+          # 导致 swiftc 找不到 _Concurrency/_StringProcessing，编译器在 canonicalize ErrorType 时崩溃。
+          # 修复：从 Xcode 自带的 iPhoneOS SDK 复制 usr/lib/swift 进来（swiftc 也来自同一 Xcode，版本匹配，
+          # 既解决编译时的模块查找，也解决链接时的 Swift 运行时桩库）。
           export THEOS_SDK_PATH="$THEOS/sdks/iPhoneOS.sdk"
-
-          # ---- 诊断：用 swiftc 包装脚本捕获 Theos 实际传给 swiftc 的完整命令 ----
-          REAL_SWIFTC=$(xcrun -f swiftc || echo /usr/bin/swiftc)
-          mkdir -p "$HOME/bin"
-          cat > "$HOME/bin/swiftc" <<'SHIM'
-          #!/bin/bash
-          echo "===== SWIFTC INVOKED =====" >&2
-          echo "PWD: $(pwd)" >&2
-          echo "ARGS: $*" >&2
-          echo "==========================" >&2
-          exec "$REAL_SWIFTC_REAL" "$@"
-          SHIM
-          # 把真实路径注入包装脚本（避免递归）
-          sed -i.bak "s|\$REAL_SWIFTC_REAL|$REAL_SWIFTC|g" "$HOME/bin/swiftc"
-          chmod +x "$HOME/bin/swiftc"
-          export PATH="$HOME/bin:$PATH"
-          export SWIFT="$HOME/bin/swiftc"
-
-          {
-            echo "########## 诊断信息 ##########"
-            echo "=== swiftc 版本（系统 xcrun）==="
-            xcrun swiftc --version 2>&1 || true
-            echo "=== swiftc 版本（THEOS 默认）==="
-            "$REAL_SWIFTC" --version 2>&1 || true
-            echo "=== SDK 路径: $THEOS_SDK_PATH ==="
-            ls -la "$THEOS_SDK_PATH/usr/lib/swift" 2>&1 | head -60 || true
-            echo "--- 查找 _Concurrency / _StringProcessing 模块 ---"
-            find "$THEOS_SDK_PATH/usr/lib/swift" -maxdepth 3 \( -iname '*Concurrency*' -o -iname '*StringProcessing*' \) 2>/dev/null | head
-            echo "--- _Concurrency.swiftmodule 内容（看是 .swiftmodule 还是 .swiftinterface）---"
-            ls -la "$THEOS_SDK_PATH/usr/lib/swift/_Concurrency.swiftmodule" 2>&1 | head || true
-            echo "=== THEOS vendor/swift-support ==="
-            ls -la "$THEOS/vendor/swift-support" 2>&1 | head -40 || true
-            find "$THEOS/vendor/swift-support" -maxdepth 4 -iname '*Concurrency*' 2>/dev/null | head
-            echo "########## 诊断信息结束 ##########"
-            echo
-            echo "########## 正式构建 ##########"
-            cd src/returnkeycolor
-            make clean
-            make package FINALPACKAGE=1 2>&1
-            echo "########## 构建结束 ##########"
-            ls -la packages/ 2>&1 || true
-          } | tee "$GITHUB_WORKSPACE/build.log"
+          XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
+          echo "=== Xcode iPhoneOS SDK: $XCODE_SDK ==="
+          if [ -n "$XCODE_SDK" ] && [ -d "$XCODE_SDK/usr/lib/swift" ]; then
+            echo "=== Xcode SDK 的 swiftmodules（应有 _Concurrency/_StringProcessing）==="
+            ls "$XCODE_SDK/usr/lib/swift" | grep -iE "Concurrency|StringProcessing|Swift.swiftmodule" | head
+            mkdir -p "$THEOS_SDK_PATH/usr/lib"
+            cp -R "$XCODE_SDK/usr/lib/swift" "$THEOS_SDK_PATH/usr/lib/swift"
+            echo "=== 已复制 Swift 标准库到 theos SDK，确认：==="
+            ls "$THEOS_SDK_PATH/usr/lib/swift" | grep -iE "Concurrency|StringProcessing" | head
+          else
+            echo "!!! 未找到 Xcode iPhoneOS SDK 的 usr/lib/swift，无法修复 Swift 模块缺失"
+          fi
+          cd src/returnkeycolor
+          make clean
+          make package FINALPACKAGE=1 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          ls -la packages/ 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
       - name: Repack deb to gzip (iOS 兼容)
         run: |
