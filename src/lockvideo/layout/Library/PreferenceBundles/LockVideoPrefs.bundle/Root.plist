@@ -66,30 +66,6 @@
 		</dict>
 		<dict>
 			<key>action</key>
-			<string>switchLiveMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>detailText</key>
-			<string></string>
-			<key>identifier</key>
-			<string>LockVideoLiveMaterialLink</string>
-			<key>label</key>
-			<string>选择实时背景素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
-			<string>switchPlayerMaterial:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>detailText</key>
-			<string></string>
-			<key>identifier</key>
-			<string>LockVideoPlayerMaterialLink</string>
-			<key>label</key>
-			<string>选择播放背景素材</string>
-		</dict>
-		<dict>
-			<key>action</key>
 			<string>addFromAlbum:</string>
 			<key>cell</key>
 			<string>PSButtonCell</string>
