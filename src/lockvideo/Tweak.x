@@ -10,7 +10,7 @@
 #define kLVVideoDir  @"/var/mobile/通知视频"
 #define kLVLogFile   @"/var/mobile/通知视频/插件日志.txt"   // 全方位问题诊断日志（需手动开启）
 #define kLVFlushLog  CFSTR("com.xiaofei.notifybgvideo/FlushLog")
-#define kLVVersion   @"1.0.87"
+#define kLVVersion   @"1.0.88"
 
 // 问题日志的分类名（声音 / 卡顿 / 失效 是重点，其余按要求全量收集）
 #define kLVCatSound    @"声音"
@@ -56,6 +56,7 @@ static char kCoverKey;         // 「背景裁剪结果」短时缓存（NSValue
 static char kCoverStampKey;
 static char kCoverSignKey;     // 缓存签名：视图尺寸 + 直接子视图个数
 static char kBgStampKey;       // 背景层隐藏处理的节流时间戳
+static char kRefreshStampKey;  // 已挂素材视图的「刷新」节流时间戳（下拉动画里 layoutSubviews 成百次触发用）
 static char kDebugKey;         // 可视化调试覆盖层
 static char kKeepBgKey;        // 标记为「保留显示」的卡片系统背景层
 static char kHideDoneKey;
@@ -100,6 +101,10 @@ static BOOL _lvIsActivityContentClass(NSString *cls);
 static BOOL _lvIsNowPlayingActivityView(UIView *v);
 static NSInteger _lvNowPlayingState(void);          // -1 拿不到 / 0 没在播 / 1 正在播
 static BOOL _lvIsLockScreenVisible(void);           // 锁屏是否还在前台（只在 sound 裁定里也会用到，必须先声明）
+static BOOL _lvLockScreenActive(void);              // 锁屏是否真的在前台（带 0.25s 去抖 + 熄灭判定，避免转场/下拉瞬间误暂停）
+static BOOL gScreenOff = NO;                        // 屏幕已熄灭（锁屏后）：必须静音，堵死漏声
+static BOOL gLockScreenStable = NO;                 // 锁屏在前台的稳定性标记（去抖用）
+static NSTimeInterval gLastLockScreenSeen = 0;      // 最近一次确认处于锁屏的时间戳
 static LVActivityKind _lvDetectKindIn(UIView *root, BOOL *loaded);
 static LVActivityKind _lvResolvedKindForView(UIView *v);
 static void _lvOnMatch(UIView *v);
@@ -1793,18 +1798,16 @@ static void _lvApplyAudioPolicy(UIView *v) {
         NSString *who = _lvIsSingleActionButtonClass(cls)
             ? [NSString stringWithFormat:@"按钮「%@」(%@)", _lvButtonTitle(v) ?: @"无标题", cls]
             : cls;
-        if (!_lvEnabled() || !_lvIsLockScreenVisible()) {
-            if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 锁屏不可见 → 静音并暂停", who); }
+        // 设备已锁/屏幕熄灭，或明确离开了锁屏界面：必须静音并暂停（彻底堵死漏声，也省电）
+        if (!_lvEnabled() || gScreenOff || !_lvLockScreenActive()) {
+            if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 不在锁屏/已熄屏 → 静音并暂停（防漏声）", who); }
             p.muted = YES;
             [p pause];
             return;
         }
         if (_lvViewEffectivelyVisible(v)) {
-            if (_lvPlayerHasOtherVisibleView(p, v)) {
-                _lvNote(kLVCatSound, @"%@ 与别的可见卡片共用播放器，声音按共享状态处理", who);
-            } else {
-                p.muted = !_lvSound();
-            }
+            // 可见：永远尝试播放；共享播放器时声音交给持有它的那张可见卡片决定
+            if (!_lvPlayerHasOtherVisibleView(p, v)) { p.muted = !_lvSound(); }
             [p play];
             return;
         }
@@ -1812,9 +1815,9 @@ static void _lvApplyAudioPolicy(UIView *v) {
             _lvNote(kLVCatSound, @"%@ 不可见，但播放器被可见卡片共用，保持出声", who);
             return;
         }
-        if (p.rate > 0.01) { _lvNote(kLVCatSound, @"%@ 不可见 → 静音并暂停（不再漏声）", who); }
+        // 不可见且独占：只静音、不立即暂停——交给「孤儿播放器兜底」（0.6s 宽限）去停。
+        // 这样下拉控制中心/滑动手势瞬间卡片被临时遮住时，视频不会一突一突地暂停。
         p.muted = YES;
-        [p pause];
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
@@ -1827,7 +1830,7 @@ static void _lvEnforceAudioPolicy(void) {
     @try {
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
         if (!gSeenVisible) { gSeenVisible = [NSMutableDictionary dictionary]; }
-        BOOL allowAnything = (_lvEnabled() && _lvIsLockScreenVisible());
+        BOOL allowAnything = (_lvEnabled() && _lvLockScreenActive());
         NSMutableSet<AVPlayer *> *allowed = [NSMutableSet set];
         if (allowAnything) {
             for (UIView *v in [_lvAttachedTable() allObjects]) {
@@ -1851,7 +1854,7 @@ static void _lvEnforceAudioPolicy(void) {
                 p.muted = !want;
             } else {
                 NSTimeInterval last = [gSeenVisible[pk] doubleValue];
-                if (last > 0 && (now - last) < 0.6) { continue; }   // 宽限期内，可能是换卡片的瞬间
+                if (!gScreenOff && last > 0 && (now - last) < 0.6) { continue; }   // 宽限期内，可能是换卡片的瞬间（屏幕熄灭不宽限，立即静音）
                 if (p.rate > 0.01) { _lvNote(kLVCatSound, @"没有可见视图在用这个播放器却还在播 → 静音并暂停"); }
                 p.muted = YES;
                 [p pause];
@@ -2312,7 +2315,7 @@ static void _lvRefresh(UIView *v) {
             return;
         }
         // 素材只在锁屏通知界面生效：离开锁屏立刻撤掉已挂上的背景，不在主屏/应用里露出来
-        if (!_lvIsLockScreenVisible()) {
+        if (!_lvLockScreenActive()) {
             _lvDetach(v);
             return;
         }
@@ -2355,6 +2358,26 @@ static void _lvRefresh(UIView *v) {
             iv.layer.cornerRadius = _lvCornerEnabled() ? _lvCornerRadius() : 0.0;
         }
         _lvPrepareHostBackgroundsThrottled(v);
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+}
+
+// 下拉控制中心 / 锁屏滑动时，layoutSubviews 会成百次触发；已挂好素材的视图每 0.12s 才重算一次，
+// 既避免每帧全量重算卡住动画（视频“感觉很慢”），也不耽误新出现的卡片立即挂载。
+static void _lvThrottledRefresh(UIView *self) {
+    @try {
+        if (!self) { return; }
+        BOOL attached = [_lvAttachedTable() containsObject:self];
+        if (attached) {
+            NSNumber *st = objc_getAssociatedObject(self, &kRefreshStampKey);
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+            if (st && (now - [st doubleValue]) < 0.12) { return; }
+            objc_setAssociatedObject(self, &kRefreshStampKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        LV_PERF_BEGIN();
+        _lvRefresh(self);
+        LV_PERF_CHECK(kLVCatPerf, 8.0,
+                      @"layoutSubviews 刷新 %@ 耗时 %.1f ms（预算 8ms，超过一帧就是掉帧来源）",
+                      NSStringFromClass([self class]));
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 
@@ -2742,6 +2765,44 @@ static BOOL _lvIsLockScreenVisible(void) {
     return _lvHasLockScreenWindow();
 }
 
+// 锁屏“在前台”的稳定判定：
+//   - 设备唤醒后的转场（下拉展开、下拉控制中心、锁屏滑动动画）会让 SBLockScreenManager 瞬间报 NO，
+//     若据此立刻静音/暂停，视频会一突一突地卡。这里加 0.25s 去抖——只要 0.25s 内又确认在锁屏，就当“仍在前台”。
+//   - 屏幕熄灭（锁屏后）是最确定的“该静音”信号，单独用 gScreenOff 兜死，彻底堵住漏声。
+static BOOL _lvLockScreenActive(void) {
+    @try {
+        if (gScreenOff) { return NO; }
+        BOOL now = _lvIsLockScreenVisible();
+        NSTimeInterval t = [[NSDate date] timeIntervalSince1970];
+        if (now) {
+            // 锁屏在前台且屏幕是亮的：清掉“熄灭”标记，避免抬腕亮屏后静音卡住
+            if ([UIScreen mainScreen].brightness > 0.01) { gScreenOff = NO; }
+            gLastLockScreenSeen = t;
+            gLockScreenStable = YES;
+            return YES;
+        }
+        if (gLockScreenStable && (t - gLastLockScreenSeen) < 0.25) { return YES; }
+        gLockScreenStable = NO;
+        return NO;
+    } @catch (NSException *e) { _lvExcept(__func__, e); return NO; }
+}
+
+// 屏幕熄灭/锁屏状态变化：立即按新规则重算所有视频声音，把“锁屏后还在响”彻底掐掉
+static void _lvLockStateChanged(CFNotificationCenterRef center, void *observer, CFStringRef name,
+                                const void *object, CFDictionaryRef userInfo) {
+    @try {
+        NSString *n = (__bridge NSString *)name;
+        if ([n isEqualToString:@"com.apple.springboard.lockcomplete"]) {
+            gScreenOff = YES;   // 屏幕熄灭：立即静音，堵死漏声
+            _lvNote(kLVCatSound, @"屏幕已熄灭 → 立即静音所有视频背景（防漏声）");
+        } else if ([n isEqualToString:@"com.apple.springboard.lockstate"]) {
+            // 唤醒/解锁：重新照实际亮度判定（屏幕再次变亮即解除静音）
+            gScreenOff = ([UIScreen mainScreen].brightness <= 0.01);
+        }
+        _lvApplyAudioPolicyEverywhere();
+    } @catch (NSException *e) { _lvExcept(__func__, e);}
+}
+
 #pragma mark - 实时活动：类型判定与延迟复核
 
 // 类型复核的时间点（秒）。实时活动的内容由 App 端异步渲染，
@@ -2768,7 +2829,7 @@ static void _lvScheduleActivityRecheck(UIView *v) {
             @try {
                 UIView *vv = weakV;
                 if (!vv || !vv.window) { return; }
-                if (!_lvEnabled() || !_lvIsLockScreenVisible()) { return; }
+                if (!_lvEnabled() || !_lvLockScreenActive()) { return; }
                 _lvOnMatch(vv);
             } @catch (NSException *e) { _lvExcept(__func__, e);}
         });
@@ -2832,7 +2893,7 @@ static void _lvOnMatch(UIView *v) {
         _lvPauseAllPlayers();
         return;
     }
-    if (!_lvIsLockScreenVisible()) {
+    if (!_lvLockScreenActive()) {
         _lvDetach(v);
         _lvPauseAllPlayers();
         return;
@@ -2871,7 +2932,7 @@ static void _lvOnMatch(UIView *v) {
 }
 - (void)layoutSubviews {
     %orig;
-    @try { _lvRefresh((UIView *)self); } @catch (NSException *e) { _lvExcept(__func__, e);}
+    @try { if (((UIView *)self).window) { _lvThrottledRefresh((UIView *)self); } } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
 %end
 %end
@@ -2891,11 +2952,7 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
     _orig_layoutSubviews(self, _cmd);
     @try {
         if (_lvIsNotificationView(self) && self.window) {
-            LV_PERF_BEGIN();
-            _lvRefresh(self);
-            LV_PERF_CHECK(kLVCatPerf, 8.0,
-                          @"layoutSubviews 刷新 %@ 耗时 %.1f ms（预算 8ms，超过一帧就是掉帧来源）",
-                          NSStringFromClass([self class]));
+            _lvThrottledRefresh(self);
         }
     } @catch (NSException *e) { _lvExcept(__func__, e);}
 }
@@ -3194,7 +3251,7 @@ static void _lvPollTick(void) {
             _lvPauseAllPlayers();
             return;
         }
-        if (!_lvIsLockScreenVisible()) {
+        if (!_lvLockScreenActive()) {
             _lvPauseAllPlayers();
             // 不在锁屏：把已挂上的背景全部撤掉——素材只在锁屏通知界面生效，主屏/应用里不露出来
             for (UIView *v in [_lvAttachedTable() allObjects]) {
@@ -3214,6 +3271,7 @@ static void _lvPollTick(void) {
             _lvScanAndAttach(w, &found);
             if (found) { foundAnyCard = YES; }
         }
+        if (foundAnyCard) { gLockScreenStable = YES; gLastLockScreenSeen = [[NSDate date] timeIntervalSince1970]; }
         if (foundAnyCard) { _lvPlayAllVisiblePlayers(); }   // 只是「补播」，最终声音状态仍由下面的统一裁定决定
         else {
             _lvPauseAllPlayers();
@@ -3291,12 +3349,26 @@ static void _lvPollTick(void) {
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
 
+        // 屏幕熄灭/锁屏状态变化：立即重算所有视频声音，把“锁屏后视频还在响”彻底掐掉
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvLockStateChanged,
+                                        CFSTR("com.apple.springboard.lockcomplete"),
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        _lvLockStateChanged,
+                                        CFSTR("com.apple.springboard.lockstate"),
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 实时活动=%@ 播放器=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 _lvActivityPath() ?: @"(无)", _lvPlayerPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（统一声音裁定（不再漏声） + 实时活动/播放器分离（结构特征识别，不再共用背景） + 仅限锁屏通知界面生效 + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
+        _lvLog([NSString stringWithFormat:@"===== %@ 加载完成（统一声音裁定（不再漏声） + 实时活动/播放器分离（结构特征识别，不再共用背景） + 仅限锁屏通知界面生效 + 锁屏熄灭立即静音（不再漏声） + 下拉去抖与刷新节流（防卡顿） + 偏好读取去每帧磁盘同步 + 播放器失败监听 + 运行时体检） =====", kLVVersion]);
     } @catch (NSException *e) { _lvExcept(__func__, e);
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
