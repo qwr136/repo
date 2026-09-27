@@ -209,7 +209,7 @@ func wkDumpMethods(of cls: AnyClass?) {
     if let list = class_copyMethodList(cls, &count) {
         for i in 0..<Int(count) {
             let sel = method_getName(list[i])
-            NSLog("[WKTB]   method: \(NSStringFromSelector(sel))")
+            NSLog("[WKTB]   method: \(String(describing: sel))")
         }
         free(list)
     }
