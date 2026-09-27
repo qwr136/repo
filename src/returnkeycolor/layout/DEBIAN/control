@@ -1,6 +1,6 @@
 Package: com.xiaofei.returnkeycolor
 Name: 键盘回车键同色
-Version: 1.0.0
+Version: 1.0.1
 Architecture: iphoneos-arm
 Description: 把原生键盘右下角的回车键（发送/搜索/前往/换行/GO 等蓝色键帽）改成与「123」功能键完全一致的灰色。颜色实时取自当前键盘的 123 键，深浅色模式自动跟随，只影响回车键不碰其他按键。
 Maintainer: 小飞 <[email protected]>
@@ -10,4 +10,4 @@ Depends: mobilesubstrate | ellekit
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.0 - 首个版本：回车键键帽不再使用系统蓝，改为从当前键盘的 123 功能键实时取色；通过 displayString 与蓝色键帽双重识别发送/搜索/前往/换行等所有回车键形态，按下高亮恢复后自动重染；支持 iOS 16.0-16.5，rootless
+Changelog: 1.0.1 - 修复取色失败（日志显示「未找到 123 键」）：键在 layoutSubviews 时尚未挂到父视图，旧逻辑只拿回车键自己当扫描根，看不到整块键盘的 123 键；改为优先键盘布局容器、未挂载时用所在 window 作根，保证扫描到全部按键；新增键帽色众数取灰（123 键文字取不到时，按字母键色之外的非蓝高频色取功能键灰，深浅色均准确）；新增触发节流与日志节流，消除 3 秒几十条的日志洪水；按下高亮改为强制立即重染

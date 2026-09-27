@@ -147,99 +147,154 @@ static void RKTintBlueShapes(CALayer *l, UIColor *target) {
 }
 
 // 全键盘扫描：① 从 123 键取灰 ② 给回车键染色
+// 颜色量化（用于统计键帽色众数）
+static NSString *RKColorKey(UIColor *c) {
+    CGFloat r = 0, g = 0, b = 0, a = 0;
+    if (![c getRed:&r green:&g blue:&b alpha:&a]) { return @"?"; }
+    return [NSString stringWithFormat:@"%d_%d_%d", (int)(r * 40), (int)(g * 40), (int)(b * 40)];
+}
+
+// 日志节流：同一 key 3 秒内只写一次（键盘每次布局都会触发，避免日志刷屏）
+static void RKLogThrottled(NSString *key, NSString *line) {
+    static NSMutableDictionary *last = nil;
+    if (!last) { last = [NSMutableDictionary dictionary]; }
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    NSNumber *t = last[key];
+    if (t && (now - t.doubleValue) < 3.0) { return; }
+    last[key] = @(now);
+    RKLog(line);
+}
+
+// 收集键盘上的所有键
+static NSArray<UIView *> *RKCollectKeys(UIView *root) {
+    Class keyViewCls = NSClassFromString(@"UIKBKeyView");
+    if (!root || !keyViewCls) { return @[]; }
+    NSMutableArray *out = [NSMutableArray array];
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+    int guard = 0;
+    while (stack.count && guard++ < 4000) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:keyViewCls]) { [out addObject:v]; continue; }
+        for (UIView *sub in v.subviews) { [stack addObject:sub]; }
+    }
+    return out;
+}
+
+// 取「功能键灰」（要和 123 键一致）：
+//   ① 直接命中 123 / #+= / ABC 键的键帽色
+//   ② 取不到文字时用键帽色众数：出现最多的是字母键色（白/深灰），排除它，
+//      剩下出现最多的非蓝色就是功能键灰（shift / 123 / 删除 / 地球键共用同一个灰）
+static UIColor *RKPickFuncColor(NSArray<UIView *> *keys) {
+    for (UIView *kv in keys) {
+        NSString *txt = RKDisplayString(kv);
+        if (!RKIsFuncString(txt)) { continue; }
+        CAShapeLayer *cap = RKKeycapShape(kv);
+        if (!cap || !cap.fillColor) { continue; }
+        UIColor *c = [UIColor colorWithCGColor:cap.fillColor];
+        if (!RKIsBlue(c)) {
+            CGFloat r = 0, g = 0, b = 0, a = 0;
+            [c getRed:&r green:&g blue:&b alpha:&a];
+            RKLogThrottled(@"func123", [NSString stringWithFormat:@"命中 123 键取色 (%.3f, %.3f, %.3f)", r, g, b]);
+            return c;
+        }
+    }
+
+    NSMutableDictionary *freq = [NSMutableDictionary dictionary];
+    NSMutableDictionary *sample = [NSMutableDictionary dictionary];
+    for (UIView *kv in keys) {
+        CAShapeLayer *cap = RKKeycapShape(kv);
+        if (!cap || !cap.fillColor) { continue; }
+        UIColor *c = [UIColor colorWithCGColor:cap.fillColor];
+        if (RKIsBlue(c)) { continue; }
+        NSString *k = RKColorKey(c);
+        freq[k] = @([freq[k] intValue] + 1);
+        if (!sample[k]) { sample[k] = c; }
+    }
+    NSString *mainKey = nil; int mainCount = 0;
+    for (NSString *k in freq) {
+        int n = [freq[k] intValue];
+        if (n > mainCount) { mainCount = n; mainKey = k; }
+    }
+    NSString *secondKey = nil; int secondCount = 0;
+    for (NSString *k in freq) {
+        if ([k isEqualToString:mainKey]) { continue; }
+        int n = [freq[k] intValue];
+        if (n > secondCount) { secondCount = n; secondKey = k; }
+    }
+    if (secondKey) {
+        UIColor *c = sample[secondKey];
+        CGFloat r = 0, g = 0, b = 0, a = 0;
+        [c getRed:&r green:&g blue:&b alpha:&a];
+        RKLogThrottled(@"funcFreq", [NSString stringWithFormat:@"键帽色统计取到功能键灰 (%.3f, %.3f, %.3f)", r, g, b]);
+        return c;
+    }
+    return nil;
+}
+
 static void RKTintKeyboard(UIView *root) {
     if (!root || !RKEnabled()) { return; }
     @try {
-        Class keyViewCls = NSClassFromString(@"UIKBKeyView");
-        if (!keyViewCls) { return; }
+        NSArray *keys = RKCollectKeys(root);
+        if (keys.count == 0) { return; }
 
-        UIColor *funcColor = nil;
+        // 回车键：文字命中（发送/搜索/…）或键帽为系统蓝
         NSMutableArray *returnKeys = [NSMutableArray array];
-        int blueReturnFound = 0;
-
-        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
-        while (stack.count) {
-            UIView *v = stack.lastObject;
-            [stack removeLastObject];
-            if ([v isKindOfClass:keyViewCls]) {
-                NSString *txt = RKDisplayString(v);
-                if (RKIsFuncString(txt)) {
-                    CAShapeLayer *cap = RKKeycapShape(v);
-                    if (cap && cap.fillColor) {
-                        UIColor *c = [UIColor colorWithCGColor:cap.fillColor];
-                        if (!RKIsBlue(c) && !funcColor) {
-                            funcColor = c;
-                            CGFloat r = 0, g = 0, b = 0, a = 0;
-                            [c getRed:&r green:&g blue:&b alpha:&a];
-                            RKLog([NSString stringWithFormat:@"取到功能键色: (%.3f, %.3f, %.3f, %.3f) 键=%@",
-                                   r, g, b, a, txt]);
-                        }
-                    }
-                } else if (RKIsReturnString(txt)) {
-                    [returnKeys addObject:v];
-                }
-            }
-            for (UIView *sub in v.subviews) { [stack addObject:sub]; }
-        }
-
-        // 文字取不到时的兜底：键帽是蓝的键也算回车键（覆盖混淆/多语言）
-        if (returnKeys.count == 0) {
-            NSMutableArray *stack2 = [NSMutableArray arrayWithObject:root];
-            while (stack2.count) {
-                UIView *v = stack2.lastObject;
-                [stack2 removeLastObject];
-                if ([v isKindOfClass:keyViewCls]) {
-                    CAShapeLayer *cap = RKKeycapShape(v);
-                    if (cap && cap.fillColor && RKIsBlue([UIColor colorWithCGColor:cap.fillColor])) {
-                        [returnKeys addObject:v];
-                        blueReturnFound++;
-                    }
-                }
-                for (UIView *sub in v.subviews) { [stack2 addObject:sub]; }
-            }
-            if (blueReturnFound) {
-                RKLog([NSString stringWithFormat:@"按蓝色键帽兜底识别到 %d 个回车键", blueReturnFound]);
+        for (UIView *kv in keys) {
+            NSString *txt = RKDisplayString(kv);
+            if (RKIsReturnString(txt)) { [returnKeys addObject:kv]; continue; }
+            CAShapeLayer *cap = RKKeycapShape(kv);
+            if (cap && cap.fillColor && RKIsBlue([UIColor colorWithCGColor:cap.fillColor])) {
+                [returnKeys addObject:kv];
             }
         }
-
         if (returnKeys.count == 0) { return; }
 
+        UIColor *funcColor = RKPickFuncColor(keys);
         if (!funcColor) {
-            // 取不到 123 键时用系统功能键灰兜底（浅/深色动态适配）
             funcColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *t) {
                 return (t.userInterfaceStyle == UIUserInterfaceStyleDark)
-                    ? [UIColor colorWithRed:0.357 green:0.373 blue:0.392 alpha:1.0]   // 深色 #5B5F64
-                    : [UIColor colorWithRed:0.671 green:0.690 blue:0.729 alpha:1.0]; // 浅色 #ABB0BA
+                    ? [UIColor colorWithRed:0.357 green:0.373 blue:0.392 alpha:1.0]
+                    : [UIColor colorWithRed:0.671 green:0.690 blue:0.729 alpha:1.0];
             }];
-            RKLog(@"未找到 123 键，使用系统功能键灰兜底");
+            RKLogThrottled(@"funcFallback", @"未识别到功能键灰，使用系统灰兜底");
         }
 
-        for (UIView *rk in returnKeys) {
-            RKTintBlueShapes(rk.layer, funcColor);
-        }
-        RKLog([NSString stringWithFormat:@"已把 %lu 个回车键染成 123 同色", (unsigned long)returnKeys.count]);
+        for (UIView *rk in returnKeys) { RKTintBlueShapes(rk.layer, funcColor); }
+        CGFloat r = 0, g = 0, b = 0, a = 0;
+        [funcColor getRed:&r green:&g blue:&b alpha:&a];
+        RKLogThrottled(@"tinted", [NSString stringWithFormat:@"已把 %lu 个回车键染成 (%.3f, %.3f, %.3f)，共扫描 %lu 个键",
+                                   (unsigned long)returnKeys.count, r, g, b, (unsigned long)keys.count]);
     } @catch (NSException *e) {
         RKLog([NSString stringWithFormat:@"染色异常: %@", e]);
     }
 }
 
-// 从键往上找键盘布局根，再整棵键盘处理（同一布局短时间只跑一次）
-static void RKTintFromKey(UIView *key) {
+// 扫描根：优先键盘布局容器；键还没挂到父视图时用它所在的 window
+// （旧版在这里直接拿自己当根，导致只能看到回车键一个，找不到 123 键）
+static UIView *RKKeyboardRoot(UIView *key) {
+    for (UIView *v = key; v; v = v.superview) {
+        NSString *cn = NSStringFromClass([v class]) ?: @"";
+        if ([cn hasPrefix:@"UIKeyboardLayout"]) { return v; }
+    }
+    UIView *top = key;
+    for (UIView *v = key; v; v = v.superview) { top = v; }
+    return key.window ?: top;
+}
+
+// 触发染色：同一根 0.4 秒节流；force 用于按下高亮后立刻重染
+static void RKTintFromKey(UIView *key, BOOL force) {
     @try {
-        UIView *root = key;
-        for (UIView *v = key; v; v = v.superview) {
-            NSString *cn = NSStringFromClass([v class]) ?: @"";
-            if ([cn hasPrefix:@"UIKeyboardLayout"]) { root = v; break; }
-            if (!v.superview) { root = v; break; }
+        UIView *root = RKKeyboardRoot(key);
+        if (!root) { return; }
+        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        if (!force) {
+            NSNumber *last = objc_getAssociatedObject(root, &kRKGenKey);
+            if (last && (now - last.doubleValue) < 0.4) { return; }
         }
-        NSNumber *done = objc_getAssociatedObject(root, &kRKGenKey);
-        if (done.boolValue) { return; }
-        objc_setAssociatedObject(root, &kRKGenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(root, &kRKGenKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         dispatch_async(dispatch_get_main_queue(), ^{
-            @try {
-                objc_setAssociatedObject(root, &kRKGenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                RKTintKeyboard(root);
-            } @catch (NSException *e) {}
+            @try { RKTintKeyboard(root); } @catch (NSException *e) {}
         });
     } @catch (NSException *e) {}
 }
@@ -250,23 +305,23 @@ static void RKTintFromKey(UIView *key) {
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window) { RKTintFromKey(self); }
+    if (self.window) { RKTintFromKey(self, NO); }
 }
 
 - (void)layoutSubviews {
     %orig;
-    RKTintFromKey(self);
+    RKTintFromKey(self, NO);
 }
 
-// 按下高亮可能把键帽恢复成原色（蓝），松手后修一次
+// 按下高亮可能把键帽恢复成原色（蓝），松手后立刻重染
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
     %orig;
-    RKTintFromKey(self);
+    RKTintFromKey(self, YES);
 }
 
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
     %orig;
-    RKTintFromKey(self);
+    RKTintFromKey(self, YES);
 }
 
 %end
