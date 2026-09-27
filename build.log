@@ -10,18 +10,10 @@ Building for production...
 [7/9] Compiling SwiftcOutputParser FileLock.swift
 [7/9] Write Objects.LinkFileList
 [8/9] Linking parse-swiftc-output
-Build complete! (6.75s)
+Build complete! (5.18s)
 [0;32m==> [1;39mCompiling Tweak.swift (arm64)…[m
 <unknown>:0: [1;33mwarning: [1;39munable to perform implicit import of "_Concurrency" module: no such module found[0;0m
 <unknown>:0: [1;34mremark: [1;39munable to perform implicit import of "_StringProcessing" module: no such module found[0;0m
-Tweak.swift:165:11: [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m163 |[0;0m 
-[0;36m164 |[0;0m func rkImageFromBuf(_ buf: UnsafeMutablePointer<UInt8>, w: Int, h: Int) -> CGImage? {
-[0;36m165 |[0;0m     guard let cs = [4;39mCGColorSpaceCreateDeviceRGB()[0;0m else { return nil }
-    [0;36m|[0;0m           `- [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m166 |[0;0m     let ctx = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-[0;36m167 |[0;0m                         space: cs, bitmapInfo: kRKPremulLastBig)
-
 Tweak.swift:176:17: [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
 [0;36m174 |[0;0m         return
 [0;36m175 |[0;0m     }
@@ -54,14 +46,6 @@ Tweak.swift:176:48: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by
 [0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
 [0;36m229 |[0;0m 
 
-Tweak.swift:182:11: [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m180 |[0;0m     memset(buf, 0, bpr * h)
-[0;36m181 |[0;0m     defer { buf.deallocate() }
-[0;36m182 |[0;0m     guard let cs = [4;39mCGColorSpaceCreateDeviceRGB()[0;0m else { return }
-    [0;36m|[0;0m           `- [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m183 |[0;0m     guard let c = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
-[0;36m184 |[0;0m                             space: cs, bitmapInfo: kRKPremulLastBig) else { return }
-
 Tweak.swift:203:17: [1;31merror: [1;39m'CGImageGetWidth' has been replaced by property 'CGImage.width'[0;0m
 [0;36m201 |[0;0m func rkModeColorFromCtx(_ ctx: CGContext) -> UIColor? {
 [0;36m202 |[0;0m     guard let img = ctx.makeImage() else { return nil }
@@ -93,22 +77,6 @@ Tweak.swift:203:48: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by
     [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
 [0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
 [0;36m229 |[0;0m 
-
-Tweak.swift:209:11: [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m207 |[0;0m     memset(buf, 0, bpr * h)
-[0;36m208 |[0;0m     defer { buf.deallocate() }
-[0;36m209 |[0;0m     guard let cs = [4;39mCGColorSpaceCreateDeviceRGB()[0;0m else { return nil }
-    [0;36m|[0;0m           `- [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m210 |[0;0m     guard let c = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
-[0;36m211 |[0;0m                             space: cs, bitmapInfo: kRKPremulLastBig) else { return nil }
-
-Tweak.swift:224:11: [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m222 |[0;0m     memset(buf, 0, W * H * 4)
-[0;36m223 |[0;0m     defer { buf.deallocate() }
-[0;36m224 |[0;0m     guard let cs = [4;39mCGColorSpaceCreateDeviceRGB()[0;0m else { return nil }
-    [0;36m|[0;0m           `- [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m225 |[0;0m     guard let ctx = CGContext(data: buf, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W * 4,
-[0;36m226 |[0;0m                               space: cs, bitmapInfo: kRKPremulLastBig) else { return nil }
 
 Tweak.swift:234:31: [1;31merror: [1;39mconditional downcast to CoreFoundation type 'CGImage' will always succeed[0;0m
 [0;36m232 |[0;0m func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
@@ -151,14 +119,6 @@ Tweak.swift:235:50: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by
 [0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
 [0;36m229 |[0;0m 
 
-Tweak.swift:241:15: [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m239 |[0;0m         memset(buf, 0, bpr * h)
-[0;36m240 |[0;0m         defer { buf.deallocate() }
-[0;36m241 |[0;0m         guard let cs = [4;39mCGColorSpaceCreateDeviceRGB()[0;0m else { return nil }
-    [0;36m|[0;0m               `- [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m242 |[0;0m         guard let ctx = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
-[0;36m243 |[0;0m                                   space: cs, bitmapInfo: kRKPremulLastBig) else { return nil }
-
 Tweak.swift:255:31: [1;31merror: [1;39mconditional downcast to CoreFoundation type 'CGImage' will always succeed[0;0m
 [0;36m253 |[0;0m func rkRecolorLayerTree(layer: CALayer?, target: UIColor, depth: Int) {
 [0;36m254 |[0;0m     guard let layer = layer, depth <= 5 else { return }
@@ -199,14 +159,6 @@ Tweak.swift:256:50: [1;31merror: [1;39m'CGImageGetHeight' has been replaced by
     [0;36m|[0;0m                  `- [1;39mnote: [1;39m'CGImageGetHeight' was obsoleted in Swift 3[0;0m
 [0;36m228 |[0;0m     CG_AVAILABLE_STARTING(10.0, 2.0);
 [0;36m229 |[0;0m 
-
-Tweak.swift:261:19: [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m259 |[0;0m             let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
-[0;36m260 |[0;0m             memset(buf, 0, bpr * h)
-[0;36m261 |[0;0m             guard let cs = [4;39mCGColorSpaceCreateDeviceRGB()[0;0m else { buf.deallocate(); return }
-    [0;36m|[0;0m                   `- [1;31merror: [1;39minitializer for conditional binding must have Optional type, not 'CGColorSpace'[0;0m
-[0;36m262 |[0;0m             guard let ctx = CGContext(data: buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr,
-[0;36m263 |[0;0m                                       space: cs, bitmapInfo: kRKPremulLastBig) else { buf.deallocate(); return }
 
 Tweak.swift:296:15: [1;33mwarning: [1;39muse '#selector' instead of explicitly constructing a 'Selector'[0;0m
 [0;36m294 |[0;0m // MARK: - 各入口 hook
@@ -265,9 +217,75 @@ Tweak.swift:390:10: [1;33mwarning: [1;39m'unsafeBitCast' from 'AutoreleasingUn
 [0;36m391 |[0;0m }
 [0;36m392 |[0;0m 
 
-Please submit a bug report (https://swift.org/contributing/#reporting-bugs) and include the crash backtrace.
+Tweak.swift:394:54: [1;33mwarning: [1;39mconditional downcast from 'AnyClass?' (aka 'Optional<any AnyObject.Type>') to 'AnyClass' (aka 'any AnyObject.Type') does nothing[0;0m
+[0;36m392 |[0;0m 
+[0;36m393 |[0;0m func rkInstallKeyViewHooks() {
+[0;36m394 |[0;0m     guard let cls = [4;39mNSClassFromString("UIKBKeyView")[0;0m as? [4;39mAnyClass[0;0m else { return }
+    [0;36m|[0;0m                                                      `- [1;33mwarning: [1;39mconditional downcast from 'AnyClass?' (aka 'Optional<any AnyObject.Type>') to 'AnyClass' (aka 'any AnyObject.Type') does nothing[0;0m
+[0;36m395 |[0;0m     gKeyViewCls = cls
+[0;36m396 |[0;0m     rkHookDisplayLayer(cls: cls)
 
-error: compile command failed due to signal 10 (use -v to see invocation)
+Please submit a bug report (https://swift.org/contributing/#reporting-bugs) and include the crash backtrace.
+Stack dump:
+0.	Program arguments: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend -frontend -c Tweak.swift -emit-module-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.swiftmodule -emit-module-doc-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.swiftdoc -emit-module-source-info-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.swiftsourceinfo -emit-dependencies-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/master.f895b7b1.Td -emit-objc-header-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/generated/ReturnKeyColor-Swift.h -emit-abi-descriptor-path /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.abi.json -target arm64-apple-ios14.5 -Xllvm -aarch64-use-tbi -enable-objc-interop -stack-check -sdk /Users/runner/theos/sdks/iPhoneOS14.5.sdk -I /Users/runner/theos/include/iphone -I /Users/runner/theos/include -I /Users/runner/theos/vendor/include -I /Users/runner/theos/include/_fallback -F /Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/PrivateFrameworks -F /Users/runner/theos/vendor/lib/iphone/rootless -F /Users/runner/theos/lib/iphone/rootless -no-color-diagnostics -Xcc -fno-color-diagnostics -g -debug-info-format=dwarf -dwarf-version=4 -swift-version 5 -O -D THEOS_SWIFT -D TARGET_IPHONE -new-driver-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-driver -color-diagnostics -empty-abi-descriptor -resource-dir /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift -file-compilation-dir /Users/runner/work/repo/repo/src/returnkeycolor -Xcc -fcolor-diagnostics -Xcc -DTARGET_IPHONE=1 -Xcc -Os -Xcc -Wall -Xcc -ggdb -Xcc -Wno-unused-command-line-argument -Xcc -Qunused-arguments -Xcc -F/Users/runner/theos/sdks/iPhoneOS14.5.sdk/System/Library/PrivateFrameworks -Xcc -F/Users/runner/theos/vendor/lib/iphone/rootless -Xcc -F/Users/runner/theos/lib/iphone/rootless -Xcc -Werror -Xcc -D -Xcc THEOS_PACKAGE_INSTALL_PREFIX=\"/var/jb\" -Xcc -isysroot -Xcc /Users/runner/theos/sdks/iPhoneOS14.5.sdk -Xcc -target -Xcc arm64-apple-ios14.5 -Xcc -resource-dir -Xcc /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/../lib/swift/clang -Xcc -fobjc-arc -Xcc -DTHEOS_INSTANCE_NAME=\"ReturnKeyColor\" -Xcc -fmodules -Xcc -fcxx-modules -Xcc -fmodule-name=ReturnKeyColor -Xcc -fbuild-session-file=/Users/runner/work/repo/repo/src/returnkeycolor/.theos/build_session -Xcc -fmodules-prune-after=345600 -Xcc -fmodules-prune-interval=86400 -Xcc -fmodules-validate-once-per-build-session -Xcc -arch -Xcc arm64 -Xcc -stdlib=libc++ -Xcc -fobjc-arc -no-auto-bridging-header-chaining -module-name ReturnKeyColor -disable-clang-spi -target-sdk-version 14.5 -target-sdk-name iphoneos14.5 -external-plugin-path /Users/runner/Developer/usr/lib/swift/host/plugins#/Users/runner/Developer/usr/bin/swift-plugin-server -external-plugin-path /Users/runner/Developer/usr/local/lib/swift/host/plugins#/Users/runner/Developer/usr/bin/swift-plugin-server -in-process-plugin-server-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/libSwiftInProcPluginServer.dylib -plugin-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins -plugin-path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/local/lib/swift/host/plugins -enable-default-cmo -parse-as-library -num-threads 1 -o /Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/Tweak.swift.f895b7b1.o
+1.	Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+2.	Compiling with effective version 5.10
+3.	While evaluating request TypeCheckPrimaryFileRequest(source_file "Tweak.swift")
+4.	While evaluating request TypeCheckFunctionBodyRequest(ReturnKeyColor.(file).rkTintFromKey@Tweak.swift:459:6)
+5.	While type-checking statement at [Tweak.swift:459:35 - line:467:1] RangeText="{
+    guard rkEnabled() else { return }
+    guard let root = rkKeyboardRoot(key) else { return }
+    let now = Date.timeIntervalSinceReferenceDate
+    let last = objc_getAssociatedObject(root, &kRKGenKey) as? NSNumber
+    if let l = last, now - l.doubleValue < 0.4 { return }
+    objc_setAssociatedObject(root, &kRKGenKey, NSNumber(value: now), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    DispatchQueue.main.async { rkTintKeyboard(root: root) }
+"
+6.	While type-checking expression at [Tweak.swift:466:5 - line:466:59] RangeText="DispatchQueue.main.async { rkTintKeyboard(root: root) "
+7.	While type-checking-target starting at Tweak.swift:466:24
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+0  swift-frontend           0x0000000106a5d08c llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 56
+1  swift-frontend           0x0000000106a5a52c llvm::sys::RunSignalHandlers() + 172
+2  swift-frontend           0x0000000106a5d67c SignalHandler(int, __siginfo*, void*) + 356
+3  libsystem_platform.dylib 0x0000000186179744 _sigtramp + 56
+4  swift-frontend           0x00000001021b3810 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 56
+5  swift-frontend           0x00000001021b3810 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 56
+6  swift-frontend           0x00000001021b38b0 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 216
+7  swift-frontend           0x00000001021b4684 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 3756
+8  swift-frontend           0x00000001021b53e0 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 7176
+9  swift-frontend           0x00000001021b3a04 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 556
+10 swift-frontend           0x00000001021b53e0 swift::TypeTransform<swift::Type::transformRec(llvm::function_ref<std::__1::optional<swift::Type> (swift::TypeBase*)>) const::Transform>::doIt(swift::Type, swift::TypePosition) + 7176
+11 swift-frontend           0x00000001018e4960 swift::constraints::Solution::simplifyType(swift::Type, bool, bool) const + 324
+12 swift-frontend           0x000000010179537c (anonymous namespace)::SetExprTypes::walkToExprPost(swift::Expr*) + 224
+13 swift-frontend           0x0000000101e4ef30 (anonymous namespace)::Traversal::visitDynamicMemberRefExpr(swift::DynamicMemberRefExpr*) + 112
+14 swift-frontend           0x0000000101e4eb0c (anonymous namespace)::Traversal::visit(swift::Expr*) + 1168
+15 swift-frontend           0x0000000101e54838 (anonymous namespace)::Traversal::visit(swift::ArgumentList*) + 260
+16 swift-frontend           0x0000000101e511ac (anonymous namespace)::Traversal::visitApplyExpr(swift::ApplyExpr*) + 196
+17 swift-frontend           0x0000000101e4e6d0 (anonymous namespace)::Traversal::visit(swift::Expr*) + 84
+18 swift-frontend           0x00000001017857b8 (anonymous namespace)::ExprRewriter::finishApply(swift::ApplyExpr*, swift::Type, swift::constraints::ConstraintLocatorBuilder, swift::constraints::ConstraintLocatorBuilder) + 6632
+19 swift-frontend           0x000000010178c73c (anonymous namespace)::ExprRewriter::visitApplyExpr(swift::ApplyExpr*) + 356
+20 swift-frontend           0x0000000101768838 (anonymous namespace)::ExprWalker::walkToExprPost(swift::Expr*) + 76
+21 swift-frontend           0x0000000101763220 (anonymous namespace)::ExprWalker::rewriteTarget(swift::constraints::SyntacticElementTarget) + 2876
+22 swift-frontend           0x0000000101762360 swift::constraints::ConstraintSystem::applySolution(swift::constraints::Solution&, swift::constraints::SyntacticElementTarget) + 7124
+23 swift-frontend           0x0000000101a4fcb0 swift::TypeChecker::typeCheckTarget(swift::constraints::SyntacticElementTarget&, swift::optionset::OptionSet<swift::TypeCheckExprFlags, unsigned int>, swift::DiagnosticTransaction*) + 1920
+24 swift-frontend           0x0000000101a4f4d0 swift::TypeChecker::typeCheckExpression(swift::constraints::SyntacticElementTarget&, swift::optionset::OptionSet<swift::TypeCheckExprFlags, unsigned int>, swift::DiagnosticTransaction*) + 400
+25 swift-frontend           0x0000000101b5f644 (anonymous namespace)::StmtChecker::typeCheckASTNode(swift::ASTNode&) + 404
+26 swift-frontend           0x0000000101b64314 swift::ASTVisitor<(anonymous namespace)::StmtChecker, void, swift::Stmt*, void, void, void, void>::visit(swift::Stmt*) + 300
+27 swift-frontend           0x0000000101b62130 bool (anonymous namespace)::StmtChecker::typeCheckStmt<swift::BraceStmt>(swift::BraceStmt*&) + 292
+28 swift-frontend           0x0000000101b61158 swift::TypeCheckFunctionBodyRequest::evaluate(swift::Evaluator&, swift::AbstractFunctionDecl*) const + 2284
+29 swift-frontend           0x0000000101fc2d94 swift::TypeCheckFunctionBodyRequest::OutputType swift::Evaluator::getResultUncached<swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckFunctionBodyRequest>(swift::Evaluator&, swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType)::'lambda'()>(swift::TypeCheckFunctionBodyRequest const&, swift::TypeCheckFunctionBodyRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckFunctionBodyRequest>(swift::Evaluator&, swift::TypeCheckFunctionBodyRequest, swift::TypeCheckFunctionBodyRequest::OutputType)::'lambda'()) + 680
+30 swift-frontend           0x0000000101f14250 swift::AbstractFunctionDecl::getTypecheckedBody() const + 152
+31 swift-frontend           0x0000000101bb2118 swift::TypeCheckPrimaryFileRequest::evaluate(swift::Evaluator&, swift::SourceFile*) const + 1276
+32 swift-frontend           0x0000000101bbb3b0 swift::TypeCheckPrimaryFileRequest::OutputType swift::Evaluator::getResultUncached<swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckPrimaryFileRequest>(swift::Evaluator&, swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType)::'lambda'()>(swift::TypeCheckPrimaryFileRequest const&, swift::TypeCheckPrimaryFileRequest::OutputType swift::evaluateOrDefault<swift::TypeCheckPrimaryFileRequest>(swift::Evaluator&, swift::TypeCheckPrimaryFileRequest, swift::TypeCheckPrimaryFileRequest::OutputType)::'lambda'()) + 644
+33 swift-frontend           0x00000001009ea6e4 bool llvm::function_ref<bool (swift::SourceFile&)>::callback_fn<swift::CompilerInstance::performSema()::$_0>(long, swift::SourceFile&) + 156
+34 swift-frontend           0x00000001009e3a70 swift::CompilerInstance::forEachFileToTypeCheck(llvm::function_ref<bool (swift::SourceFile&)>) + 284
+35 swift-frontend           0x00000001009e3894 swift::CompilerInstance::performSema() + 456
+36 swift-frontend           0x00000001005cb608 performCompile(swift::CompilerInstance&, int&, swift::FrontendObserver*, llvm::ArrayRef<char const*>) + 548
+37 swift-frontend           0x00000001005c8818 swift::performFrontend(llvm::ArrayRef<char const*>, char const*, void*, swift::FrontendObserver*) + 3308
+38 swift-frontend           0x0000000100548424 swift::mainEntry(int, char const**) + 5224
+39 dyld                     0x0000000185da44e4 start + 6992
+
+error: compile command failed due to signal 11 (use -v to see invocation)
 make[4]: *** [internal-swift-ReturnKeyColor-arm64] Error 1
 make[3]: *** [/Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/.swift-stamp] Error 2
 make[2]: *** [/Users/runner/work/repo/repo/src/returnkeycolor/.theos/obj/arm64/ReturnKeyColor.dylib] Error 2
