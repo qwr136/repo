@@ -173,7 +173,7 @@ func rkRecolorContext(ctx: CGContext, target: UIColor) {
         rkDiag("drawLayer ctx.makeImage()=nil（无法从此 ctx 取图）")
         return
     }
-    let w = Int(CGImageGetWidth(img)), h = Int(CGImageGetHeight(img))
+    let w = Int(img.width), h = Int(img.height)
     guard w > 0, h > 0, w * h <= 900000 else { return }
     let bpr = w * 4
     let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
@@ -200,7 +200,7 @@ func rkRecolorContext(ctx: CGContext, target: UIColor) {
 
 func rkModeColorFromCtx(_ ctx: CGContext) -> UIColor? {
     guard let img = ctx.makeImage() else { return nil }
-    let w = Int(CGImageGetWidth(img)), h = Int(CGImageGetHeight(img))
+    let w = Int(img.width), h = Int(img.height)
     guard w > 0, h > 0 else { return nil }
     let bpr = w * 4
     let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
@@ -232,7 +232,7 @@ func rkVisualColor(view: UIView) -> UIColor? {
 func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
     guard let layer = layer, depth <= 4 else { return nil }
     if let c = layer.contents as? CGImage {
-        let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
+        let w = Int(c.width), h = Int(c.height)
         guard w > 0, h > 0 else { return nil }
         let bpr = w * 4
         let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
@@ -253,7 +253,7 @@ func rkColorFromLayerTree(layer: CALayer?, depth: Int) -> UIColor? {
 func rkRecolorLayerTree(layer: CALayer?, target: UIColor, depth: Int) {
     guard let layer = layer, depth <= 5 else { return }
     if let c = layer.contents as? CGImage {
-        let w = Int(CGImageGetWidth(c)), h = Int(CGImageGetHeight(c))
+        let w = Int(c.width), h = Int(c.height)
         if w > 0, h > 0, w * h <= 600000 {
             let bpr = w * 4
             let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bpr * h)
