@@ -33,24 +33,4 @@ Author: Simon
 Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
 Name: 控制中心发光
 
-Package: com.xiaofei.notifybgvideo
-Version: 1.0.75
-Architecture: iphoneos-arm64
-Maintainer: 小飞 <[email protected]>
-Installed-Size: 488
-Depends: mobilesubstrate | ellekit
-Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.75_iphoneos-arm64.deb
-Size: 96598
-MD5sum: 3a86893662872d786b6d0b5718abfb25
-SHA1: cbd935f4040d05e2899a6986624674b13724e25a
-SHA256: 394acf0086dc6640195db828aaab76d95bc85620544c13d2c609e7b798860933
-Section: Tweaks (rootless)
-Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
-Author: 小飞
-Changelog: 1.0.75 - 设置面板改名调序：「选择当前素材」改为「选择消息素材」，「选择选项按钮素材」改为「选择选项素材」，「选择清除按钮素材」改为「选择清除素材」，「从相册添加素材」移到「选择清除素材」下面；关闭插件改为彻底恢复系统原样：先卸载全部素材层，再对整棵视图树强制还原 hidden、alpha、背景色，清空插件留在视图上的全部标记，同时释放所有播放器并停掉轮询定时器，关掉之后和系统没装插件时完全一样；本版本按需求停用 Hook 日志，不再生成 Hook日志.txt，视图结构.txt 诊断导出保留；顺带优化卸载还原与轮询代码
-Depiction: https://qwr136.github.io/repo/
-Icon: https://qwr136.github.io/repo/CydiaIcon.png
-Name: 通知背景视频
-Sileodepiction: https://qwr136.github.io/repo/
 

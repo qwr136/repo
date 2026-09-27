@@ -6,16 +6,16 @@ Codename: xiaofei
 Architectures: iphoneos-arm64 iphoneos-arm64e
 Components: main
 Description: xiaofei 的 Sileo 越狱插件源 — 自制 tweak + 同步插件
-Date: Sat, 26 Sep 2026 18:47:10 UTC
+Date: Sun, 27 Sep 2026 15:38:18 UTC
 MD5Sum:
- 820595577cff0368d94144fef29d21d3  2695  Packages
- d1546d79fc57cbf88630a4cba3cdc58c  1447  Packages.gz
- 229f8baa5bd6feff104a1cd5f7dfb33a  1404  Packages.xz
+ 2e68475c757d5267575209808c02f1b8 1138 Packages
+ db765865fdbbcd344a17b8856da6faf9 571 Packages.gz
+ 4f9d63609d230747da19dcd721b42a5c 608 Packages.xz
 SHA1:
- 108e56b2790b19c1d4001f5bd533b82101d4870a  2695  Packages
- 063f5d1fa248bbdd7e0b763ff7fda4e3b8d1a515  1447  Packages.gz
- 603ae00d2c34a255be09919fdb722e0305989ff7  1404  Packages.xz
+ 910a8f5aaa343ebe222af8f50708054339496eb1 1138 Packages
+ 70a01081184cd96f6609348620528d7836665264 571 Packages.gz
+ 1ae83f164bfbeea5a94f95030a37d1c740004440 608 Packages.xz
 SHA256:
- 2dea1d5c45205b8890a68636566ecf315bcec37f1ddadfbc540a4e1b76d4ea0b  2695  Packages
- 8441885e2a778f181f590b8ffd32994eb06b6553d758440c3049caea96792941  1447  Packages.gz
- 9a79625977ea20e2a4903907c16598221d4b91fdb82e0c21419ece0604140db2  1404  Packages.xz
+ 247a392ab1cc2e3a6fabeab6affd40aa125c702c82ec06aa585e9b3f0143e170 1138 Packages
+ 7592c0294747b002744c4aa5ff75a048c0a73cf1b4b313540867b7f96494c4e3 571 Packages.gz
+ b0aacb8e8ee5b205720a9edf98aa1268e3724b2f9cf6d0b75c7569ba0357693c 608 Packages.xz
