@@ -1,6 +1,6 @@
 Package: com.xiaofei.notifybgvideo
 Name: 通知背景视频
-Version: 1.0.95
+Version: 1.0.96
 Architecture: iphoneos-arm
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Maintainer: 小飞 <[email protected]>
@@ -11,4 +11,4 @@ Conflicts: com.example.lockvideobg
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Depiction: https://qwr136.github.io/repo/
 SileoDepiction: https://qwr136.github.io/repo/
-Changelog: 1.0.95 - ①实时活动 / 播放器（Now Playing）卡片的视频背景功能彻底移除：这两类卡片不再挂任何背景视频、保持系统原样，视频背景只作用于普通消息通知卡片（选项/清除按钮素材不受影响）；②启用开关改为弹窗确认：在设置面板拨动「启用」开关后立即弹窗，点「立即注销」马上重启 SpringBoard——开启后注销即生效、关闭后注销即彻底失效；注销按钮优先让 SpringBoard 内的插件自行退出（任何开关状态下都可靠），sbreload 作兜底；开关状态仍在注销时读取一次，运行中不翻转
+Changelog: 1.0.96 - 声音专项修复：①熄屏漏音根因修复——屏幕亮灭探测失败时旧逻辑会「默认当作亮屏」，把熄屏通知刚设置的灭屏状态冲掉导致漏音；现在探测失败保持现状（宁可错杀不可漏音）。②灭屏多重信号：熄屏/锁屏系统通知改为硬信号（收到即静音暂停并 1 秒后复核），新增 SpringBoard 生命周期（熄屏=失活/亮屏=激活）作为第四层兜底；点亮后只恢复可见卡片的素材。③选项/清除按钮声音统一真相源（消息卡片与实时活动卡片左滑完全同款）：亮屏+左滑出=跟随声音开关出声播放，收起或熄屏=静音并暂停，不再有「收起后仍被周期性起播」的竞态。④壁纸层熄屏中重建不再起播。1.0.95 的其余行为（实时活动/播放器不挂背景、开关弹窗一键注销等）全部保留

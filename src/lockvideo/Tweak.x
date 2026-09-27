@@ -564,8 +564,9 @@ static void _lvPauseAllPlayers(void) {
 // ===== 熄屏（屏幕熄灭）处理：杜绝「开了声音后熄屏还在响」=====
 // （gScreenOff 定义在文件顶部）
 
-// 探测屏幕是否亮着。探测不到私有 API 时返回 YES（当作亮屏），绝不误伤正常播放。
-static BOOL _lvIsScreenOn(void) {
+// 探测屏幕是否亮着。返回：1=亮，0=灭，-1=探测不到（绝不能据此下结论）。
+// 关键修复：探测失败时调用方必须「保持现状」——否则熄屏通知刚设置的灭屏状态会被冲掉，导致熄屏漏音。
+static int _lvProbeScreenOn(void) {
     @try {
         static Class ctrlCls = Nil;
         static SEL  onSel    = NULL;
@@ -598,16 +599,16 @@ static BOOL _lvIsScreenOn(void) {
                 const char *rt = sig ? sig.methodReturnType : NULL;
                 if (rt && (strcmp(rt, "B") == 0 || strcmp(rt, "c") == 0)) {
                     BOOL (*fn)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
-                    return fn(inst, onSel);
+                    return fn(inst, onSel) ? 1 : 0;
                 }
                 if (rt && (strcmp(rt, "f") == 0 || strcmp(rt, "d") == 0)) {
                     double (*fn)(id, SEL) = (double (*)(id, SEL))objc_msgSend;
-                    return fn(inst, onSel) > 0.0;
+                    return fn(inst, onSel) > 0.0 ? 1 : 0;
                 }
             }
         }
     } @catch (NSException *e) {}
-    return YES;
+    return -1;
 }
 
 // 熄屏：所有背景视频立刻静音 + 暂停（静音是双保险，防止暂停前那一帧还有声音漏出）
@@ -620,11 +621,12 @@ static void _lvMuteAndPauseAll(void) {
     } @catch (NSException *e) {}
 }
 
-// 根据屏幕真实亮灭状态刷新 gScreenOff；熄屏时立刻静音暂停
+// 根据屏幕真实亮灭状态刷新 gScreenOff；熄屏时立刻静音暂停。
+// 探测失败时保持现状（灭屏通知设置的 YES 不被冲掉），宁可错杀不可漏音。
 static void _lvUpdateScreenState(void) {
     @try {
-        BOOL on = _lvIsScreenOn();
-        gScreenOff = !on;
+        int probe = _lvProbeScreenOn();
+        if (probe >= 0) { gScreenOff = (probe == 0); }
         if (gScreenOff) { _lvMuteAndPauseAll(); }
     } @catch (NSException *e) {}
 }
@@ -632,14 +634,36 @@ static void _lvUpdateScreenState(void) {
 // 播放前的统一守卫：熄屏时一律不播、不出声
 __attribute__((unused)) static BOOL _lvCanPlayNow(void) { return !gScreenOff; }
 
-static void _lvPlayAllVisiblePlayers(void) {
+// 收集当前真正可见（在 window 上）的挂载素材路径——只有这些需要播
+static NSMutableSet<NSString *> *_lvCollectVisiblePaths(void) {
+    NSMutableSet<NSString *> *set = [NSMutableSet set];
+    @try {
+        for (UIView *v in [_lvAttachedViews copy]) {
+            if (!v || !v.window) { continue; }
+            NSString *path = objc_getAssociatedObject(v, &kPathKey);
+            if (path.length) { [set addObject:path]; }
+        }
+    } @catch (NSException *e) {}
+    return set;
+}
+
+// 只播放 paths 里的素材，其余全部静音暂停：
+// ① 同时解码路数压到可见卡片需要的最小值（防超硬解上限卡顿）
+// ② 收起状态的选项/清除素材不再被周期性起播（左滑关闭 = 真的没声音）
+static void _lvPlayOnlyPaths(NSSet<NSString *> *paths) {
     @try {
         if (gScreenOff) { _lvMuteAndPauseAll(); return; }
         for (NSString *path in gPlayerMap) {
             AVPlayer *p = gPlayerMap[path];
-            if (!_lvPathIsImageAsset(path)) {
-                p.muted = !_lvSound();   // 点亮/恢复时重置出声（按钮静音由 _lvUpdateButtonAudioEverywhere 接管）
-                [p play];
+            if (!p) { continue; }
+            if ([paths containsObject:path]) {
+                if (!_lvPathIsImageAsset(path)) {
+                    p.muted = !_lvSound();   // 恢复出声（按钮静音由 _lvUpdateButtonAudioEverywhere 接管）
+                    if (p.timeControlStatus != AVPlayerTimeControlStatusPlaying) { [p play]; }
+                }
+            } else {
+                p.muted = YES;
+                [p pause];
             }
         }
     } @catch (NSException *e) {}
@@ -938,9 +962,9 @@ static BOOL _lvViewEffectivelyVisible(UIView *v) {
     } @catch (NSException *e) { return NO; }
 }
 
-// 「选项/清除」按钮的音频控制：
-//   左滑按钮真的显示出来 → 正常出声（跟随「视频声音」开关）
-//   不左滑（按钮隐藏 / 移出屏幕）→ 静音并暂停，绝不漏声音；主卡片视频不受影响
+// 「选项/清除」按钮的音频控制——唯一真相源（消息卡片与实时活动卡片的按钮走同一条路）：
+//   亮屏 + 左滑按钮真的显示出来 → 跟随「视频声音」开关，出声播放
+//   熄屏 / 不左滑（按钮隐藏或移出屏幕）→ 静音并暂停，绝不漏声音
 static void _lvApplyButtonAudio(UIView *v) {
     @try {
         if (!v) { return; }
@@ -951,8 +975,9 @@ static void _lvApplyButtonAudio(UIView *v) {
         AVPlayerLayer *l = objc_getAssociatedObject(v, &kLayerKey);
         AVPlayer *p = l.player;
         if (!p) { return; }
-        if (_lvViewEffectivelyVisible(v)) {
-            p.muted = gScreenOff ? YES : !_lvSound();   // 熄屏一律静音
+        if (!gScreenOff && _lvViewEffectivelyVisible(v)) {
+            p.muted = !_lvSound();
+            if (p.timeControlStatus != AVPlayerTimeControlStatusPlaying) { [p play]; }
         } else {
             p.muted = YES;
             [p pause];
@@ -1864,7 +1889,8 @@ static void _lv_layoutSubviews(UIView *self, SEL _cmd) {
                 l.frame = v.bounds;
                 [v.layer addSublayer:l];
                 [_lvAttachedViews addObject:v];
-                [p play];
+                if (!gScreenOff) { [p play]; }   // 熄屏绝不播（壁纸视图熄屏中重建也不漏音）
+                else { p.muted = YES; [p pause]; }
             }
         }
     } @catch (NSException *e) {}
@@ -1901,9 +1927,9 @@ static void _lvPrefsChanged(CFNotificationCenterRef center,
             @try { if (!_lvDebugOutline()) { _lvRemoveAllDebugOverlays(); } } @catch (NSException *e) {}
         });
 
-        // 声音变化同步到所有播放器
+        // 声音变化同步到所有播放器（熄屏状态下保持静音，绝不因改设置而漏音）
         for (AVPlayer *p in gPlayerMap.allValues) {
-            p.muted = !_lvSound();
+            p.muted = gScreenOff ? YES : !_lvSound();
             _lvAllowAutoLockForPlayer(p);
         }
         _lvUpdateButtonAudioEverywhere();   // 按钮素材立刻按可见性修正，不漏声
@@ -2032,33 +2058,74 @@ static void _lvPollTick(void) {
             return;
         }
         if (heavy) { _lvCleanupStaleAttachments(); }
-        // 轮询只维护「已经挂上素材」的视图，不遍历整棵视图树
-        BOOL anyVisible = NO;
+        // 轮询只维护「已经挂上素材」的视图，不遍历整棵视图树；
+        // 同时收集可见卡片的素材路径，只播这些路（收起的选项/清除素材真正静音暂停）
+        NSMutableSet<NSString *> *visiblePaths = [NSMutableSet set];
         for (UIView *v in [_lvAttachedViews copy]) {
             if (!v || !v.window) { continue; }
             _lvRefresh(v);                 // 轻量：更新尺寸 / 可见性 / 播放状态
-            anyVisible = YES;
+            NSString *path = objc_getAssociatedObject(v, &kPathKey);
+            if (path.length) { [visiblePaths addObject:path]; }
         }
-        if (anyVisible) { _lvPlayAllVisiblePlayers(); }
-        else { _lvPauseAllPlayers(); }
+        if (visiblePaths.count) { _lvPlayOnlyPaths(visiblePaths); }
+        else { _lvMuteAndPauseAll(); }
         _lvUpdateButtonAudioEverywhere();  // 选项/清除：不左滑时静音暂停，不漏声音
+    } @catch (NSException *e) {}
+}
+
+// 灭屏硬信号处理：不依赖探测，直接置灭屏态 + 立即静音暂停，1 秒后再复核一次（堵熄屏瞬间的竞态）
+static void _lvForceScreenOffNow(void) {
+    gScreenOff = YES;
+    _lvMuteAndPauseAll();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        @try { if (gScreenOff) { _lvMuteAndPauseAll(); } } @catch (NSException *e) {}
+    });
+}
+
+// 屏幕熄灭 / 锁屏系统通知：灭屏通知 = 硬信号，直接静音暂停（探测失败也不能翻案）
+static void _lvScreenStateNotify(CFNotificationCenterRef center,
+                                 void *observer, CFStringRef name,
+                                 const void *object, CFDictionaryRef info) {
+    @try {
+        _lvForceScreenOffNow();
+        _lvUpdateScreenState();            // 探测可用时纠正；失败保持灭屏态
+        if (gScreenOff) { _lvMuteAndPauseAll(); }
+        else {
+            _lvPlayOnlyPaths(_lvCollectVisiblePaths());   // 点亮：立即恢复播放（只播可见卡片的素材）
+            _lvUpdateButtonAudioEverywhere();
+        }
     } @catch (NSException *e) {}
 }
 
 #pragma mark - ctor
 
-// 屏幕熄灭 / 锁屏系统通知：立刻刷新屏幕状态并静音暂停，杜绝熄屏漏音
-static void _lvScreenStateNotify(CFNotificationCenterRef center,
-                                 void *observer, CFStringRef name,
-                                 const void *object, CFDictionaryRef info) {
+// SpringBoard 的 active / inactive 与屏幕亮灭同步（熄屏 = resign active，亮屏 = become active），
+// 这是比私有 API 探测更可靠的亮灭屏信号；作为灭屏第四层兜底 + 亮屏恢复播放的通道
+static void _lvAppActiveChanged(void) {
     @try {
-        _lvUpdateScreenState();
-        if (gScreenOff) {
-            _lvMuteAndPauseAll();          // 熄屏：立即静音 + 暂停
-        } else {
-            _lvPlayAllVisiblePlayers();    // 点亮：立即恢复播放
-            _lvUpdateButtonAudioEverywhere();
-        }
+        id app = [UIApplication sharedApplication];
+        if (!app) { return; }
+        // applicationWillResignActive ≈ 熄屏；didBecomeActive ≈ 亮屏
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillResignActiveNotification
+                                                          object:app
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *n) {
+            @try { _lvForceScreenOffNow(); } @catch (NSException *e) {}
+        }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
+                                                          object:app
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *n) {
+            @try {
+                gScreenOff = NO;
+                _lvUpdateScreenState();
+                if (!gScreenOff) {
+                    _lvPlayOnlyPaths(_lvCollectVisiblePaths());   // 亮屏：只恢复可见卡片的素材
+                    _lvUpdateButtonAudioEverywhere();
+                }
+            } @catch (NSException *e) {}
+        }];
     } @catch (NSException *e) {}
 }
 
@@ -2163,11 +2230,14 @@ static void _lvScreenStateNotify(CFNotificationCenterRef center,
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
 
+        // 第四层兜底：SpringBoard active/inactive 与屏幕亮灭同步（熄屏静音 / 亮屏恢复）
+        _lvAppActiveChanged();
+
         _lvLog([NSString stringWithFormat:@"状态: 启用=%d 声音=%d 主素材=%@ 选项=%@ 清除=%@ 目录存在=%d",
                 _lvEnabled(), _lvSound(), _lvPath() ?: @"(无)", _lvOptionPath() ?: @"(无)", _lvClearPath() ?: @"(无)",
                 [[NSFileManager defaultManager] fileExistsAtPath:kLVVideoDir]]);
         _lvLog([NSString stringWithFormat:@"plist文件内容: %@", _lvPrefs()]);
-        _lvLog(@"===== 1.0.95 加载完成（基于 1.0.92：实时活动/播放器卡片不再挂视频背景；启用开关开/关弹窗一键注销） =====");
+        _lvLog(@"===== 1.0.96 加载完成（熄屏漏音多层修复：灭屏硬信号+生命周期兜底+探测失败不冲状态；选项/清除按钮声音统一真相源，实时活动与消息左滑同款） =====");
     } @catch (NSException *e) {
         _lvLog([NSString stringWithFormat:@"ctor 异常: %@", e]);
     }
