@@ -34,21 +34,21 @@ Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.
 Name: 控制中心发光
 
 Package: com.xiaofei.notifybgvideo
-Version: 1.0.87
+Version: 1.0.88
 Architecture: iphoneos-arm64
 Maintainer: 小飞 <[email protected]>
 Installed-Size: 636
 Depends: mobilesubstrate | ellekit
 Conflicts: com.example.lockvideobg
-Filename: debs/com.xiaofei.notifybgvideo_1.0.87_iphoneos-arm64.deb
-Size: 206538
-MD5sum: 985dfc93cca034c9247741eec9fd505d
-SHA1: ebe79afe89a63b09dd40f597aa725191293277b6
-SHA256: 013a97d252568628340a7b6b2e0272014c4af9d178dcc6992592557b51352df3
+Filename: debs/com.xiaofei.notifybgvideo_1.0.88_iphoneos-arm64.deb
+Size: 207976
+MD5sum: 8cd047d141d936c78062b23090018805
+SHA1: e4c988a06bf7430edf621d499a98899fb34fa5de
+SHA256: e5a054650900aabc0748cfa2d07843b09f166717b0d2bda5df9f703f52d2a610
 Section: Tweaks (rootless)
 Description: 锁屏通知背景视频 — 让锁屏通知背景播放你相册里的视频或图片/GIF。支持 mp4/mov/m4v 视频与 gif/png 图片格式，循环播放。
 Author: 小飞
-Changelog: 1.0.87 - ①实时活动和播放器彻底分离：旧版只靠媒体控件类名识别播放器，用户的设备整棵子树都是通用类名，两张卡永远都挂 video.mp4；新增不看类名的判据——卡片里出现「选项/清除」动作区(或活动内容只占卡片一部分)即认定是播放器卡，走「播放器素材」，与实时活动各自独立视频；②新增「仅限锁屏通知界面生效」：离开锁屏立即撤掉所有背景，不再在主屏/应用里露出来（_lvOnMatch/_lvRefresh/_lvPollTick 全部加锁屏闸门，非锁屏一律 detach）。\n
+Changelog: 1.0.88 - 修「刚注销/下滑时视频自动暂停」「锁屏后视频还在响(漏声)」「下拉控制中心视频很慢」三个同源问题：①锁屏状态判定加 0.25s 去抖——转场(下滑展开/下拉控制中心/锁屏滑动)瞬间 SBLockScreenManager 误报不在锁屏不再立即静音暂停，视频不再一突一突卡住；②新增屏幕熄灭立即静音(com.apple.springboard.lockcomplete/lockstate 通知 + UIScreen.brightness 自愈)，锁屏后视频彻底不响，根治漏声；③不可见且独占的卡片只静音不立即暂停，交给 0.6s 宽限的孤儿兜底去停，避免瞬时遮挡误停；④已挂素材的视图刷新加 0.12s 节流(_lvThrottledRefresh)，下拉控制中心/锁屏滑动时 layoutSubviews 成百次触发不再每帧全量重算，动画不卡。\n
 Depiction: https://qwr136.github.io/repo/
 Icon: https://qwr136.github.io/repo/CydiaIcon.png
 Name: 通知背景视频
