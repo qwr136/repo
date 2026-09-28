@@ -28,7 +28,9 @@ static BOOL gDidOverride = NO;
 
 // MARK: - 前向声明
 static void wkReloadPrefs(void);
-static void wkPrefsChangedCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo);
+static void wkPrefsChangedCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    wkReloadPrefs();
+}
 
 // MARK: - 偏好读取（rootless：CFPreferences 自动走 /var/jb/var/mobile/Library/Preferences）
 static NSInteger wkPrefInt(NSString *key, NSInteger def) {
