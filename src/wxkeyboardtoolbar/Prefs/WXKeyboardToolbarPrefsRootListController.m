@@ -1,8 +1,6 @@
 #import <UIKit/UIKit.h>
 #import "PSListController.h"
 
-@class PSSpecifier;
-
 @interface WXKeyboardToolbarPrefsRootListController : PSListController
 @end
 

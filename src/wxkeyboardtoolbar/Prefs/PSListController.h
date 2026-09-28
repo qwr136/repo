@@ -4,6 +4,10 @@
 @interface PSViewController : UIViewController
 @end
 
+@interface PSSpecifier : NSObject
+- (id)propertyForKey:(NSString *)key;
+@end
+
 @interface PSListController : PSViewController {
 @protected
     id _specifiers;
