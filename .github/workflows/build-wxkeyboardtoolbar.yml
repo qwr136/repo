@@ -129,7 +129,7 @@ jobs:
           else
             git commit -m "CI: WXKeyboardToolbar build [skip ci]"
             for i in 1 2 3 4; do
-              git push origin main && break
+              git fetch origin main && git rebase origin/main && git push --force-with-lease origin main && break
               sleep 5
             done
           fi
