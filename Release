@@ -6,16 +6,16 @@ Codename: xiaofei
 Architectures: iphoneos-arm64 iphoneos-arm64e
 Components: main
 Description: xiaofei 的 Sileo 越狱插件源
-Date: Mon, 28 Sep 2026 06:20:23 UTC
+Date: Mon, 28 Sep 2026 06:45:32 UTC
 MD5Sum:
- ed1b03aa1790d7cd16eec31bf96deddd  1811  Packages
- 92feee9996090b90b768f19b159acca5  949  Packages.gz
- 1ed1d131ef2222b4cf2d2a10b0171909  940  Packages.xz
+ 08e4826da9521e9296560ec7e75159f8  1811  Packages
+ cff2d9295d637a586cf87ac0ab1b5fa7  945  Packages.gz
+ a7f6b3a773c68ed3b1c225d279e1f609  932  Packages.xz
 SHA1:
- 54f2b228d03ea5345a296434f4dca0daa15945a8  1811  Packages
- 26374e2145826155e7c3cf09f1cb1ed4814d82bb  949  Packages.gz
- e93242c3e22b7bfb572af5ee67d2522e370ea759  940  Packages.xz
+ 3981622c147328b460dccd565e57d5aeebf594b5  1811  Packages
+ 2e44c727dd2e52111557ef873effb9d53b6a17cd  945  Packages.gz
+ 6240420ece0f755b3e8a649c93e10e8dd2ee658b  932  Packages.xz
 SHA256:
- ddbb95ae00f9975ff4eb58a3c3f6518ab440887618b81b7a4d71f7fcaf7f1a1f  1811  Packages
- 676f998de748db9cce0c69cbe6d15c5466fc6559b65aad82ed229e0b2a8a1d9f  949  Packages.gz
- f68243c2f42e8ee43397a3bf04a208df62152960d1881e188b7932118a6af988  940  Packages.xz
+ 9dbffcd183a5fc8178c32360a0fd504220b8b09ef565ee6162e7b7734a630a38  1811  Packages
+ d2a3cee72debe4121a96a7581c1c09de4c8e24499cf9f4d60bb009819078b460  945  Packages.gz
+ 3c9e7afeb2beeffc706a0274a1654839f5f2914080db844c07782815a5fa94c5  932  Packages.xz
