@@ -14,30 +14,34 @@
             <key>footerText</key>
             <string>自定义按钮数量（1–30）与左右边距（0–200pt），数值会被强制钳制以防键盘崩溃。</string>
         </dict>
-        <dict>
-            <key>cell</key>
-            <string>PSNumberCell</string>
-            <key>label</key>
-            <string>按钮数量（1–30）</string>
-            <key>key</key>
-            <string>ToolbarButtonCount</string>
-            <key>default</key>
-            <integer>7</integer>
-            <key>PostNotification</key>
-            <string>com.xiaofei.wxkeyboardtoolbar/preferences.changed</string>
-        </dict>
-        <dict>
-            <key>cell</key>
-            <string>PSNumberCell</string>
-            <key>label</key>
-            <string>左右边距 pt（0–200）</string>
-            <key>key</key>
-            <string>ToolbarMargin</string>
-            <key>default</key>
-            <integer>0</integer>
-            <key>PostNotification</key>
-            <string>com.xiaofei.wxkeyboardtoolbar/preferences.changed</string>
-        </dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>label</key>
+			<string>按钮数量（1–30）</string>
+			<key>key</key>
+			<string>ToolbarButtonCount</string>
+			<key>default</key>
+			<string>7</string>
+			<key>isNumeric</key>
+			<true/>
+			<key>PostNotification</key>
+			<string>com.xiaofei.wxkeyboardtoolbar/preferences.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>label</key>
+			<string>左右边距 pt（0–200）</string>
+			<key>key</key>
+			<string>ToolbarMargin</string>
+			<key>default</key>
+			<string>0</string>
+			<key>isNumeric</key>
+			<true/>
+			<key>PostNotification</key>
+			<string>com.xiaofei.wxkeyboardtoolbar/preferences.changed</string>
+		</dict>
         <dict>
             <key>cell</key>
             <string>PSGroupCell</string>
@@ -84,7 +88,7 @@
             <key>cell</key>
             <string>PSGroupCell</string>
             <key>footerText</key>
-            <string>开启调试日志后，插件会把微信输入法的视图层级打到系统日志，用于确认工具栏真实类名。</string>
+            <string>开启调试日志后，插件会把微信输入法的视图层级写入 /var/mobile/Documents/WXKeyboardToolbar.log，用于确认工具栏真实类名。</string>
         </dict>
     </array>
 </dict>

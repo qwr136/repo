@@ -26,6 +26,36 @@ static WKCountIMP gOrigCountIMP = NULL;
 static __weak UICollectionView *gToolbarCV = nil;
 static BOOL gDidOverride = NO;
 
+#define WK_LOG_PATH @"/var/mobile/Documents/WXKeyboardToolbar.log"
+
+// MARK: - 文件调试日志（同时保留 syslog）
+static void wkLog(NSString *fmt, ...) {
+    if (!gDebug) return;
+    va_list args;
+    va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+
+    // 仍打一份 syslog，方便 idevicesyslog 实时看
+    NSLog(@"[WKTB] %@", msg);
+
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    [df setDateFormat:@"yyyy-MM-dd HH:mm:ss.SSS"];
+    NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:WK_LOG_PATH]) {
+        [fm createFileAtPath:WK_LOG_PATH contents:nil attributes:@{NSFileOwnerAccountName:@"mobile", NSFileGroupOwnerAccountName:@"mobile"}];
+    }
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:WK_LOG_PATH];
+    if (fh) {
+        [fh seekToEndOfFile];
+        [fh writeData:data];
+        [fh closeFile];
+    }
+}
+
 // MARK: - 前向声明
 static void wkReloadPrefs(void);
 static void wkPrefsChangedCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -148,7 +178,7 @@ static void wkApplyMargin(UIView *tb) {
     [tb layoutIfNeeded];
 
     if (gDebug) {
-        NSLog(@"[WKTB] 已应用左右边距=%@pt -> %@", @(m), NSStringFromClass([tb class]));
+        wkLog(@"已应用左右边距=%@pt -> %@", @(m), NSStringFromClass([tb class]));
     }
 }
 
@@ -189,14 +219,14 @@ static void wkTryOverrideCount(UIView *tb) {
     gDidOverride = YES;
 
     if (gDebug) {
-        NSLog(@"[WKTB] 已覆盖 %s 的 collectionView:numberOfItemsInSection: count=%@", class_getName(cls), @(gCount));
+        wkLog(@"已覆盖 %s 的 collectionView:numberOfItemsInSection: count=%@", class_getName(cls), @(gCount));
     }
 }
 
 // MARK: - 调试日志
 static void wkDumpHierarchy(UIView *view, NSString *indent) {
     if (!view) return;
-    NSLog(@"[WKTB] %@%@ frame=%@", indent, NSStringFromClass([view class]), NSStringFromCGRect(view.frame));
+    wkLog(@"%@%@ frame=%@", indent, NSStringFromClass([view class]), NSStringFromCGRect(view.frame));
     for (UIView *sub in view.subviews) {
         wkDumpHierarchy(sub, [indent stringByAppendingString:@"  "]);
     }
@@ -217,7 +247,7 @@ static void wkDumpHierarchy(UIView *view, NSString *indent) {
             wkApplyMargin(tb);
             wkTryOverrideCount(tb);
         } else if (gDebug) {
-            NSLog(@"[WKTB] 未找到工具栏视图（可在设置里填写精确类名）");
+            wkLog(@"未找到工具栏视图（可在设置里填写精确类名）");
         }
     });
 }

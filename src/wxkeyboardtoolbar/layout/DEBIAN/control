@@ -1,6 +1,6 @@
 Package: com.xiaofei.wxkeyboardtoolbar
 Name: 微信输入法工具栏
-Version: 1.0.0
+Version: 1.0.1
 Architecture: iphoneos-arm64
 Description: 自定义微信输入法(WeType)工具栏按钮数量（解除原版最多 7 个限制）与左右边距。配套系统设置面板，含数值校验防止 UI 崩溃。
 Maintainer: 小飞
