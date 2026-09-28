@@ -80,9 +80,21 @@ jobs:
         if: success()
         run: |
           cd "$GITHUB_WORKSPACE"
+          # 1. 先把编好的 deb 存到临时目录，避免被后续清理误删
+          mkdir -p /tmp/wxkb_debs
+          cp src/wxkeyboardtoolbar/packages/*.deb /tmp/wxkb_debs/
+          # 2. 清掉本地未跟踪的索引产物，避免 pull --rebase 因同名文件冲突
+          rm -rf debs Packages Packages.gz Packages.xz Release
+          # 3. 拉取最新 main（带重试，防网络抖动）
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for i in 1 2 3 4; do
+            git fetch origin main && git rebase origin/main && break
+            sleep 5
+          done
+          # 4. 放回 deb 并重新生成索引
           mkdir -p debs
-          rm -f debs/com.xiaofei.wxkeyboardtoolbar_*.deb
-          cp src/wxkeyboardtoolbar/packages/*.deb debs/
+          cp /tmp/wxkb_debs/*.deb debs/
           dpkg-scanpackages --multiversion debs /dev/null > Packages
           gzip -k -f Packages
           xz -k -f Packages
@@ -111,15 +123,15 @@ jobs:
           print(open("Release").read())
           PY
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase --autostash origin main || true
           git add debs Packages Packages.gz Packages.xz Release
           if git diff --cached --quiet; then
             echo "没有变化"
           else
             git commit -m "CI: WXKeyboardToolbar build [skip ci]"
-            git push
+            for i in 1 2 3 4; do
+              git push origin main && break
+              sleep 5
+            done
           fi
 
       - name: Upload artifact
