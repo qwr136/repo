@@ -1,14 +1,14 @@
 Package: com.xiaofei.wxkeyboardtoolbar
-Version: 1.0.2
+Version: 1.0.3
 Architecture: iphoneos-arm64
 Maintainer: 小飞
-Installed-Size: 348
+Installed-Size: 352
 Depends: mobilesubstrate | ellekit, preferenceloader
-Filename: debs/com.xiaofei.wxkeyboardtoolbar_1.0.2_iphoneos-arm64.deb
-Size: 24892
-MD5sum: 8ad417c6e86a5ce625958590179e5cf9
-SHA1: 3d8e243af1bd92802f90a69f9b2c21d2ea4960f5
-SHA256: 9c1f85936e78493bbf099b4aab4dbfd3aa9ef9c082564da7fb1af4297a457519
+Filename: debs/com.xiaofei.wxkeyboardtoolbar_1.0.3_iphoneos-arm64.deb
+Size: 30664
+MD5sum: 7164debe12401c46517f179c2fe63815
+SHA1: 9d9488caa60bd731b98d341dc21ce23549972ea3
+SHA256: 197c0ba092942d42a3cbbb9ec649ab9a32ea69021b803c435ee310f447fc810e
 Section: Tweaks (rootless)
 Description: 自定义微信输入法(WeType)工具栏按钮数量（解除原版最多 7 个限制）与左右边距。配套系统设置面板，含数值校验防止 UI 崩溃。
 Author: 小飞
