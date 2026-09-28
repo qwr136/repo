@@ -33,4 +33,19 @@ Author: Simon
 Icon: https://s1.imagehub.cc/images/2025/12/27/9c87ab6f13db32cf819dca8179708c57.png
 Name: 控制中心发光
 
+Package: com.xiaofei.wxkeyboardtoolbar
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Maintainer: 小飞
+Installed-Size: 348
+Depends: mobilesubstrate | ellekit, preferenceloader
+Filename: debs/com.xiaofei.wxkeyboardtoolbar_1.0.0_iphoneos-arm64.deb
+Size: 21478
+MD5sum: e4c312a5620da854848eebdae2705dfe
+SHA1: fc623a848c84ec5a7bc51b689288abb37bcee040
+SHA256: e8a5fdb7fbb5e3601b5f8876985ff2d5a1c90be7dfcabd5f2025347afe7ace81
+Section: Tweaks (rootless)
+Description: 自定义微信输入法(WeType)工具栏按钮数量（解除原版最多 7 个限制）与左右边距。配套系统设置面板，含数值校验防止 UI 崩溃。
+Author: 小飞
+Name: 微信输入法工具栏
 
