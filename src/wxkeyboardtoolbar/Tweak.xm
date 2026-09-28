@@ -29,16 +29,7 @@ static BOOL gDidOverride = NO;
 #define WK_LOG_PATH @"/var/mobile/Documents/WXKeyboardToolbar.log"
 
 // MARK: - 文件调试日志（同时保留 syslog）
-static void wkLog(NSString *fmt, ...) {
-    if (!gDebug) return;
-    va_list args;
-    va_start(args, fmt);
-    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
-    va_end(args);
-
-    // 仍打一份 syslog，方便 idevicesyslog 实时看
-    NSLog(@"[WKTB] %@", msg);
-
+static void wkLogToFile(NSString *msg) {
     NSDateFormatter *df = [[NSDateFormatter alloc] init];
     [df setDateFormat:@"yyyy-MM-dd HH:mm:ss.SSS"];
     NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
@@ -56,51 +47,83 @@ static void wkLog(NSString *fmt, ...) {
     }
 }
 
+static void wkLog(NSString *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+
+    // 仍打一份 syslog，方便 idevicesyslog 实时看
+    NSLog(@"[WKTB] %@", msg);
+
+    if (gDebug) {
+        wkLogToFile(msg);
+    }
+}
+
+// 不依赖 DebugLog 开关，强制写一行加载日志，方便确认插件确实被注入
+static void wkForceLog(NSString *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+    NSLog(@"[WKTB] %@", msg);
+    wkLogToFile(msg);
+}
+
 // MARK: - 前向声明
 static void wkReloadPrefs(void);
 static void wkPrefsChangedCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     wkReloadPrefs();
 }
 
-// MARK: - 偏好读取（rootless：CFPreferences 自动走 /var/jb/var/mobile/Library/Preferences）
-static NSInteger wkPrefInt(NSString *key, NSInteger def) {
-    CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key, WK_DOMAIN);
-    if (!v) return def;
-    NSInteger r = def;
-    if (CFGetTypeID(v) == CFNumberGetTypeID()) {
-        r = [(__bridge_transfer NSNumber *)v integerValue];
-    } else if (CFGetTypeID(v) == CFStringGetTypeID()) {
-        NSString *s = (__bridge_transfer NSString *)v;
-        r = [s integerValue];
-    } else {
-        CFRelease(v);
+// MARK: - 直接读写 plist 文件（rootless 下 CFPreferences 沙盒隔离不可靠）
+#define kPrefsFileName @"com.xiaofei.wxkeyboardtoolbar.plist"
+
+static NSArray<NSString *> *wkPrefsPaths(void) {
+    static NSArray<NSString *> *paths = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        paths = @[
+            [@"/var/jb/var/mobile/Library/Preferences" stringByAppendingPathComponent:kPrefsFileName],
+            [@"/var/mobile/Library/Preferences" stringByAppendingPathComponent:kPrefsFileName]
+        ];
+    });
+    return paths;
+}
+
+static NSDictionary *wkLoadPrefs(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *path in wkPrefsPaths()) {
+        if ([fm fileExistsAtPath:path]) {
+            NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:path];
+            if ([d isKindOfClass:[NSDictionary class]]) return d;
+        }
     }
-    return r;
+    return @{};
+}
+
+static NSInteger wkPrefInt(NSString *key, NSInteger def) {
+    id v = wkLoadPrefs()[key];
+    if (!v) return def;
+    if ([v isKindOfClass:[NSNumber class]]) return [v integerValue];
+    if ([v isKindOfClass:[NSString class]]) return [v integerValue];
+    return def;
 }
 
 static BOOL wkPrefBool(NSString *key, BOOL def) {
-    CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key, WK_DOMAIN);
+    id v = wkLoadPrefs()[key];
     if (!v) return def;
-    BOOL r = def;
-    CFTypeID t = CFGetTypeID(v);
-    if (t == CFNumberGetTypeID()) {
-        r = [(__bridge_transfer NSNumber *)v boolValue];
-    } else if (t == CFBooleanGetTypeID()) {
-        r = CFBooleanGetValue((CFBooleanRef)v);
-        CFRelease(v);
-    } else {
-        CFRelease(v);
-    }
-    return r;
+    if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];
+    if ([v isKindOfClass:[NSString class]]) return [v integerValue] != 0;
+    return def;
 }
 
 static NSString *wkPrefString(NSString *key, NSString *def) {
-    CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key, WK_DOMAIN);
+    id v = wkLoadPrefs()[key];
     if (!v) return def;
-    if (CFGetTypeID(v) == CFStringGetTypeID()) {
-        return (__bridge_transfer NSString *)v;
-    }
-    CFRelease(v);
+    if ([v isKindOfClass:[NSString class]]) return v;
+    if ([v isKindOfClass:[NSNumber class]]) return [v stringValue];
     return def;
 }
 
@@ -261,8 +284,8 @@ static void wkDumpHierarchy(UIView *view, NSString *indent) {
 // MARK: - 构造器
 %ctor {
     wkReloadPrefs();
-    NSLog(@"[WKTB] 已加载，bundle=%@ Debug=%d Count=%ld Margin=%.0f",
-          [NSBundle mainBundle].bundleIdentifier, gDebug, (long)gCount, gMargin);
+    wkForceLog(@"插件已加载，bundle=%@ Debug=%d Count=%ld Margin=%.0f EnableCount=%d",
+               [NSBundle mainBundle].bundleIdentifier, gDebug, (long)gCount, gMargin, gEnableCount);
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                     NULL,
                                     wkPrefsChangedCallback,
