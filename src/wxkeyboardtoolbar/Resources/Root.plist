@@ -56,7 +56,7 @@
             <key>key</key>
             <string>EnableCountOverride</string>
             <key>default</key>
-            <true/>
+            <integer>1</integer>
             <key>PostNotification</key>
             <string>com.xiaofei.wxkeyboardtoolbar/preferences.changed</string>
         </dict>
@@ -68,7 +68,7 @@
             <key>key</key>
             <string>DebugLog</string>
             <key>default</key>
-            <false/>
+            <integer>0</integer>
             <key>PostNotification</key>
             <string>com.xiaofei.wxkeyboardtoolbar/preferences.changed</string>
         </dict>

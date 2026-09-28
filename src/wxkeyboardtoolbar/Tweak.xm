@@ -82,8 +82,12 @@ static BOOL wkPrefBool(NSString *key, BOOL def) {
     CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key, WK_DOMAIN);
     if (!v) return def;
     BOOL r = def;
-    if (CFGetTypeID(v) == CFNumberGetTypeID()) {
+    CFTypeID t = CFGetTypeID(v);
+    if (t == CFNumberGetTypeID()) {
         r = [(__bridge_transfer NSNumber *)v boolValue];
+    } else if (t == CFBooleanGetTypeID()) {
+        r = CFBooleanGetValue((CFBooleanRef)v);
+        CFRelease(v);
     } else {
         CFRelease(v);
     }
