@@ -1,6 +1,6 @@
 APPLICATION_NAME = WetypeCustomApp
 
-WetypeCustomApp_FILES = src/main.m src/AppDelegate.m src/SettingsViewController.m
+WetypeCustomApp_FILES = src/main.m src/AppDelegate.m src/SettingsViewController.m src/LogViewController.m src/KeyboardTestViewController.m
 WetypeCustomApp_FRAMEWORKS = UIKit Foundation
 WetypeCustomApp_INSTALL_PATH = /Applications
 # 与 Tweak 一致的部署目标/架构（iOS 14+, 仅 arm64）

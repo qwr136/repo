@@ -52,7 +52,34 @@ static void TPLoadPrefsThrottled(void) {
     }
 }
 
-#define TPLOG(fmt, ...) do { if (tpDebug) NSLog(@"[WetypeToolbarPlus] " fmt, ##__VA_ARGS__); } while (0)
+#pragma mark - 日志落盘（App 内可直接查看，无需电脑）
+
+#define TP_LOG_PATH @"/var/mobile/Documents/WetypeToolbarPlus.log"
+
+static void TPAppendLog(NSString *msg) {
+    if (!msg.length) return;
+    NSString *path = TP_LOG_PATH;
+    @try {
+        NSDictionary *attr = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+        if (attr && [attr fileSize] > 256 * 1024) {
+            /* 超过 256KB 自动截断, 避免无限增长 */
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+        }
+        NSDateFormatter *df = [[NSDateFormatter alloc] init];
+        df.dateFormat = @"HH:mm:ss.SSS";
+        NSString *line = [NSString stringWithFormat:@"%@ %@\n", [df stringFromDate:[NSDate date]], msg];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (fh) {
+            [fh seekToEndOfFile];
+            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh closeFile];
+        } else {
+            [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+    } @catch (NSException *e) {}
+}
+
+#define TPLOG(fmt, ...) do { if (tpDebug) { NSString *__m = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; NSLog(@"[WetypeToolbarPlus] %@", __m); TPAppendLog(__m); } } while (0)
 
 #pragma mark - Heuristics
 
@@ -238,8 +265,11 @@ static void TPDynamicHooks(void) {
         TPReloadPrefs();
         tpInKeyboardProcess = TPInKeyboardProcess();
         TPDynamicHooks();
-        NSLog(@"[WetypeToolbarPlus] loaded in %@ (keyboardProcess=%d, maxButtons=%ld)",
-              [[NSBundle mainBundle] bundleIdentifier] ?: @"?",
-              tpInKeyboardProcess, (long)tpMaxButtons);
+        NSString *loadMsg = [NSString stringWithFormat:
+            @"loaded in %@ (keyboardProcess=%d, maxButtons=%ld, debug=%d)",
+            [[NSBundle mainBundle] bundleIdentifier] ?: @"?",
+            tpInKeyboardProcess, (long)tpMaxButtons, tpDebug];
+        NSLog(@"[WetypeToolbarPlus] %@", loadMsg);
+        TPAppendLog(loadMsg);
     }
 }

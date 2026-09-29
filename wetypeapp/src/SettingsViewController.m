@@ -1,4 +1,6 @@
 #import "SettingsViewController.h"
+#import "LogViewController.h"
+#import "KeyboardTestViewController.h"
 
 /* 与 Tweak.x 完全一致的偏好域与键名 */
 static NSString *const kDomain       = @"com.wetypeplus";
@@ -17,6 +19,8 @@ typedef NS_ENUM(NSInteger, RowIndex) {
     RowLeft,
     RowRight,
     RowDebug,
+    RowLog,
+    RowKeyTest,
     RowCount
 };
 
@@ -201,7 +205,7 @@ typedef NS_ENUM(NSInteger, RowIndex) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1;          // 总开关
     if (section == 1) return 4;          // 数量 + 三项间距/边距
-    return 1;                            // 诊断日志
+    return 3;                            // 诊断日志 / 查看日志 / 键盘测试
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -213,7 +217,7 @@ typedef NS_ENUM(NSInteger, RowIndex) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == 0) return @"关闭后插件对任何输入法都不生效。";
     if (section == 1) return @"间距/边距设为 0 表示保持微信输入法原版；最大按钮数上限 1-20。";
-    return @"开启后可在 syslog 中搜索 [WetypeToolbarPlus] 查看内部类名，便于精确适配。";
+    return @"开启后插件会把内部类名写入日志文件，进入「查看日志」即可在 App 内直接阅读（无需电脑）。「键盘测试」可唤起微信输入法实地验证效果。";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -225,6 +229,15 @@ typedef NS_ENUM(NSInteger, RowIndex) {
     }
     [self configureCell:cell atIndexPath:indexPath];
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.section == 2 && indexPath.row == RowLog) {
+        [self.navigationController pushViewController:[[LogViewController alloc] init] animated:YES];
+    } else if (indexPath.section == 2 && indexPath.row == RowKeyTest) {
+        [self.navigationController pushViewController:[[KeyboardTestViewController alloc] init] animated:YES];
+    }
 }
 
 - (void)configureCell:(UITableViewCell *)cell atIndexPath:(NSIndexPath *)ip {
@@ -240,8 +253,18 @@ typedef NS_ENUM(NSInteger, RowIndex) {
         cell.textLabel.text = @"启用插件";
         cell.accessoryView = self.enabledSwitch;
     } else if (ip.section == 2) {
-        cell.textLabel.text = @"诊断日志";
-        cell.accessoryView = self.debugSwitch;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        if (ip.row == RowDebug) {
+            cell.textLabel.text = @"诊断日志";
+            cell.accessoryView = self.debugSwitch;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (ip.row == RowLog) {
+            cell.textLabel.text = @"查看日志";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        } else if (ip.row == RowKeyTest) {
+            cell.textLabel.text = @"键盘测试";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        }
     } else {
         switch (ip.row) {
             case RowMaxButtons: {
