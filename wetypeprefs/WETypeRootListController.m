@@ -17,11 +17,12 @@
 /* 立即生效: 键盘进程每次布局会重新读取偏好, 无需重启键盘 */
 
 - (void)resetDefaults {
-    CFPreferencesSetAppValue(CFSTR("maxButtons"), @20, CFSTR("com.wetypeplus"));
-    CFPreferencesSetAppValue(CFSTR("hSpacing"), @0, CFSTR("com.wetypeplus"));
-    CFPreferencesSetAppValue(CFSTR("leftMargin"), @0, CFSTR("com.wetypeplus"));
-    CFPreferencesSetAppValue(CFSTR("rightMargin"), @0, CFSTR("com.wetypeplus"));
-    CFPreferencesAppSynchronize(CFSTR("com.wetypeplus"));
+    CFStringRef dom = CFSTR("com.wetypeplus");
+    CFPreferencesSetAppValue(CFSTR("maxButtons"),  (__bridge CFPropertyListRef)@20, dom);
+    CFPreferencesSetAppValue(CFSTR("hSpacing"),   (__bridge CFPropertyListRef)@0,  dom);
+    CFPreferencesSetAppValue(CFSTR("leftMargin"), (__bridge CFPropertyListRef)@0,  dom);
+    CFPreferencesSetAppValue(CFSTR("rightMargin"),(__bridge CFPropertyListRef)@0,  dom);
+    CFPreferencesAppSynchronize(dom);
     [self reloadSpecifiers];
 }
 

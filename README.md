@@ -23,19 +23,30 @@ layout/Library/PreferenceLoader/Preferences/wetypeplus.plist  # 设置入口
 wetypeprefs/                 # PreferenceBundle 设置面板 → /Library/PreferenceBundles
 ```
 
+## 已构建版本
+
+- **`wetype-toolbar-plus-rootless.deb`** — ⭐ 推荐，rootless 布局（`/var/jb/Library/...`），适配 Dopamine 2 / palera1n rootless，iPhone 14 Pro Max (A16/arm64e) + iOS 16.5。
+- `packages/com.wetypeplus.toolbarplus_1.0.0_iphoneos-arm64.deb` — 同上 rootless 包（双切片 arm64/arm64e）。
+- 旧 rootful 包（传统 `/Library/...`，适配 unc0ver/checkra1n）已不再保留，按需用 `make package` 重打。
+
 ## 编译
 
 ```bash
 export THEOS=~/theos   # 或 /opt/theos
+
+# rootless（Dopamine 2 / palera1n rootless）
+make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+
+# rootful（传统越狱）
 make package FINALPACKAGE=1
 ```
 
-产物：`packages/*.deb`（iphoneos-arm，rootful；rootless 环境请改 `THEOS_PACKAGE_SCHEME=rootless`）。
+产物：`packages/*.deb`（双切片 arm64 + arm64e，universal）。
 
-## 安装
+## 安装（rootless 越狱）
 
-1. 把 deb 传到手机（AirDrop / Filza / scp 均可），用 Filza 打开安装；
-2. 注销或重启（键盘扩展会自动重载）；
+1. 把 `wetype-toolbar-plus-rootless.deb` 传到手机（Filza / Sileo 导入 / scp 均可），用 Filza 打开安装；
+2. 注销（Respring）—— Dopamine 下键盘扩展会自动重载；
 3. 设置 → 微信输入法工具栏增强 里调整按钮数上限 / 间距 / 边距；
 4. 收起再展开键盘工具栏即可看到效果。
 

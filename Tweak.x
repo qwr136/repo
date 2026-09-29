@@ -86,17 +86,15 @@ static BOOL TPLooksLikeToolbarCollection(UICollectionViewFlowLayout *fl) {
 static void TPApplyToolbarSpacing(UIStackView *sv) {
     if (tpSpacing > 0) {
         sv.spacing = tpSpacing;
-        for (UIView *sub in sv.arrangedSubviews) {
-            [sv setCustomSpacing:tpSpacing afterSubview:sub];
-        }
     }
     if (tpLeftMargin > 0 || tpRightMargin > 0) {
         UIEdgeInsets m = sv.layoutMargins;
-        m.left  = tpLeftMargin  > 0 ? tpLeftMargin  : m.left;
-        m.right = tpRightMargin > 0 ? tpRightMargin : m.right;
+        if (tpLeftMargin  > 0) m.left  = tpLeftMargin;
+        if (tpRightMargin > 0) m.right = tpRightMargin;
         sv.layoutMargins = m;
-        sv.layoutMarginsFollowReadableWidth = NO;
-        sv.insetsLayoutMarginsFromSafeArea = NO;
+        /* 这两个属性在精简版 SDK 头里可能缺失, 用 KVC 设置更稳妥 */
+        [sv setValue:@NO forKey:@"layoutMarginsFollowReadableWidth"];
+        [sv setValue:@NO forKey:@"insetsLayoutMarginsFromSafeArea"];
     }
     [sv setNeedsLayout];
 }
@@ -180,9 +178,11 @@ static void TPDynamicHooks(void) {
             unsigned int args = method_getNumberOfArguments(m);
             if (args != 2) continue; /* 只处理无额外参数的方法 (self, _cmd) */
 
-            char ret = *method_getReturnType(m);
-            BOOL intReturn = (ret == 'q' || ret == 'l' || ret == 'i' || ret == 's' || ret == 'B' || ret == 'c');
-            BOOL objReturn = (ret == '@');
+            char ret[2] = {0};
+            method_getReturnType(m, ret, sizeof(ret));
+            char rt = ret[0];
+            BOOL intReturn = (rt == 'q' || rt == 'l' || rt == 'i' || rt == 's' || rt == 'B' || rt == 'c');
+            BOOL objReturn = (rt == '@');
 
             BOOL limitNamed = [selLower containsString:@"max"] || [selLower containsString:@"limit"];
             BOOL toolNamed  = [selLower containsString:@"tool"] ||
