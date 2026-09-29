@@ -15,17 +15,27 @@ Theos 越狱插件。针对微信输入法（wxkb，`com.tencent.wetype` / `com.
 ## 目录结构
 
 ```
-Makefile                     # tweak + 子项目聚合
+Makefile                     # tweak 主包 + before-all 钩子编 App
 control                      # deb 包信息
 WetypeToolbarPlus.plist      # MobileSubstrate filter（注入目标）
 Tweak.x                      # 插件主逻辑（Logos）
-layout/Library/PreferenceLoader/Preferences/wetypeplus.plist  # 设置入口（PreferenceLoader Simple Approach 纯 plist，零自定义代码）
+build_app.sh                 # 打包前编译并拷入独立设置 App
+wetypeapp/                   # 独立越狱 App「微信输入法自定义」(UIKit)
+  Makefile                   #   application.mk
+  entitlements.plist         #   platform-application + 无容器（写全局 CFPreferences）
+  Resources/Info.plist       #   显示名「微信输入法自定义」
+  src/                       #   main / AppDelegate / SettingsViewController
+layout/Library/PreferenceLoader/Preferences/wetypeplus.plist  # 设置内偏好项兜底入口（零代码）
+layout/Applications/WetypeCustomApp.app  # 由 build_app.sh 现编现拷，不进版本库
 ```
 
 ## 已构建版本
 
-- **`wetype-toolbar-plus-rootless.deb`** — ⭐ 推荐，rootless 布局（`/var/jb/Library/...`），适配 Dopamine 2 / palera1n rootless，iPhone 14 Pro Max + iOS 16.5（arm64，已规避 arm64e/dopamine 不兼容）。
-- `packages/com.wetypeplus.toolbarplus_1.0.4_iphoneos-arm64.deb` — 同上 rootless 包（GitHub Actions 自动构建产物）。
+- **`wetype-toolbar-plus-rootless.deb`** — ⭐ 推荐，rootless 布局（`/var/jb/...`），适配 Dopamine 2 / palera1n rootless，iPhone 14 Pro Max + iOS 16.5（arm64）。
+  内含两部分：
+  1. `WetypeToolbarPlus.dylib` + filter plist → `/var/jb/Library/MobileSubstrate/...`（注入微信输入法）
+  2. **独立 App「微信输入法自定义」** → `/var/jb/Applications/WetypeCustomApp.app`（桌面设置面板）
+- `packages/com.wetypeplus.toolbarplus_1.0.5_iphoneos-arm64.deb` — 同上 rootless 包（GitHub Actions 自动构建产物）。
 - 旧 rootful 包（传统 `/Library/...`，适配 unc0ver/checkra1n）已不再保留，按需用 `make package` 重打。
 
 ## 编译
@@ -45,9 +55,10 @@ make package FINALPACKAGE=1
 ## 安装（rootless 越狱）
 
 1. 把 `wetype-toolbar-plus-rootless.deb` 传到手机（Filza / Sileo 导入 / scp 均可），用 Filza 打开安装；
-2. 注销（Respring）—— Dopamine 下键盘扩展会自动重载；
-3. 设置 → 微信输入法工具栏增强 里调整按钮数上限 / 间距 / 边距；
-4. 收起再展开键盘工具栏即可看到效果。
+2. 安装后**刷新图标缓存**：Sileo 会自动 `uicache`；Filza 装完建议 `ldrestart` 或 `uicache` 一次，让桌面出现「微信输入法自定义」图标；
+3. 打开桌面 **「微信输入法自定义」** App 调整：启用开关 / 最大按钮数(1-20) / 按钮间距 / 左右边距 / 诊断日志；
+   （若 App 暂未出现，也可进 **设置 → 微信输入法工具栏增强** 调整，二者写同一偏好域、互相同步）
+4. 收起再展开键盘工具栏即可看到效果（修改即时写入，键盘下次弹出时 Tweak 自动读取）。
 
 ## 工作原理与适配说明
 

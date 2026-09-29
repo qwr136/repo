@@ -1,8 +1,8 @@
 Package: com.wetypeplus.toolbarplus
 Name: WetypeToolbarPlus (微信输入法工具栏增强)
-Version: 1.0.4
+Version: 1.0.5
 Architecture: iphoneos-arm64
-Description: 微信输入法工具栏增强：解除工具栏按钮 7 个数量限制（最多 20 个）、自定义按钮间距与左右边距，附带设置面板（设置 → 微信输入法工具栏增强）。
+Description: 微信输入法工具栏增强：解除工具栏按钮 7 个数量限制（最多 20 个）、自定义按钮间距与左右边距。设置入口为桌面 App「微信输入法自定义」（/Applications），并保留设置内的偏好项作为兜底。
 Author: wetypeplus
 Maintainer: wetypeplus
 Section: Tweaks

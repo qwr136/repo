@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 越狱 App 放在 /Applications，声明为 platform 应用且不使用容器，
+         这样全局 CFPreferences (com.wetypeplus) 才能与注入键盘的 Tweak 共享 -->
+    <key>platform-application</key>
+    <true/>
+    <key>com.apple.private.security.container-required</key>
+    <false/>
+</dict>
+</plist>

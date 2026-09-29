@@ -3,3 +3,5 @@
 packages/
 obj/
 .DS_Store
+# 独立 App 由 build_app.sh 在打包前现编现拷，不进版本库
+layout/Applications/
