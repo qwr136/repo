@@ -10,7 +10,4 @@ WetypeToolbarPlus_CFLAGS = -fobjc-arc
 WetypeToolbarPlus_FRAMEWORKS = UIKit Foundation
 WetypeToolbarPlus_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
-SUBPROJECTS += wetypeprefs
-
-include $(THEOS_MAKE_PATH)/aggregate.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
