@@ -1,0 +1,49 @@
+name: Build deb (rootless)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot rsync xz-utils
+
+      - name: Setup Theos
+        run: |
+          git clone --recursive --depth=1 https://github.com/theos/theos.git /opt/theos
+          curl -sL -o /tmp/tc.tar.xz https://github.com/L1ghtmann/llvm-project/releases/download/test-210562a/iOSToolchain-x86_64.tar.xz
+          mkdir -p /opt/theos/toolchain
+          tar -xJ -C /opt/theos/toolchain -f /tmp/tc.tar.xz
+          curl -sL -o /tmp/sdk.tar.xz https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz
+          mkdir -p /opt/theos/sdks
+          tar -xJ -C /opt/theos/sdks -f /tmp/sdk.tar.xz
+          curl -sL -o /usr/local/bin/ldid https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64
+          chmod +x /usr/local/bin/ldid
+
+      - name: Build (rootless, arm64)
+        run: make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+        env:
+          THEOS: /opt/theos
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wetype-toolbar-plus-rootless
+          path: packages/*.deb
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*.deb
