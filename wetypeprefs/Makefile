@@ -1,5 +1,6 @@
 include $(THEOS)/makefiles/common.mk
 
+ARCHS = arm64
 BUNDLE_NAME = wetypeprefs
 wetypeprefs_FILES = WETypeRootListController.m
 wetypeprefs_CFLAGS = -fobjc-arc
