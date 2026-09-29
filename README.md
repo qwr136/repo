@@ -19,14 +19,13 @@ Makefile                     # tweak + 子项目聚合
 control                      # deb 包信息
 WetypeToolbarPlus.plist      # MobileSubstrate filter（注入目标）
 Tweak.x                      # 插件主逻辑（Logos）
-layout/Library/PreferenceLoader/Preferences/wetypeplus.plist  # 设置入口
-wetypeprefs/                 # PreferenceBundle 设置面板 → /Library/PreferenceBundles
+layout/Library/PreferenceLoader/Preferences/wetypeplus.plist  # 设置入口（PreferenceLoader Simple Approach 纯 plist，零自定义代码）
 ```
 
 ## 已构建版本
 
-- **`wetype-toolbar-plus-rootless.deb`** — ⭐ 推荐，rootless 布局（`/var/jb/Library/...`），适配 Dopamine 2 / palera1n rootless，iPhone 14 Pro Max (A16/arm64e) + iOS 16.5。
-- `packages/com.wetypeplus.toolbarplus_1.0.0_iphoneos-arm64.deb` — 同上 rootless 包（双切片 arm64/arm64e）。
+- **`wetype-toolbar-plus-rootless.deb`** — ⭐ 推荐，rootless 布局（`/var/jb/Library/...`），适配 Dopamine 2 / palera1n rootless，iPhone 14 Pro Max + iOS 16.5（arm64，已规避 arm64e/dopamine 不兼容）。
+- `packages/com.wetypeplus.toolbarplus_1.0.4_iphoneos-arm64.deb` — 同上 rootless 包（GitHub Actions 自动构建产物）。
 - 旧 rootful 包（传统 `/Library/...`，适配 unc0ver/checkra1n）已不再保留，按需用 `make package` 重打。
 
 ## 编译
@@ -41,7 +40,7 @@ make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 make package FINALPACKAGE=1
 ```
 
-产物：`packages/*.deb`（双切片 arm64 + arm64e，universal）。
+产物：`packages/*.deb`（arm64 切片，rootless）。
 
 ## 安装（rootless 越狱）
 
