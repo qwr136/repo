@@ -14,6 +14,22 @@ Description: 屏幕悬浮实时网速，显示上传/下载速度，可拖动、
 Author: qwr136
 Name: 悬浮网速
 
+Package: cn.qwr136.netspeed
+Version: 1.0.1
+Architecture: iphoneos-arm64
+Maintainer: qwr136
+Installed-Size: 364
+Depends: mobilesubstrate, preferenceloader
+Filename: debs/cn.qwr136.netspeed_1.0.1_iphoneos-arm64.deb
+Size: 17956
+MD5sum: 2b6b5763a12c593c9f0e03c1c8d3aae8
+SHA1: 2d77efd2cbab60a818572cbad9776f8bf450d08c
+SHA256: f0eeced4227108017944236e23b10b77d1a77ea08fb22b6f0de5ce34da5af2b5
+Section: Tweaks
+Description: 屏幕悬浮实时网速，显示上传/下载速度，可拖动、可自定义样式。
+Author: qwr136
+Name: 悬浮网速
+
 Package: com.wkk.ccglow
 Version: 2.0.2
 Architecture: iphoneos-arm64e
