@@ -10,6 +10,7 @@ NetSpeedPrefs_FRAMEWORKS = UIKit Foundation
 NetSpeedPrefs_INSTALL_PATH = /Library/PreferenceBundles
 NetSpeedPrefs_CFLAGS = -fobjc-arc
 NetSpeedPrefs_LDFLAGS = -undefined dynamic_lookup
+NetSpeedPrefs_RESOURCE_FILES = Root.plist Info.plist
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 

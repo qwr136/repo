@@ -6,6 +6,10 @@
 	<string>悬浮网速</string>
 	<key>entry</key>
 	<dict>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>label</key>
+		<string>悬浮网速</string>
 		<key>bundle</key>
 		<string>NetSpeedPrefs</string>
 	</dict>
