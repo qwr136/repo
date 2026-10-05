@@ -7,9 +7,9 @@ include $(THEOS)/makefiles/common.mk
 BUNDLE_NAME = NetSpeedPrefs
 NetSpeedPrefs_FILES = NSPRootListController.m
 NetSpeedPrefs_FRAMEWORKS = UIKit Foundation
-NetSpeedPrefs_PRIVATE_FRAMEWORKS = Preferences
 NetSpeedPrefs_INSTALL_PATH = /Library/PreferenceBundles
 NetSpeedPrefs_CFLAGS = -fobjc-arc
+NetSpeedPrefs_LDFLAGS = -undefined dynamic_lookup
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
