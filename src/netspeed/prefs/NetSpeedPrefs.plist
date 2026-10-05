@@ -3,5 +3,7 @@
         cell = PSLinkCell;
         label = "悬浮网速";
         bundle = NetSpeedPrefs;
+        detail = QWRNetSpeedRootListController;
+        isController = 1;
     };
 }
