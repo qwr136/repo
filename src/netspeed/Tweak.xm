@@ -2,10 +2,9 @@
 #import <UIKit/UIKit.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <math.h>
-#import <sys/sysctl.h>
+#import <ifaddrs.h>
 #import <net/if.h>
 #import <net/if_dl.h>
-#import <net/route.h>
 
 static NSString * const kNSPrefsRootful  = @"/var/mobile/Library/Preferences/cn.qwr136.netspeed.plist";
 static NSString * const kNSPrefsRootless = @"/var/jb/var/mobile/Library/Preferences/cn.qwr136.netspeed.plist";
@@ -42,28 +41,44 @@ static void NSSavePosition(CGFloat x, CGFloat y) {
     [d writeToFile:NSPrefsPath() atomically:YES];
 }
 
-static BOOL NSReadNetBytes(uint64_t *outIn, uint64_t *outOut) {
-    int mib[6] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0 };
-    size_t len = 0;
-    if (sysctl(mib, 6, NULL, &len, NULL, 0) < 0 || len == 0) return NO;
-    uint8_t *buf = malloc(len);
-    if (!buf) return NO;
-    if (sysctl(mib, 6, buf, &len, NULL, 0) < 0) { free(buf); return NO; }
-    uint64_t in = 0, out = 0;
-    uint8_t *lim = buf + len;
-    for (uint8_t *next = buf; next < lim; ) {
-        struct if_msghdr *ifm = (struct if_msghdr *)next;
-        if (ifm->ifm_msglen == 0) break;
-        next += ifm->ifm_msglen;
-        if (ifm->ifm_type != RTM_IFINFO2) continue;
-        struct if_msghdr2 *if2 = (struct if_msghdr2 *)ifm;
-        if (if2->ifm_flags & IFF_LOOPBACK) continue;
-        in  += if2->ifm_data.ifi_ibytes;
-        out += if2->ifm_data.ifi_obytes;
+static BOOL NSReadNetTotals(uint64_t *outIn, uint64_t *outOut) {
+    static NSMutableDictionary *prevIn;
+    static NSMutableDictionary *prevOut;
+    static uint64_t totalIn = 0;
+    static uint64_t totalOut = 0;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        prevIn = [NSMutableDictionary dictionary];
+        prevOut = [NSMutableDictionary dictionary];
+    });
+
+    struct ifaddrs *ifaddr = NULL;
+    if (getifaddrs(&ifaddr) != 0 || !ifaddr) return NO;
+
+    for (struct ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_LINK) continue;
+        if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+        struct if_data *d = (struct if_data *)ifa->ifa_data;
+        if (!d) continue;
+
+        NSString *name = [NSString stringWithUTF8String:ifa->ifa_name];
+        if (!name) continue;
+
+        uint32_t curIn = d->ifi_ibytes;
+        uint32_t curOut = d->ifi_obytes;
+        uint32_t preIn = [prevIn[name] unsignedIntValue];
+        uint32_t preOut = [prevOut[name] unsignedIntValue];
+
+        totalIn  += (uint32_t)(curIn - preIn);
+        totalOut += (uint32_t)(curOut - preOut);
+
+        prevIn[name] = @(curIn);
+        prevOut[name] = @(curOut);
     }
-    free(buf);
-    *outIn = in;
-    *outOut = out;
+
+    freeifaddrs(ifaddr);
+    *outIn = totalIn;
+    *outOut = totalOut;
     return YES;
 }
 
@@ -278,7 +293,7 @@ static void NSPrefsChangedCallback(CFNotificationCenterRef center, void *observe
     self.container.backgroundColor = [UIColor colorWithWhite:0 alpha:bgOpacity];
 
     uint64_t in = 0, out = 0;
-    if (!NSReadNetBytes(&in, &out)) return;
+    if (!NSReadNetTotals(&in, &out)) return;
 
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     if (!self.hasLast) {
