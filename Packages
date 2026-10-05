@@ -1,30 +1,14 @@
 Package: cn.qwr136.netspeed
-Version: 1.0.0
-Architecture: iphoneos-arm64
-Maintainer: qwr136
-Installed-Size: 356
-Depends: mobilesubstrate, preferenceloader
-Filename: debs/cn.qwr136.netspeed_1.0.0_iphoneos-arm64.deb
-Size: 17114
-MD5sum: bde9ebd447d7aab438d262c6897ec0e8
-SHA1: 703d3069b11fc5b48228b2b83b1013fe311c136e
-SHA256: 3d9fbda14a313f643a67e4105d003179396b909a7a890373bd57752b2793d04b
-Section: Tweaks
-Description: 屏幕悬浮实时网速，显示上传/下载速度，可拖动、可自定义样式。
-Author: qwr136
-Name: 悬浮网速
-
-Package: cn.qwr136.netspeed
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm64
 Maintainer: qwr136
 Installed-Size: 364
 Depends: mobilesubstrate, preferenceloader
-Filename: debs/cn.qwr136.netspeed_1.0.1_iphoneos-arm64.deb
-Size: 17956
-MD5sum: 2b6b5763a12c593c9f0e03c1c8d3aae8
-SHA1: 2d77efd2cbab60a818572cbad9776f8bf450d08c
-SHA256: f0eeced4227108017944236e23b10b77d1a77ea08fb22b6f0de5ce34da5af2b5
+Filename: debs/cn.qwr136.netspeed_1.0.2_iphoneos-arm64.deb
+Size: 17966
+MD5sum: df61353405a0b31bb15a0b4f3f361e96
+SHA1: 67f51f0f62d74f31c5ef0332034a00e73c6a6ae1
+SHA256: 964601a477dcb50e741f427d99a8892586af05ff4bfba72eb213bfe6af92569c
 Section: Tweaks
 Description: 屏幕悬浮实时网速，显示上传/下载速度，可拖动、可自定义样式。
 Author: qwr136
