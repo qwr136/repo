@@ -1,9 +1,9 @@
-#import "NSPRootListController.h"
+#import "QWRNetSpeedRootListController.h"
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <UIKit/UIKit.h>
 
-@implementation NSPRootListController
+@implementation QWRNetSpeedRootListController
 
 - (NSArray *)specifiers {
     if (!_specifiers) {

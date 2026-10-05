@@ -5,7 +5,7 @@ THEOS_PACKAGE_SCHEME = rootless
 include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = NetSpeedPrefs
-NetSpeedPrefs_FILES = NSPRootListController.m
+NetSpeedPrefs_FILES = QWRNetSpeedRootListController.m
 NetSpeedPrefs_FRAMEWORKS = UIKit Foundation
 NetSpeedPrefs_INSTALL_PATH = /Library/PreferenceBundles
 NetSpeedPrefs_CFLAGS = -fobjc-arc

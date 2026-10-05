@@ -1,6 +1,6 @@
 Package: cn.qwr136.netspeed
 Name: 悬浮网速
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm64
 Description: 屏幕悬浮实时网速，显示上传/下载速度，可拖动、可自定义样式。
 Maintainer: qwr136
