@@ -4,9 +4,10 @@
 #import <objc/runtime.h>
 
 static NSString * const kLMVPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.minis.lockmessagevideo.plist";
-static NSString * const kLMVBaseDir = @"/var/jb/var/mobile/Library/LockMessageVideo";
-static NSString * const kLMVMessageVideo = @"/var/jb/var/mobile/Library/LockMessageVideo/message.mov";
-static NSString * const kLMVOptionsVideo = @"/var/jb/var/mobile/Library/LockMessageVideo/options.mov";
+static NSString * const kLMVBaseDir = @"/var/mobile/LockMessageVideo";
+static NSString * const kLMVMessageVideo = @"/var/mobile/LockMessageVideo/message.mov";
+static NSString * const kLMVOptionsVideo = @"/var/mobile/LockMessageVideo/options.mov";
+static void LMVAttachToCandidates(UIView *root);
 
 static NSDictionary *LMVPrefs(void) {
     return [NSDictionary dictionaryWithContentsOfFile:kLMVPrefsPath] ?: @{};
@@ -163,8 +164,25 @@ static void LMVAttachToCandidates(UIView *root) {
 }
 %end
 
+static void LMVRefreshAll(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *window = nil;
+        for (UIWindow *candidate in [UIApplication sharedApplication].windows) {
+            if (candidate.isKeyWindow) { window = candidate; break; }
+        }
+        if (!window) window = [UIApplication sharedApplication].windows.firstObject;
+        if (window) LMVAttachToCandidates(window);
+    });
+}
+
+static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    LMVRefreshAll();
+}
+
 %ctor {
     @autoreleasepool {
         [[NSFileManager defaultManager] createDirectoryAtPath:kLMVBaseDir withIntermediateDirectories:YES attributes:nil error:nil];
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
     }
 }
