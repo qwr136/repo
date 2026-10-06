@@ -25,7 +25,7 @@
     [super viewDidAppear:animated];
     if (self.didPresentPicker) return;
     self.didPresentPicker = YES;
-    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
+    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
     config.filter = [PHPickerFilter videosFilter];
     config.selectionLimit = 1;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
