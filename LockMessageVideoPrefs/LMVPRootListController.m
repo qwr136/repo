@@ -2,7 +2,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import "LMVPRootListController.h"
 #import "LMVPVideoPickerController.h"
-#import <stdlib.h>
 
 static NSString * const kLMVDir = @"/var/jb/var/mobile/Library/LockMessageVideo";
 static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com.minis.lockmessagevideo.plist";
@@ -56,11 +55,8 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
 }
 
 - (void)respring {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认注销" message:@"将重新加载锁屏界面。" preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"注销" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        system("killall -9 SpringBoard");
-    }]];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请手动注销" message:@"设置已保存，请使用你的越狱工具注销或重启 SpringBoard。" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
