@@ -123,11 +123,11 @@ static void LMVAttachToCandidates(UIView *root) {
 %hook CSCoverSheetViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    LMVAttachToCandidates(self.view);
+    LMVAttachToCandidates([(UIViewController *)self view]);
 }
 - (void)viewDidLayoutSubviews {
     %orig;
-    LMVAttachToCandidates(self.view);
+    LMVAttachToCandidates([(UIViewController *)self view]);
 }
 %end
 
