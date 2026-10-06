@@ -3,8 +3,12 @@
 #import <Preferences/PSSpecifier.h>
 #import "LMVPVideoPickerController.h"
 
-static NSString * const kLMVDir = @"/var/jb/var/mobile/Library/LockMessageVideo";
+static NSString * const kLMVDir = @"/var/mobile/LockMessageVideo";
 static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com.minis.lockmessagevideo.plist";
+
+static void LMVPostNotification(NSString *name) {
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)name, NULL, NULL, YES);
+}
 
 @interface LMVPRootListController : PSListController
 @end
@@ -46,11 +50,8 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
         [radius setProperty:@YES forKey:@"showValue"];
 
         _specifiers = [NSMutableArray arrayWithObjects:
-            [PSSpecifier groupSpecifierWithName:@"锁屏消息视频"],
-            enabled,
-            [PSSpecifier groupSpecifierWithName:@"外观设置"],
-            opacity,
-            radius,
+            [PSSpecifier groupSpecifierWithName:@"锁屏消息视频"], enabled,
+            [PSSpecifier groupSpecifierWithName:@"外观设置"], opacity, radius,
             [PSSpecifier groupSpecifierWithName:@"消息背景"],
             [self button:@"选择消息背景视频" action:@"pickMessageVideo"],
             [self button:@"清除消息背景视频" action:@"clearMessageVideo"],
@@ -60,7 +61,7 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
             [PSSpecifier groupSpecifierWithName:@"工具"],
             [self button:@"预览效果页面" action:@"openPreview"],
             [self button:@"重新加载设置" action:@"reloadSettings"],
-            [PSSpecifier groupSpecifierWithName:@"选择视频后请注销或重启 SpringBoard。"], nil];
+            [PSSpecifier groupSpecifierWithName:@"选择视频后会立即保存；锁屏视图会即时读取新设置。"], nil];
     }
     return _specifiers;
 }
@@ -70,6 +71,7 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
     NSString *key = [specifier propertyForKey:@"key"];
     if (key && value) [prefs setObject:value forKey:key];
     [prefs writeToFile:kLMVPrefs atomically:YES];
+    LMVPostNotification(@"com.minis.lockmessagevideo/preferencesChanged");
 }
 
 - (id)readPreferenceValue:(PSSpecifier *)specifier {
@@ -78,31 +80,17 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
     return value ?: [specifier propertyForKey:@"default"];
 }
 
-- (void)pickMessageVideo {
-    [self.navigationController pushViewController:[[LMVPVideoPickerController alloc] initWithMode:@"message"] animated:YES];
-}
-
-- (void)pickOptionsVideo {
-    [self.navigationController pushViewController:[[LMVPVideoPickerController alloc] initWithMode:@"options"] animated:YES];
-}
-
+- (void)pickMessageVideo { [self.navigationController pushViewController:[[LMVPVideoPickerController alloc] initWithMode:@"message"] animated:YES]; }
+- (void)pickOptionsVideo { [self.navigationController pushViewController:[[LMVPVideoPickerController alloc] initWithMode:@"options"] animated:YES]; }
 - (void)clearMessageVideo {
     [[NSFileManager defaultManager] removeItemAtPath:[kLMVDir stringByAppendingPathComponent:@"message.mov"] error:nil];
+    LMVPostNotification(@"com.minis.lockmessagevideo/videoChanged");
 }
-
 - (void)clearOptionsVideo {
     [[NSFileManager defaultManager] removeItemAtPath:[kLMVDir stringByAppendingPathComponent:@"options.mov"] error:nil];
+    LMVPostNotification(@"com.minis.lockmessagevideo/videoChanged");
 }
-
-- (void)openPreview {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"预览" message:@"视频将在锁屏通知区域循环播放。" preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)reloadSettings {
-    _specifiers = nil;
-    [self reloadSpecifiers];
-}
+- (void)openPreview { UIAlertController *a = [UIAlertController alertControllerWithTitle:@"预览" message:@"视频将在锁屏通知区域循环播放。" preferredStyle:UIAlertControllerStyleAlert]; [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]]; [self presentViewController:a animated:YES completion:nil]; }
+- (void)reloadSettings { _specifiers = nil; [self reloadSpecifiers]; }
 
 @end
