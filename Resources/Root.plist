@@ -124,7 +124,7 @@
 		<key>cell</key>
 		<string>PSGroupCell</string>
 		<key>footerText</key>
-		<string>选择视频后会复制到 /var/jb/var/mobile/Library/LockMessageVideo/ 。修改后建议注销或重启 SpringBoard。</string>
+		<string>选择视频后会复制到 /var/mobile/LockMessageVideo/，设置会即时生效。</string>
 	</dict>
 </array>
 </plist>
