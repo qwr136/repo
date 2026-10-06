@@ -164,6 +164,14 @@ static void LMVAttachToCandidates(UIView *root) {
 }
 %end
 
+static void LMVRemoveVideoLayers(UIView *root) {
+    if (!root) return;
+    for (CALayer *layer in [root.layer.sublayers copy] ?: @[]) {
+        if ([layer.name hasPrefix:@"lmv."]) [layer removeFromSuperlayer];
+    }
+    for (UIView *v in [root.subviews copy] ?: @[]) LMVRemoveVideoLayers(v);
+}
+
 static void LMVRefreshAll(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIWindow *window = nil;
@@ -174,7 +182,9 @@ static void LMVRefreshAll(void) {
             }
             if (window) break;
         }
-        if (window) LMVAttachToCandidates(window);
+        if (!window) return;
+        LMVRemoveVideoLayers(window);
+        if (LMVEnabled()) LMVAttachToCandidates(window);
     });
 }
 
