@@ -8,17 +8,15 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = LockMessageVideo
 LockMessageVideo_FILES = Tweak.xm
 LockMessageVideo_CFLAGS = -fobjc-arc
-LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation Photos
-LockMessageVideo_PRIVATE_FRAMEWORKS = Preferences
+LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation
 
 BUNDLE_NAME = LockMessageVideoPrefs
 LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m LockMessageVideoPrefs/LMVPVideoPickerController.m
-LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos
+LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI AVFoundation
 LockMessageVideoPrefs_PRIVATE_FRAMEWORKS = Preferences
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
+LockMessageVideoPrefs_RESOURCE_DIRS = Resources
 LockMessageVideoPrefs_CFLAGS = -fobjc-arc
 
-SUBPROJECTS += LockMessageVideoPrefs
-
-include $(THEOS_MAKE_PATH)/aggregate.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
+include $(THEOS_MAKE_PATH)/bundle.mk

@@ -1,9 +1,14 @@
-#import "LMVPVideoPickerController.h"
+#import <UIKit/UIKit.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
 
+@interface LMVPVideoPickerController : UIViewController
+- (instancetype)initWithMode:(NSString *)mode;
+@end
+
 @interface LMVPVideoPickerController () <PHPickerViewControllerDelegate>
 @property (nonatomic, copy) NSString *mode;
+@property (nonatomic, assign) BOOL didPresentPicker;
 @end
 
 @implementation LMVPVideoPickerController
@@ -18,6 +23,8 @@
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    if (self.didPresentPicker) return;
+    self.didPresentPicker = YES;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
     config.filter = [PHPickerFilter videosFilter];
     config.selectionLimit = 1;
@@ -39,20 +46,22 @@
         return;
     }
     [provider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
-        if (!url) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.navigationController popViewControllerAnimated:YES];
-            });
-            return;
-        }
         NSString *dir = @"/var/jb/var/mobile/Library/LockMessageVideo";
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *dst = [dir stringByAppendingPathComponent:[self.mode isEqualToString:@"message"] ? @"message.mov" : @"options.mov"];
-        [[NSFileManager defaultManager] removeItemAtPath:dst error:nil];
-        [[NSFileManager defaultManager] copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:nil];
+        NSString *filename = [self.mode isEqualToString:@"message"] ? @"message.mov" : @"options.mov";
+        NSString *dstPath = [dir stringByAppendingPathComponent:filename];
+        NSError *copyError = error;
+        if (url && !copyError) {
+            [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&copyError];
+            if (!copyError) {
+                [[NSFileManager defaultManager] removeItemAtPath:dstPath error:nil];
+                [[NSFileManager defaultManager] copyItemAtURL:url toURL:[NSURL fileURLWithPath:dstPath] error:&copyError];
+            }
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已保存" message:@"视频已复制，建议注销或重启 SpringBoard 生效。" preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *title = copyError ? @"保存失败" : @"已保存";
+            NSString *message = copyError ? (copyError.localizedDescription ?: @"无法复制视频") : @"视频已复制，建议注销或重启 SpringBoard 生效。";
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
                 [self.navigationController popViewControllerAnimated:YES];
             }]];
             [self presentViewController:alert animated:YES completion:nil];

@@ -1,52 +1,119 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
+#import <objc/runtime.h>
 
 static NSString * const kLMVPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.minis.lockmessagevideo.plist";
 static NSString * const kLMVBaseDir = @"/var/jb/var/mobile/Library/LockMessageVideo";
 static NSString * const kLMVMessageVideo = @"/var/jb/var/mobile/Library/LockMessageVideo/message.mov";
 static NSString * const kLMVOptionsVideo = @"/var/jb/var/mobile/Library/LockMessageVideo/options.mov";
 
-static BOOL LMVEnabled(void) {
-    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kLMVPrefsPath] ?: @{};
-    return [prefs[@"Enabled"] boolValue];
+static NSDictionary *LMVPrefs(void) {
+    return [NSDictionary dictionaryWithContentsOfFile:kLMVPrefsPath] ?: @{};
 }
 
-static AVPlayerLayer *LMVEnsureVideoLayer(UIView *host, NSString *name, NSString *path) {
-    if (!host || ![[NSFileManager defaultManager] fileExistsAtPath:path]) return nil;
+static BOOL LMVEnabled(void) {
+    return [LMVPrefs()[@"Enabled"] boolValue];
+}
+
+static CGFloat LMVOpacity(void) {
+    id v = LMVPrefs()[@"Opacity"];
+    return v ? MAX(0.05, MIN(1.0, [v floatValue])) : 0.85;
+}
+
+static CGFloat LMVCornerRadius(void) {
+    id v = LMVPrefs()[@"CornerRadius"];
+    return v ? MAX(0.0, MIN(40.0, [v floatValue])) : 18.0;
+}
+
+static BOOL LMVPreviewEnabled(void) {
+    return [LMVPrefs()[@"PreviewEnabled"] boolValue];
+}
+
+static BOOL LMVShouldUseMessageView(NSString *cls) {
+    NSArray *keys = @[@"Notification", @"ShortLook", @"Platter", @"CombinedList", @"ListCell", @"ContentView", @"HeaderContent", @"MaterialView"];
+    for (NSString *k in keys) if ([cls containsString:k]) return YES;
+    return NO;
+}
+
+static BOOL LMVShouldUseOptionsView(NSString *cls) {
+    NSArray *keys = @[@"Action", @"Button", @"Reveal", @"Option", @"Clear", @"Swipe", @"Utility"];
+    for (NSString *k in keys) if ([cls containsString:k]) return YES;
+    return NO;
+}
+
+static AVPlayerLayer *LMVExistingLayer(UIView *host, NSString *name) {
     NSString *tag = [@"lmv." stringByAppendingString:name];
     for (CALayer *layer in host.layer.sublayers ?: @[]) {
         if ([layer.name isEqualToString:tag] && [layer isKindOfClass:[AVPlayerLayer class]]) {
-            layer.frame = host.bounds;
             return (AVPlayerLayer *)layer;
         }
     }
+    return nil;
+}
+
+static void LMVApplyHostStyle(UIView *host) {
+    host.clipsToBounds = YES;
+    host.layer.cornerRadius = LMVCornerRadius();
+}
+
+static AVPlayerLayer *LMVEnsureVideoLayer(UIView *host, NSString *name, NSString *path) {
+    if (!host || host.bounds.size.width < 20 || host.bounds.size.height < 20) return nil;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) return nil;
+
+    AVPlayerLayer *existing = LMVExistingLayer(host, name);
+    if (existing) {
+        existing.frame = host.bounds;
+        existing.opacity = LMVOpacity();
+        LMVApplyHostStyle(host);
+        return existing;
+    }
+
     NSURL *url = [NSURL fileURLWithPath:path];
     AVPlayer *player = [AVPlayer playerWithURL:url];
+    player.muted = YES;
     player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-    [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:player.currentItem queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification * _Nonnull note) {
+
+    [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:player.currentItem queue:[NSOperationQueue mainQueue] usingBlock:^(__unused NSNotification *note) {
         [player seekToTime:kCMTimeZero];
         [player play];
     }];
+
     AVPlayerLayer *layer = [AVPlayerLayer playerLayerWithPlayer:player];
-    layer.name = tag;
+    layer.name = [@"lmv." stringByAppendingString:name];
     layer.videoGravity = AVLayerVideoGravityResizeAspectFill;
     layer.frame = host.bounds;
+    layer.opacity = LMVOpacity();
     layer.zPosition = -999;
     [host.layer insertSublayer:layer atIndex:0];
+    LMVApplyHostStyle(host);
     [player play];
     return layer;
 }
 
+static void LMVRemoveLayersIfNeeded(UIView *view) {
+    if (LMVEnabled()) return;
+    NSMutableArray *toRemove = [NSMutableArray array];
+    for (CALayer *layer in view.layer.sublayers ?: @[]) {
+        if ([layer.name hasPrefix:@"lmv."]) [toRemove addObject:layer];
+    }
+    for (CALayer *layer in toRemove) [layer removeFromSuperlayer];
+}
+
 static void LMVAttachToCandidates(UIView *root) {
-    if (!LMVEnabled() || !root) return;
-    NSArray<UIView *> *subs = root.subviews ?: @[];
-    for (UIView *v in subs) {
+    if (!root) return;
+    if (!LMVEnabled()) {
+        LMVRemoveLayersIfNeeded(root);
+        for (UIView *v in root.subviews ?: @[]) LMVAttachToCandidates(v);
+        return;
+    }
+
+    for (UIView *v in root.subviews ?: @[]) {
         NSString *cls = NSStringFromClass([v class]);
-        if ([cls containsString:@"Notification"] || [cls containsString:@"ShortLook"] || [cls containsString:@"Platter"]) {
+        if (LMVShouldUseMessageView(cls)) {
             LMVEnsureVideoLayer(v, @"message", kLMVMessageVideo);
         }
-        if ([cls containsString:@"Action"] || [cls containsString:@"Button"] || [cls containsString:@"Reveal"] || [cls containsString:@"Option"]) {
+        if (LMVShouldUseOptionsView(cls)) {
             LMVEnsureVideoLayer(v, @"options", kLMVOptionsVideo);
         }
         if (v.subviews.count) LMVAttachToCandidates(v);
@@ -69,6 +136,19 @@ static void LMVAttachToCandidates(UIView *root) {
     %orig;
     if (LMVEnabled()) {
         LMVEnsureVideoLayer((UIView *)self, @"message", kLMVMessageVideo);
+    } else {
+        LMVRemoveLayersIfNeeded((UIView *)self);
+    }
+}
+%end
+
+%hook NCNotificationListCell
+- (void)layoutSubviews {
+    %orig;
+    if (LMVEnabled()) {
+        LMVEnsureVideoLayer((UIView *)self, @"message", kLMVMessageVideo);
+    } else {
+        LMVRemoveLayersIfNeeded((UIView *)self);
     }
 }
 %end
@@ -76,10 +156,13 @@ static void LMVAttachToCandidates(UIView *root) {
 %hook UIView
 - (void)layoutSubviews {
     %orig;
-    if (!LMVEnabled()) return;
     NSString *cls = NSStringFromClass([self class]);
-    if ([cls containsString:@"Action"] || [cls containsString:@"Option"] || [cls containsString:@"ClearButton"]) {
-        LMVEnsureVideoLayer((UIView *)self, @"options", kLMVOptionsVideo);
+    if (LMVShouldUseOptionsView(cls)) {
+        if (LMVEnabled()) {
+            LMVEnsureVideoLayer((UIView *)self, @"options", kLMVOptionsVideo);
+        } else {
+            LMVRemoveLayersIfNeeded((UIView *)self);
+        }
     }
 }
 %end
