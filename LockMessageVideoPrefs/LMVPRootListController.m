@@ -45,7 +45,7 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
         [radius setProperty:@40.0 forKey:@"max"];
         [radius setProperty:@YES forKey:@"showValue"];
 
-        _specifiers = @[
+        _specifiers = [NSMutableArray arrayWithObjects:
             [PSSpecifier groupSpecifierWithName:@"锁屏消息视频"],
             enabled,
             [PSSpecifier groupSpecifierWithName:@"外观设置"],
@@ -60,8 +60,7 @@ static NSString * const kLMVPrefs = @"/var/jb/var/mobile/Library/Preferences/com
             [PSSpecifier groupSpecifierWithName:@"工具"],
             [self button:@"预览效果页面" action:@"openPreview"],
             [self button:@"重新加载设置" action:@"reloadSettings"],
-            [PSSpecifier groupSpecifierWithName:@"选择视频后请注销或重启 SpringBoard。"]
-        ];
+            [PSSpecifier groupSpecifierWithName:@"选择视频后请注销或重启 SpringBoard。"], nil];
     }
     return _specifiers;
 }
