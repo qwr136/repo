@@ -1,207 +1,75 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <AVFoundation/AVFoundation.h>
-#import <objc/runtime.h>
 
-static NSString * const kLMVBaseDir = @"/var/mobile/LockMessageVideo";
-static NSString * const kLMVMessageVideo = @"/var/mobile/LockMessageVideo/message.mov";
-static NSString * const kLMVOptionsVideo = @"/var/mobile/LockMessageVideo/options.mov";
-static void LMVAttachToCandidates(UIView *root);
-
-static NSDictionary *LMVPrefs(void) {
-    NSMutableDictionary *prefs = [NSMutableDictionary dictionary];
-    id enabled = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("Enabled"), CFSTR("com.minis.lockmessagevideo")));
-    id opacity = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("Opacity"), CFSTR("com.minis.lockmessagevideo")));
-    id corner = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("CornerRadius"), CFSTR("com.minis.lockmessagevideo")));
-    if (enabled) prefs[@"Enabled"] = enabled;
-    if (opacity) prefs[@"Opacity"] = opacity;
-    if (corner) prefs[@"CornerRadius"] = corner;
-    return prefs;
-}
+static NSString * const kLMVPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.minis.lockmessagevideo.plist";
+static NSString * const kLMVLogDir = @"/var/mobile/LockMessageVideo";
+static NSString * const kLMVLogPath = @"/var/mobile/LockMessageVideo/view-tree.log";
 
 static BOOL LMVEnabled(void) {
-    return [LMVPrefs()[@"Enabled"] boolValue];
+    NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:kLMVPrefsPath] ?: @{};
+    return [p[@"Enabled"] boolValue];
 }
 
-static CGFloat LMVOpacity(void) {
-    id v = LMVPrefs()[@"Opacity"];
-    return v ? MAX(0.05, MIN(1.0, [v floatValue])) : 0.85;
+static void LMVWriteLog(NSString *line) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:kLMVLogDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *old = [NSString stringWithContentsOfFile:kLMVLogPath encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    if (old.length > 512 * 1024) old = [old substringFromIndex:old.length - 256 * 1024];
+    NSString *text = [old stringByAppendingFormat:@"%@\n", line];
+    [text writeToFile:kLMVLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
-static CGFloat LMVCornerRadius(void) {
-    id v = LMVPrefs()[@"CornerRadius"];
-    return v ? MAX(0.0, MIN(40.0, [v floatValue])) : 18.0;
+static void LMVDumpView(UIView *view, NSUInteger depth, NSMutableString *out) {
+    if (!view || depth > 14) return;
+    NSString *indent = [@"  " stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0];
+    NSString *cls = NSStringFromClass(view.class);
+    CGRect f = view.frame;
+    [out appendFormat:@"%@%@ frame=(%.1f,%.1f,%.1f,%.1f) hidden=%d alpha=%.2f subviews=%lu\n", indent, cls, f.origin.x, f.origin.y, f.size.width, f.size.height, view.hidden, view.alpha, (unsigned long)view.subviews.count];
+    for (UIView *child in view.subviews) LMVDumpView(child, depth + 1, out);
 }
 
-static BOOL LMVShouldUseMessageView(NSString *cls) {
-    NSArray *keys = @[@"Notification", @"ShortLook", @"Platter", @"CombinedList", @"ListCell", @"ContentView", @"HeaderContent", @"MaterialView"];
-    for (NSString *k in keys) if ([cls containsString:k]) return YES;
-    return NO;
-}
-
-static BOOL LMVShouldUseOptionsView(NSString *cls) {
-    NSArray *keys = @[@"Action", @"Button", @"Reveal", @"Option", @"Clear", @"Swipe", @"Utility"];
-    for (NSString *k in keys) if ([cls containsString:k]) return YES;
-    return NO;
-}
-
-static AVPlayerLayer *LMVExistingLayer(UIView *host, NSString *name) {
-    NSString *tag = [@"lmv." stringByAppendingString:name];
-    for (CALayer *layer in host.layer.sublayers ?: @[]) {
-        if ([layer.name isEqualToString:tag] && [layer isKindOfClass:[AVPlayerLayer class]]) {
-            return (AVPlayerLayer *)layer;
+static void LMVDumpSpringBoardWindows(void) {
+    if (!LMVEnabled()) return;
+    NSMutableString *out = [NSMutableString stringWithFormat:@"\n===== LockMessageVideo %@ =====\n", [NSDate date]];
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        for (UIWindow *window in [(UIWindowScene *)scene windows]) {
+            [out appendFormat:@"WINDOW %@ level=%.1f hidden=%d\n", NSStringFromClass(window.class), window.windowLevel, window.hidden];
+            LMVDumpView(window, 0, out);
         }
     }
-    return nil;
-}
-
-static void LMVApplyHostStyle(UIView *host) {
-    host.clipsToBounds = YES;
-    host.layer.cornerRadius = LMVCornerRadius();
-}
-
-static AVPlayerLayer *LMVEnsureVideoLayer(UIView *host, NSString *name, NSString *path) {
-    if (!host || host.bounds.size.width < 20 || host.bounds.size.height < 20) return nil;
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) return nil;
-
-    AVPlayerLayer *existing = LMVExistingLayer(host, name);
-    if (existing) {
-        existing.frame = host.bounds;
-        existing.opacity = LMVOpacity();
-        LMVApplyHostStyle(host);
-        return existing;
-    }
-
-    NSURL *url = [NSURL fileURLWithPath:path];
-    AVPlayer *player = [AVPlayer playerWithURL:url];
-    player.muted = YES;
-    player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-
-    [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:player.currentItem queue:[NSOperationQueue mainQueue] usingBlock:^(__unused NSNotification *note) {
-        [player seekToTime:kCMTimeZero];
-        [player play];
-    }];
-
-    AVPlayerLayer *layer = [AVPlayerLayer playerLayerWithPlayer:player];
-    layer.name = [@"lmv." stringByAppendingString:name];
-    layer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    layer.frame = host.bounds;
-    layer.opacity = LMVOpacity();
-    layer.zPosition = -999;
-    [host.layer insertSublayer:layer atIndex:0];
-    LMVApplyHostStyle(host);
-    [player play];
-    return layer;
-}
-
-static void LMVRemoveLayersIfNeeded(UIView *view) {
-    if (LMVEnabled()) return;
-    NSMutableArray *toRemove = [NSMutableArray array];
-    for (CALayer *layer in view.layer.sublayers ?: @[]) {
-        if ([layer.name hasPrefix:@"lmv."]) [toRemove addObject:layer];
-    }
-    for (CALayer *layer in toRemove) [layer removeFromSuperlayer];
-}
-
-static void LMVAttachToCandidates(UIView *root) {
-    if (!root) return;
-    if (!LMVEnabled()) {
-        LMVRemoveLayersIfNeeded(root);
-        for (UIView *v in root.subviews ?: @[]) LMVAttachToCandidates(v);
-        return;
-    }
-
-    for (UIView *v in root.subviews ?: @[]) {
-        NSString *cls = NSStringFromClass([v class]);
-        if (LMVShouldUseMessageView(cls)) {
-            LMVEnsureVideoLayer(v, @"message", kLMVMessageVideo);
-        }
-        if (LMVShouldUseOptionsView(cls)) {
-            LMVEnsureVideoLayer(v, @"options", kLMVOptionsVideo);
-        }
-        if (v.subviews.count) LMVAttachToCandidates(v);
-    }
+    LMVWriteLog(out);
 }
 
 %hook CSCoverSheetViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    LMVAttachToCandidates([(UIViewController *)self view]);
+    LMVDumpSpringBoardWindows();
 }
 - (void)viewDidLayoutSubviews {
     %orig;
-    LMVAttachToCandidates([(UIViewController *)self view]);
+    static BOOL once = NO;
+    if (!once) { once = YES; LMVDumpSpringBoardWindows(); }
 }
 %end
 
 %hook NCNotificationShortLookView
 - (void)layoutSubviews {
     %orig;
-    if (LMVEnabled()) {
-        LMVEnsureVideoLayer((UIView *)self, @"message", kLMVMessageVideo);
-    } else {
-        LMVRemoveLayersIfNeeded((UIView *)self);
-    }
+    LMVDumpSpringBoardWindows();
 }
 %end
 
 %hook NCNotificationListCell
 - (void)layoutSubviews {
     %orig;
-    if (LMVEnabled()) {
-        LMVEnsureVideoLayer((UIView *)self, @"message", kLMVMessageVideo);
-    } else {
-        LMVRemoveLayersIfNeeded((UIView *)self);
-    }
+    LMVDumpSpringBoardWindows();
 }
 %end
-
-%hook UIView
-- (void)layoutSubviews {
-    %orig;
-    NSString *cls = NSStringFromClass([self class]);
-    if (LMVShouldUseOptionsView(cls)) {
-        if (LMVEnabled()) {
-            LMVEnsureVideoLayer((UIView *)self, @"options", kLMVOptionsVideo);
-        } else {
-            LMVRemoveLayersIfNeeded((UIView *)self);
-        }
-    }
-}
-%end
-
-static void LMVRemoveVideoLayers(UIView *root) {
-    if (!root) return;
-    for (CALayer *layer in [root.layer.sublayers copy] ?: @[]) {
-        if ([layer.name hasPrefix:@"lmv."]) [layer removeFromSuperlayer];
-    }
-    for (UIView *v in [root.subviews copy] ?: @[]) LMVRemoveVideoLayers(v);
-}
-
-static void LMVRefreshAll(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = nil;
-        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-            for (UIWindow *candidate in [(UIWindowScene *)scene windows]) {
-                if (candidate.isKeyWindow) { window = candidate; break; }
-            }
-            if (window) break;
-        }
-        if (!window) return;
-        LMVRemoveVideoLayers(window);
-        if (LMVEnabled()) LMVAttachToCandidates(window);
-    });
-}
-
-static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    LMVRefreshAll();
-}
 
 %ctor {
     @autoreleasepool {
-        [[NSFileManager defaultManager] createDirectoryAtPath:kLMVBaseDir withIntermediateDirectories:YES attributes:nil error:nil];
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        [[NSFileManager defaultManager] createDirectoryAtPath:kLMVLogDir withIntermediateDirectories:YES attributes:nil error:nil];
+        LMVWriteLog(@"LockMessageVideo diagnostic tweak loaded");
     }
 }
