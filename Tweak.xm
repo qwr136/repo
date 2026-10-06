@@ -167,10 +167,13 @@ static void LMVAttachToCandidates(UIView *root) {
 static void LMVRefreshAll(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIWindow *window = nil;
-        for (UIWindow *candidate in [UIApplication sharedApplication].windows) {
-            if (candidate.isKeyWindow) { window = candidate; break; }
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *candidate in [(UIWindowScene *)scene windows]) {
+                if (candidate.isKeyWindow) { window = candidate; break; }
+            }
+            if (window) break;
         }
-        if (!window) window = [UIApplication sharedApplication].windows.firstObject;
         if (window) LMVAttachToCandidates(window);
     });
 }
