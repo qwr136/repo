@@ -4,27 +4,59 @@ on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - 'Packages/**'
+      - 'Release/**'
+      - 'index.html'
+      - 'depictions/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-deb-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: macos-13
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Setup Theos
         run: |
-          brew install ldid dpkg make
-          git clone --recursive https://github.com/theos/theos.git $HOME/theos
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+          git clone --depth=1 --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        run: |
+          brew update
+          brew install make dpkg ldid
+
+      - name: Show environment
+        run: |
+          echo "THEOS=$THEOS"
+          xcode-select -p
+          clang --version
+          make --version
+          dpkg-deb --version
 
       - name: Build package
         run: |
-          export THEOS=$HOME/theos
+          export THEOS="$HOME/theos"
           make clean package FINALPACKAGE=1
 
-      - name: Upload deb
+      - name: List build outputs
+        run: |
+          ls -R .
+          ls -R packages || true
+
+      - name: Upload deb artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: deb-packages
           path: packages/*.deb
+          if-no-files-found: error
