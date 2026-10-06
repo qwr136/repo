@@ -1,130 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0//EN">
 <plist version="1.0">
 <array>
 	<dict>
 		<key>cell</key>
 		<string>PSGroupCell</string>
 		<key>label</key>
-		<string>锁屏消息视频</string>
+		<string>锁屏消息视频 · 诊断版</string>
 		<key>footerText</key>
-		<string>为锁屏通知消息区域与选项/清除区域设置视频背景。</string>
+		<string>当前仅用于抓取锁屏消息视图层级，不执行视频背景注入。</string>
 	</dict>
 	<dict>
 		<key>cell</key>
 		<string>PSSwitchCell</string>
-		<key>default</key>
-		<false/>
 		<key>defaults</key>
 		<string>com.minis.lockmessagevideo</string>
 		<key>key</key>
 		<string>Enabled</string>
-		<key>label</key>
-		<string>启用插件</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSSwitchCell</string>
 		<key>default</key>
 		<false/>
-		<key>defaults</key>
-		<string>com.minis.lockmessagevideo</string>
-		<key>key</key>
-		<string>PreviewEnabled</string>
 		<key>label</key>
-		<string>启用预览页</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSSliderCell</string>
-		<key>defaults</key>
-		<string>com.minis.lockmessagevideo</string>
-		<key>default</key>
-		<real>0.85</real>
-		<key>min</key>
-		<real>0.05</real>
-		<key>max</key>
-		<real>1.0</real>
-		<key>showValue</key>
-		<true/>
-		<key>key</key>
-		<string>Opacity</string>
-		<key>label</key>
-		<string>视频透明度</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSSliderCell</string>
-		<key>defaults</key>
-		<string>com.minis.lockmessagevideo</string>
-		<key>default</key>
-		<real>18.0</real>
-		<key>min</key>
-		<real>0.0</real>
-		<key>max</key>
-		<real>40.0</real>
-		<key>showValue</key>
-		<true/>
-		<key>key</key>
-		<string>CornerRadius</string>
-		<key>label</key>
-		<string>圆角大小</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSButtonCell</string>
-		<key>label</key>
-		<string>选择消息背景视频</string>
-		<key>action</key>
-		<string>pickMessageVideo</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSButtonCell</string>
-		<key>label</key>
-		<string>清除消息背景视频</string>
-		<key>action</key>
-		<string>clearMessageVideo</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSButtonCell</string>
-		<key>label</key>
-		<string>选择选项视频背景</string>
-		<key>action</key>
-		<string>pickOptionsVideo</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSButtonCell</string>
-		<key>label</key>
-		<string>清除选项视频背景</string>
-		<key>action</key>
-		<string>clearOptionsVideo</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSButtonCell</string>
-		<key>label</key>
-		<string>预览效果页面</string>
-		<key>action</key>
-		<string>openPreview</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSButtonCell</string>
-		<key>label</key>
-		<string>立即注销 SpringBoard</string>
-		<key>action</key>
-		<string>respring</string>
-		<key>isDestructive</key>
-		<true/>
+		<string>启用锁屏视图诊断</string>
 	</dict>
 	<dict>
 		<key>cell</key>
 		<string>PSGroupCell</string>
 		<key>footerText</key>
-		<string>选择视频后会复制到 /var/mobile/LockMessageVideo/，设置会即时生效。</string>
+		<string>日志路径：/var/mobile/LockMessageVideo/view-tree.log。打开锁屏并显示通知后，再读取该文件。</string>
 	</dict>
 </array>
 </plist>
