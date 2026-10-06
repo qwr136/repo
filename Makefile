@@ -15,6 +15,7 @@ LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m Loc
 LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI AVFoundation
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LockMessageVideoPrefs_RESOURCE_DIRS = Resources
+LockMessageVideoPrefs_RESOURCE_FILES = Resources/Root.plist
 LockMessageVideoPrefs_CFLAGS = -fobjc-arc
 LockMessageVideoPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
