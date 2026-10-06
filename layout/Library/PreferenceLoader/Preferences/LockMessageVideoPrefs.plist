@@ -1,21 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0//EN">
 <plist version="1.0">
-<dict>
-	<key>entry</key>
+<array>
 	<dict>
-		<key>bundle</key>
-		<string>LockMessageVideoPrefs</string>
 		<key>cell</key>
 		<string>PSLinkCell</string>
+		<key>bundle</key>
+		<string>LockMessageVideoPrefs</string>
 		<key>detail</key>
 		<string>LMVPRootListController</string>
-		<key>icon</key>
-		<string>icon.png</string>
 		<key>isController</key>
 		<true/>
 		<key>label</key>
-		<string>锁屏消息视频</string>
+		<string>锁屏消息视频 · 诊断版</string>
 	</dict>
-</dict>
+</array>
 </plist>
