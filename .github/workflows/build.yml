@@ -36,8 +36,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          brew update
-          brew install make dpkg ldid
+          brew install --quiet ldid dpkg make
 
       - name: Show environment
         run: |
