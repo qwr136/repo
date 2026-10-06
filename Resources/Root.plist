@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>cell</key>
+		<string>PSGroupCell</string>
+		<key>label</key>
+		<string>锁屏消息视频</string>
+		<key>footerText</key>
+		<string>为锁屏通知消息区域与选项/清除区域设置视频背景。</string>
+	</dict>
+	<dict>
+		<key>cell</key>
+		<string>PSSwitchCell</string>
+		<key>default</key>
+		<false/>
+		<key>defaults</key>
+		<string>com.minis.lockmessagevideo</string>
+		<key>key</key>
+		<string>Enabled</string>
+		<key>label</key>
+		<string>启用插件</string>
+	</dict>
+	<dict>
+		<key>cell</key>
+		<string>PSButtonCell</string>
+		<key>label</key>
+		<string>选择消息背景视频</string>
+		<key>action</key>
+		<string>pickMessageVideo</string>
+	</dict>
+	<dict>
+		<key>cell</key>
+		<string>PSButtonCell</string>
+		<key>label</key>
+		<string>清除消息背景视频</string>
+		<key>action</key>
+		<string>clearMessageVideo</string>
+	</dict>
+	<dict>
+		<key>cell</key>
+		<string>PSButtonCell</string>
+		<key>label</key>
+		<string>选择选项视频背景</string>
+		<key>action</key>
+		<string>pickOptionsVideo</string>
+	</dict>
+	<dict>
+		<key>cell</key>
+		<string>PSButtonCell</string>
+		<key>label</key>
+		<string>清除选项视频背景</string>
+		<key>action</key>
+		<string>clearOptionsVideo</string>
+	</dict>
+	<dict>
+		<key>cell</key>
+		<string>PSGroupCell</string>
+		<key>footerText</key>
+		<string>选择视频后会复制到 /var/jb/var/mobile/Library/LockMessageVideo/ 。修改后建议注销或重启 SpringBoard。</string>
+	</dict>
+</array>
+</plist>
