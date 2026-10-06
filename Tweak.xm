@@ -71,7 +71,7 @@ static void LMVInstallLayer(UIView *host) {
 - (void)layoutSubviews {
     %orig;
     if (!LMVMessageBackgroundEnabled()) return;
-    for (UIView *view in self.subviews ?: @[]) {
+    for (UIView *view in [(UIView *)self subviews] ?: @[]) {
         if ([view isKindOfClass:NSClassFromString(@"NCNotificationListCell")]) LMVInstallLayer(view);
     }
 }
