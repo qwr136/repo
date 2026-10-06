@@ -26,10 +26,6 @@ static CGFloat LMVCornerRadius(void) {
     return v ? MAX(0.0, MIN(40.0, [v floatValue])) : 18.0;
 }
 
-static BOOL LMVPreviewEnabled(void) {
-    return [LMVPrefs()[@"PreviewEnabled"] boolValue];
-}
-
 static BOOL LMVShouldUseMessageView(NSString *cls) {
     NSArray *keys = @[@"Notification", @"ShortLook", @"Platter", @"CombinedList", @"ListCell", @"ContentView", @"HeaderContent", @"MaterialView"];
     for (NSString *k in keys) if ([cls containsString:k]) return YES;
