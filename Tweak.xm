@@ -3,14 +3,20 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString * const kLMVPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.minis.lockmessagevideo.plist";
 static NSString * const kLMVBaseDir = @"/var/mobile/LockMessageVideo";
 static NSString * const kLMVMessageVideo = @"/var/mobile/LockMessageVideo/message.mov";
 static NSString * const kLMVOptionsVideo = @"/var/mobile/LockMessageVideo/options.mov";
 static void LMVAttachToCandidates(UIView *root);
 
 static NSDictionary *LMVPrefs(void) {
-    return [NSDictionary dictionaryWithContentsOfFile:kLMVPrefsPath] ?: @{};
+    NSMutableDictionary *prefs = [NSMutableDictionary dictionary];
+    id enabled = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("Enabled"), CFSTR("com.minis.lockmessagevideo")));
+    id opacity = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("Opacity"), CFSTR("com.minis.lockmessagevideo")));
+    id corner = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("CornerRadius"), CFSTR("com.minis.lockmessagevideo")));
+    if (enabled) prefs[@"Enabled"] = enabled;
+    if (opacity) prefs[@"Opacity"] = opacity;
+    if (corner) prefs[@"CornerRadius"] = corner;
+    return prefs;
 }
 
 static BOOL LMVEnabled(void) {
