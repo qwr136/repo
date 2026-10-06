@@ -20,9 +20,9 @@ static void LMVPostNotification(NSString *name) {
     self.title = @"锁屏消息视频";
 }
 
-- (PSSpecifier *)button:(NSString *)title action:(NSString *)action {
+- (PSSpecifier *)button:(NSString *)title action:(SEL)action {
     PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:title target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    [s setProperty:action forKey:@"action"];
+    [s setProperty:NSStringFromSelector(action) forKey:@"action"];
     return s;
 }
 
@@ -53,14 +53,14 @@ static void LMVPostNotification(NSString *name) {
             [PSSpecifier groupSpecifierWithName:@"锁屏消息视频"], enabled,
             [PSSpecifier groupSpecifierWithName:@"外观设置"], opacity, radius,
             [PSSpecifier groupSpecifierWithName:@"消息背景"],
-            [self button:@"选择消息背景视频" action:@"pickMessageVideo"],
-            [self button:@"清除消息背景视频" action:@"clearMessageVideo"],
+            [self button:@"选择消息背景视频" action:@selector(pickMessageVideo)],
+            [self button:@"清除消息背景视频" action:@selector(clearMessageVideo)],
             [PSSpecifier groupSpecifierWithName:@"选项区域背景"],
-            [self button:@"选择选项视频背景" action:@"pickOptionsVideo"],
-            [self button:@"清除选项视频背景" action:@"clearOptionsVideo"],
+            [self button:@"选择选项视频背景" action:@selector(pickOptionsVideo)],
+            [self button:@"清除选项视频背景" action:@selector(clearOptionsVideo)],
             [PSSpecifier groupSpecifierWithName:@"工具"],
-            [self button:@"预览效果页面" action:@"openPreview"],
-            [self button:@"重新加载设置" action:@"reloadSettings"],
+            [self button:@"预览效果页面" action:@selector(openPreview)],
+            [self button:@"重新加载设置" action:@selector(reloadSettings)],
             [PSSpecifier groupSpecifierWithName:@"选择视频后会立即保存；锁屏视图会即时读取新设置。"], nil];
     }
     return _specifiers;
