@@ -25,7 +25,7 @@ static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
 static void LMVPrewarmPlayers(void);
 static NSUInteger LMVPlayerCount;
-static const NSUInteger LMVPlayerLimit = 18;
+// Every currently visible card may own a player. No global card/player cap.
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
@@ -80,7 +80,7 @@ static NSString *LMVFileRevision(NSString *path) {
 
 static NSMutableDictionary<NSString *, LMVVideoState *> *LMVWarmPlayers;
 static LMVVideoState *LMVCreatePlayer(NSString *path) {
-    if (LMVPlayerCount >= LMVPlayerLimit || !LMVAssets[path]) return nil;
+    if (!LMVAssets[path]) return nil;
     LMVVideoState *state = [LMVVideoState new];
     state.path = path;
     state.revision = LMVRevisions[path];
@@ -101,7 +101,7 @@ static void LMVPrewarmPlayers(void) {
     for (NSString *path in LMVReadyAssets) {
         BOOL enabled = NO;
         for (NSString *target in LMVPaths) if (LMVEnabled[target].boolValue && [LMVPaths[target] isEqualToString:path]) enabled = YES;
-        if (!enabled || LMVWarmPlayers[path] || LMVPlayerCount >= LMVPlayerLimit) continue;
+        if (!enabled || LMVWarmPlayers[path]) continue;
         LMVVideoState *state = LMVCreatePlayer(path);
         if (!state) continue;
         LMVWarmPlayers[path] = state;
@@ -198,9 +198,7 @@ static void LMVLoadPreferences(void) {
         NSString *relative = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)videoKey, kLMVPrefsID);
         if (!relative && [target isEqualToString:@"Message"]) relative = @"message.mov";
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
-        NSString *originalPath = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
-        NSString *optimizedPath = [originalPath hasSuffix:@".optimized.mp4"] ? originalPath : [originalPath stringByAppendingString:@".optimized.mp4"];
-        NSString *path = [[NSFileManager defaultManager] fileExistsAtPath:optimizedPath] ? optimizedPath : originalPath;
+        NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
     }
     NSNumber *opacityEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacityEnabled"), kLMVPrefsID);
@@ -352,28 +350,6 @@ static void LMVReleasePlayer(LMVVideoState *state) {
     state.looper = nil; state.layer = nil; state.player = nil;
     state.poster.hidden = NO;
 }
-static void LMVMakeRoom(void) {
-    if (LMVPlayerCount < LMVPlayerLimit) return;
-    NSString *warmPath = LMVWarmPlayers.allKeys.firstObject;
-    if (warmPath) { [LMVWarmPlayers removeObjectForKey:warmPath]; return; }
-    UIView *victimCell = nil;
-    NSString *victimTarget = nil;
-    CFTimeInterval oldest = DBL_MAX;
-    for (UIView *cell in LMVCells.allObjects) {
-        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-        for (NSString *target in states) {
-            LMVVideoState *state = states[target];
-            if (state.player && !state.playing && state.lastVisible < oldest) {
-                oldest = state.lastVisible; victimCell = cell; victimTarget = target;
-            }
-        }
-    }
-    if (victimCell) {
-        NSMutableDictionary *states = objc_getAssociatedObject(victimCell, &LMVStatesKey);
-        LMVVideoState *state = states[victimTarget];
-        LMVReleasePlayer(state);
-    }
-}
 static void LMVRetryDiscovery(UIView *cell) {
     if (objc_getAssociatedObject(cell, &LMVRetryKey)) return;
     objc_setAssociatedObject(cell, &LMVRetryKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -478,7 +454,7 @@ static void LMVUpdate(UIView *cell) {
         }
         if (anchorVisible && !state.player && [LMVReadyAssets containsObject:path]) {
             LMVVideoState *warm = LMVWarmPlayers[path];
-            if (!warm) { LMVMakeRoom(); warm = LMVCreatePlayer(path); }
+            if (!warm) { warm = LMVCreatePlayer(path); }
             if (warm) {
                 // Handoff is intentionally a pointer transfer only. Calling
                 state.player = warm.player; state.looper = warm.looper; state.layer = warm.layer;
@@ -622,50 +598,24 @@ static void LMVSuspend(void) {
     }
 }
 static void LMVSyncDisplayLink(void) {
-    if (!LMVPlaybackAllowed() || LMVPlayerCount <= LMVWarmPlayers.count) {
-        [LMVLink invalidate]; LMVLink = nil;
+    if (!LMVPlaybackAllowed()) {
+        [LMVLink invalidate];
+        LMVLink = nil;
         return;
     }
-    if (!LMVLink) {
-        LMVLink = [CADisplayLink displayLinkWithTarget:[LMVDisplayLinkTarget new] selector:@selector(tick:)];
-        LMVLink.preferredFramesPerSecond = 30;
-        [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-    }
+    if (LMVLink) return;
+    LMVDisplayLinkTarget *target = [LMVDisplayLinkTarget new];
+    LMVLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
+    LMVLink.preferredFramesPerSecond = 60;
+    [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    objc_setAssociatedObject(LMVLink, @selector(LMVSyncDisplayLink), target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 @implementation LMVDisplayLinkTarget
 - (void)tick:(CADisplayLink *)link {
     if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
-    static CFTimeInterval lastCleanup;
-    static CFTimeInterval lastRevisionCheck;
-    CFTimeInterval now = CACurrentMediaTime();
-    if (now - lastRevisionCheck >= 2.0) {
-        lastRevisionCheck = now;
-        LMVPrepareAssets();
-    }
-    if (now - lastCleanup >= 0.5) {
-        lastCleanup = now;
-        for (UIView *cell in LMVCells.allObjects) {
-            NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-            if (!LMVVisible(cell)) for (LMVVideoState *state in states.allValues) {
-                if (now - state.lastVisible > 8) LMVReleasePlayer(state);
-            }
-        }
-        LMVPrewarmPlayers();
-    }
     for (UIView *cell in LMVCells.allObjects) {
-        if (!cell.window) continue;
-        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-        BOOL cellVisible = LMVVisible(cell);
-        BOOL update = cellVisible && !states.count;
-        for (LMVVideoState *state in states.allValues) {
-            BOOL visible = cellVisible && state.anchor && [state.anchor isDescendantOfView:cell] && LMVVisible(state.anchor);
-            if (visible) state.lastVisible = CACurrentMediaTime();
-            if (!visible && (!state.visibilityLossSince || CACurrentMediaTime() - state.visibilityLossSince >= 0.18)) LMVPause(state);
-            BOOL ready = state.player.status == AVPlayerStatusReadyToPlay && state.player.currentItem.status == AVPlayerItemStatusReadyToPlay;
-            BOOL canStart = visible && !state.playing && (ready || (!state.player && LMVPlayerCount < LMVPlayerLimit && [LMVReadyAssets containsObject:state.path]));
-            if (canStart || ![state.revision isEqualToString:LMVRevisions[state.path]] || (state.layer && state.layer.hidden == state.layer.readyForDisplay) || (visible && !state.overlay.superview)) update = YES;
-        }
-        if (update) LMVUpdate(cell);
+        if (!cell.window || !LMVVisible(cell)) continue;
+        LMVUpdate(cell);
     }
 }
 @end
