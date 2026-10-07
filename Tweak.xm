@@ -156,7 +156,12 @@ static BOOL LMVVisible(UIView *view) {
     if (LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK && blank) return NO;
     return CGRectIntersectsRect(LMVRectInView(view, view.window), (view.window.layer.presentationLayer ?: view.window.layer).bounds);
 }
-static BOOL LMVActionBranch(UIView *view) { return [NSStringFromClass(view.class) containsString:@"ActionButtons"]; }
+static BOOL LMVActionBranch(UIView *view) {
+    // Grouped notification actions use this presenter even when the concrete
+    // private subclass no longer contains "ActionButtons" in its name.
+    Class presenter = NSClassFromString(@"PLActionButtonsPresentingView");
+    return [NSStringFromClass(view.class) containsString:@"ActionButtons"] || (presenter && [view isKindOfClass:presenter]);
+}
 static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
     if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01) return nil;
     if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
@@ -172,7 +177,8 @@ static NSString *LMVSemanticTarget(UIView *view) {
     if ([view isKindOfClass:UILabel.class]) title = [(UILabel *)view text];
     for (NSString *label in @[(title ?: @""), (view.accessibilityLabel ?: @"")]) {
         NSString *text = [[label stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] lowercaseString];
-        if ([@[@"clear", @"clear all", @"清除", @"清除全部", @"清除所有", @"清除所有通知"] containsObject:text]) return @"Clear";
+        // Exact labels only: never classify an unlabeled header close control.
+        if ([@[@"clear", @"clear all", @"清除", @"清除全部", @"全部清除", @"清除所有", @"清除所有通知"] containsObject:text]) return @"Clear";
         if ([@[@"options", @"manage", @"选项", @"管理"] containsObject:text]) return @"Options";
     }
     return nil;
@@ -384,13 +390,25 @@ static void LMVUpdate(UIView *cell) {
     %orig;
 }
 %end
+static void LMVUpdateActionPresenter(UIView *presenter) {
+    UIView *ancestor = presenter.superview;
+    Class cellClass = NSClassFromString(@"NCNotificationListCell");
+    while (ancestor && (!cellClass || ![ancestor isKindOfClass:cellClass])) ancestor = ancestor.superview;
+    // A grouped swipe presenter can live outside NCNotificationListCell.
+    // Track only the dedicated action presenter, not a notification header.
+    UIView *owner = ancestor ?: presenter;
+    [LMVCells addObject:owner];
+    objc_setAssociatedObject(owner, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    LMVUpdate(owner);
+}
 %hook PLActionButtonsPresentingView
 - (void)layoutSubviews {
     %orig;
-    UIView *ancestor = (UIView *)self;
-    Class cellClass = NSClassFromString(@"NCNotificationListCell");
-    while (ancestor && cellClass && ![ancestor isKindOfClass:cellClass]) ancestor = ancestor.superview;
-    if (ancestor && cellClass) LMVUpdate(ancestor);
+    LMVUpdateActionPresenter((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVUpdateActionPresenter((UIView *)self);
 }
 %end
 static void LMVRefresh(BOOL reload) {
