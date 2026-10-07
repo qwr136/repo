@@ -166,13 +166,20 @@ static void LMVUpdate(UIView *cell) {
     }
 }
 %hook NCNotificationListCell
-- (void)layoutSubviews { %orig; [LMVCells addObject:(UIView *)self]; LMVUpdate((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    [LMVCells addObject:(UIView *)self];
+    LMVUpdate((UIView *)self);
+}
 - (void)didMoveToWindow {
     %orig;
     [LMVCells addObject:(UIView *)self];
     if (![(UIView *)self window]) LMVClear((UIView *)self); else LMVUpdate((UIView *)self);
 }
-- (void)prepareForReuse { LMVClear((UIView *)self); %orig; }
+- (void)prepareForReuse {
+    LMVClear((UIView *)self);
+    %orig;
+}
 %end
 %hook PLActionButtonsPresentingView
 - (void)layoutSubviews {
