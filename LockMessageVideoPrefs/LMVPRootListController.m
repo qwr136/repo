@@ -4,6 +4,7 @@
 #import <Preferences/PSSpecifier.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
+#import <AVFoundation/AVFoundation.h>
 
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
@@ -12,6 +13,52 @@ static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"�
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+}
+
+static NSURL *LMVOptimizedURL(NSURL *originalURL) {
+    return [NSURL fileURLWithPath:[[originalURL.path stringByAppendingString:@".optimized.mp4"] stringByStandardizingPath]];
+}
+
+static void LMVCreatePlaybackDerivative(NSURL *sourceURL, NSURL *outputURL, void (^completion)(NSError *error)) {
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:sourceURL options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @NO}];
+    [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration", @"playable"] completionHandler:^{
+        NSError *error = nil;
+        if ([asset statusOfValueForKey:@"tracks" error:&error] != AVKeyValueStatusLoaded || !asset.playable) {
+            completion(error ?: [NSError errorWithDomain:@"LockMessageVideo" code:1 userInfo:@{NSLocalizedDescriptionKey:@"视频不可播放或无法读取轨道"}]);
+            return;
+        }
+        AVAssetTrack *sourceTrack = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
+        if (!sourceTrack) {
+            completion([NSError errorWithDomain:@"LockMessageVideo" code:2 userInfo:@{NSLocalizedDescriptionKey:@"未找到视频轨道"}]);
+            return;
+        }
+        AVMutableComposition *composition = [AVMutableComposition composition];
+        AVMutableCompositionTrack *track = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+        NSError *insertError = nil;
+        if (![track insertTimeRange:sourceTrack.timeRange ofTrack:sourceTrack atTime:kCMTimeZero error:&insertError]) {
+            completion(insertError); return;
+        }
+        track.preferredTransform = sourceTrack.preferredTransform;
+        [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
+        NSURL *temporaryURL = [NSURL fileURLWithPath:[outputURL.path stringByAppendingString:@".tmp"]];
+        [[NSFileManager defaultManager] removeItemAtURL:temporaryURL error:nil];
+        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPreset1280x720];
+        if (!exporter) { completion([NSError errorWithDomain:@"LockMessageVideo" code:3 userInfo:@{NSLocalizedDescriptionKey:@"系统不支持视频优化格式"}]); return; }
+        exporter.outputURL = temporaryURL;
+        exporter.outputFileType = AVFileTypeMPEG4;
+        exporter.shouldOptimizeForNetworkUse = YES;
+        [exporter exportAsynchronouslyWithCompletionHandler:^{
+            NSError *exportError = exporter.error;
+            if (exporter.status == AVAssetExportSessionStatusCompleted && !exportError) {
+                NSError *moveError = nil;
+                [[NSFileManager defaultManager] moveItemAtURL:temporaryURL toURL:outputURL error:&moveError];
+                completion(moveError);
+            } else {
+                [[NSFileManager defaultManager] removeItemAtURL:temporaryURL error:nil];
+                completion(exportError ?: [NSError errorWithDomain:@"LockMessageVideo" code:4 userInfo:@{NSLocalizedDescriptionKey:@"视频优化失败"}]);
+            }
+        }];
+    }];
 }
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
@@ -194,16 +241,32 @@ static void LMVNotify(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (copyError) [self showError:copyError];
             else {
-                for (NSString *target in LMVTargets()) {
-                    NSString *key = [target stringByAppendingString:@"Video"];
-                    id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-                    BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];
-                    if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)relative, kLMVPrefsID);
-                }
-                LMVNotify();
-                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已保存到素材库：%@", relative] preferredStyle:UIAlertControllerStyleAlert];
-                [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-                [self presentViewController:alert animated:YES completion:nil];
+                NSString *original = [LMVDirectory stringByAppendingPathComponent:relative];
+                NSURL *optimizedURL = LMVOptimizedURL([NSURL fileURLWithPath:original]);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"正在优化视频" message:@"原始素材已保留，正在生成流畅播放版本…" preferredStyle:UIAlertControllerStyleAlert];
+                    [self presentViewController:progress animated:YES completion:nil];
+                    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                        LMVCreatePlaybackDerivative([NSURL fileURLWithPath:original], optimizedURL, ^(NSError *optimizationError) {
+                            if (optimizationError) NSLog(@"[LockMessageVideo] derivative failed for %@: %@", relative, optimizationError);
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [progress dismissViewControllerAnimated:YES completion:^{
+                                    for (NSString *target in LMVTargets()) {
+                                        NSString *key = [target stringByAppendingString:@"Video"];
+                                        id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
+                                        BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];
+                                        if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)relative, kLMVPrefsID);
+                                    }
+                                    LMVNotify();
+                                    NSString *status = optimizationError ? @"优化失败，播放将安全回退到原始素材。" : @"已生成流畅播放版本，原始素材仍保留。";
+                                    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"%@\n素材：%@", status, relative] preferredStyle:UIAlertControllerStyleAlert];
+                                    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+                                    [self presentViewController:alert animated:YES completion:nil];
+                                }];
+                            });
+                        });
+                    });
+                });
             }
         });
     }];

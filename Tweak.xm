@@ -198,7 +198,9 @@ static void LMVLoadPreferences(void) {
         NSString *relative = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)videoKey, kLMVPrefsID);
         if (!relative && [target isEqualToString:@"Message"]) relative = @"message.mov";
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
-        NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
+        NSString *originalPath = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
+        NSString *optimizedPath = [originalPath stringByAppendingString:@".optimized.mp4"];
+        NSString *path = [[NSFileManager defaultManager] fileExistsAtPath:optimizedPath] ? optimizedPath : originalPath;
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
     }
     NSNumber *opacityEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacityEnabled"), kLMVPrefsID);
