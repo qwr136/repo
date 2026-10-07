@@ -15,7 +15,6 @@ static void LMVNotify(void) {
 }
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
-@property(nonatomic, copy) NSString *importTarget;
 @end
 
 @implementation LMVPRootListController
@@ -91,27 +90,17 @@ static void LMVNotify(void) {
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
-    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"导入到" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSUInteger i = 0; i < LMVTargets().count; i++) {
-        NSString *target = LMVTargets()[i];
-        [menu addAction:[UIAlertAction actionWithTitle:LMVNames()[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            self.importTarget = target;
-            PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
-            config.filter = [PHPickerFilter videosFilter];
-            config.selectionLimit = 1;
-            PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
-            picker.delegate = self;
-            [self presentViewController:picker animated:YES completion:nil];
-        }]];
-    }
-    [self presentMenu:menu];
+    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
+    config.filter = [PHPickerFilter videosFilter];
+    config.selectionLimit = 1;
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    NSString *target = [self.importTarget copy];
-    self.importTarget = nil;
     [picker dismissViewControllerAnimated:YES completion:nil];
     PHPickerResult *result = results.firstObject;
-    if (!target || !result || ![result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
+    if (!result || ![result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
     [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
         NSError *copyError = error;
         NSString *relative = nil;
@@ -134,7 +123,15 @@ static void LMVNotify(void) {
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (copyError) [self showError:copyError];
-            else [self selectFile:relative target:target];
+            else {
+                for (NSString *target in LMVTargets()) {
+                    NSString *key = [target stringByAppendingString:@"Video"];
+                    id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
+                    BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];
+                    if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)relative, kLMVPrefsID);
+                }
+                LMVNotify();
+            }
         });
     }];
 }
