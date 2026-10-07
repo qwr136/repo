@@ -14,7 +14,6 @@ static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *, AVURLAsset *> *LMVSources;
 static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
-static NSMutableDictionary<NSString *, AVPlayerItem *> *LMVItems;
 static NSMutableSet<NSString *> *LMVReadyAssets;
 static NSMutableDictionary<NSString *, UIImage *> *LMVPosters;
 static NSMutableDictionary<NSString *, NSString *> *LMVRevisions;
@@ -23,7 +22,6 @@ static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
-static void LMVPrewarmPlayers(void);
 static NSUInteger LMVPlayerCount;
 // Every currently visible card may own a player. No global card/player cap.
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
@@ -78,7 +76,6 @@ static NSString *LMVFileRevision(NSString *path) {
         info.st_ctimespec.tv_nsec];
 }
 
-static NSMutableDictionary<NSString *, LMVVideoState *> *LMVWarmPlayers;
 static LMVVideoState *LMVCreatePlayer(NSString *path) {
     if (!LMVAssets[path]) return nil;
     LMVVideoState *state = [LMVVideoState new];
@@ -88,26 +85,13 @@ static LMVVideoState *LMVCreatePlayer(NSString *path) {
     state.player.preventsDisplaySleepDuringVideoPlayback = NO;
     state.player.muted = YES; state.player.volume = 0;
     state.player.automaticallyWaitsToMinimizeStalling = NO;
-    AVPlayerItem *item = LMVItems[path] ?: [AVPlayerItem playerItemWithAsset:LMVAssets[path]];
+    AVPlayerItem *item = [AVPlayerItem playerItemWithAsset:LMVAssets[path]];
     item.preferredForwardBufferDuration = 1;
     state.looper = [AVPlayerLooper playerLooperWithPlayer:state.player templateItem:item];
     state.layer = [AVPlayerLayer playerLayerWithPlayer:state.player];
     state.layer.videoGravity = AVLayerVideoGravityResizeAspectFill;
     state.layer.bounds = CGRectMake(0, 0, 320, 160);
     return state;
-}
-static void LMVPrewarmPlayers(void) {
-    if (!LMVPlaybackAllowed()) return;
-    for (NSString *path in LMVReadyAssets) {
-        BOOL enabled = NO;
-        for (NSString *target in LMVPaths) if (LMVEnabled[target].boolValue && [LMVPaths[target] isEqualToString:path]) enabled = YES;
-        if (!enabled || LMVWarmPlayers[path]) continue;
-        LMVVideoState *state = LMVCreatePlayer(path);
-        if (!state) continue;
-        LMVWarmPlayers[path] = state;
-        // Keep the cached video-only item and poster available for the visible handoff.
-        // video-only item and poster remain available for the visible handoff.
-    }
 }
 static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
     AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
@@ -126,16 +110,15 @@ static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
 static void LMVPrepareAssets(void) {
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
     for (NSString *path in LMVSources.allKeys) {
-        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path]; [LMVWarmPlayers removeObjectForKey:path]; [LMVItems removeObjectForKey:path]; [LMVReadyAssets removeObject:path]; [LMVPosters removeObjectForKey:path]; [LMVRevisions removeObjectForKey:path]; [LMVClockStarts removeObjectForKey:path]; }
+        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; [LMVPosters removeObjectForKey:path]; [LMVRevisions removeObjectForKey:path]; [LMVClockStarts removeObjectForKey:path]; }
     }
     for (NSString *path in wanted) {
         NSString *revision = LMVFileRevision(path);
         if (LMVSources[path] && [LMVRevisions[path] isEqualToString:revision]) continue;
         // Same URL does not imply the same file. Invalidate composition, poster,
         // decoder and time epoch together before preparing the replacement.
-        [LMVWarmPlayers removeObjectForKey:path];
-        [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];
-        [LMVItems removeObjectForKey:path]; [LMVReadyAssets removeObject:path];
+                [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];
+        [LMVReadyAssets removeObject:path];
         [LMVPosters removeObjectForKey:path]; [LMVClockStarts removeObjectForKey:path];
         if (!revision) { [LMVRevisions removeObjectForKey:path]; continue; }
         LMVRevisions[path] = revision;
@@ -172,14 +155,10 @@ static void LMVPrepareAssets(void) {
             // No fallback to an audio-bearing asset, even if preparation fails.
             if (!ready) NSLog(@"[LockMessageVideo] Video-only preparation failed for %@: %@", path.lastPathComponent, error ?: @"Invalid duration or no usable video track");
             AVAsset *playbackAsset = ready ? [video copy] : nil;
-            AVPlayerItem *cachedItem = playbackAsset ? [AVPlayerItem playerItemWithAsset:playbackAsset] : nil;
-            cachedItem.preferredForwardBufferDuration = 1;
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (LMVSources[path] != asset || !ready) return;
                 LMVAssets[path] = playbackAsset;
-                LMVItems[path] = cachedItem;
-                [LMVReadyAssets addObject:path];
-                LMVPrewarmPlayers();
+                                [LMVReadyAssets addObject:path];
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
             });
             });
@@ -378,7 +357,7 @@ static void LMVUpdate(UIView *cell) {
     if (!cell.window) {
         for (LMVVideoState *state in states.allValues) {
             if (!state.detachedSince) state.detachedSince = now;
-            if (now - state.detachedSince > 1.0) LMVPause(state);
+            if (now - state.detachedSince > 0.35) LMVReleasePlayer(state);
         }
         return;
     }
@@ -434,7 +413,7 @@ static void LMVUpdate(UIView *cell) {
         BOOL anchorVisible = visible && LMVVisible(anchor);
         if (anchorVisible) state.visibilityLossSince = 0;
         else if (state && !state.visibilityLossSince) state.visibilityLossSince = now;
-        if (!anchorVisible && (!state.visibilityLossSince || now - state.visibilityLossSince >= 0.18)) LMVPause(state);
+        if (!anchorVisible && (!state.visibilityLossSince || now - state.visibilityLossSince >= 0.18)) LMVReleasePlayer(state);
         if (!state) {
             // The fallback surface exists even while the decoder budget is exhausted.
             state = [LMVVideoState new]; state.path = path;
@@ -453,13 +432,10 @@ static void LMVUpdate(UIView *cell) {
             state.revision = LMVRevisions[path];
         }
         if (anchorVisible && !state.player && [LMVReadyAssets containsObject:path]) {
-            LMVVideoState *warm = LMVWarmPlayers[path];
-            if (!warm) { warm = LMVCreatePlayer(path); }
-            if (warm) {
-                // Handoff is intentionally a pointer transfer only. Calling
-                state.player = warm.player; state.looper = warm.looper; state.layer = warm.layer;
-                warm.player = nil; warm.looper = nil; warm.layer = nil;
-                [LMVWarmPlayers removeObjectForKey:path];
+            LMVVideoState *created = LMVCreatePlayer(path);
+            if (created) {
+                state.player = created.player; state.looper = created.looper; state.layer = created.layer;
+                created.player = nil; created.looper = nil; created.layer = nil;
                 [state.overlay.layer addSublayer:state.layer];
             }
         }
@@ -559,8 +535,8 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
 static void LMVRefresh(BOOL reload) {
     if (reload) {
         // Imports can overwrite an existing filename; URL equality does not mean same media.
-        [LMVWarmPlayers removeAllObjects];
-        [LMVSources removeAllObjects]; [LMVAssets removeAllObjects]; [LMVItems removeAllObjects]; [LMVReadyAssets removeAllObjects]; [LMVPosters removeAllObjects];
+        
+        [LMVSources removeAllObjects]; [LMVAssets removeAllObjects];; [LMVReadyAssets removeAllObjects]; [LMVPosters removeAllObjects];
         [LMVRevisions removeAllObjects]; [LMVClockStarts removeAllObjects];
         for (UIView *cell in LMVCells.allObjects) {
             NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -591,7 +567,7 @@ static void LMVRefresh(BOOL reload) {
 static CADisplayLink *LMVLink;
 static void LMVSuspend(void) {
     [LMVLink invalidate]; LMVLink = nil;
-    [LMVWarmPlayers removeAllObjects];
+    
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
         for (LMVVideoState *state in states.allValues) LMVReleasePlayer(state);
@@ -636,15 +612,15 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
 static void LMVScreenNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!LMVPlaybackAllowed()) LMVSuspend();
-        else { LMVPrepareAssets(); LMVPrewarmPlayers(); LMVRefresh(NO); }
+        else { LMVPrepareAssets();  LMVRefresh(NO); }
     });
 }
 %ctor {
     @autoreleasepool {
         LMVCells = [NSHashTable weakObjectsHashTable];
-        LMVWarmPlayers = [NSMutableDictionary new];
+        
         LMVRevisions = [NSMutableDictionary new]; LMVClockStarts = [NSMutableDictionary new];
-        LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new]; LMVItems = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
+        LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
         LMVLoadPreferences();
         %init;
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
