@@ -507,11 +507,11 @@ static void LMVUpdate(UIView *cell) {
         }
         if (!state.clipSource || !state.clipSource.superlayer) state.clipSource = LMVClipSource(anchor.layer, state.overlay.layer, 0);
         CALayer *clip = state.clipSource ?: anchor.layer;
-        if (material) {
-            state.overlay.bounds = anchor.bounds;
-            state.overlay.center = anchor.center;
-            state.overlay.transform = anchor.transform;
-        } else { state.overlay.frame = host.bounds; }
+        // The plugin surface is strictly host-sized. It must never participate
+        // in the host's intrinsic size, constraints, or cell height calculation.
+        state.overlay.transform = CGAffineTransformIdentity;
+        state.overlay.frame = host.bounds;
+        state.overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         state.overlay.layer.cornerRadius = clip.cornerRadius;
         state.overlay.layer.cornerCurve = clip.cornerCurve;
         state.overlay.layer.maskedCorners = clip.maskedCorners;
