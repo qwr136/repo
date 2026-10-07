@@ -10,7 +10,8 @@ static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSHashTable<UIView *> *LMVCells;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
-static NSMutableDictionary<NSString *, AVURLAsset *> *LMVAssets;
+static NSMutableDictionary<NSString *, AVURLAsset *> *LMVSources;
+static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
 static NSMutableSet<NSString *> *LMVReadyAssets;
 static NSMutableDictionary<NSString *, UIImage *> *LMVPosters;
 static CGFloat LMVOpacity = 0.55;
@@ -42,6 +43,20 @@ static void LMVUpdate(UIView *cell);
 }
 @end
 
+static void LMVPrepareAudioSession(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSError *error = nil;
+        // SpringBoard owns this shared session; never activate/deactivate it here.
+        if (![[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
+                                                  mode:AVAudioSessionModeDefault
+                                               options:AVAudioSessionCategoryOptionMixWithOthers
+                                                 error:&error]) {
+            NSLog(@"[LockMessageVideo] Non-interrupting audio category failed: %@", error);
+        }
+    });
+}
+
 static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
     AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
     generator.appliesPreferredTrackTransform = YES;
@@ -50,7 +65,7 @@ static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
         if (result != AVAssetImageGeneratorSucceeded || !image) return;
         UIImage *poster = [UIImage imageWithCGImage:image];
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (LMVAssets[path] != asset) return;
+            if (LMVSources[path] != asset) return;
             LMVPosters[path] = poster;
             for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
         });
@@ -58,21 +73,50 @@ static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
 }
 static void LMVPrepareAssets(void) {
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
-    for (NSString *path in LMVAssets.allKeys) {
-        if (![wanted containsObject:path]) { [LMVAssets removeObjectForKey:path]; [LMVReadyAssets removeObject:path]; [LMVPosters removeObjectForKey:path]; }
+    for (NSString *path in LMVSources.allKeys) {
+        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path]; [LMVReadyAssets removeObject:path]; [LMVPosters removeObjectForKey:path]; }
     }
     for (NSString *path in wanted) {
-        if (LMVAssets[path]) continue;
+        if (LMVSources[path]) continue;
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @NO}];
-        LMVAssets[path] = asset;
+        LMVSources[path] = asset;
         LMVPreparePoster(path, asset);
         [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"playable", @"duration"] completionHandler:^{
+            // Composition work stays off the scrolling/main thread and is cached per file.
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             NSError *error = nil;
-            BOOL ready = [asset statusOfValueForKey:@"tracks" error:&error] == AVKeyValueStatusLoaded && [asset statusOfValueForKey:@"playable" error:&error] == AVKeyValueStatusLoaded && asset.playable;
+            BOOL ready = [asset statusOfValueForKey:@"tracks" error:&error] == AVKeyValueStatusLoaded && [asset statusOfValueForKey:@"playable" error:&error] == AVKeyValueStatusLoaded && [asset statusOfValueForKey:@"duration" error:&error] == AVKeyValueStatusLoaded && asset.playable;
+            CMTime duration = ready ? asset.duration : kCMTimeInvalid;
+            ready = ready && CMTIME_IS_NUMERIC(duration) && CMTimeCompare(duration, kCMTimeZero) > 0;
+            AVMutableComposition *video = ready ? [AVMutableComposition composition] : nil;
+            CMTimeRange fullRange = CMTimeRangeMake(kCMTimeZero, duration);
+            NSUInteger videoTrackCount = 0;
+            if (ready) {
+                for (AVAssetTrack *source in [asset tracksWithMediaType:AVMediaTypeVideo]) {
+                    CMTimeRange range = CMTimeRangeGetIntersection(source.timeRange, fullRange);
+                    if (!CMTIMERANGE_IS_VALID(range) || CMTimeCompare(range.duration, kCMTimeZero) <= 0) continue;
+                    AVMutableCompositionTrack *track = [video addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+                    if (!track || ![track insertTimeRange:range ofTrack:source atTime:range.start error:&error]) {
+                        ready = NO;
+                        break;
+                    }
+                    track.preferredTransform = source.preferredTransform;
+                    videoTrackCount++;
+                }
+                ready = ready && videoTrackCount > 0;
+                if (ready && CMTimeCompare(video.duration, duration) < 0) {
+                    [video insertEmptyTimeRange:CMTimeRangeMake(video.duration, CMTimeSubtract(duration, video.duration))];
+                }
+            }
+            // No fallback to an audio-bearing asset, even if preparation fails.
+            if (!ready) NSLog(@"[LockMessageVideo] Video-only preparation failed for %@: %@", path.lastPathComponent, error ?: @"Invalid duration or no usable video track");
+            AVAsset *playbackAsset = ready ? [video copy] : nil;
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (LMVAssets[path] != asset || !ready) return;
+                if (LMVSources[path] != asset || !ready) return;
+                LMVAssets[path] = playbackAsset;
                 [LMVReadyAssets addObject:path];
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
+            });
             });
         }];
     }
@@ -277,6 +321,7 @@ static void LMVUpdate(UIView *cell) {
         if (anchorVisible && !state.player && [LMVReadyAssets containsObject:path]) {
             LMVMakeRoom();
             if (LMVPlayerCount < LMVPlayerLimit) {
+                LMVPrepareAudioSession();
                 state.player = [AVQueuePlayer queuePlayerWithItems:@[]]; LMVPlayerCount++;
                 state.player.muted = YES; state.player.automaticallyWaitsToMinimizeStalling = NO;
                 AVPlayerItem *item = [AVPlayerItem playerItemWithAsset:LMVAssets[path]];
@@ -351,7 +396,7 @@ static void LMVUpdate(UIView *cell) {
 static void LMVRefresh(BOOL reload) {
     if (reload) {
         // Imports can overwrite an existing filename; URL equality does not mean same media.
-        [LMVAssets removeAllObjects]; [LMVReadyAssets removeAllObjects]; [LMVPosters removeAllObjects];
+        [LMVSources removeAllObjects]; [LMVAssets removeAllObjects]; [LMVReadyAssets removeAllObjects]; [LMVPosters removeAllObjects];
         for (UIView *cell in LMVCells.allObjects) {
             NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
             for (LMVVideoState *state in states.allValues) {
@@ -401,7 +446,7 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
 %ctor {
     @autoreleasepool {
         LMVCells = [NSHashTable weakObjectsHashTable];
-        LMVAssets = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
+        LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
         LMVLoadPreferences();
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
