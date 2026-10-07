@@ -323,6 +323,18 @@ static CALayer *LMVClipSource(CALayer *layer, CALayer *excluded, NSUInteger dept
 static void LMVPause(LMVVideoState *state) {
     if (state.playing) { [state.player pause]; state.playing = NO; }
 }
+// UIKit reuses notification cells before their old sublayers disappear. Detach
+// only layers owned by this state; keep the player/item cached for rebinding.
+static void LMVDetachState(LMVVideoState *state) {
+    if (!state) return;
+    [state.layer removeFromSuperlayer];
+    [state.overlay removeFromSuperview];
+    objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    state.anchor = nil;
+    state.host = nil;
+    state.clipSource = nil;
+    state.detachedSince = 0;
+}
 static void LMVStartSynchronized(LMVVideoState *state) {
     AVPlayerItem *item = state.player.currentItem;
     if (!state.player || state.playing || state.player.status != AVPlayerStatusReadyToPlay ||
@@ -412,7 +424,8 @@ static void LMVUpdate(UIView *cell) {
     if (!messageEligible) {
         [hosts removeObjectForKey:@"Message"];
         LMVVideoState *old = states[@"Message"];
-        LMVPause(old); [old.overlay removeFromSuperview];
+        LMVPause(old);
+        LMVDetachState(old);
         [states removeObjectForKey:@"Message"];
     }
     BOOL missing = NO;
@@ -424,9 +437,8 @@ static void LMVUpdate(UIView *cell) {
             // An invalid boundary is not a transient detach: remove only our
             // owned overlay immediately, before discovery binds a new host.
             LMVVideoState *old = states[target];
-            LMVPause(old); [old.overlay removeFromSuperview];
-            objc_setAssociatedObject(old.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            old.anchor = nil; old.host = nil; old.clipSource = nil;
+            LMVPause(old);
+            LMVDetachState(old);
         }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || visible)) missing = YES;
     }
@@ -444,13 +456,13 @@ static void LMVUpdate(UIView *cell) {
         NSString *path = LMVPaths[target];
         LMVVideoState *state = states[target];
         if (!LMVEnabled[target].boolValue || !path || (state && ![state.path isEqualToString:path])) {
-            LMVPause(state); [state.overlay removeFromSuperview]; [states removeObjectForKey:target]; state = nil;
+            LMVPause(state); LMVDetachState(state); [states removeObjectForKey:target]; state = nil;
             if (!LMVEnabled[target].boolValue || !path) continue;
         }
         if (!anchor || !anchor.superview) {
             if (state && !state.detachedSince) state.detachedSince = now;
             if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.35) continue;
-            LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue;
+            LMVPause(state); LMVDetachState(state); continue;
         }
         state.detachedSince = 0;
         BOOL anchorVisible = visible && LMVVisible(anchor);
@@ -489,11 +501,7 @@ static void LMVUpdate(UIView *cell) {
         UIView *host = material ? anchor.superview : anchor;
         // Host identity is part of ownership. Never retain an overlay under a
         // reused parent when UIKit swaps the notification content host.
-        if (state.host && state.host != host) {
-            [state.overlay removeFromSuperview];
-            state.anchor = nil;
-            state.clipSource = nil;
-        }
+        if (state.host && state.host != host) LMVDetachState(state);
         NSDictionary *ownership = @{ @"target": target, @"host": [NSValue valueWithNonretainedObject:host] };
         objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, ownership, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         state.host = host;
@@ -550,7 +558,7 @@ static void LMVUpdate(UIView *cell) {
 - (void)prepareForReuse {
     objc_setAssociatedObject(self, &LMVRetryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSDictionary *states = objc_getAssociatedObject(self, &LMVStatesKey);
-    for (LMVVideoState *state in states.allValues) { LMVPause(state); [state.overlay removeFromSuperview]; objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); state.anchor = nil; state.host = nil; }
+    for (LMVVideoState *state in states.allValues) { LMVPause(state); LMVDetachState(state); }
     objc_setAssociatedObject(self, &LMVStatesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &LMVHostsKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -598,7 +606,7 @@ static void LMVRefresh(BOOL reload) {
             LMVVideoState *state = states[target];
             if (!LMVVisible(cell) && CACurrentMediaTime() - state.lastVisible > 8) LMVReleasePlayer(state);
             if (!LMVEnabled[target].boolValue || ![state.path isEqualToString:LMVPaths[target]]) {
-                LMVPause(state); [state.overlay removeFromSuperview]; [states removeObjectForKey:target];
+                LMVPause(state); LMVDetachState(state); [states removeObjectForKey:target];
             }
         }
         LMVUpdate(cell);
