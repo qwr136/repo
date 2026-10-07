@@ -22,11 +22,10 @@ static NSMutableDictionary<NSString *, NSNumber *> *LMVClockStarts;
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
-static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
+static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnedOverlayKey;
 static void LMVPrewarmPlayers(void);
 static NSUInteger LMVPlayerCount;
 static const NSUInteger LMVPlayerLimit = 18;
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 
@@ -40,7 +39,6 @@ static void LMVSyncDisplayLink(void);
 @property(nonatomic, copy) NSString *revision;
 @property(nonatomic, weak) UIView *anchor;
 @property(nonatomic, weak) CALayer *clipSource;
-@property(nonatomic, weak) UIView *host;
 @property(nonatomic) CFTimeInterval lastVisible;
 @property(nonatomic) CFTimeInterval visibilityLossSince;
 @property(nonatomic) CFTimeInterval detachedSince;
@@ -105,7 +103,8 @@ static void LMVPrewarmPlayers(void) {
         LMVVideoState *state = LMVCreatePlayer(path);
         if (!state) continue;
         LMVWarmPlayers[path] = state;
-        // Keep the cached video-only item and poster available for the visible handoff.
+        // Do not issue preroll/cancelPendingPrerolls during notification transitions.
+        // AVPlayer on iOS 16.5 can throw from that state transition; the cached
         // video-only item and poster remain available for the visible handoff.
     }
 }
@@ -190,7 +189,7 @@ static void LMVLoadPreferences(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     LMVPaths = [NSMutableDictionary new];
     LMVEnabled = [NSMutableDictionary new];
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
@@ -231,22 +230,19 @@ static BOOL LMVActionBranch(UIView *view) {
     Class presenter = NSClassFromString(@"PLActionButtonsPresentingView");
     return [NSStringFromClass(view.class) containsString:@"ActionButtons"] || (presenter && [view isKindOfClass:presenter]);
 }
-static BOOL LMVIsClassOrSubclass(UIView *view, NSString *name) {
-    Class cls = NSClassFromString(name);
-    return cls && [view isKindOfClass:cls];
+static BOOL LMVIsMessageHost(UIView *view) {
+    NSString *name = NSStringFromClass(view.class);
+    return [name isEqualToString:@"NCNotificationShortLookView"] ||
+           [name isEqualToString:@"NCNotificationSeamlessContentView"];
 }
-static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
-    if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01) return nil;
-    if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
+static UIView *LMVMessageHost(UIView *view, NSUInteger depth) {
+    if (depth > 16 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01) return nil;
+    if (LMVIsMessageHost(view) && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
     for (UIView *child in view.subviews) {
-        if (LMVIsClassOrSubclass(child, @"NCNotificationListCell")) continue;
-        UIView *material = LMVMessageMaterial(child, depth + 1);
-        if (material) return material;
+        UIView *host = LMVMessageHost(child, depth + 1);
+        if (host) return host;
     }
     return nil;
-}
-static BOOL LMVMessageCell(UIView *cell) {
-    return LMVIsClassOrSubclass(cell, @"NCNotificationListCell");
 }
 static NSString *LMVSemanticTarget(UIView *view) {
     NSString *title = nil;
@@ -267,8 +263,7 @@ static void LMVFindActions(UIView *view, UIView *root, NSMapTable *hosts, NSUInt
         UIView *host = view;
         while (host && host != root && ![host isKindOfClass:UIControl.class]) host = host.superview;
         if (host && host != root) {
-            UIView *material = LMVMessageMaterial(host, 0);
-            [hosts setObject:(material ?: host) forKey:target];
+            [hosts setObject:host forKey:target];
         }
     }
     for (UIView *child in view.subviews) LMVFindActions(child, root, hosts, depth + 1);
@@ -320,20 +315,16 @@ static CALayer *LMVClipSource(CALayer *layer, CALayer *excluded, NSUInteger dept
     }
     return nil;
 }
+static BOOL LMVIsOwnedOverlay(UIView *overlay) {
+    return overlay && [objc_getAssociatedObject(overlay, &LMVOwnedOverlayKey) boolValue];
+}
+static void LMVDetachOverlay(LMVVideoState *state) {
+    if (LMVIsOwnedOverlay(state.overlay)) [state.overlay removeFromSuperview];
+    state.anchor = nil;
+    state.clipSource = nil;
+}
 static void LMVPause(LMVVideoState *state) {
     if (state.playing) { [state.player pause]; state.playing = NO; }
-}
-// UIKit reuses notification cells before their old sublayers disappear. Detach
-// only layers owned by this state; keep the player/item cached for rebinding.
-static void LMVDetachState(LMVVideoState *state) {
-    if (!state) return;
-    [state.layer removeFromSuperlayer];
-    [state.overlay removeFromSuperview];
-    objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    state.anchor = nil;
-    state.host = nil;
-    state.clipSource = nil;
-    state.detachedSince = 0;
 }
 static void LMVStartSynchronized(LMVVideoState *state) {
     AVPlayerItem *item = state.player.currentItem;
@@ -420,49 +411,31 @@ static void LMVUpdate(UIView *cell) {
     if (!hosts) { hosts = [NSMapTable strongToStrongObjectsMapTable]; objc_setAssociatedObject(cell, &LMVHostsKey, hosts, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     // UIKit briefly hides or detaches notification materials while collapsing a stack.
     // Keep our cached host and decoder through that transient window.
-    BOOL messageEligible = LMVMessageCell(cell);
-    if (!messageEligible) {
-        [hosts removeObjectForKey:@"Message"];
-        LMVVideoState *old = states[@"Message"];
-        LMVPause(old);
-        LMVDetachState(old);
-        [states removeObjectForKey:@"Message"];
-    }
     BOOL missing = NO;
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
         UIView *host = [hosts objectForKey:target];
-        if ([target isEqualToString:@"Message"] && !messageEligible) host = nil;
-        if (host && !([host isDescendantOfView:cell] || host == cell)) {
-            [hosts removeObjectForKey:target]; host = nil;
-            // An invalid boundary is not a transient detach: remove only our
-            // owned overlay immediately, before discovery binds a new host.
-            LMVVideoState *old = states[target];
-            LMVPause(old);
-            LMVDetachState(old);
-        }
+        if (host && ![host isDescendantOfView:cell]) { [hosts removeObjectForKey:target]; host = nil; }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || visible)) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         LMVActionHosts(cell, hosts, 0);
-        if (messageEligible) {
-            UIView *material = LMVMessageMaterial(cell, 0);
-            if (material) [hosts setObject:material forKey:@"Message"];
-        }
+        UIView *messageHost = LMVMessageHost(cell, 0);
+        if (messageHost) [hosts setObject:messageHost forKey:@"Message"];
     }
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
         UIView *anchor = [hosts objectForKey:target];
         NSString *path = LMVPaths[target];
         LMVVideoState *state = states[target];
         if (!LMVEnabled[target].boolValue || !path || (state && ![state.path isEqualToString:path])) {
-            LMVPause(state); LMVDetachState(state); [states removeObjectForKey:target]; state = nil;
+            LMVPause(state); LMVDetachOverlay(state); [states removeObjectForKey:target]; state = nil;
             if (!LMVEnabled[target].boolValue || !path) continue;
         }
         if (!anchor || !anchor.superview) {
-            if (state && !state.detachedSince) state.detachedSince = now;
-            if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.35) continue;
-            LMVPause(state); LMVDetachState(state); continue;
+            // Detach is an ownership boundary: remove immediately. Keep only
+            // the player/poster cache, never a view attached to the old cell.
+            LMVPause(state); LMVDetachOverlay(state); continue;
         }
         state.detachedSince = 0;
         BOOL anchorVisible = visible && LMVVisible(anchor);
@@ -473,7 +446,9 @@ static void LMVUpdate(UIView *cell) {
             // The fallback surface exists even while the decoder budget is exhausted.
             state = [LMVVideoState new]; state.path = path;
             state.revision = LMVRevisions[path];
-            state.overlay = [UIView new]; state.overlay.userInteractionEnabled = NO;
+            state.overlay = [UIView new];
+            objc_setAssociatedObject(state.overlay, &LMVOwnedOverlayKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            state.overlay.userInteractionEnabled = NO;
             state.overlay.clipsToBounds = YES;
             state.poster = [UIImageView new];
             state.poster.contentMode = UIViewContentModeScaleAspectFill;
@@ -491,35 +466,28 @@ static void LMVUpdate(UIView *cell) {
             if (!warm) { LMVMakeRoom(); warm = LMVCreatePlayer(path); }
             if (warm) {
                 // Handoff is intentionally a pointer transfer only. Calling
+                // cancelPendingPrerolls here can throw on iOS 16.5 while AVF
+                // is still configuring the cached item.
                 state.player = warm.player; state.looper = warm.looper; state.layer = warm.layer;
                 warm.player = nil; warm.looper = nil; warm.layer = nil;
                 [LMVWarmPlayers removeObjectForKey:path];
                 [state.overlay.layer addSublayer:state.layer];
             }
         }
-        BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
-        UIView *host = material ? anchor.superview : anchor;
-        // Host identity is part of ownership. Never retain an overlay under a
-        // reused parent when UIKit swaps the notification content host.
-        if (state.host && state.host != host) LMVDetachState(state);
-        NSDictionary *ownership = @{ @"target": target, @"host": [NSValue valueWithNonretainedObject:host] };
-        objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, ownership, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        state.host = host;
+        // The content host owns local coordinates. Never copy the transformed
+        // outer cell/material geometry into an overlay.
+        UIView *host = anchor;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
         if (state.overlay.superview != host || state.anchor != anchor) {
-            if (material) [host insertSubview:state.overlay aboveSubview:anchor];
-            else [host insertSubview:state.overlay atIndex:0];
+            [host insertSubview:state.overlay atIndex:0];
             state.anchor = anchor;
             state.clipSource = nil;
         }
-        if (!state.clipSource || !state.clipSource.superlayer) state.clipSource = LMVClipSource(anchor.layer, state.overlay.layer, 0);
-        CALayer *clip = state.clipSource ?: anchor.layer;
-        if (material) {
-            state.overlay.bounds = anchor.bounds;
-            state.overlay.center = anchor.center;
-            state.overlay.transform = anchor.transform;
-        } else { state.overlay.frame = host.bounds; }
+        if (!state.clipSource || !state.clipSource.superlayer) state.clipSource = LMVClipSource(host.layer, state.overlay.layer, 0);
+        CALayer *clip = state.clipSource ?: host.layer;
+        state.overlay.frame = host.bounds;
+        state.overlay.transform = CGAffineTransformIdentity;
         state.overlay.layer.cornerRadius = clip.cornerRadius;
         state.overlay.layer.cornerCurve = clip.cornerCurve;
         state.overlay.layer.maskedCorners = clip.maskedCorners;
@@ -558,12 +526,28 @@ static void LMVUpdate(UIView *cell) {
 - (void)prepareForReuse {
     objc_setAssociatedObject(self, &LMVRetryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSDictionary *states = objc_getAssociatedObject(self, &LMVStatesKey);
-    for (LMVVideoState *state in states.allValues) { LMVPause(state); LMVDetachState(state); }
-    objc_setAssociatedObject(self, &LMVStatesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    for (LMVVideoState *state in states.allValues) { LMVPause(state); LMVDetachOverlay(state); }
     objc_setAssociatedObject(self, &LMVHostsKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     %orig;
 }
+%end
+
+// These private hosts own the message geometry during stack collapse. Hooks are
+// guarded by Logos class resolution and never target arbitrary UIView objects.
+static void LMVUpdateMessageHost(UIView *host) {
+    Class cellClass = NSClassFromString(@"NCNotificationListCell");
+    UIView *owner = host;
+    while (owner && (!cellClass || ![owner isKindOfClass:cellClass])) owner = owner.superview;
+    if (owner) { [LMVCells addObject:owner]; LMVUpdate(owner); }
+}
+%hook NCNotificationShortLookView
+- (void)layoutSubviews { %orig; LMVUpdateMessageHost((UIView *)self); }
+- (void)didMoveToWindow { %orig; LMVUpdateMessageHost((UIView *)self); }
+%end
+%hook NCNotificationSeamlessContentView
+- (void)layoutSubviews { %orig; LMVUpdateMessageHost((UIView *)self); }
+- (void)didMoveToWindow { %orig; LMVUpdateMessageHost((UIView *)self); }
 %end
 static void LMVUpdateActionPresenter(UIView *presenter) {
     UIView *ancestor = presenter.superview;
@@ -606,7 +590,7 @@ static void LMVRefresh(BOOL reload) {
             LMVVideoState *state = states[target];
             if (!LMVVisible(cell) && CACurrentMediaTime() - state.lastVisible > 8) LMVReleasePlayer(state);
             if (!LMVEnabled[target].boolValue || ![state.path isEqualToString:LMVPaths[target]]) {
-                LMVPause(state); LMVDetachState(state); [states removeObjectForKey:target];
+                LMVPause(state); LMVDetachOverlay(state); [states removeObjectForKey:target];
             }
         }
         LMVUpdate(cell);
@@ -702,7 +686,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVRevisions = [NSMutableDictionary new]; LMVClockStarts = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new]; LMVItems = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
         LMVLoadPreferences();
-        %init;
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
