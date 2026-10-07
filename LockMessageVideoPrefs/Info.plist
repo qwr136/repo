@@ -11,9 +11,9 @@
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.0.16</string>
+	<string>0.0.17</string>
 	<key>CFBundleVersion</key>
-	<string>0.0.16</string>
+	<string>0.0.17</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>选择消息通知背景视频</string>
 </dict>

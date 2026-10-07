@@ -31,6 +31,8 @@ static void LMVUpdate(UIView *cell);
 @property(nonatomic, weak) UIView *anchor;
 @property(nonatomic, weak) CALayer *clipSource;
 @property(nonatomic) CFTimeInterval lastVisible;
+@property(nonatomic) CFTimeInterval visibilityLossSince;
+@property(nonatomic) CFTimeInterval detachedSince;
 @property(nonatomic) BOOL playing;
 @end
 @implementation LMVVideoState
@@ -279,22 +281,24 @@ static void LMVUpdate(UIView *cell) {
     NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
     if (!states) { states = [NSMutableDictionary new]; objc_setAssociatedObject(cell, &LMVStatesKey, states, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     BOOL visible = LMVVisible(cell);
-    if (!cell.window) { for (LMVVideoState *state in states.allValues) LMVPause(state); return; }
-    if (!visible) { for (LMVVideoState *state in states.allValues) LMVPause(state); }
-    NSMapTable *hosts = objc_getAssociatedObject(cell, &LMVHostsKey);
-    if (!hosts) { hosts = [NSMapTable strongToWeakObjectsMapTable]; objc_setAssociatedObject(cell, &LMVHostsKey, hosts, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-    UIView *cachedMessage = [hosts objectForKey:@"Message"];
-    if (cachedMessage && (cachedMessage.hidden || cachedMessage.alpha < 0.01 || cachedMessage.bounds.size.width < 1)) {
-        [hosts removeObjectForKey:@"Message"];
-        objc_setAssociatedObject(cell, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFTimeInterval now = CACurrentMediaTime();
+    if (!cell.window) {
+        for (LMVVideoState *state in states.allValues) {
+            if (!state.detachedSince) state.detachedSince = now;
+            if (now - state.detachedSince > 1.0) LMVPause(state);
+        }
+        return;
     }
+    NSMapTable *hosts = objc_getAssociatedObject(cell, &LMVHostsKey);
+    if (!hosts) { hosts = [NSMapTable strongToStrongObjectsMapTable]; objc_setAssociatedObject(cell, &LMVHostsKey, hosts, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+    // During stack collapse UIKit transiently hides the material view. Keep the
+    // cached host so the owned overlay and decoder are not torn down/recreated.
     BOOL missing = NO;
     for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
         UIView *host = [hosts objectForKey:target];
         if (host && ![host isDescendantOfView:cell]) { [hosts removeObjectForKey:target]; host = nil; }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || visible)) missing = YES;
     }
-    CFTimeInterval now = CACurrentMediaTime();
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.2)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -310,9 +314,18 @@ static void LMVUpdate(UIView *cell) {
             LMVPause(state); [state.overlay removeFromSuperview]; [states removeObjectForKey:target]; state = nil;
             if (!LMVEnabled[target].boolValue || !path) continue;
         }
-        if (!anchor || !anchor.superview) { LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue; }
+        if (!anchor || !anchor.superview) {
+            if (state && !state.detachedSince) state.detachedSince = now;
+            // Stack collapse can detach the material for a few frames. Keep the
+            // overlay attached to its last host until the hierarchy settles.
+            if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.35) continue;
+            LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue;
+        }
+        state.detachedSince = 0;
         BOOL anchorVisible = visible && LMVVisible(anchor);
-        if (!anchorVisible) LMVPause(state);
+        if (anchorVisible) state.visibilityLossSince = 0;
+        else if (state && !state.visibilityLossSince) state.visibilityLossSince = now;
+        if (!anchorVisible && (!state.visibilityLossSince || now - state.visibilityLossSince >= 0.18)) LMVPause(state);
         if (!state) {
             // The fallback surface exists even while the decoder budget is exhausted.
             state = [LMVVideoState new]; state.path = path;
@@ -450,7 +463,7 @@ static void LMVRefresh(BOOL reload) {
         for (LMVVideoState *state in states.allValues) {
             BOOL visible = cellVisible && state.anchor && [state.anchor isDescendantOfView:cell] && LMVVisible(state.anchor);
             if (visible) state.lastVisible = CACurrentMediaTime();
-            if (!visible) LMVPause(state);
+            if (!visible && (!state.visibilityLossSince || CACurrentMediaTime() - state.visibilityLossSince >= 0.18)) LMVPause(state);
             BOOL canStart = visible && !state.playing && (state.player || (LMVPlayerCount < LMVPlayerLimit && [LMVReadyAssets containsObject:state.path]));
             if (canStart || (state.layer && state.layer.hidden == state.layer.readyForDisplay) || (visible && !state.overlay.superview)) update = YES;
         }
