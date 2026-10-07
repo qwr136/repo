@@ -5,18 +5,18 @@ THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = LockMessageVideo
-LockMessageVideo_FILES = Tweak.xm
-LockMessageVideo_CFLAGS = -fobjc-arc
-LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation
+TWEAK_NAME = LockMessageVideoMessageDiagnostic
+LockMessageVideoMessageDiagnostic_FILES = MessageDiagnostic.xm
+LockMessageVideoMessageDiagnostic_CFLAGS = -fobjc-arc
+LockMessageVideoMessageDiagnostic_FRAMEWORKS = UIKit Foundation QuartzCore
 
-BUNDLE_NAME = LockMessageVideoPrefs
-LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m
-LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI
-LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
-LockMessageVideoPrefs_RESOURCE_FILES = Resources/Root.plist LockMessageVideoPrefs/Info.plist
-LockMessageVideoPrefs_CFLAGS = -fobjc-arc
-LockMessageVideoPrefs_LDFLAGS = -F$(THEOS_PROJECT_DIR)/Frameworks -framework Preferences
+BUNDLE_NAME = LockMessageVideoMessageDiagnosticPrefs
+LockMessageVideoMessageDiagnosticPrefs_FILES = DiagnosticPrefs/DiagnosticRootListController.m
+LockMessageVideoMessageDiagnosticPrefs_FRAMEWORKS = UIKit Foundation
+LockMessageVideoMessageDiagnosticPrefs_INSTALL_PATH = /Library/PreferenceBundles
+LockMessageVideoMessageDiagnosticPrefs_RESOURCE_FILES = DiagnosticPrefs/Info.plist DiagnosticPrefs/Root.plist
+LockMessageVideoMessageDiagnosticPrefs_CFLAGS = -fobjc-arc
+LockMessageVideoMessageDiagnosticPrefs_LDFLAGS = -F$(THEOS_PROJECT_DIR)/Frameworks -framework Preferences
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk
