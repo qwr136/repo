@@ -606,7 +606,7 @@ static void LMVSyncDisplayLink(void) {
     if (LMVLink) return;
     LMVDisplayLinkTarget *target = [LMVDisplayLinkTarget new];
     LMVLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
-    LMVLink.preferredFramesPerSecond = 60;
+    LMVLink.preferredFramesPerSecond = 80;
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     objc_setAssociatedObject(LMVLink, @selector(LMVSyncDisplayLink), target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
