@@ -79,19 +79,19 @@ static void MDLogCell(UIView *cell, NSString *event) {
 %hook NCNotificationListCell
 - (void)didMoveToWindow {
     %orig;
-    MDLogCell(self, self.window ? @"attach" : @"detach");
+    MDLogCell((UIView *)self, ((UIView *)self).window ? @"attach" : @"detach");
 }
 - (void)prepareForReuse {
-    MDLogCell(self, @"reuse-before");
+    MDLogCell((UIView *)self, @"reuse-before");
     %orig;
-    MDLogCell(self, @"reuse-after");
+    MDLogCell((UIView *)self, @"reuse-after");
 }
 - (void)layoutSubviews {
     %orig;
-    MDLogCell(self, @"layout");
+    MDLogCell((UIView *)self, @"layout");
 }
 - (void)removeFromSuperview {
-    MDLogCell(self, @"detach-before");
+    MDLogCell((UIView *)self, @"detach-before");
     %orig;
 }
 %end
