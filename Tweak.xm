@@ -350,11 +350,6 @@ static void LMVReleasePlayer(LMVVideoState *state) {
     state.looper = nil; state.layer = nil; state.player = nil;
     state.poster.hidden = NO;
 }
-static void LMVMakeRoom(void) {
-    // Visible cards are never evicted for an arbitrary global budget.
-    // Cached players are released only by their own visibility lifecycle.
-    return;
-}
 static void LMVRetryDiscovery(UIView *cell) {
     if (objc_getAssociatedObject(cell, &LMVRetryKey)) return;
     objc_setAssociatedObject(cell, &LMVRetryKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
