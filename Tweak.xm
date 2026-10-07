@@ -607,6 +607,7 @@ static void LMVSyncDisplayLink(void) {
     // There is no resident display-link scan or fixed 30 FPS polling.
 }
 @implementation LMVDisplayLinkTarget
+- (void)tick:(CADisplayLink *)link {}
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
