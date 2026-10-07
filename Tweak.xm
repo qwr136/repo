@@ -28,6 +28,7 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
+static void LMVRefresh(BOOL reload);
 static CADisplayLink *LMVLink;
 
 @interface LMVVideoState : NSObject
