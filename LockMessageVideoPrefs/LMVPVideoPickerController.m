@@ -2,6 +2,8 @@
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
 
+static NSString * const LMVImportDomain = @"com.minis.lockmessagevideo.import";
+
 @interface LMVPVideoPickerController : UIViewController
 - (instancetype)initWithMode:(NSString *)mode;
 @end
@@ -12,56 +14,43 @@
 @end
 
 @implementation LMVPVideoPickerController
-
 - (instancetype)initWithMode:(NSString *)mode {
-    if ((self = [super init])) {
-        _mode = [mode copy];
-        self.title = [mode isEqualToString:@"message"] ? @"选择消息视频" : @"选择选项视频";
-    }
+    if ((self = [super init])) { _mode = [mode copy]; self.title = [mode isEqualToString:@"message"] ? @"选择消息视频" : @"选择选项视频"; }
     return self;
 }
-
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     if (self.didPresentPicker) return;
     self.didPresentPicker = YES;
-    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
-    config.filter = [PHPickerFilter videosFilter];
-    config.selectionLimit = 1;
-    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
-    picker.delegate = self;
+    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
+    config.filter = [PHPickerFilter videosFilter]; config.selectionLimit = 1;
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config]; picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
-
+- (NSError *)importError:(NSInteger)code description:(NSString *)description { return [NSError errorWithDomain:LMVImportDomain code:code userInfo:@{NSLocalizedDescriptionKey: description}]; }
+- (void)finishWithError:(NSError *)error {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:(error ? @"导入失败" : @"导入成功") message:(error ? error.localizedDescription : @"视频已保存，锁屏视图将即时刷新。") preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self.navigationController popViewControllerAnimated:YES]; }]];
+        [self presentViewController:alert animated:YES completion:nil];
+    });
+}
+- (void)processPickedURL:(NSURL *)url error:(NSError *)loadError {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *dir = @"/var/mobile/LockMessageVideo";
+    NSString *dst = [dir stringByAppendingPathComponent:([self.mode isEqualToString:@"message"] ? @"message.mov" : @"options.mov")];
+    NSError *error = loadError; BOOL success = NO;
+    if (!error && !url) error = [self importError:1 description:@"无法读取视频文件"];
+    if (!error) [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&error];
+    if (!error) { [fm removeItemAtPath:dst error:nil]; success = [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&error]; }
+    if (success && !error) CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, NULL, YES);
+    [self finishWithError:(success && !error) ? nil : (error ?: [self importError:2 description:@"导入失败"])];
+}
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    [picker dismissViewControllerAnimated:YES completion:nil];
-    PHPickerResult *result = results.firstObject;
+    [picker dismissViewControllerAnimated:YES completion:nil]; PHPickerResult *result = results.firstObject;
     if (!result) { [self.navigationController popViewControllerAnimated:YES]; return; }
     NSItemProvider *provider = result.itemProvider;
-    if (![provider hasItemConformingToTypeIdentifier:@"public.movie"]) { [self.navigationController popViewControllerAnimated:YES]; return; }
-    [provider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
-        NSString *dir = @"/var/mobile/LockMessageVideo";
-        NSString *filename = [self.mode isEqualToString:@"message"] ? @"message.mov" : @"options.mov";
-        NSString *dstPath = [dir stringByAppendingPathComponent:filename];
-        __block NSError *copyError = error;
-        if (url && !copyError) {
-            [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&copyError];
-            if (!copyError) {
-                [[NSFileManager defaultManager] removeItemAtPath:dstPath error:nil];
-                [[NSFileManager defaultManager] copyItemAtURL:url toURL:[NSURL fileURLWithPath:dstPath] error:&copyError];
-            }
-        }
-        if (!copyError) {
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, NULL, YES);
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            NSString *title = copyError ? @"保存失败" : @"已保存";
-            NSString *message = copyError ? (copyError.localizedDescription ?: @"无法复制视频") : @"视频已保存到 /var/mobile/LockMessageVideo/，锁屏视图将即时刷新。";
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self.navigationController popViewControllerAnimated:YES]; }]];
-            [self presentViewController:alert animated:YES completion:nil];
-        });
-    }];
+    if (![provider hasItemConformingToTypeIdentifier:@"public.movie"]) { [self finishWithError:[self importError:3 description:@"无法读取视频文件"]]; return; }
+    [provider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) { [self processPickedURL:url error:error]; }];
 }
-
 @end

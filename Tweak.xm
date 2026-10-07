@@ -598,11 +598,26 @@ static void LMVSuspend(void) {
     }
 }
 static void LMVSyncDisplayLink(void) {
-    // Deliberately empty: visibility and readiness events schedule updates.
-    // There is no resident display-link scan or fixed 30 FPS polling.
+    if (!LMVPlaybackAllowed()) {
+        [LMVLink invalidate];
+        LMVLink = nil;
+        return;
+    }
+    if (LMVLink) return;
+    LMVDisplayLinkTarget *target = [LMVDisplayLinkTarget new];
+    LMVLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
+    LMVLink.preferredFramesPerSecond = 80;
+    [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    objc_setAssociatedObject(LMVLink, @selector(LMVSyncDisplayLink), target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 @implementation LMVDisplayLinkTarget
-- (void)tick:(CADisplayLink *)link {}
+- (void)tick:(CADisplayLink *)link {
+    if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
+    for (UIView *cell in LMVCells.allObjects) {
+        if (!cell.window || !LMVVisible(cell)) continue;
+        LMVUpdate(cell);
+    }
+}
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
