@@ -22,7 +22,7 @@ static NSMutableDictionary<NSString *, NSNumber *> *LMVClockStarts;
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
-static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey;
+static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
 static void LMVPrewarmPlayers(void);
 static NSUInteger LMVPlayerCount;
 static const NSUInteger LMVPlayerLimit = 18;
@@ -40,6 +40,7 @@ static void LMVSyncDisplayLink(void);
 @property(nonatomic, copy) NSString *revision;
 @property(nonatomic, weak) UIView *anchor;
 @property(nonatomic, weak) CALayer *clipSource;
+@property(nonatomic, weak) UIView *host;
 @property(nonatomic) CFTimeInterval lastVisible;
 @property(nonatomic) CFTimeInterval visibilityLossSince;
 @property(nonatomic) CFTimeInterval detachedSince;
@@ -231,14 +232,37 @@ static BOOL LMVActionBranch(UIView *view) {
     Class presenter = NSClassFromString(@"PLActionButtonsPresentingView");
     return [NSStringFromClass(view.class) containsString:@"ActionButtons"] || (presenter && [view isKindOfClass:presenter]);
 }
+static BOOL LMVIsClassOrSubclass(UIView *view, NSString *name) {
+    Class cls = NSClassFromString(name);
+    return cls && [view isKindOfClass:cls];
+}
+static BOOL LMVIsLiveActivityView(UIView *view) {
+    return LMVIsClassOrSubclass(view, @"CSActivityItemContentView") ||
+        LMVIsClassOrSubclass(view, @"PLPlatterCustomContentView") ||
+        LMVIsClassOrSubclass(view, @"NCNotificationListSupplementaryHostingView");
+}
+static BOOL LMVHasLiveActivityAncestor(UIView *view) {
+    for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
+        if (LMVIsLiveActivityView(ancestor)) return YES;
+    }
+    return NO;
+}
+static BOOL LMVHasLiveActivityDescendant(UIView *view) {
+    if (LMVIsLiveActivityView(view)) return YES;
+    for (UIView *child in view.subviews) if (LMVHasLiveActivityDescendant(child)) return YES;
+    return NO;
+}
 static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
-    if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01) return nil;
+    if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01 || LMVIsLiveActivityView(view)) return nil;
     if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
     for (UIView *child in view.subviews) {
         UIView *material = LMVMessageMaterial(child, depth + 1);
         if (material) return material;
     }
     return nil;
+}
+static BOOL LMVMessageCell(UIView *cell) {
+    return LMVIsClassOrSubclass(cell, @"NCNotificationListCell") && !LMVIsLiveActivityView(cell) && !LMVHasLiveActivityAncestor(cell);
 }
 static NSString *LMVSemanticTarget(UIView *view) {
     NSString *title = nil;
@@ -403,19 +427,30 @@ static void LMVUpdate(UIView *cell) {
     BOOL missing = NO;
     for (NSString *target in LMVTargets()) {
         UIView *host = [hosts objectForKey:target];
-        if ([target isEqualToString:@"LiveActivity"] && [cell isKindOfClass:NSClassFromString(@"CSActivityItemContentView")]) {
+        BOOL isLiveCell = LMVIsClassOrSubclass(cell, @"CSActivityItemContentView");
+        // Message material belongs only to a notification cell. A cell that
+        // contains a live-activity host is deliberately ineligible, so the
+        // live host owns the only overlay for that visual surface.
+        if ([target isEqualToString:@"Message"] && (!LMVMessageCell(cell) || LMVHasLiveActivityDescendant(cell))) host = nil;
+        if ([target isEqualToString:@"LiveActivity"] && isLiveCell) {
             host = cell;
             [hosts setObject:cell forKey:target];
+        } else if ([target isEqualToString:@"LiveActivity"] && !isLiveCell) {
+            host = nil;
         }
-        if (host && ![host isDescendantOfView:cell]) { [hosts removeObjectForKey:target]; host = nil; }
+        if (host && (!([host isDescendantOfView:cell] || host == cell) || ([target isEqualToString:@"Message"] && LMVHasLiveActivityAncestor(host)))) {
+            [hosts removeObjectForKey:target]; host = nil;
+        }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || [target isEqualToString:@"LiveActivity"] || visible)) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        LMVActionHosts(cell, hosts, 0);
-        UIView *material = LMVMessageMaterial(cell, 0);
-        if (material) [hosts setObject:material forKey:@"Message"];
+        if (LMVMessageCell(cell) && !LMVHasLiveActivityDescendant(cell)) {
+            LMVActionHosts(cell, hosts, 0);
+            UIView *material = LMVMessageMaterial(cell, 0);
+            if (material) [hosts setObject:material forKey:@"Message"];
+        }
     }
     for (NSString *target in LMVTargets()) {
         UIView *anchor = [hosts objectForKey:target];
@@ -467,6 +502,16 @@ static void LMVUpdate(UIView *cell) {
         }
         BOOL material = ![target isEqualToString:@"LiveActivity"] && [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
         UIView *host = material ? anchor.superview : anchor;
+        // Host identity is part of ownership. Never retain an overlay under a
+        // reused parent when UIKit swaps the notification content host.
+        if (state.host && state.host != host) {
+            [state.overlay removeFromSuperview];
+            state.anchor = nil;
+            state.clipSource = nil;
+        }
+        NSDictionary *ownership = @{ @"target": target, @"host": [NSValue valueWithNonretainedObject:host] };
+        objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, ownership, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        state.host = host;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
         if (state.overlay.superview != host || state.anchor != anchor) {
@@ -520,7 +565,8 @@ static void LMVUpdate(UIView *cell) {
 - (void)prepareForReuse {
     objc_setAssociatedObject(self, &LMVRetryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSDictionary *states = objc_getAssociatedObject(self, &LMVStatesKey);
-    for (LMVVideoState *state in states.allValues) { LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; }
+    for (LMVVideoState *state in states.allValues) { LMVPause(state); [state.overlay removeFromSuperview]; objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); state.anchor = nil; state.host = nil; }
+    objc_setAssociatedObject(self, &LMVStatesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &LMVHostsKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     %orig;
@@ -570,7 +616,9 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
         LMVPause(state);
         [state.overlay removeFromSuperview];
         state.anchor = nil;
+        state.host = nil;
         state.clipSource = nil;
+        objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     objc_setAssociatedObject(self, &LMVStatesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &LMVHostsKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
