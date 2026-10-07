@@ -623,14 +623,6 @@ static void LMVRefresh(BOOL reload) {
 static void LMVSuspend(void) {
     LMVReleaseAllPlayers();
 }
-static void LMVSuspendLegacy(void) {
-    [LMVLink invalidate]; LMVLink = nil;
-    
-    for (UIView *cell in LMVCells.allObjects) {
-        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-        for (LMVVideoState *state in states.allValues) LMVReleasePlayer(state);
-    }
-}
 static void LMVSyncDisplayLink(void) {
     if (!LMVPlaybackAllowed()) {
         [LMVLink invalidate];
