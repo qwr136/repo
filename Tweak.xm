@@ -26,7 +26,7 @@ static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershi
 static void LMVPrewarmPlayers(void);
 static NSUInteger LMVPlayerCount;
 static const NSUInteger LMVPlayerLimit = 18;
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LiveActivity"]; }
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 
@@ -105,8 +105,7 @@ static void LMVPrewarmPlayers(void) {
         LMVVideoState *state = LMVCreatePlayer(path);
         if (!state) continue;
         LMVWarmPlayers[path] = state;
-        // Do not issue preroll/cancelPendingPrerolls during notification transitions.
-        // AVPlayer on iOS 16.5 can throw from that state transition; the cached
+        // Keep the cached video-only item and poster available for the visible handoff.
         // video-only item and poster remain available for the visible handoff.
     }
 }
@@ -236,19 +235,8 @@ static BOOL LMVIsClassOrSubclass(UIView *view, NSString *name) {
     Class cls = NSClassFromString(name);
     return cls && [view isKindOfClass:cls];
 }
-static BOOL LMVIsLiveActivityView(UIView *view) {
-    // Wrapper classes are also used by ordinary notifications. Only the
-    // dedicated activity content view starts a live-activity subtree.
-    return LMVIsClassOrSubclass(view, @"CSActivityItemContentView");
-}
-static BOOL LMVHasLiveActivityAncestor(UIView *view) {
-    for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
-        if (LMVIsLiveActivityView(ancestor)) return YES;
-    }
-    return NO;
-}
 static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
-    if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01 || LMVIsLiveActivityView(view)) return nil;
+    if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01) return nil;
     if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
     for (UIView *child in view.subviews) {
         if (LMVIsClassOrSubclass(child, @"NCNotificationListCell")) continue;
@@ -258,7 +246,7 @@ static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
     return nil;
 }
 static BOOL LMVMessageCell(UIView *cell) {
-    return LMVIsClassOrSubclass(cell, @"NCNotificationListCell") && !LMVIsLiveActivityView(cell) && !LMVHasLiveActivityAncestor(cell);
+    return LMVIsClassOrSubclass(cell, @"NCNotificationListCell");
 }
 static NSString *LMVSemanticTarget(UIView *view) {
     NSString *title = nil;
@@ -273,7 +261,7 @@ static NSString *LMVSemanticTarget(UIView *view) {
     return nil;
 }
 static void LMVFindActions(UIView *view, UIView *root, NSMapTable *hosts, NSUInteger depth) {
-    if (depth > 10 || LMVHasLiveActivityAncestor(view)) return;
+    if (depth > 10) return;
     NSString *target = LMVSemanticTarget(view);
     if (target) {
         UIView *host = view;
@@ -286,7 +274,7 @@ static void LMVFindActions(UIView *view, UIView *root, NSMapTable *hosts, NSUInt
     for (UIView *child in view.subviews) LMVFindActions(child, root, hosts, depth + 1);
 }
 static void LMVActionHosts(UIView *view, NSMapTable *hosts, NSUInteger depth) {
-    if (depth > 12 || LMVHasLiveActivityAncestor(view)) return;
+    if (depth > 12) return;
     if (LMVActionBranch(view)) { LMVFindActions(view, view, hosts, 0); return; }
     for (UIView *child in view.subviews) LMVActionHosts(child, hosts, depth + 1);
 }
@@ -421,33 +409,17 @@ static void LMVUpdate(UIView *cell) {
     // UIKit briefly hides or detaches notification materials while collapsing a stack.
     // Keep our cached host and decoder through that transient window.
     BOOL messageEligible = LMVMessageCell(cell);
-    BOOL liveEligible = LMVIsClassOrSubclass(cell, @"CSActivityItemContentView");
     if (!messageEligible) {
         [hosts removeObjectForKey:@"Message"];
         LMVVideoState *old = states[@"Message"];
         LMVPause(old); [old.overlay removeFromSuperview];
         [states removeObjectForKey:@"Message"];
     }
-    if (!liveEligible) {
-        [hosts removeObjectForKey:@"LiveActivity"];
-        LMVVideoState *old = states[@"LiveActivity"];
-        LMVPause(old); [old.overlay removeFromSuperview];
-        [states removeObjectForKey:@"LiveActivity"];
-    }
     BOOL missing = NO;
     for (NSString *target in LMVTargets()) {
         UIView *host = [hosts objectForKey:target];
-        BOOL isLiveCell = LMVIsClassOrSubclass(cell, @"CSActivityItemContentView");
-        // An activity child must not disqualify its notification wrapper.
-        // Exclude only message anchors inside the activity content subtree.
         if ([target isEqualToString:@"Message"] && !messageEligible) host = nil;
-        if ([target isEqualToString:@"LiveActivity"] && isLiveCell) {
-            host = cell;
-            [hosts setObject:cell forKey:target];
-        } else if ([target isEqualToString:@"LiveActivity"] && !isLiveCell) {
-            host = nil;
-        }
-        if (host && (!([host isDescendantOfView:cell] || host == cell) || LMVHasLiveActivityAncestor(host) != [target isEqualToString:@"LiveActivity"])) {
+        if (host && !([host isDescendantOfView:cell] || host == cell)) {
             [hosts removeObjectForKey:target]; host = nil;
             // An invalid boundary is not a transient detach: remove only our
             // owned overlay immediately, before discovery binds a new host.
@@ -456,12 +428,12 @@ static void LMVUpdate(UIView *cell) {
             objc_setAssociatedObject(old.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             old.anchor = nil; old.host = nil; old.clipSource = nil;
         }
-        if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || [target isEqualToString:@"LiveActivity"] || visible)) missing = YES;
+        if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || visible)) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if (!liveEligible && !LMVHasLiveActivityAncestor(cell)) LMVActionHosts(cell, hosts, 0);
+        LMVActionHosts(cell, hosts, 0);
         if (messageEligible) {
             UIView *material = LMVMessageMaterial(cell, 0);
             if (material) [hosts setObject:material forKey:@"Message"];
@@ -507,15 +479,13 @@ static void LMVUpdate(UIView *cell) {
             if (!warm) { LMVMakeRoom(); warm = LMVCreatePlayer(path); }
             if (warm) {
                 // Handoff is intentionally a pointer transfer only. Calling
-                // cancelPendingPrerolls here can throw on iOS 16.5 while AVF
-                // is still configuring the cached item.
                 state.player = warm.player; state.looper = warm.looper; state.layer = warm.layer;
                 warm.player = nil; warm.looper = nil; warm.layer = nil;
                 [LMVWarmPlayers removeObjectForKey:path];
                 [state.overlay.layer addSublayer:state.layer];
             }
         }
-        BOOL material = ![target isEqualToString:@"LiveActivity"] && [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
+        BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
         UIView *host = material ? anchor.superview : anchor;
         // Host identity is part of ownership. Never retain an overlay under a
         // reused parent when UIKit swaps the notification content host.
@@ -607,40 +577,6 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
     %orig;
     LMVUpdateActionPresenter((UIView *)self);
 }
-%end
-// Live Activities use a dedicated content host and are reused independently
-// from notification list cells. Keep this hook guarded by the runtime class.
-%group LMVLiveActivity
-%hook CSActivityItemContentView
-- (void)layoutSubviews {
-    %orig;
-    UIView *host = (UIView *)self;
-    [LMVCells addObject:host];
-    objc_setAssociatedObject(host, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    LMVUpdate(host);
-}
-- (void)didMoveToWindow {
-    %orig;
-    UIView *host = (UIView *)self;
-    [LMVCells addObject:host];
-    LMVUpdate(host);
-}
-- (void)prepareForReuse {
-    NSMutableDictionary *states = objc_getAssociatedObject(self, &LMVStatesKey);
-    for (LMVVideoState *state in states.allValues) {
-        LMVPause(state);
-        [state.overlay removeFromSuperview];
-        state.anchor = nil;
-        state.host = nil;
-        state.clipSource = nil;
-        objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    objc_setAssociatedObject(self, &LMVStatesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self, &LMVHostsKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    %orig;
-}
-%end
 %end
 static void LMVRefresh(BOOL reload) {
     if (reload) {
@@ -759,9 +695,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new]; LMVItems = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
         LMVLoadPreferences();
         %init;
-        if (NSClassFromString(@"CSActivityItemContentView")) {
-            %init(LMVLiveActivity);
-        }
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
