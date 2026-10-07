@@ -1,32 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0//EN">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<array>
-	<dict>
-		<key>cell</key>
-		<string>PSGroupCell</string>
-		<key>label</key>
-		<string>锁屏消息视频 · 诊断版</string>
-		<key>footerText</key>
-		<string>当前仅用于抓取锁屏消息视图层级，不执行视频背景注入。</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSSwitchCell</string>
-		<key>defaults</key>
-		<string>com.minis.lockmessagevideo</string>
-		<key>key</key>
-		<string>Enabled</string>
-		<key>default</key>
-		<false/>
-		<key>label</key>
-		<string>启用锁屏视图诊断</string>
-	</dict>
-	<dict>
-		<key>cell</key>
-		<string>PSGroupCell</string>
-		<key>footerText</key>
-		<string>日志路径：/var/mobile/LockMessageVideo/view-tree.log。打开锁屏并显示通知后，再读取该文件。</string>
-	</dict>
-</array>
+<dict>
+  <key>items</key>
+  <array>
+    <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>消息通知背景</string></dict>
+  </array>
+</dict>
 </plist>
