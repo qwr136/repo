@@ -4,88 +4,137 @@
 #import <Preferences/PSSpecifier.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
-#import <stdio.h>
-#import <errno.h>
 
-static NSString * const kLMVVideoPath = @"/var/mobile/LockMessageVideo/message.mov";
+static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static CFStringRef const kLMVChanged = CFSTR("com.minis.lockmessagevideo/preferencesChanged");
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
+static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除"]; }
+static void LMVNotify(void) {
+    CFPreferencesAppSynchronize(kLMVPrefsID);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+}
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
+@property(nonatomic, copy) NSString *importTarget;
 @end
 
 @implementation LMVPRootListController
-
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
-    PSSpecifier *group = [PSSpecifier groupSpecifierWithName:@"消息通知背景"];
-    PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:@"启用消息背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [enabled setProperty:@"MessageBackgroundEnabled" forKey:@"key"];
-    [enabled setProperty:@NO forKey:@"default"];
-    PSSpecifier *videoGroup = [PSSpecifier groupSpecifierWithName:@"视频"];
-    PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:@"选择消息背景视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    choose.buttonAction = @selector(chooseVideo:);
-    PSSpecifier *clear = [PSSpecifier preferenceSpecifierNamed:@"清除消息背景视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    clear.buttonAction = @selector(clearVideo:);
-    PSSpecifier *info = [PSSpecifier preferenceSpecifierNamed:@"路径：/var/mobile/LockMessageVideo/message.mov" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
-    _specifiers = [[NSMutableArray alloc] initWithObjects:group, enabled, videoGroup, choose, clear, info, nil];
+    _specifiers = [NSMutableArray new];
+    NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材"];
+    SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:)};
+    for (NSUInteger i = 0; i < LMVTargets().count; i++) {
+        [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
+        PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+        [enabled setProperty:[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
+        [enabled setProperty:@NO forKey:@"default"];
+        [_specifiers addObject:enabled];
+        PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:titles[i] target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+        choose.buttonAction = actions[i];
+        [_specifiers addObject:choose];
+    }
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
+    PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    import.buttonAction = @selector(chooseVideo:);
+    [_specifiers addObject:import];
     return _specifiers;
 }
-
 - (id)enabled:(PSSpecifier *)specifier {
-    NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundEnabled"), kLMVPrefsID);
+    NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
     return value ?: @NO;
 }
-
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
-    CFPreferencesSetAppValue(CFSTR("MessageBackgroundEnabled"), (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
-    CFPreferencesAppSynchronize(kLMVPrefsID);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), kLMVChanged, NULL, NULL, YES);
+    CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
+    LMVNotify();
 }
-
+- (void)showError:(NSError *)error {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败" message:error.localizedDescription ?: @"无法复制视频" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+- (void)presentMenu:(UIAlertController *)menu {
+    [menu addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    menu.popoverPresentationController.sourceView = self.view;
+    menu.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:menu animated:YES completion:nil];
+}
+- (void)selectFile:(NSString *)file target:(NSString *)target {
+    NSString *key = [target stringByAppendingString:@"Video"];
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
+    LMVNotify();
+}
+- (void)switchTarget:(NSString *)target {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *library = [LMVDirectory stringByAppendingPathComponent:@"library"];
+    NSArray *files = [[fm contentsOfDirectoryAtPath:library error:nil] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
+    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"选择素材" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    NSString *key = [target stringByAppendingString:@"Video"];
+    NSString *selected = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
+    if (![selected isKindOfClass:NSString.class]) selected = nil;
+    if ([fm fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]]) {
+        BOOL current = [selected isEqualToString:@"message.mov"] || (!selected && [target isEqualToString:@"Message"]);
+        [menu addAction:[UIAlertAction actionWithTitle:current ? @"原消息视频（当前）" : @"原消息视频" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self selectFile:@"message.mov" target:target]; }]];
+    }
+    for (NSString *name in files) {
+        if (![@[@"mov", @"mp4", @"m4v"] containsObject:name.pathExtension.lowercaseString]) continue;
+        NSString *relative = [@"library" stringByAppendingPathComponent:name];
+        NSString *title = name.stringByDeletingPathExtension;
+        if ([selected isEqualToString:relative]) title = [title stringByAppendingString:@"（当前）"];
+        [menu addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self selectFile:relative target:target]; }]];
+    }
+    if (menu.actions.count == 0) menu.message = @"素材库为空";
+    [menu addAction:[UIAlertAction actionWithTitle:@"无素材" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self selectFile:@"" target:target]; }]];
+    [self presentMenu:menu];
+}
+- (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
+- (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
+- (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
-    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
-    config.filter = [PHPickerFilter videosFilter];
-    config.selectionLimit = 1;
-    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
-    picker.delegate = self;
-    [self presentViewController:picker animated:YES completion:nil];
+    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"导入到" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSUInteger i = 0; i < LMVTargets().count; i++) {
+        NSString *target = LMVTargets()[i];
+        [menu addAction:[UIAlertAction actionWithTitle:LMVNames()[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            self.importTarget = target;
+            PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
+            config.filter = [PHPickerFilter videosFilter];
+            config.selectionLimit = 1;
+            PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
+            picker.delegate = self;
+            [self presentViewController:picker animated:YES completion:nil];
+        }]];
+    }
+    [self presentMenu:menu];
 }
-
-- (void)clearVideo:(PSSpecifier *)specifier {
-    [[NSFileManager defaultManager] removeItemAtPath:kLMVVideoPath error:nil];
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), kLMVChanged, NULL, NULL, YES);
-}
-
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    NSString *target = [self.importTarget copy];
+    self.importTarget = nil;
     [picker dismissViewControllerAnimated:YES completion:nil];
     PHPickerResult *result = results.firstObject;
-    if (!result || ![result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
+    if (!target || !result || ![result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
     [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
         NSError *copyError = error;
+        NSString *relative = nil;
+        if (!url && !copyError) copyError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil];
         if (url && !copyError) {
-            NSString *dir = [kLMVVideoPath stringByDeletingLastPathComponent];
-            [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&copyError];
-            NSString *temp = [dir stringByAppendingPathComponent:@".message.mov.tmp"];
-            if (!copyError) {
-                [[NSFileManager defaultManager] removeItemAtPath:temp error:nil];
-                [[NSFileManager defaultManager] copyItemAtURL:url toURL:[NSURL fileURLWithPath:temp] error:&copyError];
-                if (!copyError) {
-                    if (rename(temp.fileSystemRepresentation, kLMVVideoPath.fileSystemRepresentation) != 0) {
-                        copyError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
-                        [[NSFileManager defaultManager] removeItemAtPath:temp error:nil];
-                    }
-                }
-            }
+            NSString *library = [LMVDirectory stringByAppendingPathComponent:@"library"];
+            NSFileManager *fm = [NSFileManager defaultManager];
+            [fm createDirectoryAtPath:library withIntermediateDirectories:YES attributes:nil error:&copyError];
+            NSString *ext = url.pathExtension.lowercaseString;
+            if (![@[@"mov", @"mp4", @"m4v"] containsObject:ext]) ext = @"mov";
+            NSDateFormatter *format = [NSDateFormatter new];
+            format.dateFormat = @"yyyyMMdd-HHmmss";
+            NSString *name = [NSString stringWithFormat:@"%@-%@.%@", [format stringFromDate:NSDate.date], NSUUID.UUID.UUIDString, ext];
+            NSString *final = [library stringByAppendingPathComponent:name];
+            NSString *temp = [final stringByAppendingString:@".tmp"];
+            if (!copyError) [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:temp] error:&copyError];
+            if (!copyError) [fm moveItemAtPath:temp toPath:final error:&copyError];
+            if (copyError) [fm removeItemAtPath:temp error:nil];
+            else relative = [@"library" stringByAppendingPathComponent:name];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (copyError) {
-                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败" message:copyError.localizedDescription ?: @"无法复制视频" preferredStyle:UIAlertControllerStyleAlert];
-                [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-                [self presentViewController:alert animated:YES completion:nil];
-            } else {
-                CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), kLMVChanged, NULL, NULL, YES);
-            }
+            if (copyError) [self showError:copyError];
+            else [self selectFile:relative target:target];
         });
     }];
 }
