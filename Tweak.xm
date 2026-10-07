@@ -542,12 +542,24 @@ static void LMVUpdateMessageHost(UIView *host) {
     if (owner) { [LMVCells addObject:owner]; LMVUpdate(owner); }
 }
 %hook NCNotificationShortLookView
-- (void)layoutSubviews { %orig; LMVUpdateMessageHost((UIView *)self); }
-- (void)didMoveToWindow { %orig; LMVUpdateMessageHost((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    LMVUpdateMessageHost((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVUpdateMessageHost((UIView *)self);
+}
 %end
 %hook NCNotificationSeamlessContentView
-- (void)layoutSubviews { %orig; LMVUpdateMessageHost((UIView *)self); }
-- (void)didMoveToWindow { %orig; LMVUpdateMessageHost((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    LMVUpdateMessageHost((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVUpdateMessageHost((UIView *)self);
+}
 %end
 static void LMVUpdateActionPresenter(UIView *presenter) {
     UIView *ancestor = presenter.superview;
