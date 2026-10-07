@@ -194,7 +194,23 @@ static CGRect LMVRectInView(UIView *view, UIView *ancestor) {
     if (source && destination) return [source convertRect:source.bounds toLayer:destination];
     return [view convertRect:view.bounds toView:ancestor];
 }
+static BOOL LMVNotificationCenterSurface(UIView *view) {
+    if (!view.window || view.window.hidden) return NO;
+    for (UIView *node = view; node; node = node.superview) {
+        NSString *name = NSStringFromClass(node.class);
+        if ([name containsString:@"SBCoverSheet"] || [name containsString:@"NCNotification"] ||
+            [name containsString:@"NotificationCenter"] || [name containsString:@"CoverSheet"]) return YES;
+    }
+    NSString *windowName = NSStringFromClass(view.window.class);
+    if ([windowName containsString:@"CoverSheet"] || [windowName containsString:@"NotificationCenter"]) return YES;
+    for (UIViewController *controller = view.window.rootViewController; controller; controller = controller.presentedViewController) {
+        NSString *name = NSStringFromClass(controller.class);
+        if ([name containsString:@"CoverSheet"] || [name containsString:@"NotificationCenter"]) return YES;
+    }
+    return NO;
+}
 static BOOL LMVVisible(UIView *view) {
+    if (!LMVNotificationCenterSurface(view)) return NO;
     if (!view.window || view.window.hidden || view.bounds.size.width < 1 || view.bounds.size.height < 1) return NO;
     for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
         if (ancestor.hidden || ancestor.alpha < 0.01) return NO;
@@ -406,7 +422,7 @@ static void LMVUpdate(UIView *cell) {
         }
         if (!anchor || !anchor.superview) {
             if (state && !state.detachedSince) state.detachedSince = now;
-            if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.35) continue;
+            if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.0) continue;
             LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue;
         }
         state.detachedSince = 0;
