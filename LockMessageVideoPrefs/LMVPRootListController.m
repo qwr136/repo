@@ -18,6 +18,10 @@ static void LMVNotify(void) {
 @end
 
 @implementation LMVPRootListController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"锁屏背景视频";
+}
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
     _specifiers = [NSMutableArray new];
@@ -84,9 +88,15 @@ static void LMVNotify(void) {
 }
 - (void)openMaterialPath:(PSSpecifier *)specifier {
     [[NSFileManager defaultManager] createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-    NSURL *url = [NSURL fileURLWithPath:LMVDirectory isDirectory:YES];
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"filza://view"];
+    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"path" value:[LMVDirectory stringByAppendingString:@"/"]]];
+    NSURL *url = components.URL;
     UIApplication *application = UIApplication.sharedApplication;
-    if (![application canOpenURL:url]) { [self showMaterialPath]; return; }
+    if (!url) { [self showMaterialPath]; return; }
+    // Preference bundles run inside Settings: its own query whitelist can hide
+    // an installed handler. Probe defensively, but let openURL confirm absence.
+    BOOL advertised = [application canOpenURL:url];
+    (void)advertised;
     __weak typeof(self) weakSelf = self;
     [application openURL:url options:@{} completionHandler:^(BOOL success) {
         if (!success) dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showMaterialPath]; });
