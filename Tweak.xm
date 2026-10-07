@@ -26,6 +26,7 @@ static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey;
 static void LMVPrewarmPlayers(void);
 static NSUInteger LMVPlayerCount;
 static const NSUInteger LMVPlayerLimit = 18;
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LiveActivity"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 
@@ -189,7 +190,7 @@ static void LMVLoadPreferences(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     LMVPaths = [NSMutableDictionary new];
     LMVEnabled = [NSMutableDictionary new];
-    for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
+    for (NSString *target in LMVTargets()) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
@@ -400,10 +401,14 @@ static void LMVUpdate(UIView *cell) {
     // UIKit briefly hides or detaches notification materials while collapsing a stack.
     // Keep our cached host and decoder through that transient window.
     BOOL missing = NO;
-    for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
+    for (NSString *target in LMVTargets()) {
         UIView *host = [hosts objectForKey:target];
+        if ([target isEqualToString:@"LiveActivity"] && [cell isKindOfClass:NSClassFromString(@"CSActivityItemContentView")]) {
+            host = cell;
+            [hosts setObject:cell forKey:target];
+        }
         if (host && ![host isDescendantOfView:cell]) { [hosts removeObjectForKey:target]; host = nil; }
-        if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || visible)) missing = YES;
+        if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || [target isEqualToString:@"LiveActivity"] || visible)) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.1)) {
@@ -412,7 +417,7 @@ static void LMVUpdate(UIView *cell) {
         UIView *material = LMVMessageMaterial(cell, 0);
         if (material) [hosts setObject:material forKey:@"Message"];
     }
-    for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
+    for (NSString *target in LMVTargets()) {
         UIView *anchor = [hosts objectForKey:target];
         NSString *path = LMVPaths[target];
         LMVVideoState *state = states[target];
@@ -460,7 +465,7 @@ static void LMVUpdate(UIView *cell) {
                 [state.overlay.layer addSublayer:state.layer];
             }
         }
-        BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
+        BOOL material = ![target isEqualToString:@"LiveActivity"] && [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
         UIView *host = material ? anchor.superview : anchor;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
@@ -541,6 +546,38 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
     %orig;
     LMVUpdateActionPresenter((UIView *)self);
 }
+%end
+// Live Activities use a dedicated content host and are reused independently
+// from notification list cells. Keep this hook guarded by the runtime class.
+%group LMVLiveActivity
+%hook CSActivityItemContentView
+- (void)layoutSubviews {
+    %orig;
+    UIView *host = (UIView *)self;
+    [LMVCells addObject:host];
+    objc_setAssociatedObject(host, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    LMVUpdate(host);
+}
+- (void)didMoveToWindow {
+    %orig;
+    UIView *host = (UIView *)self;
+    [LMVCells addObject:host];
+    LMVUpdate(host);
+}
+- (void)prepareForReuse {
+    NSMutableDictionary *states = objc_getAssociatedObject(self, &LMVStatesKey);
+    for (LMVVideoState *state in states.allValues) {
+        LMVPause(state);
+        [state.overlay removeFromSuperview];
+        state.anchor = nil;
+        state.clipSource = nil;
+    }
+    objc_setAssociatedObject(self, &LMVStatesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &LMVHostsKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    %orig;
+}
+%end
 %end
 static void LMVRefresh(BOOL reload) {
     if (reload) {
@@ -658,6 +695,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVRevisions = [NSMutableDictionary new]; LMVClockStarts = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new]; LMVItems = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
         LMVLoadPreferences();
+        if (NSClassFromString(@"CSActivityItemContentView")) {
+            %init(LMVLiveActivity);
+        }
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
