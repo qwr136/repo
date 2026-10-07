@@ -11,6 +11,8 @@ static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSHashTable<UIView *> *LMVCells;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
+// Stable semantic names prevent nil hosts when private MaterialView subclasses change.
+static NSDictionary<NSString *, NSString *> *LMVMaterialSources;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *, AVURLAsset *> *LMVSources;
 static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
@@ -171,6 +173,12 @@ static void LMVPrepareAssets(void) {
 static void LMVLoadPreferences(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     LMVPaths = [NSMutableDictionary new];
+    // These are semantic source names, kept independent from UIKit private class names.
+    LMVMaterialSources = @{
+        @"Message": @"message.mov",
+        @"Options": @"options.mov",
+        @"Clear": @"clear.mov"
+    };
     LMVEnabled = [NSMutableDictionary new];
     for (NSString *target in LMVTargets()) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
@@ -178,7 +186,8 @@ static void LMVLoadPreferences(void) {
         LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
         NSString *videoKey = [target stringByAppendingString:@"Video"];
         NSString *relative = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)videoKey, kLMVPrefsID);
-        if (!relative && [target isEqualToString:@"Message"]) relative = @"message.mov";
+        // Always resolve through the semantic source table; never pass a nil source name.
+        if (![relative isKindOfClass:NSString.class] || !relative.length) relative = LMVMaterialSources[target];
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
         NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
