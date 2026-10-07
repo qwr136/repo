@@ -15,11 +15,13 @@ static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
 static NSMutableSet<NSString *> *LMVReadyAssets;
 static NSMutableDictionary<NSString *, UIImage *> *LMVPosters;
 static CGFloat LMVOpacity = 0.55;
+static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey;
 static NSUInteger LMVPlayerCount;
 static const NSUInteger LMVPlayerLimit = 18;
 static void LMVUpdate(UIView *cell);
+static void LMVSyncDisplayLink(void);
 
 @interface LMVVideoState : NSObject
 @property(nonatomic, strong) UIView *overlay;
@@ -45,18 +47,17 @@ static void LMVUpdate(UIView *cell);
 }
 @end
 
-static void LMVPrepareAudioSession(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSError *error = nil;
-        // SpringBoard owns this shared session; never activate/deactivate it here.
-        if (![[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
-                                                  mode:AVAudioSessionModeDefault
-                                               options:AVAudioSessionCategoryOptionMixWithOthers
-                                                 error:&error]) {
-            NSLog(@"[LockMessageVideo] Non-interrupting audio category failed: %@", error);
-        }
-    });
+@interface SBLockScreenManager : NSObject
++ (instancetype)sharedInstance;
+- (BOOL)isUILocked;
+@end
+static BOOL LMVPlaybackAllowed(void) {
+    uint64_t blank = 1;
+    if (LMVBlankToken < 0 || notify_get_state(LMVBlankToken, &blank) != NOTIFY_STATUS_OK || blank) return NO;
+    Class managerClass = NSClassFromString(@"SBLockScreenManager");
+    if (![managerClass respondsToSelector:@selector(sharedInstance)]) return NO;
+    SBLockScreenManager *manager = [managerClass sharedInstance];
+    return [manager respondsToSelector:@selector(isUILocked)] && [manager isUILocked];
 }
 
 static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
@@ -138,8 +139,11 @@ static void LMVLoadPreferences(void) {
         NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
     }
-    NSNumber *opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
-    LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.1, MIN(1.0, opacity.floatValue)) : 0.55;
+    NSNumber *opacityEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacityEnabled"), kLMVPrefsID);
+    LMVOpacityEnabled = !opacityEnabled || opacityEnabled.boolValue;
+    NSNumber *opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);
+    if (!opacity) opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
+    LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.05, MIN(1.0, opacity.floatValue)) : 0.55;
     LMVPrepareAssets();
 }
 static CGRect LMVRectInView(UIView *view, UIView *ancestor) {
@@ -280,6 +284,11 @@ static void LMVMakeRoom(void) {
 static void LMVUpdate(UIView *cell) {
     NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
     if (!states) { states = [NSMutableDictionary new]; objc_setAssociatedObject(cell, &LMVStatesKey, states, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+    if (!LMVPlaybackAllowed()) {
+        for (LMVVideoState *state in states.allValues) LMVReleasePlayer(state);
+        LMVSyncDisplayLink();
+        return;
+    }
     BOOL visible = LMVVisible(cell);
     CFTimeInterval now = CACurrentMediaTime();
     if (!cell.window) {
@@ -338,9 +347,10 @@ static void LMVUpdate(UIView *cell) {
         if (anchorVisible && !state.player && [LMVReadyAssets containsObject:path]) {
             LMVMakeRoom();
             if (LMVPlayerCount < LMVPlayerLimit) {
-                LMVPrepareAudioSession();
                 state.player = [AVQueuePlayer queuePlayerWithItems:@[]]; LMVPlayerCount++;
-                state.player.muted = YES; state.player.automaticallyWaitsToMinimizeStalling = NO;
+                state.player.preventsDisplaySleepDuringVideoPlayback = NO;
+                state.player.muted = YES; state.player.volume = 0;
+                state.player.automaticallyWaitsToMinimizeStalling = NO;
                 AVPlayerItem *item = [AVPlayerItem playerItemWithAsset:LMVAssets[path]];
                 item.preferredForwardBufferDuration = 1;
                 state.looper = [AVPlayerLooper playerLooperWithPlayer:state.player templateItem:item];
@@ -376,11 +386,12 @@ static void LMVUpdate(UIView *cell) {
         // A player with no drawable frame must not obscure the asynchronous poster.
         state.layer.hidden = !state.layer.readyForDisplay;
         state.poster.hidden = state.layer.readyForDisplay;
-        state.overlay.alpha = LMVOpacity;
+        state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 1.0;
         [CATransaction commit];
         if (anchorVisible) state.lastVisible = now;
         if (anchorVisible && state.player && !state.playing) { [state.player play]; state.playing = YES; }
     }
+    LMVSyncDisplayLink();
 }
 %hook NCNotificationListCell
 - (void)layoutSubviews {
@@ -443,16 +454,40 @@ static void LMVRefresh(BOOL reload) {
                 LMVPause(state); [state.overlay removeFromSuperview]; [states removeObjectForKey:target];
             }
         }
-        if (reload) LMVUpdate(cell);
+        LMVUpdate(cell);
     }
+    LMVSyncDisplayLink();
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
 // Only visibility/readiness/host identity transitions invoke the heavier layout path.
 @interface LMVDisplayLinkTarget : NSObject
 - (void)tick:(CADisplayLink *)link;
 @end
+static CADisplayLink *LMVLink;
+static void LMVSuspend(void) {
+    [LMVLink invalidate]; LMVLink = nil;
+    for (UIView *cell in LMVCells.allObjects) {
+        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
+        for (LMVVideoState *state in states.allValues) LMVReleasePlayer(state);
+    }
+}
+static void LMVSyncDisplayLink(void) {
+    if (!LMVPlaybackAllowed() || !LMVPlayerCount) {
+        [LMVLink invalidate]; LMVLink = nil;
+        return;
+    }
+    if (!LMVLink) {
+        LMVLink = [CADisplayLink displayLinkWithTarget:[LMVDisplayLinkTarget new] selector:@selector(tick:)];
+        LMVLink.preferredFramesPerSecond = 30;
+        [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    }
+}
 @implementation LMVDisplayLinkTarget
 - (void)tick:(CADisplayLink *)link {
+    if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
+    static CFTimeInterval lastCleanup;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - lastCleanup >= 0.5) { lastCleanup = now; LMVRefresh(NO); }
     for (UIView *cell in LMVCells.allObjects) {
         if (!cell.window) continue;
         NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -470,7 +505,24 @@ static void LMVRefresh(BOOL reload) {
 }
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    dispatch_async(dispatch_get_main_queue(), ^{ LMVRefresh(YES); });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL media = CFEqual(name, CFSTR("com.minis.lockmessagevideo/videoChanged"));
+        if (media) LMVRefresh(YES);
+        else {
+            LMVLoadPreferences();
+            for (UIView *cell in LMVCells.allObjects) {
+                NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
+                for (LMVVideoState *state in states.allValues) state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 1.0;
+            }
+            LMVRefresh(NO);
+        }
+    });
+}
+static void LMVScreenNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!LMVPlaybackAllowed()) LMVSuspend();
+        else LMVRefresh(NO);
+    });
 }
 %ctor {
     @autoreleasepool {
@@ -480,16 +532,17 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) {
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVScreenNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
-            [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { LMVRefresh(NO); }];
-            [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-                for (UIView *cell in LMVCells.allObjects) { NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey); for (LMVVideoState *state in states.allValues) LMVPause(state); }
+            [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+                LMVRefresh(NO);
             }];
-            NSTimer *cleanup = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { LMVRefresh(NO); }];
-            [NSRunLoop.mainRunLoop addTimer:cleanup forMode:NSRunLoopCommonModes];
-            CADisplayLink *link = [CADisplayLink displayLinkWithTarget:[LMVDisplayLinkTarget new] selector:@selector(tick:)];
-            link.preferredFramesPerSecond = 60;
-            [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+            [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+                LMVSuspend();
+            }];
+            LMVRefresh(NO);
         });
     }
 }

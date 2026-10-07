@@ -37,15 +37,60 @@ static void LMVNotify(void) {
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
     [_specifiers addObject:import];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"视频透明度"]];
+    PSSpecifier *opacityEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用视频透明度" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [opacityEnabled setProperty:@"VideoOpacityEnabled" forKey:@"key"];
+    [opacityEnabled setProperty:@YES forKey:@"default"];
+    [_specifiers addObject:opacityEnabled];
+    PSSpecifier *opacity = [PSSpecifier preferenceSpecifierNamed:@"视频透明度" target:self set:@selector(setOpacity:specifier:) get:@selector(opacity:) detail:nil cell:PSSliderCell edit:nil];
+    [opacity setProperty:@"VideoOpacity" forKey:@"key"];
+    [opacity setProperty:@0.05 forKey:@"min"];
+    [opacity setProperty:@1.0 forKey:@"max"];
+    [opacity setProperty:@0.55 forKey:@"default"];
+    [opacity setProperty:@YES forKey:@"showValue"];
+    [_specifiers addObject:opacity];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材路径"]];
+    PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    open.buttonAction = @selector(openMaterialPath:);
+    [_specifiers addObject:open];
     return _specifiers;
 }
 - (id)enabled:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
-    return value ?: @NO;
+    return value ?: [specifier propertyForKey:@"default"] ?: @NO;
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotify();
+}
+- (id)opacity:(PSSpecifier *)specifier {
+    NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);
+    if (!value) value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
+    return @([value respondsToSelector:@selector(floatValue)] ? MAX(0.05, MIN(1.0, value.floatValue)) : 0.55);
+}
+- (void)setOpacity:(id)value specifier:(PSSpecifier *)specifier {
+    NSNumber *opacity = @(MAX(0.05, MIN(1.0, [value floatValue])));
+    CFPreferencesSetAppValue(CFSTR("VideoOpacity"), (__bridge CFPropertyListRef)opacity, kLMVPrefsID);
+    LMVNotify();
+}
+- (void)showMaterialPath {
+    if (!self.view.window || self.presentedViewController) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"素材路径" message:[LMVDirectory stringByAppendingString:@"/"] preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"复制路径" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        UIPasteboard.generalPasteboard.string = [LMVDirectory stringByAppendingString:@"/"];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+- (void)openMaterialPath:(PSSpecifier *)specifier {
+    [[NSFileManager defaultManager] createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    NSURL *url = [NSURL fileURLWithPath:LMVDirectory isDirectory:YES];
+    UIApplication *application = UIApplication.sharedApplication;
+    if (![application canOpenURL:url]) { [self showMaterialPath]; return; }
+    __weak typeof(self) weakSelf = self;
+    [application openURL:url options:@{} completionHandler:^(BOOL success) {
+        if (!success) dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showMaterialPath]; });
+    }];
 }
 - (void)showError:(NSError *)error {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败" message:error.localizedDescription ?: @"无法复制视频" preferredStyle:UIAlertControllerStyleAlert];

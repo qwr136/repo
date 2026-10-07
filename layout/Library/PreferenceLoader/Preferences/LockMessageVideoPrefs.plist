@@ -13,7 +13,7 @@
 		<key>isController</key>
 		<true/>
 		<key>label</key>
-		<string>锁屏消息视频</string>
+		<string>lockmessagevideo</string>
 	</dict>
 </dict>
 </plist>
