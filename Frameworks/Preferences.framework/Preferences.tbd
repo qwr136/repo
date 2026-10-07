@@ -5,4 +5,5 @@ install-name: /System/Library/PrivateFrameworks/Preferences.framework/Preference
 exports:
   - archs: [ arm64, arm64e ]
     objc-classes: [ PSListController, PSSpecifier ]
+    objc-ivars: [ PSListController._specifiers ]
 ...
