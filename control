@@ -1,8 +1,8 @@
-Package: com.minis.lockmessagevideo
-Name: 锁屏背景视频
-Version: 0.0.26
+Package: com.minis.lockmessagevideo.message-diagnostic
+Name: 消息背景诊断
+Version: 0.0.1
 Architecture: iphoneos-arm64
-Description: 锁屏消息通知视频背景与独立素材库插件
+Description: 仅记录消息通知卡片视频层生命周期与布局元数据的独立诊断插件
 Maintainer: 小飞
 Author: 小飞
 Section: Tweaks
