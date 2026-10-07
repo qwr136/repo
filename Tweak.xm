@@ -199,7 +199,7 @@ static void LMVLoadPreferences(void) {
         if (!relative && [target isEqualToString:@"Message"]) relative = @"message.mov";
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
         NSString *originalPath = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
-        NSString *optimizedPath = [originalPath stringByAppendingString:@".optimized.mp4"];
+        NSString *optimizedPath = [originalPath hasSuffix:@".optimized.mp4"] ? originalPath : [originalPath stringByAppendingString:@".optimized.mp4"];
         NSString *path = [[NSFileManager defaultManager] fileExistsAtPath:optimizedPath] ? optimizedPath : originalPath;
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
     }
