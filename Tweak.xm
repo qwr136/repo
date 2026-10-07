@@ -27,6 +27,8 @@ static NSUInteger LMVPlayerCount;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
+static void LMVReleaseAllPlayers(void);
+static CADisplayLink *LMVLink;
 
 @interface LMVVideoState : NSObject
 @property(nonatomic, strong) UIView *overlay;
@@ -527,6 +529,33 @@ static void LMVUpdate(UIView *cell) {
     %orig;
 }
 %end
+static void LMVCoverSheetVisibilityChanged(UIView *view) {
+    if (!view.window || view.hidden || view.alpha < 0.01 || !view.superview) {
+        LMVReleaseAllPlayers();
+    } else {
+        LMVRefresh(NO);
+    }
+}
+%hook SBCoverSheetWindow
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVCoverSheetVisibilityChanged((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVCoverSheetVisibilityChanged((UIView *)self);
+}
+%end
+%hook CoverSheet
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVCoverSheetVisibilityChanged((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVCoverSheetVisibilityChanged((UIView *)self);
+}
+%end
 static void LMVUpdateActionPresenter(UIView *presenter) {
     UIView *ancestor = presenter.superview;
     Class cellClass = NSClassFromString(@"NCNotificationListCell");
@@ -548,6 +577,16 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
     LMVUpdateActionPresenter((UIView *)self);
 }
 %end
+static void LMVReleaseAllPlayers(void) {
+    // Notification Center can hide its entire surface without touching cards.
+    // Tear down every decoder immediately while leaving poster-backed overlays.
+    [LMVLink invalidate];
+    LMVLink = nil;
+    for (UIView *cell in LMVCells.allObjects) {
+        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
+        for (LMVVideoState *state in states.allValues) LMVReleasePlayer(state);
+    }
+}
 static void LMVRefresh(BOOL reload) {
     if (reload) {
         // Imports can overwrite an existing filename; URL equality does not mean same media.
@@ -580,8 +619,10 @@ static void LMVRefresh(BOOL reload) {
 @interface LMVDisplayLinkTarget : NSObject
 - (void)tick:(CADisplayLink *)link;
 @end
-static CADisplayLink *LMVLink;
 static void LMVSuspend(void) {
+    LMVReleaseAllPlayers();
+}
+static void LMVSuspendLegacy(void) {
     [LMVLink invalidate]; LMVLink = nil;
     
     for (UIView *cell in LMVCells.allObjects) {
