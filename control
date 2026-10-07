@@ -1,8 +1,8 @@
 Package: com.minis.lockmessagevideo
 Name: 锁屏消息视频
-Version: 0.0.11
+Version: 0.0.17
 Architecture: iphoneos-arm64
-Description: 锁屏消息通知视频背景与诊断插件
+Description: 锁屏消息通知视频背景与独立素材库插件
 Maintainer: Minis
 Author: Minis
 Section: Tweaks

@@ -71,8 +71,8 @@ static CFStringRef const kLMVChanged = CFSTR("com.minis.lockmessagevideo/prefere
                 [[NSFileManager defaultManager] removeItemAtPath:temp error:nil];
                 [[NSFileManager defaultManager] copyItemAtURL:url toURL:[NSURL fileURLWithPath:temp] error:&copyError];
                 if (!copyError) {
-                    [[NSFileManager defaultManager] removeItemAtPath:kLMVVideoPath error:nil];
-                    if (![[NSFileManager defaultManager] moveItemAtPath:temp toPath:kLMVVideoPath error:&copyError]) {
+                    if (rename(temp.fileSystemRepresentation, kLMVVideoPath.fileSystemRepresentation) != 0) {
+                        copyError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
                         [[NSFileManager defaultManager] removeItemAtPath:temp error:nil];
                     }
                 }
