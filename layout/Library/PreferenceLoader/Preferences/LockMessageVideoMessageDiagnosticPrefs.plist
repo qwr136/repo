@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0/DTD/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>entry</key><dict><key>bundle</key><string>MessageDiagnosticPrefs</string><key>cell</key><string>PSLinkCell</string><key>detail</key><string>DiagnosticRootListController</string><key>icon</key><string></string><key>isController</key><true/><key>label</key><string>消息背景诊断</string><key>bundleIdentifier</key><string>com.minis.lockmessagevideo.message-diagnosticprefs</string></dict></dict></plist>
