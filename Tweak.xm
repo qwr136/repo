@@ -256,6 +256,7 @@ static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
     if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01 || LMVIsLiveActivityView(view)) return nil;
     if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
     for (UIView *child in view.subviews) {
+        if (LMVIsClassOrSubclass(child, @"NCNotificationListCell")) continue;
         UIView *material = LMVMessageMaterial(child, depth + 1);
         if (material) return material;
     }
@@ -424,6 +425,20 @@ static void LMVUpdate(UIView *cell) {
     if (!hosts) { hosts = [NSMapTable strongToStrongObjectsMapTable]; objc_setAssociatedObject(cell, &LMVHostsKey, hosts, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     // UIKit briefly hides or detaches notification materials while collapsing a stack.
     // Keep our cached host and decoder through that transient window.
+    BOOL messageEligible = LMVMessageCell(cell) && !LMVHasLiveActivityDescendant(cell);
+    BOOL liveEligible = LMVIsClassOrSubclass(cell, @"CSActivityItemContentView");
+    if (!messageEligible) {
+        [hosts removeObjectForKey:@"Message"];
+        LMVVideoState *old = states[@"Message"];
+        LMVPause(old); [old.overlay removeFromSuperview];
+        [states removeObjectForKey:@"Message"];
+    }
+    if (!liveEligible) {
+        [hosts removeObjectForKey:@"LiveActivity"];
+        LMVVideoState *old = states[@"LiveActivity"];
+        LMVPause(old); [old.overlay removeFromSuperview];
+        [states removeObjectForKey:@"LiveActivity"];
+    }
     BOOL missing = NO;
     for (NSString *target in LMVTargets()) {
         UIView *host = [hosts objectForKey:target];
@@ -446,8 +461,8 @@ static void LMVUpdate(UIView *cell) {
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if (LMVMessageCell(cell) && !LMVHasLiveActivityDescendant(cell)) {
-            LMVActionHosts(cell, hosts, 0);
+        if (!liveEligible && !LMVHasLiveActivityAncestor(cell) && !LMVHasLiveActivityDescendant(cell)) LMVActionHosts(cell, hosts, 0);
+        if (messageEligible) {
             UIView *material = LMVMessageMaterial(cell, 0);
             if (material) [hosts setObject:material forKey:@"Message"];
         }
