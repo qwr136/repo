@@ -143,7 +143,7 @@ static void DScan(void) {
     for (NSUInteger i = 0; i < bytes.length; i++) { hash ^= p[i]; hash *= 1099511628211ULL; }
     if (hash == DLastHash && now - DLastWrite < 60.0) return;
     DLastHash = hash; DLastWrite = now;
-    DAppend([NSString stringWithFormat:@"\n=== %@ diagnostic=0.0.1 reason=%@ nodes=%lu ===\n%@", NSDate.date, DReason ?: @"periodic", (unsigned long)total, body]);
+    DAppend([NSString stringWithFormat:@"\n=== %@ diagnostic=0.0.2 reason=%@ nodes=%lu ===\n%@", NSDate.date, DReason ?: @"periodic", (unsigned long)total, body]);
 }
 static void DSchedule(NSString *reason) {
     DReason = reason;
@@ -157,13 +157,24 @@ static void DSchedule(NSString *reason) {
 
 %group CoverHooks
 %hook CSCoverSheetViewController
-- (void)viewDidAppear:(BOOL)animated { %orig; DCover = (UIViewController *)self; DSchedule(@"cover appeared"); }
-- (void)viewDidLayoutSubviews { %orig; DCover = (UIViewController *)self; DSchedule(@"cover layout"); }
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    DCover = (UIViewController *)self;
+    DSchedule(@"cover appeared");
+}
+- (void)viewDidLayoutSubviews {
+    %orig;
+    DCover = (UIViewController *)self;
+    DSchedule(@"cover layout");
+}
 %end
 %end
 %group NotificationHooks
 %hook NCNotificationListView
-- (void)layoutSubviews { %orig; DSchedule(@"notification layout"); }
+- (void)layoutSubviews {
+    %orig;
+    DSchedule(@"notification layout");
+}
 %end
 %end
 
@@ -174,8 +185,12 @@ static void DSchedule(NSString *reason) {
         DWriter = dispatch_queue_create("com.minis.lockmessagevideo.diagnostic.writer", DISPATCH_QUEUE_SERIAL);
         Class cover = NSClassFromString(@"CSCoverSheetViewController");
         Class list = NSClassFromString(@"NCNotificationListView");
-        if (cover) { %init(CoverHooks, CSCoverSheetViewController = cover); }
-        if (list) { %init(NotificationHooks, NCNotificationListView = list); }
+        if (cover) {
+            %init(CoverHooks, CSCoverSheetViewController = cover);
+        }
+        if (list) {
+            %init(NotificationHooks, NCNotificationListView = list);
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSTimer scheduledTimerWithTimeInterval:3.0 repeats:YES block:^(NSTimer *timer) {
                 (void)timer;

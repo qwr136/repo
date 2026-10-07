@@ -1,4 +1,4 @@
-# 锁屏背景视频诊断 0.0.1
+# 锁屏背景视频诊断 0.0.2
 
 基于 qwr136/repo 生产版 0.0.22 (189d05fe6d0c545107716e67156a69aff958cf80)，独立诊断目录、包标识及 dylib。目标为用户自己的 iPhone 14 Pro Max，iOS 16.2/16.5，Dopamine roothide（沿用当前生产仓库的 Theos rootless 打包方式）。
 
