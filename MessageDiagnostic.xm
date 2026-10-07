@@ -11,11 +11,17 @@ static CFStringRef const kDiagPrefs = CFSTR("com.minis.lockmessagevideo.message-
 static NSString * const kDiagLog = @"/var/mobile/LockMessageVideo/message-diagnostic.log";
 static const NSUInteger kDiagMaxBytes = 1024 * 1024;
 static NSMutableDictionary<NSValue *, NSNumber *> *MDLastLog;
+
+// CFPreferences resolves this application domain in the rootless preference store.
+// Missing Enabled deliberately means enabled so first install produces evidence.
 static BOOL MDEnabled(void) {
     CFPreferencesAppSynchronize(kDiagPrefs);
     CFTypeRef value = CFPreferencesCopyAppValue(CFSTR("Enabled"), kDiagPrefs);
-    BOOL enabled = value && CFGetTypeID(value) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)value);
-    if (value) CFRelease(value);
+    BOOL enabled = YES;
+    if (value) {
+        if (CFGetTypeID(value) == CFBooleanGetTypeID()) enabled = CFBooleanGetValue((CFBooleanRef)value);
+        CFRelease(value);
+    }
     return enabled;
 }
 static NSString *MDPointer(id object) { return object ? [NSString stringWithFormat:@"%p", object] : @"0x0"; }
@@ -57,6 +63,15 @@ static void MDRotateIfNeeded(void) {
         rename(kDiagLog.fileSystemRepresentation, old.fileSystemRepresentation);
     }
 }
+static void MDAppend(NSString *line) {
+    NSString *dir = [kDiagLog stringByDeletingLastPathComponent];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:NULL];
+    MDRotateIfNeeded();
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    int fd = open(kDiagLog.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd >= 0) { write(fd, data.bytes, data.length); fchmod(fd, 0600); close(fd); }
+    chmod(kDiagLog.fileSystemRepresentation, 0600);
+}
 static void MDLogCell(UIView *cell, NSString *event) {
     if (!MDEnabled() || !cell || MDIsExcluded(cell)) return;
     if (!MDLastLog) MDLastLog = [NSMutableDictionary dictionary];
@@ -69,34 +84,21 @@ static void MDLogCell(UIView *cell, NSString *event) {
     NSArray *layers = MDLayerMetadata(cell);
     if (layers.count) [line appendFormat:@" overlays=[%@]", [layers componentsJoinedByString:@" | "]];
     [line appendString:@"\n"];
-    NSString *dir = [kDiagLog stringByDeletingLastPathComponent];
-    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
-    MDRotateIfNeeded();
-    int fd = open(kDiagLog.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd >= 0) { write(fd, line.UTF8String, strlen(line.UTF8String)); close(fd); }
+    MDAppend(line);
 }
 
 %hook NCNotificationListCell
-- (void)didMoveToWindow {
-    %orig;
-    MDLogCell((UIView *)self, ((UIView *)self).window ? @"attach" : @"detach");
-}
-- (void)prepareForReuse {
-    MDLogCell((UIView *)self, @"reuse-before");
-    %orig;
-    MDLogCell((UIView *)self, @"reuse-after");
-}
-- (void)layoutSubviews {
-    %orig;
-    MDLogCell((UIView *)self, @"layout");
-}
-- (void)removeFromSuperview {
-    MDLogCell((UIView *)self, @"detach-before");
-    %orig;
-}
+- (void)didMoveToWindow { %orig; MDLogCell((UIView *)self, ((UIView *)self).window ? @"attach" : @"detach"); }
+- (void)prepareForReuse { MDLogCell((UIView *)self, @"reuse-before"); %orig; MDLogCell((UIView *)self, @"reuse-after"); }
+- (void)layoutSubviews { %orig; MDLogCell((UIView *)self, @"layout"); }
+- (void)removeFromSuperview { MDLogCell((UIView *)self, @"detach-before"); %orig; }
 %end
 
 %ctor {
-    if (!NSClassFromString(@"NCNotificationListCell")) return;
-    MDLastLog = [NSMutableDictionary dictionary];
+    @autoreleasepool {
+        if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
+        MDLastLog = [NSMutableDictionary dictionary];
+        MDAppend([NSString stringWithFormat:@"event=loaded enabled=%d version=0.0.2\n", MDEnabled()]);
+        %init;
+    }
 }

@@ -1,0 +1,61 @@
+name: build-message-diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [diagnostic/message-background-0.0.1]
+    paths:
+      - 'MessageDiagnostic.xm'
+      - 'DiagnosticPrefs/**'
+      - 'LockMessageVideoMessageDiagnostic.plist'
+      - 'layout/Library/PreferenceLoader/Preferences/LockMessageVideoMessageDiagnosticPrefs.plist'
+      - 'Makefile'
+      - 'control'
+      - '.github/workflows/message-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: message-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Theos and iOS SDK
+        run: |
+          git clone --depth=1 --recursive https://github.com/theos/theos.git "$HOME/theos"
+          git clone --depth=1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos-sdks"
+          rm -rf "$HOME/theos/sdks"
+          mv "$RUNNER_TEMP/theos-sdks" "$HOME/theos/sdks"
+          find "$HOME/theos/sdks" -maxdepth 1 -name 'iPhoneOS*.sdk' | grep .
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+      - name: Install build tools
+        run: brew install --quiet ldid dpkg make
+      - name: Build diagnostic package only
+        run: make clean package FINALPACKAGE=1
+      - name: Verify diagnostic package contents
+        run: |
+          deb=$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)
+          test -n "$deb"
+          test "$(dpkg-deb -f "$deb" Package)" = com.minis.lockmessagevideo.message-diagnostic
+          test "$(dpkg-deb -f "$deb" Version)" = 0.0.2
+          test "$(dpkg-deb -f "$deb" Architecture)" = iphoneos-arm64
+          dpkg-deb -c "$deb"
+          tmp=$(mktemp -d)
+          dpkg-deb -x "$deb" "$tmp"
+          test -f "$tmp/var/jb/Library/MobileSubstrate/DynamicLibraries/LockMessageVideoMessageDiagnostic.dylib"
+          test -f "$tmp/var/jb/Library/MobileSubstrate/DynamicLibraries/LockMessageVideoMessageDiagnostic.plist"
+          test -f "$tmp/var/jb/Library/PreferenceBundles/LockMessageVideoMessageDiagnosticPrefs.bundle/Info.plist"
+          test -f "$tmp/var/jb/Library/PreferenceBundles/LockMessageVideoMessageDiagnosticPrefs.bundle/Root.plist"
+          test -f "$tmp/var/jb/Library/PreferenceLoader/Preferences/LockMessageVideoMessageDiagnosticPrefs.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :entry:bundle' "$tmp/var/jb/Library/PreferenceLoader/Preferences/LockMessageVideoMessageDiagnosticPrefs.plist")" = LockMessageVideoMessageDiagnosticPrefs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LockMessageVideoMessageDiagnostic_0.0.2_iphoneos-arm64
+          path: packages/*.deb
+          if-no-files-found: error
