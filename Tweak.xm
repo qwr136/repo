@@ -291,8 +291,8 @@ static void LMVUpdate(UIView *cell) {
     }
     NSMapTable *hosts = objc_getAssociatedObject(cell, &LMVHostsKey);
     if (!hosts) { hosts = [NSMapTable strongToStrongObjectsMapTable]; objc_setAssociatedObject(cell, &LMVHostsKey, hosts, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-    // During stack collapse UIKit transiently hides the material view. Keep the
-    // cached host so the owned overlay and decoder are not torn down/recreated.
+    // UIKit briefly hides or detaches notification materials while collapsing a stack.
+    // Keep our cached host and decoder through that transient window.
     BOOL missing = NO;
     for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
         UIView *host = [hosts objectForKey:target];
@@ -316,8 +316,6 @@ static void LMVUpdate(UIView *cell) {
         }
         if (!anchor || !anchor.superview) {
             if (state && !state.detachedSince) state.detachedSince = now;
-            // Stack collapse can detach the material for a few frames. Keep the
-            // overlay attached to its last host until the hierarchy settles.
             if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.35) continue;
             LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue;
         }
