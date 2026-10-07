@@ -48,10 +48,12 @@ static void LMVNotify(void) {
     [_specifiers addObject:opacityEnabled];
     PSSpecifier *opacity = [PSSpecifier preferenceSpecifierNamed:@"视频透明度" target:self set:@selector(setOpacity:specifier:) get:@selector(opacity:) detail:nil cell:PSSliderCell edit:nil];
     [opacity setProperty:@"VideoOpacity" forKey:@"key"];
-    [opacity setProperty:@0.05 forKey:@"min"];
+    [opacity setProperty:@0.0 forKey:@"min"];
     [opacity setProperty:@1.0 forKey:@"max"];
     [opacity setProperty:@0.55 forKey:@"default"];
     [opacity setProperty:@YES forKey:@"showValue"];
+    [opacity setProperty:@"VideoOpacitySlider" forKey:@"id"];
+    [opacity setProperty:[self enabled:opacityEnabled] forKey:@"enabled"];
     [_specifiers addObject:opacity];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材路径"]];
     PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
@@ -66,14 +68,23 @@ static void LMVNotify(void) {
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotify();
+    if ([[specifier propertyForKey:@"key"] isEqualToString:@"VideoOpacityEnabled"]) {
+        for (PSSpecifier *slider in _specifiers) {
+            if ([[slider propertyForKey:@"key"] isEqualToString:@"VideoOpacity"]) {
+                [slider setProperty:@([value boolValue]) forKey:@"enabled"];
+                [self reloadSpecifier:slider animated:NO];
+                break;
+            }
+        }
+    }
 }
 - (id)opacity:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);
     if (!value) value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
-    return @([value respondsToSelector:@selector(floatValue)] ? MAX(0.05, MIN(1.0, value.floatValue)) : 0.55);
+    return @([value respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, value.floatValue)) : 0.55);
 }
 - (void)setOpacity:(id)value specifier:(PSSpecifier *)specifier {
-    NSNumber *opacity = @(MAX(0.05, MIN(1.0, [value floatValue])));
+    NSNumber *opacity = @(MAX(0.0, MIN(1.0, [value floatValue])));
     CFPreferencesSetAppValue(CFSTR("VideoOpacity"), (__bridge CFPropertyListRef)opacity, kLMVPrefsID);
     LMVNotify();
 }
@@ -88,8 +99,12 @@ static void LMVNotify(void) {
 }
 - (void)openMaterialPath:(PSSpecifier *)specifier {
     [[NSFileManager defaultManager] createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-    NSURLComponents *components = [NSURLComponents componentsWithString:@"filza://view"];
-    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"path" value:[LMVDirectory stringByAppendingString:@"/"]]];
+    // Filza's view route takes the absolute path, not a query parameter.
+    // Public example: FouadRaheb/AppData ADHelper.m openDirectoryAtURL:.
+    NSURLComponents *components = [NSURLComponents new];
+    components.scheme = @"filza";
+    components.host = @"view";
+    components.path = [LMVDirectory stringByAppendingString:@"/"];
     NSURL *url = components.URL;
     UIApplication *application = UIApplication.sharedApplication;
     if (!url) { [self showMaterialPath]; return; }

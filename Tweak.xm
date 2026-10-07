@@ -88,8 +88,9 @@ static void LMVPrewarmPlayers(void) {
         LMVVideoState *state = LMVCreatePlayer(path);
         if (!state) continue;
         LMVWarmPlayers[path] = state;
-        // Preroll prepares paused video-only decoders, never activates an audio session.
-        [state.player prerollAtRate:1.0 completionHandler:^(BOOL finished) {}];
+        // Do not issue preroll/cancelPendingPrerolls during notification transitions.
+        // AVPlayer on iOS 16.5 can throw from that state transition; the cached
+        // video-only item and poster remain available for the visible handoff.
     }
 }
 static void LMVPreparePoster(NSString *path, AVURLAsset *asset) {
@@ -179,7 +180,8 @@ static void LMVLoadPreferences(void) {
     LMVOpacityEnabled = !opacityEnabled || opacityEnabled.boolValue;
     NSNumber *opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);
     if (!opacity) opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
-    LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.05, MIN(1.0, opacity.floatValue)) : 0.55;
+    // Off means fully transparent; keep the historical enabled default.
+    LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, opacity.floatValue)) : 0.55;
     LMVPrepareAssets();
 }
 static CGRect LMVRectInView(UIView *view, UIView *ancestor) {
@@ -401,7 +403,9 @@ static void LMVUpdate(UIView *cell) {
             LMVVideoState *warm = LMVWarmPlayers[path];
             if (!warm) { LMVMakeRoom(); warm = LMVCreatePlayer(path); }
             if (warm) {
-                [warm.player cancelPendingPrerolls];
+                // Handoff is intentionally a pointer transfer only. Calling
+                // cancelPendingPrerolls here can throw on iOS 16.5 while AVF
+                // is still configuring the cached item.
                 state.player = warm.player; state.looper = warm.looper; state.layer = warm.layer;
                 warm.player = nil; warm.looper = nil; warm.layer = nil;
                 [LMVWarmPlayers removeObjectForKey:path];
@@ -435,10 +439,15 @@ static void LMVUpdate(UIView *cell) {
         // A player with no drawable frame must not obscure the asynchronous poster.
         state.layer.hidden = !state.layer.readyForDisplay;
         state.poster.hidden = state.layer.readyForDisplay;
-        state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 1.0;
+        state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0;
         [CATransaction commit];
         if (anchorVisible) state.lastVisible = now;
-        if (anchorVisible && state.player && !state.playing) { [state.player play]; state.playing = YES; }
+        // AVF configures a new looper's current item asynchronously. The common-
+        // mode display link retries on main; keep the poster until a frame exists.
+        if (anchorVisible && state.player.status == AVPlayerStatusReadyToPlay &&
+            state.player.currentItem.status == AVPlayerItemStatusReadyToPlay && !state.playing) {
+            [state.player play]; state.playing = YES;
+        }
     }
     LMVSyncDisplayLink();
 }
@@ -560,7 +569,8 @@ static void LMVSyncDisplayLink(void) {
             BOOL visible = cellVisible && state.anchor && [state.anchor isDescendantOfView:cell] && LMVVisible(state.anchor);
             if (visible) state.lastVisible = CACurrentMediaTime();
             if (!visible && (!state.visibilityLossSince || CACurrentMediaTime() - state.visibilityLossSince >= 0.18)) LMVPause(state);
-            BOOL canStart = visible && !state.playing && (state.player || (LMVPlayerCount < LMVPlayerLimit && [LMVReadyAssets containsObject:state.path]));
+            BOOL ready = state.player.status == AVPlayerStatusReadyToPlay && state.player.currentItem.status == AVPlayerItemStatusReadyToPlay;
+            BOOL canStart = visible && !state.playing && (ready || (!state.player && LMVPlayerCount < LMVPlayerLimit && [LMVReadyAssets containsObject:state.path]));
             if (canStart || (state.layer && state.layer.hidden == state.layer.readyForDisplay) || (visible && !state.overlay.superview)) update = YES;
         }
         if (update) LMVUpdate(cell);
@@ -575,7 +585,7 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
             LMVLoadPreferences();
             for (UIView *cell in LMVCells.allObjects) {
                 NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-                for (LMVVideoState *state in states.allValues) state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 1.0;
+                for (LMVVideoState *state in states.allValues) state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0;
             }
             LMVRefresh(NO);
         }
