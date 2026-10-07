@@ -273,48 +273,6 @@ static void LMVActionHosts(UIView *view, NSMapTable *hosts, NSUInteger depth) {
     if (LMVActionBranch(view)) { LMVFindActions(view, view, hosts, 0); return; }
     for (UIView *child in view.subviews) LMVActionHosts(child, hosts, depth + 1);
 }
-// Mirror masks into owned layers; never move or modify a system mask.
-static CALayer *LMVCopyMask(CALayer *source, CALayer *copy, NSUInteger depth) {
-    if (!source || depth > 8) return nil;
-    BOOL shape = [source isKindOfClass:CAShapeLayer.class];
-    if (!copy || [copy isKindOfClass:CAShapeLayer.class] != shape) copy = shape ? [CAShapeLayer layer] : [CALayer layer];
-    copy.bounds = source.bounds; copy.position = source.position; copy.anchorPoint = source.anchorPoint;
-    copy.transform = source.transform; copy.sublayerTransform = source.sublayerTransform;
-    copy.opacity = source.opacity; copy.hidden = source.hidden;
-    copy.cornerRadius = source.cornerRadius; copy.cornerCurve = source.cornerCurve;
-    copy.maskedCorners = source.maskedCorners; copy.masksToBounds = source.masksToBounds;
-    copy.backgroundColor = source.backgroundColor; copy.contents = source.contents;
-    copy.contentsRect = source.contentsRect; copy.contentsCenter = source.contentsCenter;
-    copy.contentsScale = source.contentsScale; copy.contentsGravity = source.contentsGravity;
-    if (shape) {
-        CAShapeLayer *a = (CAShapeLayer *)source, *b = (CAShapeLayer *)copy;
-        b.path = a.path; b.fillColor = a.fillColor; b.fillRule = a.fillRule;
-        b.strokeColor = a.strokeColor; b.lineWidth = a.lineWidth;
-        b.lineCap = a.lineCap; b.lineJoin = a.lineJoin; b.lineDashPattern = a.lineDashPattern;
-        b.lineDashPhase = a.lineDashPhase; b.strokeStart = a.strokeStart; b.strokeEnd = a.strokeEnd;
-    }
-    copy.mask = LMVCopyMask(source.mask, copy.mask, depth + 1);
-    NSArray *old = copy.sublayers ?: @[];
-    NSMutableArray *children = [NSMutableArray new];
-    NSUInteger i = 0;
-    for (CALayer *child in source.sublayers) {
-        CALayer *next = LMVCopyMask(child, i < old.count ? old[i] : nil, depth + 1);
-        if (next) [children addObject:next];
-        i++;
-    }
-    copy.sublayers = children;
-    return copy;
-}
-static CALayer *LMVClipSource(CALayer *layer, CALayer *excluded, NSUInteger depth) {
-    if (layer == excluded || depth > 5) return nil;
-    if (layer.mask || layer.cornerRadius > 0) return layer;
-    for (CALayer *child in layer.sublayers) {
-        if (!CGRectEqualToRect(child.frame, layer.bounds)) continue;
-        CALayer *source = LMVClipSource(child, excluded, depth + 1);
-        if (source) return source;
-    }
-    return nil;
-}
 static BOOL LMVIsOwnedOverlay(UIView *overlay) {
     return overlay && [objc_getAssociatedObject(overlay, &LMVOwnedOverlayKey) boolValue];
 }
