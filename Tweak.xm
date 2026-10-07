@@ -237,19 +237,14 @@ static BOOL LMVIsClassOrSubclass(UIView *view, NSString *name) {
     return cls && [view isKindOfClass:cls];
 }
 static BOOL LMVIsLiveActivityView(UIView *view) {
-    return LMVIsClassOrSubclass(view, @"CSActivityItemContentView") ||
-        LMVIsClassOrSubclass(view, @"PLPlatterCustomContentView") ||
-        LMVIsClassOrSubclass(view, @"NCNotificationListSupplementaryHostingView");
+    // Wrapper classes are also used by ordinary notifications. Only the
+    // dedicated activity content view starts a live-activity subtree.
+    return LMVIsClassOrSubclass(view, @"CSActivityItemContentView");
 }
 static BOOL LMVHasLiveActivityAncestor(UIView *view) {
     for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
         if (LMVIsLiveActivityView(ancestor)) return YES;
     }
-    return NO;
-}
-static BOOL LMVHasLiveActivityDescendant(UIView *view) {
-    if (LMVIsLiveActivityView(view)) return YES;
-    for (UIView *child in view.subviews) if (LMVHasLiveActivityDescendant(child)) return YES;
     return NO;
 }
 static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
@@ -278,7 +273,7 @@ static NSString *LMVSemanticTarget(UIView *view) {
     return nil;
 }
 static void LMVFindActions(UIView *view, UIView *root, NSMapTable *hosts, NSUInteger depth) {
-    if (depth > 10) return;
+    if (depth > 10 || LMVHasLiveActivityAncestor(view)) return;
     NSString *target = LMVSemanticTarget(view);
     if (target) {
         UIView *host = view;
@@ -291,7 +286,7 @@ static void LMVFindActions(UIView *view, UIView *root, NSMapTable *hosts, NSUInt
     for (UIView *child in view.subviews) LMVFindActions(child, root, hosts, depth + 1);
 }
 static void LMVActionHosts(UIView *view, NSMapTable *hosts, NSUInteger depth) {
-    if (depth > 12) return;
+    if (depth > 12 || LMVHasLiveActivityAncestor(view)) return;
     if (LMVActionBranch(view)) { LMVFindActions(view, view, hosts, 0); return; }
     for (UIView *child in view.subviews) LMVActionHosts(child, hosts, depth + 1);
 }
@@ -425,7 +420,7 @@ static void LMVUpdate(UIView *cell) {
     if (!hosts) { hosts = [NSMapTable strongToStrongObjectsMapTable]; objc_setAssociatedObject(cell, &LMVHostsKey, hosts, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     // UIKit briefly hides or detaches notification materials while collapsing a stack.
     // Keep our cached host and decoder through that transient window.
-    BOOL messageEligible = LMVMessageCell(cell) && !LMVHasLiveActivityDescendant(cell);
+    BOOL messageEligible = LMVMessageCell(cell);
     BOOL liveEligible = LMVIsClassOrSubclass(cell, @"CSActivityItemContentView");
     if (!messageEligible) {
         [hosts removeObjectForKey:@"Message"];
@@ -443,25 +438,30 @@ static void LMVUpdate(UIView *cell) {
     for (NSString *target in LMVTargets()) {
         UIView *host = [hosts objectForKey:target];
         BOOL isLiveCell = LMVIsClassOrSubclass(cell, @"CSActivityItemContentView");
-        // Message material belongs only to a notification cell. A cell that
-        // contains a live-activity host is deliberately ineligible, so the
-        // live host owns the only overlay for that visual surface.
-        if ([target isEqualToString:@"Message"] && (!LMVMessageCell(cell) || LMVHasLiveActivityDescendant(cell))) host = nil;
+        // An activity child must not disqualify its notification wrapper.
+        // Exclude only message anchors inside the activity content subtree.
+        if ([target isEqualToString:@"Message"] && !messageEligible) host = nil;
         if ([target isEqualToString:@"LiveActivity"] && isLiveCell) {
             host = cell;
             [hosts setObject:cell forKey:target];
         } else if ([target isEqualToString:@"LiveActivity"] && !isLiveCell) {
             host = nil;
         }
-        if (host && (!([host isDescendantOfView:cell] || host == cell) || ([target isEqualToString:@"Message"] && LMVHasLiveActivityAncestor(host)))) {
+        if (host && (!([host isDescendantOfView:cell] || host == cell) || LMVHasLiveActivityAncestor(host) != [target isEqualToString:@"LiveActivity"])) {
             [hosts removeObjectForKey:target]; host = nil;
+            // An invalid boundary is not a transient detach: remove only our
+            // owned overlay immediately, before discovery binds a new host.
+            LMVVideoState *old = states[target];
+            LMVPause(old); [old.overlay removeFromSuperview];
+            objc_setAssociatedObject(old.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            old.anchor = nil; old.host = nil; old.clipSource = nil;
         }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || [target isEqualToString:@"LiveActivity"] || visible)) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     if (missing && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if (!liveEligible && !LMVHasLiveActivityAncestor(cell) && !LMVHasLiveActivityDescendant(cell)) LMVActionHosts(cell, hosts, 0);
+        if (!liveEligible && !LMVHasLiveActivityAncestor(cell)) LMVActionHosts(cell, hosts, 0);
         if (messageEligible) {
             UIView *material = LMVMessageMaterial(cell, 0);
             if (material) [hosts setObject:material forKey:@"Message"];
