@@ -1,0 +1,65 @@
+name: build-deb
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - 'Packages/**'
+      - 'Release/**'
+      - 'index.html'
+      - 'depictions/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-deb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Theos and iOS SDK
+        run: |
+          git clone --depth=1 --recursive https://github.com/theos/theos.git "$HOME/theos"
+          git clone --depth=1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos-sdks"
+          rm -rf "$HOME/theos/sdks"
+          mv "$RUNNER_TEMP/theos-sdks" "$HOME/theos/sdks"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          echo "THEOS_MAKE_PATH=$HOME/theos/makefiles" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        run: |
+          brew install --quiet ldid dpkg make
+
+      - name: Show environment
+        run: |
+          echo "THEOS=$THEOS"
+          xcode-select -p
+          clang --version
+          make --version
+          dpkg-deb --version
+
+      - name: Build package
+        run: |
+          export THEOS="$HOME/theos"
+          make clean package FINALPACKAGE=1
+
+      - name: List build outputs
+        run: |
+          ls -R .
+          ls -R packages || true
+
+      - name: Upload deb artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-packages
+          path: packages/*.deb
+          if-no-files-found: error
