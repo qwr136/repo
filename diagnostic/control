@@ -1,0 +1,9 @@
+Package: com.minis.lockmessagevideo.diagnostic
+Name: 锁屏背景视频诊断
+Version: 0.0.1
+Architecture: iphoneos-arm64
+Description: Read-only lockscreen media and Live Activity view hierarchy diagnostics
+Maintainer: Minis
+Author: Minis
+Section: Tweaks
+Depends: mobilesubstrate
