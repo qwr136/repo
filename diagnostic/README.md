@@ -1,4 +1,4 @@
-# 锁屏背景视频诊断 0.0.2
+# 锁屏背景视频诊断 0.0.3
 
 基于 qwr136/repo 生产版 0.0.22 (189d05fe6d0c545107716e67156a69aff958cf80)，独立诊断目录、包标识及 dylib。目标为用户自己的 iPhone 14 Pro Max，iOS 16.2/16.5，Dopamine roothide（沿用当前生产仓库的 Theos rootless 打包方式）。
 
@@ -23,11 +23,13 @@ false 关闭，true 启用；删除文件恢复默认启用。约 3 秒内生效
 
 仅 SpringBoard 注入；只 hook 已由 NSClassFromString 查到的 CSCoverSheetViewController (viewDidAppear/viewDidLayoutSubviews) 与 NCNotificationListView (layoutSubviews)，所有原方法照常执行。不 hook 全局 UIView，不链接 AVFoundation、不创建 AVPlayer、不更改音频会话、不增加或修改任何 UI。
 
-主线程读取 UIKit。布局/出现后延迟 350ms 合并扫描；定时器每 3 秒触发，息屏或锁屏/通知容器不可见时不遍历相关子树。扫描至少间隔 1 秒。匹配 NowPlaying、Media、MRU、Activity、LiveActivity、CHUIS、SBMedia；Widget、CoverSheet、Notification 作为发现锚点，不整棵转储这些泛用容器。只输出可见相关根、简要祖先类名和所在窗口元信息。类名匹配为启发式，不保证每个私有 iOS 版本都暴露相同类。
+主线程读取 UIKit。布局/出现后延迟 350ms 合并扫描；定时器每 3 秒触发，所有实际扫描至少间隔 3 秒，限额检查在窗口枚举和可见性检查之前。仅屏幕点亮且可见 SBCoverSheetWindow/锁屏控制器时转储，支持锁屏及下拉通知中心，不因 SpringBoard applicationState 错误地漏扫。新增仅对已存在 SBCoverSheetWindow 的 layoutSubviews 钩子，无全局 UIView 钩子。窗口来源合并精确钩子观察、锁屏控制器、connectedScenes 与 UIApplication.windows，弱引用保留，不调用未知私有选择器。
 
-每个相关子树深度最多 18，快照最多 500 节点，发现每窗口最多 3000 节点/12 根/24 深度，最多 16 个可见窗口。快照文本约 100KB 上限，FNV-1a 状态哈希去重，相同状态每 60 秒最多再记录一次。文件约 1MiB 上限，达到上限即以新快照替换，不额外生成轮转文件。串行后台写盘，文件权限 0600。
+优先完整转储 SBCoverSheetWindow/锁屏控制器所在窗口，不依赖叶子类名匹配。其后只发现其他窗口中的 NowPlaying、Media、MRU、Activity、LiveActivity、CHUIS、SBMedia 相关根，桌面窗口最后，不默认转储全部窗口。锁屏子树保留 hidden/alpha=0 分支元数据，不以父节点暂时不可见剪枝。深度 32，快照共 6000 节点、约 1MiB 文本，其他窗口发现限额每窗 6000 节点/24 根/32 层，最多 16 个可见窗口。COVERAGE 显式记录深度截断分支数、节点/大小/发现预算耗尽及未处理窗口；ENUM 列出包括不可见窗口的类名、来源、frame、hidden、alpha 和层级。达到预算时快照并不完整，不能以未出现类推断播放器不存在。
 
-输出只含时间、原因、类名、frame、hidden、alpha、window level，无标签文字、通知正文、音乐标题、图片或网络上传。Live Activity 的远程渲染内容可能只能看到宿主视图，不能透过跨进程渲染恢复 Widget 内部树。点亮锁屏无匹配也会记录一次 no-match 状态。
+日志保留原有 WINDOW、ROOT ancestry、树形格式与 diagnostic=0.0.3 标记；节点增加 windowFrame、masks、visible、parent、标准 nextResponder 链中控制器类名。RUNTIME 的 NSClassFromString 存在性检查仅代表类已载入，明确标注不是实际树中观测。FNV-1a 状态哈希去重，同状态每 60 秒最多写一次。单代约 1MiB，保留 media-live-tree.log 和 .log.1 两代，合计约 2MiB；只轮转这两个诊断文件，绝不清除共享目录。串行后台写盘，当前日志权限 0600。
+
+只输出时间、原因、类名及几何/可见性状态，无标签文字、通知正文、音乐标题、图片或网络上传。远程渲染内容可能只有宿主视图，不能透过跨进程渲染恢复媒体或 Widget 内部树。截图只能确认播放器可见，不能确认实际私有类名。当前版本尚未设备实测；采集时让播放器保持可见 5-10 秒，分享 log 与存在时的 log.1。
 
 当前环境未连接目标越狱设备，构建与包结构验证不等于设备实测。若 roothide 要求 iphoneos-arm64e 原生包而非该仓库的 iphoneos-arm64 rootless 包，请使用现有 roothide rootless 转换机制；不要强制忽略包管理器架构错误。AOD 的系统息屏通知若为 blank，本包会跳过，需点亮屏幕后采集。
 
