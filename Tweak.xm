@@ -318,6 +318,15 @@ static CALayer *LMVClipSource(CALayer *layer, CALayer *excluded, NSUInteger dept
 static BOOL LMVIsOwnedOverlay(UIView *overlay) {
     return overlay && [objc_getAssociatedObject(overlay, &LMVOwnedOverlayKey) boolValue];
 }
+static void LMVRemoveDuplicateOverlays(UIView *host, UIView *keep) {
+    if (!host) return;
+    // Only touch plugin-owned marker views. System notification subviews and
+    // their layers, including AVPlayerLayer instances, are never inspected or
+    // removed as part of cleanup.
+    for (UIView *child in [host.subviews copy]) {
+        if (child != keep && LMVIsOwnedOverlay(child)) [child removeFromSuperview];
+    }
+}
 static void LMVDetachOverlay(LMVVideoState *state) {
     if (LMVIsOwnedOverlay(state.overlay)) [state.overlay removeFromSuperview];
     state.anchor = nil;
@@ -401,9 +410,12 @@ static void LMVUpdate(UIView *cell) {
     BOOL visible = LMVVisible(cell);
     CFTimeInterval now = CACurrentMediaTime();
     if (!cell.window) {
+        // A reused/detached cell is no longer a valid rendering owner. Remove
+        // plugin views now; player, poster, and asset caches remain reusable.
         for (LMVVideoState *state in states.allValues) {
-            if (!state.detachedSince) state.detachedSince = now;
-            if (now - state.detachedSince > 1.0) LMVPause(state);
+            LMVPause(state);
+            LMVDetachOverlay(state);
+            state.detachedSince = now;
         }
         return;
     }
@@ -432,9 +444,10 @@ static void LMVUpdate(UIView *cell) {
             LMVPause(state); LMVDetachOverlay(state); [states removeObjectForKey:target]; state = nil;
             if (!LMVEnabled[target].boolValue || !path) continue;
         }
-        if (!anchor || !anchor.superview) {
-            // Detach is an ownership boundary: remove immediately. Keep only
-            // the player/poster cache, never a view attached to the old cell.
+        if (!anchor || !anchor.superview || !anchor.window || anchor.hidden || anchor.alpha < 0.01) {
+            // Host loss is an ownership boundary: remove immediately. Keep
+            // only the player/poster cache, never a view attached to old
+            // notification geometry during reuse or collapse.
             LMVPause(state); LMVDetachOverlay(state); continue;
         }
         state.detachedSince = 0;
@@ -484,14 +497,18 @@ static void LMVUpdate(UIView *cell) {
             state.anchor = anchor;
             state.clipSource = nil;
         }
-        if (!state.clipSource || !state.clipSource.superlayer) state.clipSource = LMVClipSource(host.layer, state.overlay.layer, 0);
-        CALayer *clip = state.clipSource ?: host.layer;
+        LMVRemoveDuplicateOverlays(host, state.overlay);
+        // The wrapper is plugin-owned and uses only the current host's local
+        // bounds. Do not copy a system mask or layer tree: system materials
+        // can contain private AVPlayerLayer instances that must remain theirs.
+        CALayer *hostLayer = host.layer.presentationLayer ?: host.layer;
         state.overlay.frame = host.bounds;
         state.overlay.transform = CGAffineTransformIdentity;
-        state.overlay.layer.cornerRadius = clip.cornerRadius;
-        state.overlay.layer.cornerCurve = clip.cornerCurve;
-        state.overlay.layer.maskedCorners = clip.maskedCorners;
-        state.overlay.layer.mask = LMVCopyMask(clip.mask, state.overlay.layer.mask, 0);
+        state.overlay.layer.cornerRadius = hostLayer.cornerRadius;
+        state.overlay.layer.cornerCurve = hostLayer.cornerCurve;
+        state.overlay.layer.maskedCorners = hostLayer.maskedCorners;
+        state.overlay.layer.mask = nil;
+        state.overlay.layer.masksToBounds = YES;
         state.layer.frame = state.overlay.bounds;
         state.poster.frame = state.overlay.bounds;
         if (LMVPosters[path]) state.poster.image = LMVPosters[path];
