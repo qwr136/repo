@@ -695,6 +695,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVRevisions = [NSMutableDictionary new]; LMVClockStarts = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new]; LMVItems = [NSMutableDictionary new]; LMVReadyAssets = [NSMutableSet new]; LMVPosters = [NSMutableDictionary new];
         LMVLoadPreferences();
+        %init;
         if (NSClassFromString(@"CSActivityItemContentView")) {
             %init(LMVLiveActivity);
         }
