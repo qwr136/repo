@@ -1,3 +1,4 @@
+#include <string.h>
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <Preferences/PSListController.h>
@@ -75,7 +76,33 @@ static void LMVNotify(void) {
     [diagnostics setProperty:@NO forKey:@"default"];
     [_specifiers addObject:diagnostics];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志"]];
+    // This controller owns all rows. Never inherit plist controller/action routes.
+    for (PSSpecifier *row in _specifiers) {
+        if (row.cellType != PSButtonCell) continue;
+        row.target = self;
+        row.detailControllerClass = Nil;
+        row.controllerLoadAction = NULL;
+        row->action = NULL;
+        for (NSString *key in @[@"action", @"detail", @"controller", @"loadAction", @"bundle", @"lazy-bundle", @"isController"])
+            [row removePropertyForKey:key];
+        NSAssert(row.buttonAction && [self respondsToSelector:row.buttonAction], @"Invalid settings button: %@", row.name);
+    }
     return _specifiers;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    PSSpecifier *row = [self specifierAtIndexPath:indexPath];
+    if (row.cellType == PSButtonCell) {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        if ([[row propertyForKey:@"enabled"] isEqual:@NO]) return;
+        SEL action = row.buttonAction;
+        // Call only our own one-specifier button handlers, never controllerForSpecifier:.
+        NSMethodSignature *signature = action ? [self methodSignatureForSelector:action] : nil;
+        if (row.target != self || !signature || signature.numberOfArguments != 3 || strcmp(signature.methodReturnType, @encode(void)) != 0) return;
+        void (*invoke)(id, SEL, PSSpecifier *) = (void (*)(id, SEL, PSSpecifier *))[self methodForSelector:action];
+        invoke(self, action, row);
+        return;
+    }
+    [super tableView:tableView didSelectRowAtIndexPath:indexPath];
 }
 - (id)enabled:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);

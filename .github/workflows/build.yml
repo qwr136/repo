@@ -29,6 +29,11 @@ jobs:
         run: |
           python3 tests/shared-render-regression.py
           python3 tests/settings-import-regression.py
+          python3 tests/preferences-routing.py
+          clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
+          "$RUNNER_TEMP/lmv-material-catalog"
+          cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"
+          "$RUNNER_TEMP/lmv-lock-consumer"
           cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
           "$RUNNER_TEMP/lmv-import-plan"
 
