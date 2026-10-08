@@ -20,7 +20,8 @@ assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'swi
 for action in actions:
     assert re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier', source), action
 assert 'row.target = self;' in source and 'row.detailControllerClass = Nil;' in source
-assert 'row.controllerLoadAction = NULL;' in source and 'row->action = NULL;' in source
+assert 'row.controllerLoadAction = NULL;' in source and '[row removePropertyForKey:key];' in source
+assert 'row->action' not in source  # Private ivar is absent from the framework linker stub.
 start = source.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:')
 end = source.index('\n- (id)enabled:', start)
 method = source[start:end]

@@ -82,7 +82,6 @@ static void LMVNotify(void) {
         row.target = self;
         row.detailControllerClass = Nil;
         row.controllerLoadAction = NULL;
-        row->action = NULL;
         for (NSString *key in @[@"action", @"detail", @"controller", @"loadAction", @"bundle", @"lazy-bundle", @"isController"])
             [row removePropertyForKey:key];
         NSAssert(row.buttonAction && [self respondsToSelector:row.buttonAction], @"Invalid settings button: %@", row.name);
