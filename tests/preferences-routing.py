@@ -13,6 +13,7 @@ assert not {'action', 'buttonAction', 'loadAction', 'controller'} & entry.keys()
 assert re.search(r'@interface LMVPRootListController : PSListController', source)
 assert 'loadSpecifiersFromPlistName' not in source
 assert 'Resources/Root.plist' not in (root/'Makefile').read_text()
+assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources automatically.
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|clearOriginals):)\)', source))
