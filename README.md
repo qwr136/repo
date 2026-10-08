@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.56
+- 修复 0.0.55 启动初始化重入：壁纸窗口初始化触发插件同步桌面策略，策略创建 `SBLockScreenManager`，管理器又请求正在 `dispatch_once` 中创建的壁纸控制器，造成 libdispatch recursive-lock SIGTRAP；不是视频素材错误。已核对 0.0.55 实际包 arm64e UUID 与用户 ips 一致。
+- 全部早期窗口/宿主 layout、didMove、hidden/alpha、Dock level 及控制器进度回调只登记弱宿主并请求合并更新。集合先初始化再注册通知和 Logos hooks；只有 `UIApplicationDidFinishLaunchingNotification` 后的主队列任务可以开启启动门，策略在随后主队列任务执行。晚注入采用既有 public application/scene active 或 background 状态证据，inactive 场景不能提前开门；真实 didBecomeActive 事件也可补足晚注入证据。
+- 移除创建型锁屏管理器查询，锁状态读取既有 `com.apple.springboard.lockstate` notify state，未知状态保守暂停。桌面关闭或启动未就绪时不捕获系统桌面状态；合并/执行标志防止同步嵌套布局再入，没有任意延迟或异常掩盖。
+- 保留 0.0.55 全部设置、五目标、素材管理与临时导入源清理、共享渲染、静音/熄屏策略、诊断默认关闭、已移除的阴影控制结果。桌面部分露出播放、完全遮盖暂停留帧、App 返回恢复及 Dock 低层级仅隐藏插件自有层的策略函数未改；宿主刷新改为下一主队列任务。
+- 新增 Foundation doubles 复现旧版锁屏管理器→壁纸 once 递归，并执行实际生产 launch/coalescer/host/desktop-update 函数，断言启动前零策略/零单例创建、启动事件后下一任务合并、嵌套回调不递归、禁用桌面零快照和晚注入状态证据。旧桌面日志时序、NC 遮盖、留帧/时间和 Dock 属性回归继续执行。Actions 编译与 doubles 不能替代 iOS 冷启动、锁定/解锁、NC 和 iPadDock 真机验收。
+
 ## 0.0.55
 - 对照用户确认可用的 0.53 桌面实现，保留原有 HomeScreen CALayer、按路径共享的视频源及首选 `_accessibilityFrontMostApplication` 查询；真实前台 bundle ID 优先，私有查询均检查对象返回 ABI。0.54 中显示链停用和暂停状态无条件释放桌面源的路径被移除，显示链只读已提交消费状态，不再在同一 tick 重复查询前台。
 - 通知中心下滑期间桌面仍有露出则播放，实际 `CSCoverSheetView.slideableContentView/contentView` 的模型/呈现屏幕矩形均完全覆盖桌面后暂停。全屏透明 UIWindow 不作为覆盖证据。保留最后帧与暂停源，重新露出立即恢复；未知转场仅 150ms 防抖，key HomeScreenWindow 且无应用/覆盖/锁定可恢复，不能把未知 UI 对象误当真实应用。

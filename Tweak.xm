@@ -15,6 +15,7 @@
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSHashTable<UIView *> *LMVCells;
+static NSHashTable<UIView *> *LMVActionPresenters;
 static NSHashTable<UIView *> *LMVLockHosts;
 static char LMVLockStateKey;
 static NSHashTable<UIView *> *LMVDesktopHosts;
@@ -50,6 +51,45 @@ static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
 static BOOL LMVVisible(UIView *view);
 static CADisplayLink *LMVLink;
+static int LMVLockToken = -1;
+// Collections are initialized before any observer or hook can register a host.
+// Launch readiness is independent: a system initializer must never run policy.
+static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying;
+static BOOL LMVPreferencesDirty = YES;
+static void LMVLoadPreferences(void);
+static void LMVRetryDiscovery(UIView *cell);
+static void LMVRequestSafeUpdate(void) {
+    if (!LMVInitialized || !NSThread.isMainThread || !LMVLaunchReady ||
+        LMVSafeUpdatePending || LMVSafeUpdateApplying) return;
+    LMVSafeUpdatePending = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!LMVInitialized || !LMVLaunchReady) { LMVSafeUpdatePending = NO; return; }
+        LMVSafeUpdateApplying = YES;
+        BOOL reload = LMVPreferencesDirty;
+        LMVPreferencesDirty = NO;
+        LMVRefresh(reload);
+        for (UIView *cell in LMVCells.allObjects) LMVRetryDiscovery(cell);
+        LMVSafeUpdateApplying = NO;
+        LMVSafeUpdatePending = NO;
+        // A preference notification can arrive while the refresh is applying.
+        if (LMVPreferencesDirty) LMVRequestSafeUpdate();
+    });
+}
+static void LMVMarkLaunchReady(void) {
+    if (!LMVInitialized || !NSThread.isMainThread) return;
+    LMVLaunchReady = YES;
+    LMVRequestSafeUpdate();
+}
+// Public, already-existing scene state is evidence for late injection. Inactive
+// scenes alone are NOT evidence: they also exist during wallpaper construction.
+static BOOL LMVAlreadyLaunched(UIApplication *app) {
+    if (!app || app.applicationState == UIApplicationStateInactive) return NO;
+    for (UIScene *scene in app.connectedScenes) {
+        if (scene.activationState == UISceneActivationStateForegroundActive ||
+            scene.activationState == UISceneActivationStateBackground) return YES;
+    }
+    return NO;
+}
 
 // Diagnostics intentionally contain no notification text, labels or filenames.
 static dispatch_queue_t LMVDiagnosticQueue;
@@ -212,11 +252,8 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 @implementation LMVVideoState
 - (void)dealloc { [_overlay removeFromSuperview]; }
 @end
-@interface SBLockScreenManager : NSObject
-+ (instancetype)sharedInstance;
-- (BOOL)isUILocked;
-@end
 static BOOL LMVPlaybackAllowed(void) {
+    if (!LMVInitialized || !LMVLaunchReady) return NO;
     uint64_t blank=1;
     int status=LMVBlankToken<0 ? -1 : notify_get_state(LMVBlankToken,&blank);
     // CoverSheet callbacks are not a global visibility oracle. A hidden sibling
@@ -470,6 +507,7 @@ static void LMVReleasePlayer(LMVVideoState *state) {
     if (!LMVSourceHasConsumer(source)) LMVStopSource(source);
 }
 static void LMVPrepareAssets(void) {
+    if (!LMVInitialized || !LMVLaunchReady) return;
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
     for (NSString *path in LMVSources.allKeys) {
         if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; LMVStopSource(LMVSharedSources[path]); [LMVSharedSources removeObjectForKey:path]; [LMVRevisions removeObjectForKey:path]; }
@@ -534,7 +572,7 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.55 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.56 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -666,6 +704,7 @@ static void LMVRetryDiscovery(UIView *cell) {
     }
 }
 static void LMVUpdate(UIView *cell) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
     if (!states) { states = [NSMutableDictionary new]; objc_setAssociatedObject(cell, &LMVStatesKey, states, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     BOOL playbackAllowed=LMVPlaybackAllowed();
@@ -810,15 +849,15 @@ static void LMVUpdate(UIView *cell) {
 %hook NCNotificationListCell
 - (void)layoutSubviews {
     %orig;
+    if (!LMVInitialized) return;
     [LMVCells addObject:(UIView *)self];
-    LMVUpdate((UIView *)self);
-    LMVRetryDiscovery((UIView *)self);
+    LMVRequestSafeUpdate();
 }
 - (void)didMoveToWindow {
     %orig;
+    if (!LMVInitialized) return;
     [LMVCells addObject:(UIView *)self];
-    LMVUpdate((UIView *)self);
-    LMVRetryDiscovery((UIView *)self);
+    LMVRequestSafeUpdate();
 }
 - (void)prepareForReuse {
     objc_setAssociatedObject(self, &LMVRetryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -844,7 +883,7 @@ static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
     return view.subviews.count == 1 && LMVBranchHasWallpaper(view.subviews.firstObject, depth + 1);
 }
 static void LMVUpdateLockScreen(UIView *host) {
-    if (!host) return;
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || !host) return;
     LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
     NSString *path = LMVPaths[@"LockScreen"];
     BOOL enabled = LMVEnabled[@"LockScreen"].boolValue && path.length;
@@ -975,6 +1014,7 @@ static BOOL LMVDesktopCoverFullyObscures(UIView *host) {
 static LMVDesktopSnapshot *LMVDesktopCapture(void) {
     LMVDesktopSnapshot *snapshot = [LMVDesktopSnapshot new];
     snapshot.now = CACurrentMediaTime(); snapshot.screenOn = LMVPlaybackAllowed(); snapshot.locked = YES;
+    if (!LMVInitialized || !LMVLaunchReady) return snapshot;
     NSMutableArray *windows = [NSMutableArray new];
     UIApplication *app = UIApplication.sharedApplication;
     for (UIScene *scene in app.connectedScenes) {
@@ -984,13 +1024,11 @@ static LMVDesktopSnapshot *LMVDesktopCapture(void) {
     Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
     for (UIWindow *window in windows) if (coverWindow && [window isKindOfClass:coverWindow] &&
         !window.hidden && window.alpha >= 0.01) snapshot.notificationTransition = YES;
-    Class lockClass = NSClassFromString(@"SBLockScreenManager");
-    SEL shared = NSSelectorFromString(@"sharedInstance"), locked = NSSelectorFromString(@"isUILocked");
-    if (LMVDesktopMethod(lockClass, shared, @encode(id))) {
-        id manager = ((id (*)(id, SEL))objc_msgSend)(lockClass, shared);
-        snapshot.lockKnown = LMVDesktopMethod(manager, locked, @encode(BOOL));
-        if (snapshot.lockKnown) snapshot.locked = ((BOOL (*)(id, SEL))objc_msgSend)(manager, locked);
-    }
+    // Read SpringBoard's published state; this never creates a system manager.
+    // Unknown state stays fail-closed until the publisher supplies lock state.
+    uint64_t lockState = 1;
+    snapshot.lockKnown = LMVLockToken >= 0 && notify_get_state(LMVLockToken, &lockState) == NOTIFY_STATUS_OK;
+    if (snapshot.lockKnown) snapshot.locked = lockState != 0;
     // Guard both selector and object-return ABI. Prefer an actual application ID;
     // an accessibility proxy/controller without one is only a transition hint.
     id foreground = nil, identifier = nil;
@@ -1183,16 +1221,21 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     }
 }
 static void LMVUpdateDesktops(void) {
-    if (!NSThread.isMainThread) return;
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     BOOL enabled = LMVEnabled[@"Desktop"].boolValue && LMVPaths[@"Desktop"].length;
+    if (!enabled) {
+        // Retirement needs no system snapshot; LMVUpdateDesktop returns before
+        // evaluating activity when the feature is disabled.
+        for (UIView *host in LMVDesktopHosts.allObjects) LMVUpdateDesktop(host, nil);
+        [LMVDesktopVisibilityTimer invalidate]; LMVDesktopVisibilityTimer = nil; return;
+    }
     LMVDesktopSnapshot *snapshot = LMVDesktopCapture();
     for (UIView *host in LMVDesktopHosts.allObjects) LMVUpdateDesktop(host, snapshot);
-    if (!enabled) { [LMVDesktopVisibilityTimer invalidate]; LMVDesktopVisibilityTimer = nil; return; }
     if (!LMVDesktopVisibilityTimer) {
         // No decoding here. Watch visibility even while the display link is stopped,
         // including app return / Notification Center dismissal without home relayout.
         LMVDesktopVisibilityTimer = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(NSTimer *timer) {
-            LMVUpdateDesktops(); LMVSyncDisplayLink();
+            LMVRequestSafeUpdate();
         }];
         [NSRunLoop.mainRunLoop addTimer:LMVDesktopVisibilityTimer forMode:NSRunLoopCommonModes];
     }
@@ -1210,10 +1253,10 @@ static BOOL LMVDesktopNeedsFrames(void) {
     return NO;
 }
 static void LMVDesktopHostChanged(UIView *view) {
-    if (!NSThread.isMainThread) return;
+    if (!LMVInitialized || !NSThread.isMainThread) return;
     Class home = NSClassFromString(@"SBHomeScreenView");
     if (home && object_getClass(view) == home) [LMVDesktopHosts addObject:view];
-    LMVUpdateDesktops(); LMVSyncDisplayLink();
+    LMVRequestSafeUpdate();
 }
 %group LMVDesktopViewHooks
 %hook SBHomeScreenView
@@ -1251,11 +1294,11 @@ static void LMVDesktopHostChanged(UIView *view) {
 %hook SBHomeScreenViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    LMVUpdateDesktops(); LMVSyncDisplayLink();
+    LMVRequestSafeUpdate();
 }
 - (void)viewDidDisappear:(BOOL)animated {
     %orig;
-    LMVUpdateDesktops(); LMVSyncDisplayLink();
+    LMVRequestSafeUpdate();
 }
 %end
 %end
@@ -1265,7 +1308,7 @@ static void LMVDesktopHostChanged(UIView *view) {
     %orig;
     // Concrete CoverSheet transition callback; never use its full-screen window
     // bounds as cover evidence. Re-evaluate actual content geometry after orig.
-    LMVUpdateDesktops(); LMVSyncDisplayLink();
+    LMVRequestSafeUpdate();
 }
 %end
 %end
@@ -1274,7 +1317,7 @@ static void LMVDesktopHostChanged(UIView *view) {
 - (void)setWindowLevel:(UIWindowLevel)level {
     %orig;
     // Observe iPadDock's original level; only our desktop layer may be hidden.
-    LMVUpdateDesktops(); LMVSyncDisplayLink();
+    LMVRequestSafeUpdate();
 }
 %end
 %end
@@ -1291,49 +1334,41 @@ static void LMVDesktopHostChanged(UIView *view) {
 %end
 %end
 
+static void LMVLockHostChanged(UIView *view) {
+    if (!LMVInitialized || !NSThread.isMainThread) return;
+    [LMVLockHosts addObject:view];
+    LMVRequestSafeUpdate();
+}
 %group LMVLockScreenHooks
 %hook CSCoverSheetView
 - (void)layoutSubviews {
     %orig;
-    [LMVLockHosts addObject:(UIView *)self];
-    LMVUpdateLockScreen((UIView *)self);
-    LMVSyncDisplayLink();
+    LMVLockHostChanged((UIView *)self);
 }
 - (void)didMoveToWindow {
     %orig;
-    [LMVLockHosts addObject:(UIView *)self];
-    LMVUpdateLockScreen((UIView *)self);
-    LMVSyncDisplayLink();
+    LMVLockHostChanged((UIView *)self);
 }
 - (void)setHidden:(BOOL)hidden {
     %orig;
-    LMVUpdateLockScreen((UIView *)self);
-    LMVSyncDisplayLink();
+    LMVLockHostChanged((UIView *)self);
 }
 - (void)setAlpha:(CGFloat)alpha {
     %orig;
-    LMVUpdateLockScreen((UIView *)self);
-    LMVSyncDisplayLink();
+    LMVLockHostChanged((UIView *)self);
 }
 %end
 %end
 
 static void LMVCoverSheetVisibilityChanged(UIView *view) {
-    // A root window has no superview. A callback from a hidden/detached sibling
-    // is not evidence that every notification surface is hidden.
-    static NSMapTable *surfaceStates;
-    if (!surfaceStates) surfaceStates=[NSMapTable weakToStrongObjectsMapTable];
-    NSString *state=[NSString stringWithFormat:@"window=%d hidden=%d attached=%d",[view isKindOfClass:UIWindow.class],view.hidden,view.window!=nil];
-    if (![[surfaceStates objectForKey:view] isEqualToString:state]) { [surfaceStates setObject:state forKey:view]; LMVDiagnostic([@"surface " stringByAppendingString:state]); }
-    LMVUpdateLockScreens();
-    LMVUpdateDesktops();
-    if (!LMVPlaybackAllowed()) LMVReleaseAllPlayers(); else LMVRefresh(NO);
+    if (!LMVInitialized || !NSThread.isMainThread) return;
+    // Visibility is evaluated after UIKit finishes the current lifecycle call.
+    // Cells/lock hosts already own retained frames; no policy runs in a setter.
+    LMVRequestSafeUpdate();
 }
 %group LMVCoverWindowHooks
 %hook SBCoverSheetWindow
 - (void)setHidden:(BOOL)hidden {
-    // Bind retained frames while still hidden, before UIKit exposes the surface.
-    if (!hidden) for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
     %orig;
     LMVCoverSheetVisibilityChanged((UIView *)self);
 }
@@ -1345,8 +1380,6 @@ static void LMVCoverSheetVisibilityChanged(UIView *view) {
 %end
 %hook CoverSheet
 - (void)setHidden:(BOOL)hidden {
-    // Bind retained frames while still hidden, before UIKit exposes the surface.
-    if (!hidden) for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
     %orig;
     LMVCoverSheetVisibilityChanged((UIView *)self);
 }
@@ -1369,11 +1402,15 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
 %hook PLActionButtonsPresentingView
 - (void)layoutSubviews {
     %orig;
-    LMVUpdateActionPresenter((UIView *)self);
+    if (!LMVInitialized || !NSThread.isMainThread) return;
+    [LMVActionPresenters addObject:(UIView *)self];
+    LMVRequestSafeUpdate();
 }
 - (void)didMoveToWindow {
     %orig;
-    LMVUpdateActionPresenter((UIView *)self);
+    if (!LMVInitialized || !NSThread.isMainThread) return;
+    [LMVActionPresenters addObject:(UIView *)self];
+    LMVRequestSafeUpdate();
 }
 %end
 static void LMVReleaseAllPlayers(void) {
@@ -1388,7 +1425,8 @@ static void LMVReleaseAllPlayers(void) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) state.active=NO;
     }
-    LMVDesktopSnapshot *snapshot = LMVDesktopCapture();
+    BOOL desktopEnabled = LMVEnabled[@"Desktop"].boolValue && LMVPaths[@"Desktop"].length;
+    LMVDesktopSnapshot *snapshot = desktopEnabled ? LMVDesktopCapture() : nil;
     for (UIView *host in LMVDesktopHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
         LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
@@ -1397,11 +1435,13 @@ static void LMVReleaseAllPlayers(void) {
     }
 }
 static void LMVRefresh(BOOL reload) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     if (reload) {
         // Revision-aware preparation preserves matching players, clocks and layers.
         // Unrelated imports must not tear down a working selected shared source.
         LMVLoadPreferences();
     }
+    for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
     for (UIView *cell in LMVCells.allObjects) {
         NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
         for (NSString *target in states.allKeys) {
@@ -1426,6 +1466,7 @@ static void LMVSuspend(void) {
     LMVReleaseAllPlayers();
 }
 static void LMVSyncDisplayLink(void) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     BOOL needed=LMVLockScreenNeedsFrames() || LMVDesktopNeedsFrames();
     if (LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0) {
         for (UIView *cell in LMVCells.allObjects) {
@@ -1476,7 +1517,8 @@ static void LMVSyncDisplayLink(void) {
         if (discover || active != state.active) LMVUpdateLockScreen(host);
         if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
-    LMVDesktopSnapshot *desktopSnapshot = discover ? LMVDesktopCapture() : nil;
+    BOOL desktopEnabled = LMVEnabled[@"Desktop"].boolValue && LMVPaths[@"Desktop"].length;
+    LMVDesktopSnapshot *desktopSnapshot = discover && desktopEnabled ? LMVDesktopCapture() : nil;
     for (UIView *host in LMVDesktopHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
         if (discover) LMVUpdateDesktop(host, desktopSnapshot);
@@ -1532,22 +1574,17 @@ static void LMVSyncDisplayLink(void) {
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        BOOL media = CFEqual(name, CFSTR("com.minis.lockmessagevideo/videoChanged"));
-        if (media) LMVRefresh(YES);
-        else {
-            LMVLoadPreferences();
-            for (UIView *cell in LMVCells.allObjects) {
-                NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-                for (LMVVideoState *state in states.allValues) state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0;
-            }
-            LMVRefresh(NO);
-        }
+        if (!LMVInitialized) return;
+        LMVPreferencesDirty = YES;
+        LMVRequestSafeUpdate();
     });
 }
 static void LMVScreenNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (!LMVInitialized || !LMVLaunchReady) return;
         if (!LMVPlaybackAllowed()) LMVSuspend();
-        else { LMVPrepareAssets();  LMVRefresh(NO); }
+        else LMVPrepareAssets();
+        LMVRequestSafeUpdate();
     });
 }
 %ctor {
@@ -1556,12 +1593,32 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
         LMVCells = [NSHashTable weakObjectsHashTable];
+        LMVActionPresenters = [NSHashTable weakObjectsHashTable];
         LMVLockHosts = [NSHashTable weakObjectsHashTable];
         LMVDesktopHosts = [NSHashTable weakObjectsHashTable];
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVRevisions = [NSMutableDictionary new];
+        LMVPaths = [NSMutableDictionary new]; LMVEnabled = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];
-        LMVLoadPreferences();
+        LMVInitialized = YES;
+        notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
+        notify_register_check("com.apple.springboard.lockstate", &LMVLockToken);
+        [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            // Always leave the notification/system launch stack before policy.
+            dispatch_async(dispatch_get_main_queue(), ^{ LMVMarkLaunchReady(); });
+        }];
+        [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                // An actual active transition is also evidence for late injection.
+                if (LMVAlreadyLaunched(UIApplication.sharedApplication)) LMVMarkLaunchReady();
+                else LMVRequestSafeUpdate();
+            });
+        }];
+        [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (LMVInitialized && LMVLaunchReady) LMVSuspend();
+            });
+        }];
         %init;
         Class lockHost = NSClassFromString(@"CSCoverSheetView");
         Class lockWindow = NSClassFromString(@"SBCoverSheetWindow");
@@ -1604,20 +1661,15 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         if (wallpaperWindow && [wallpaperWindow isSubclassOfClass:UIWindow.class] && class_getInstanceMethod(wallpaperWindow, @selector(layoutSubviews))) {
             %init(LMVWallpaperWindowHooks);
         }
-        notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVScreenNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-                LMVRefresh(NO);
-            }];
-            [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-                LMVSuspend();
-            }];
-            LMVRefresh(NO);
+            // No arbitrary delay and no creating private singleton. For a normal
+            // startup, only did-finish/active evidence opens the readiness gate.
+            if (LMVAlreadyLaunched(UIApplication.sharedApplication)) LMVMarkLaunchReady();
         });
     }
 }
