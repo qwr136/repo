@@ -36,6 +36,7 @@ static CADisplayLink *LMVLink;
 @interface LMVVideoState : NSObject
 @property(nonatomic, strong) UIView *overlay;
 @property(nonatomic, strong) AVPlayerLayer *layer;
+@property(nonatomic, strong) AVQueuePlayer *player;
 @property(nonatomic, strong) AVPlayer *prewarmedPlayer;
 @property(nonatomic, strong) AVPlayerLooper *looper;
 @property(nonatomic, copy) NSString *path;
