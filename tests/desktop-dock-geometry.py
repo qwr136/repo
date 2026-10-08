@@ -30,6 +30,11 @@ preamble=r'''
 @implementation TestLayer
 - (TestLayer *)presentationLayer { return (TestLayer *)self.shown; }
 @end
+static NSUInteger pathWrites;
+@interface TrackedShapeLayer : CAShapeLayer @end
+@implementation TrackedShapeLayer
+- (void)setPath:(CGPathRef)path { pathWrites++; [super setPath:path]; }
+@end
 @class UIView, UIWindow, ScreenSpace;
 @interface UIViewController : NSObject
 @property(nonatomic,strong) UIView *viewIfLoaded;
@@ -129,7 +134,10 @@ int main(void) { @autoreleasepool {
     assert(visibleAt(state,CGPointMake(12,720))); // true measured round corner
     CAShapeLayer *owned=state.desktopDockMask; CGPathRef identity=CGPathRetain(owned.path);
     for(int i=0;i<500;i++) LMVDesktopApplyDockMask(host,state,lower,snapshot);
-    assert(state.desktopDockMask==owned && owned.path==identity && owned.superlayer==nil);
+    assert(state.desktopDockMask==owned && CGPathEqualToPath(owned.path,identity));
+    assert(state.layer.mask==owned && ![state.layer.sublayers containsObject:owned]);
+    assert(!owned.superlayer || owned.superlayer==state.layer);
+    assert(pathWrites==1);
     assert([state.layer.contents isEqual:@"cached-real-frame"] && !state.layer.hidden);
     CGPathRelease(identity);
     // exact simple system shape mask can supply the outline without cornerRadius.
@@ -192,6 +200,8 @@ int main(void) { @autoreleasepool {
 with tempfile.TemporaryDirectory() as tmp:
     src=Path(tmp)/'dock.m'; binary=Path(tmp)/'dock'
     preamble=preamble.replace('#include <assert.h>','#include <assert.h>\n#import <objc/runtime.h>\n@compatibility_alias UIResponder NSObject;')
-    src.write_text(preamble+geometry+tests)
+    # Instrument only the owned mask allocation; production function body stays intact.
+    executed=geometry.replace('state.desktopDockMask = [CAShapeLayer layer]', 'state.desktopDockMask = [TrackedShapeLayer layer]')
+    src.write_text(preamble+executed+tests)
     subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
