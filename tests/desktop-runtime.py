@@ -26,7 +26,6 @@ preamble=r'''
 #import <objc/runtime.h>
 #include <assert.h>
 #include "LMVConsumerPolicy.h"
-typedef struct { double x,y,w,h; } CGRect;
 static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @interface CALayer : NSObject
 @property(nonatomic,weak) CALayer *superlayer;
@@ -85,7 +84,9 @@ static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @end
 @implementation LMVFrameSnapshot @end
 static char LMVDesktopStateKey;
-static NSMutableDictionary *LMVPaths,*LMVEnabled,*LMVRevisions,*LMVSharedSources;
+static NSMutableDictionary<NSString *, NSString *> *LMVPaths, *LMVRevisions;
+static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
+static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableSet *LMVReadyAssets;
 static LMVDesktopDecision testDecision;
 static NSUInteger acquired,released;
