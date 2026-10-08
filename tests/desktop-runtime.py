@@ -1,37 +1,42 @@
 #!/usr/bin/env python3
-"""Execute actual desktop update and player detach functions with Foundation layer doubles."""
+"""Execute production desktop update with Foundation doubles; no device claim."""
 from pathlib import Path
 import platform, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
 s=(r/'Tweak.xm').read_text()
-update=s.split('static void LMVUpdateDesktop(UIView *host) {',1)[1].split('static void LMVUpdateDesktops',1)[0]
-update='static void LMVUpdateDesktop(UIView *host) {'+update
-release='static void LMVReleasePlayer(LMVVideoState *state) {'+s.split('static void LMVReleasePlayer(LMVVideoState *state) {',1)[1].split('static void LMVPrepareAssets',1)[0]
-# Desktop release and global decoder stops must have no layer visibility/content mutations.
+update='static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {'+s.split('static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {',1)[1].split('static void LMVUpdateDesktops',1)[0]
 release_desktop=s.split('static void LMVReleaseDesktopSource(LMVVideoState *state) {',1)[1].split('static void LMVUpdateDesktop',1)[0]
 for forbidden in ['removeFromSuperlayer', 'layer.hidden', 'layer.contents']:
     assert forbidden not in release_desktop
-assert '[state.layer removeFromSuperlayer]' in update  # Only disable/path/revision replacement.
 assert update.count('[state.layer removeFromSuperlayer]')==1
 assert 'LMVDesktopShouldAttach(state.layer.superlayer == host.layer)' in update
-assert '%hook UIView' not in s and '%hook SBFloatingDock' not in s and '%hook SBIconContentView' not in s
-for forbidden in ['StackShadow', 'NCNotificationListStackDimmingOverlayView', 'stackShadowOpacity']:
-    assert forbidden not in s
-    assert forbidden not in (r/'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
+assert '%hook UIView' not in s and '%hook SBIconContentView' not in s
+observer=s.split('%hook SBFloatingDockWindow',1)[1].split('%end',1)[0]
+assert observer.count('%orig;')==1
+for forbidden in ['windowLevel =', 'setWindowLevel:', '.frame =', '.alpha =', '.transform =', '.hidden =']:
+    assert forbidden not in observer.split('%orig;',1)[1]
+sync=s.split('static void LMVSyncDisplayLink(void) {',1)[1].split('@implementation LMVDisplayLinkTarget',1)[0]
+assert 'LMVReleaseDesktopSource' not in sync
+needs=s.split('static BOOL LMVDesktopNeedsFrames(void) {',1)[1].split('static void LMVDesktopHostChanged',1)[0]
+assert 'state.active' in needs and 'LMVDesktopCapture' not in needs
+cover=s.split('static BOOL LMVDesktopCoverFullyObscures',1)[1].split('@interface LMVDesktopSnapshot',1)[0]
+assert 'slideableContentView' in cover and '[content convertRect:content.bounds' in cover
+for forbidden in ['StackShadow','NCNotificationListStackDimmingOverlayView','stackShadowOpacity']:
+    assert forbidden not in s and forbidden not in (r/'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 if platform.system()!='Darwin':
-    print('PASS: desktop integration source constraints; Foundation execution requires macOS Actions')
+    print('PASS: desktop integration constraints; Foundation execution deferred to macOS Actions')
     raise SystemExit(0)
 preamble=r'''
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 #include "LMVConsumerPolicy.h"
 static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @interface CALayer : NSObject
 @property(nonatomic,weak) CALayer *superlayer;
 @property(nonatomic,strong) id contents;
-@property(nonatomic,copy) NSString *name;
-@property(nonatomic,copy) NSString *contentsGravity;
+@property(nonatomic,copy) NSString *name, *contentsGravity;
 @property(nonatomic) BOOL masksToBounds, hidden;
 @property(nonatomic) CGRect frame;
 @property(nonatomic) NSUInteger inserts, removes;
@@ -51,12 +56,13 @@ static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @interface UIView : NSObject
 @property(nonatomic,strong) CALayer *layer;
 @property(nonatomic,strong) NSArray *subviews;
-@property(nonatomic) CGRect bounds;
+@property(nonatomic) CGRect bounds, frame;
 @property(nonatomic) BOOL hidden;
-@property(nonatomic) double alpha;
+@property(nonatomic) double alpha, windowLevel;
+@property(nonatomic) CGAffineTransform transform;
 @end
 @implementation UIView
-- (instancetype)init { if((self=[super init])) { _layer=[CALayer layer]; _subviews=@[]; _alpha=1; } return self; }
+- (instancetype)init { if((self=[super init])) { _layer=[CALayer layer]; _subviews=@[]; _alpha=1; _transform=CGAffineTransformIdentity; } return self; }
 @end
 @interface SBHomeScreenView : UIView @end
 @implementation SBHomeScreenView @end
@@ -68,7 +74,8 @@ static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @end
 @interface LMVSharedSource : NSObject
 @property(nonatomic) const void *lastImage;
-@property(nonatomic) BOOL playing;
+@property(nonatomic) BOOL playing, restoreOnStart;
+@property(nonatomic) double time;
 @end
 @implementation LMVSharedSource @end
 @interface LMVVideoState : NSObject
@@ -77,8 +84,13 @@ static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @property(nonatomic,copy) NSString *path, *revision;
 @property(nonatomic,strong) LMVSharedSource *source;
 @property(nonatomic) BOOL active;
+@property(nonatomic) LMVDesktopGateClock desktopClock;
 @end
 @implementation LMVVideoState @end
+@interface LMVDesktopSnapshot : NSObject
+@property(nonatomic) double now;
+@end
+@implementation LMVDesktopSnapshot @end
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic) const void *image;
 @end
@@ -88,55 +100,83 @@ static NSMutableDictionary<NSString *, NSString *> *LMVPaths, *LMVRevisions;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableSet *LMVReadyAssets;
-static LMVDesktopDecision testDecision;
-static NSUInteger acquired,released;
-static LMVDesktopDecision LMVDesktopHostDecision(UIView *host) { return testDecision; }
-static void LMVDesktopDiagnostics(UIView *host, LMVDesktopDecision decision) {}
+static LMVDesktopActivity testActivity;
+static NSUInteger acquired,released,starts,stops;
+static LMVDesktopActivity LMVDesktopHostActivity(UIView *host, LMVVideoState *state, LMVDesktopSnapshot *snapshot) { return testActivity; }
+static void LMVDesktopDiagnostics(UIView *host, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) { return NO; }
 static LMVFrameSnapshot *LMVCachedFrame(NSString *path, NSString *revision) { return nil; }
 static LMVSharedSource *LMVSourceForPath(NSString *path) { acquired++; LMVSharedSource *source=[LMVSharedSource new]; LMVSharedSources[path]=source; return source; }
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) { return NO; }
-static void LMVStopSource(LMVSharedSource *source) { source.playing=NO; }
+static void LMVStartSource(LMVSharedSource *source) { if(!source.playing) starts++; source.playing=YES; }
+static void LMVStopSource(LMVSharedSource *source) { if(source.playing) stops++; source.playing=NO; source.restoreOnStart=YES; }
+static void LMVReleaseDesktopSource(LMVVideoState *state) { if(state.source) { released++; [LMVSharedSources removeObjectForKey:state.path]; } LMVStopSource(state.source); state.source=nil; state.active=NO; }
 static void LMVDiagnostic(NSString *event) {}
 '''
-helpers='static void LMVReleaseDesktopSource(LMVVideoState *state) { released++; LMVReleasePlayer(state); }\n'
 tests=r'''
+static LMVDesktopActivity step(LMVForeground front, bool covered, bool context, bool dockBelow, double now, LMVVideoState *state, LMVDesktopGateClock *clock) {
+    return LMVDesktopGate(LMVDesktopDecide(1,1,1,1,1,1,0,front,covered,context),front,1,1,covered,context,dockBelow,state.active,now,clock);
+}
 int main(void) { @autoreleasepool {
     LMVPaths=[@{@"Desktop":@"desktop.mov"} mutableCopy]; LMVEnabled=[@{@"Desktop":@YES} mutableCopy];
     LMVRevisions=[@{@"desktop.mov":@"revision1"} mutableCopy]; LMVSharedSources=[NSMutableDictionary new];
     LMVReadyAssets=[NSMutableSet setWithObject:@"desktop.mov"];
     SBHomeScreenView *host=[SBHomeScreenView new]; host.bounds=(CGRect){0,0,390,844};
-    UIView *dock=[UIView new], *unrelated=[UIView new]; dock.alpha=.37; unrelated.hidden=YES;
+    UIView *dock=[UIView new], *unrelated=[UIView new]; dock.alpha=1; dock.windowLevel=25; dock.frame=(CGRect){12,720,366,100}; unrelated.hidden=YES;
+    CGRect originalFrame=dock.frame; CGAffineTransform originalTransform=dock.transform;
     CALayer *systemLayer=dock.layer; [host.layer.children addObject:systemLayer];
-    testDecision=LMVDesktopDecide(1,1,1,1,1,1,0,LMVForegroundHome,0,0);
-    LMVUpdateDesktop(host);
+    LMVDesktopGateClock clock={0,0};
+    testActivity=(LMVDesktopActivity){1,1,0,0}; LMVUpdateDesktop(host,nil);
     LMVVideoState *state=objc_getAssociatedObject(host,&LMVDesktopStateKey);
     assert(state.active && acquired==1 && state.layer.superlayer==host.layer);
-    state.layer.contents=@"last-real-frame";
+    state.layer.contents=@"last-real-frame"; state.source.time=18.25;
+    LMVSharedSource *originalSource=state.source;
     NSUInteger inserts=host.layer.inserts, removes=state.layer.removes;
-    for(int phase=0;phase<5;phase++) {
-        // Fully open NC; long press; transient unknown; app; invisible parent during animation.
-        testDecision=LMVDesktopDecide(1,1,1,phase!=4,1,1,0,
-            phase==2?LMVForegroundUnknown:phase==3?LMVForegroundApp:LMVForegroundHome,phase==0,phase==1);
-        for(int repeat=0;repeat<20;repeat++) LMVUpdateDesktop(host);
-        assert(!state.active && !state.source && !state.layer.hidden);
-        assert([state.layer.contents isEqual:@"last-real-frame"] && state.layer.superlayer==host.layer);
-        assert(host.layer.inserts==inserts && state.layer.removes==removes && acquired==1);
-        assert(dock.alpha==.37 && !dock.hidden && unrelated.hidden && unrelated.alpha==1);
+    // Exact observed release/reload points from the 21986-byte .54 log.
+    double releases[]={291848.980,291851.604,291854.019};
+    double resumes[]={291850.057,291852.383,291854.905};
+    for(int phase=0;phase<3;phase++) {
+        testActivity=step(LMVForegroundUnknown,0,0,0,releases[phase],state,&clock); LMVUpdateDesktop(host,nil);
+        testActivity=step(LMVForegroundUnknown,0,0,0,releases[phase]+.16,state,&clock); LMVUpdateDesktop(host,nil);
+        testActivity=step(LMVForegroundHome,0,0,0,resumes[phase],state,&clock); LMVUpdateDesktop(host,nil);
+        assert(state.source==originalSource && acquired==1 && released==0);
+        assert(!state.layer.hidden && [state.layer.contents isEqual:@"last-real-frame"]);
+    }
+    // Partial NC continues; full actual content cover pauses without hiding/releasing;
+    // first exposed rectangle resumes same source/time immediately.
+    testActivity=step(LMVForegroundHome,0,0,0,291855.1,state,&clock); LMVUpdateDesktop(host,nil); assert(state.active);
+    testActivity=step(LMVForegroundHome,1,0,0,291855.2,state,&clock); LMVUpdateDesktop(host,nil);
+    assert(!state.active && !state.source.playing && !state.layer.hidden && state.source==originalSource);
+    testActivity=step(LMVForegroundHome,1,0,0,291860.2,state,&clock); LMVUpdateDesktop(host,nil); assert(released==0);
+    testActivity=step(LMVForegroundHome,0,0,0,291860.21,state,&clock); LMVUpdateDesktop(host,nil);
+    assert(state.active && state.source==originalSource && state.source.time==18.25 && !state.source.restoreOnStart);
+    // Original iPadDock level change 25 -> -3 is external; update never writes it.
+    dock.windowLevel=-3;
+    for(int n=0;n<20;n++) {
+        testActivity=step(LMVForegroundHome,0,1,1,291861+n*.1,state,&clock); LMVUpdateDesktop(host,nil);
+        assert(!state.active && state.layer.hidden && state.source==originalSource);
+        assert([state.layer.contents isEqual:@"last-real-frame"] && host.layer.inserts==inserts && state.layer.removes==removes);
+        assert(!dock.hidden && dock.alpha==1 && dock.windowLevel==-3 && CGRectEqualToRect(dock.frame,originalFrame));
+        assert(CGAffineTransformEqualToTransform(dock.transform,originalTransform) && unrelated.hidden && unrelated.alpha==1);
         assert([host.layer.children containsObject:systemLayer]);
     }
-    testDecision=LMVDesktopDecide(1,1,1,1,1,1,0,LMVForegroundHome,0,0);
-    LMVUpdateDesktop(host); assert(state.active && acquired==2 && !state.layer.hidden);
-    testDecision=LMVDesktopDecide(1,1,1,1,1,1,1,LMVForegroundHome,0,0);
-    LMVUpdateDesktop(host); assert(!state.active && state.layer.hidden && [state.layer.contents isEqual:@"last-real-frame"]);
-    LMVEnabled[@"Desktop"]=@NO; LMVUpdateDesktop(host);
+    dock.windowLevel=25; testActivity=step(LMVForegroundHome,0,0,0,291864,state,&clock); LMVUpdateDesktop(host,nil);
+    assert(state.active && !state.layer.hidden && acquired==1);
+    testActivity=step(LMVForegroundApp,0,0,0,291865,state,&clock); LMVUpdateDesktop(host,nil);
+    assert(!state.active && !originalSource.playing && state.source==originalSource);
+    testActivity=step(LMVForegroundApp,0,0,0,291866.26,state,&clock); LMVUpdateDesktop(host,nil);
+    assert(!state.source && released==1 && [state.layer.contents isEqual:@"last-real-frame"]);
+    testActivity=step(LMVForegroundHome,0,0,0,291866.3,state,&clock); LMVUpdateDesktop(host,nil); assert(state.active && acquired==2);
+    testActivity=LMVDesktopGate(LMVDesktopDecide(1,1,1,1,0,1,0,LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,1,291867,&clock);
+    LMVUpdateDesktop(host,nil); assert(!state.active && state.layer.hidden && [state.layer.contents isEqual:@"last-real-frame"]);
+    LMVEnabled[@"Desktop"]=@NO; LMVUpdateDesktop(host,nil);
     assert(!objc_getAssociatedObject(host,&LMVDesktopStateKey) && !state.layer.superlayer);
-    assert([host.layer.children containsObject:systemLayer] && dock.alpha==.37);
-    puts("PASS: actual desktop update/player detach; 100 paused NC/menu/app/unknown/hidden-parent updates retain frame and layer order; lock hides; disable removes only owned layer; Dock/unrelated views unchanged");
+    assert([host.layer.children containsObject:systemLayer] && dock.alpha==1);
+    puts("PASS: actual desktop update; .54 source4..7 timings do not rebuild; partial/full/reveal NC; paused clock/frame retained; lower Dock fallback changes only owned layer; real app pauses/retires; screen off/disable; system attributes unchanged (Foundation doubles, NOT device test)");
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:
     src=Path(tmp)/'desktop.m'; binary=Path(tmp)/'desktop'
-    src.write_text(preamble+release+helpers+update+tests)
-    subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation',str(src),'-o',str(binary)],check=True)
+    src.write_text(preamble+update+tests)
+    subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','CoreGraphics',str(src),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)

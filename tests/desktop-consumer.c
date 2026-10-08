@@ -37,6 +37,48 @@ int main(void) {
     assert(LMVDesktopWindowRole("SBFloatingDockWindowFake")==LMVWindowOther);
     assert(LMVDesktopResolveForeground(0,0,0,LMVWindowOther,0)==LMVForegroundUnknown);
     assert(!LMVDesktopShouldAttach(1) && LMVDesktopShouldAttach(0));
-    puts("PASS: 2048 actual desktop policy combinations; NC model/presentation geometry; long press/floating Dock own UI; unknown/app paused; owned frame retained; unrelated windows unclassified");
+    LMVDesktopGateClock clock={0,0};
+    LMVDesktopActivity a=LMVDesktopGate(decide(LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,1,291848.458,&clock);
+    assert(a.draw && a.decode && !a.releaseSource);
+    double releaseTimes[]={291848.980,291851.604,291854.019};
+    double reloadTimes[]={291850.057,291852.383,291854.905};
+    for(unsigned i=0;i<3;i++) {
+        a=LMVDesktopGate(decide(LMVForegroundUnknown,0,0),LMVForegroundUnknown,1,1,0,0,0,1,releaseTimes[i],&clock);
+        assert(a.draw && a.decode && !a.releaseSource); // tiny ambiguity debounced
+        a=LMVDesktopGate(decide(LMVForegroundUnknown,0,0),LMVForegroundUnknown,1,1,0,0,0,1,releaseTimes[i]+.16,&clock);
+        assert(a.decode && !a.releaseSource); // unknown home-key does not pause indefinitely
+        a=LMVDesktopGate(decide(LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,1,reloadTimes[i],&clock);
+        assert(a.decode && !a.releaseSource);
+    }
+    // Same timestamp sequence applies without a home-key signal: pause, not rebuild.
+    a=LMVDesktopGate(decide(LMVForegroundUnknown,0,0),LMVForegroundUnknown,0,1,0,0,0,1,291855,&clock);
+    assert(a.decode && !a.releaseSource);
+    a=LMVDesktopGate(decide(LMVForegroundUnknown,0,0),LMVForegroundUnknown,0,1,0,0,0,1,291855.16,&clock);
+    assert(!a.decode && a.draw && !a.releaseSource);
+    a=LMVDesktopGate(decide(LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,0,291855.2,&clock);
+    assert(a.decode); // resume on first known home
+    // Full content rect pauses, retained frame stays drawn; reveal resumes.
+    a=LMVDesktopGate(decide(LMVForegroundHome,1,0),LMVForegroundHome,0,1,1,0,0,1,291856,&clock);
+    assert(a.draw && !a.decode && !a.releaseSource);
+    a=LMVDesktopGate(decide(LMVForegroundHome,1,0),LMVForegroundHome,0,1,1,0,0,0,291860,&clock);
+    assert(a.draw && !a.decode && !a.releaseSource);
+    a=LMVDesktopGate(decide(LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,0,291860.01,&clock);
+    assert(a.decode && a.draw);
+    assert(!LMVDesktopDockBelow(1,1,25,-2,1));
+    assert(LMVDesktopDockBelow(1,1,-3,-2,1));
+    assert(!LMVDesktopDockBelow(0,1,-3,-2,1));
+    assert(!LMVDesktopDockBelow(1,0,-3,-2,1));
+    assert(!LMVDesktopDockBelow(1,1,-3,-2,0));
+    a=LMVDesktopGate(decide(LMVForegroundHome,0,1),LMVForegroundHome,1,1,0,1,1,1,291861,&clock);
+    assert(a.dockFallback && !a.draw && !a.decode && !a.releaseSource);
+    a=LMVDesktopGate(decide(LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,0,291862,&clock);
+    assert(!a.dockFallback && a.draw && a.decode);
+    a=LMVDesktopGate(decide(LMVForegroundApp,0,0),LMVForegroundApp,1,1,0,0,0,1,291863,&clock);
+    assert(!a.decode && !a.releaseSource); // real app stops immediately
+    a=LMVDesktopGate(decide(LMVForegroundApp,0,0),LMVForegroundApp,1,1,0,0,0,0,291864.26,&clock);
+    assert(!a.decode && a.releaseSource); // unused media bounded retirement
+    a=LMVDesktopGate(LMVDesktopDecide(1,1,1,1,0,1,0,LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,1,291865,&clock);
+    assert(!a.draw && !a.decode && a.releaseSource);
+    puts("PASS: 2048 desktop policy combinations; source4..7 .54 log timeline; unknown home-key recovery, partial/full/reveal NC, Dock25->-3 fallback, real app hard pause/bounded retirement, screen off");
     return 0;
 }

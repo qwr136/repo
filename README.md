@@ -27,6 +27,15 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.55
+- 对照用户确认可用的 0.53 桌面实现，保留原有 HomeScreen CALayer、按路径共享的视频源及首选 `_accessibilityFrontMostApplication` 查询；真实前台 bundle ID 优先，私有查询均检查对象返回 ABI。0.54 中显示链停用和暂停状态无条件释放桌面源的路径被移除，显示链只读已提交消费状态，不再在同一 tick 重复查询前台。
+- 通知中心下滑期间桌面仍有露出则播放，实际 `CSCoverSheetView.slideableContentView/contentView` 的模型/呈现屏幕矩形均完全覆盖桌面后暂停。全屏透明 UIWindow 不作为覆盖证据。保留最后帧与暂停源，重新露出立即恢复；未知转场仅 150ms 防抖，key HomeScreenWindow 且无应用/覆盖/锁定可恢复，不能把未知 UI 对象误当真实应用。
+- 真实应用前台立即停止桌面消费，持续离屏 1.25 秒后释放未被其他可见消费者使用的媒体链。锁定/熄屏沿用隐藏与释放策略；临时暂停的 AVPlayer 保留自身时间，不额外精确 seek。冷重建仍复用原有按路径/修订缓存。
+- iPadDock 把可见同屏相交的 `SBFloatingDockWindow` 从 25 降到低于 HomeScreenWindow（日志 -3 对 -2）时，只临时隐藏插件自有桌面背景，保留图像与时间，让原壁纸/系统模糊露出。层级恢复后显示回来。这是暂时回退，低层级期间不保证继续显示桌面视频；不改 Dock/window level、alpha、frame、transform、hidden，不创建窗口，不接管锁屏共用壁纸。Dock 的 setWindowLevel 原回调仅调用一次，之后只观察。
+- 具体 HomeScreen 控制器出现/消失及 CoverSheet 进度回调触发更新，沿用 0.35 秒兜底计时器。诊断默认关闭，30 组/至少 2 秒/16 窗口限制不变；增加 Dock 优先遍历（最多 12 子视图，每节点最多 4 图层）、opacity/z/frame 和低层级回退原因，原日志轮转限制不变。
+- 测试复现实际 0.54 的 source4..7 时间点与 Dock25→-3：转场不反复建源、旧帧与时间保留、通知中心部分/全遮挡/回露、未知 key-home 恢复、真实 App 立即暂停与有界释放、熄屏。Foundation doubles 执行实际桌面更新函数并断言 Dock 属性不变；这些测试和双架构编译不能代替 iOS/iPadDock 真机验收。
+- 保留 0.54 的阴影设置移除结果，以及消息/锁屏/桌面/选项/清除完整设置、素材库缩略图/重命名/删除、相册重压缩/临时原素材清理/原素材清空、Filza、透明度、静音与不阻止熄屏策略。
+
 ## 0.0.54
 - 移除通知堆叠阴影开关、滑块、专用状态/helper/hook 及专用测试；保留原有视频透明度语义。
 - 桌面自有层的显示与解码分开：下拉通知中心及长按菜单过程中保留最后真实帧，完整遮挡后暂停桌面解码，收起后恢复。未知前台对象或打开应用时不继续桌面解码。锁定、熄屏或失去合法桌面宿主时隐藏自有层；关闭功能或更换素材时仅移除自有层。
