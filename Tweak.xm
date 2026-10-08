@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
+#import <CoreImage/CoreImage.h>
 #import <objc/runtime.h>
 #import <notify.h>
 #import <float.h>
@@ -17,53 +18,62 @@ static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *, AVURLAsset *> *LMVSources;
 static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
 static NSMutableSet<NSString *> *LMVReadyAssets;
-static NSMutableDictionary<NSString *, AVPlayer *> *LMVPrewarmedPlayers;
+@class LMVSharedSource;
+static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableDictionary<NSString *, NSString *> *LMVRevisions;
-static NSMutableDictionary<NSString *, NSNumber *> *LMVClockStarts;
+static dispatch_queue_t LMVFrameQueue;
+static BOOL LMVFrameBusy;
+static BOOL LMVCoverHidden;
+static CIContext *LMVCIContext;
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
-static NSUInteger LMVPlayerCount;
-// Every currently visible card may own a player. No global card/player cap.
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
+static BOOL LMVVisible(UIView *view);
 static CADisplayLink *LMVLink;
 
+@interface LMVSharedSource : NSObject
+@property(nonatomic, strong) AVPlayer *player;
+@property(nonatomic, strong) AVPlayerItemVideoOutput *output;
+@property(nonatomic, assign) CGImageRef lastImage;
+@property(nonatomic, copy) NSString *path;
+@property(nonatomic) BOOL playing;
+@property(nonatomic) BOOL frameBusy;
+@property(nonatomic) NSUInteger generation;
+@property(nonatomic) CGAffineTransform imageTransform;
+@property(nonatomic) CMTime lastTime;
+@property(nonatomic, strong) id endObserver;
+@end
+@implementation LMVSharedSource
+- (void)dealloc { [_player pause]; if (_lastImage) CGImageRelease(_lastImage); if (_endObserver) [NSNotificationCenter.defaultCenter removeObserver:_endObserver]; }
+@end
 @interface LMVVideoState : NSObject
 @property(nonatomic, strong) UIView *overlay;
-@property(nonatomic, strong) AVPlayerLayer *layer;
-@property(nonatomic, strong) AVQueuePlayer *player;
-@property(nonatomic, strong) AVPlayer *prewarmedPlayer;
-@property(nonatomic, strong) AVPlayerLooper *looper;
+@property(nonatomic, strong) CALayer *layer;
+@property(nonatomic, strong) LMVSharedSource *source;
 @property(nonatomic, copy) NSString *path;
 @property(nonatomic, copy) NSString *revision;
 @property(nonatomic, weak) UIView *anchor;
-@property(nonatomic, weak) CALayer *clipSource;
 @property(nonatomic, weak) UIView *host;
+@property(nonatomic) BOOL active;
 @property(nonatomic) CFTimeInterval lastVisible;
 @property(nonatomic) CFTimeInterval visibilityLossSince;
 @property(nonatomic) CFTimeInterval detachedSince;
-@property(nonatomic) BOOL playing;
 @end
 @implementation LMVVideoState
-- (void)dealloc {
-    [_player pause];
-    [_looper disableLooping];
-    [_player removeAllItems];
-    [_overlay removeFromSuperview];
-    if (_player && LMVPlayerCount) LMVPlayerCount--;
-}
+- (void)dealloc { [_overlay removeFromSuperview]; }
 @end
-
 @interface SBLockScreenManager : NSObject
 + (instancetype)sharedInstance;
 - (BOOL)isUILocked;
 @end
 static BOOL LMVPlaybackAllowed(void) {
+    if (LMVCoverHidden) return NO;
     uint64_t blank = 1;
     if (LMVBlankToken < 0 || notify_get_state(LMVBlankToken, &blank) != NOTIFY_STATUS_OK || blank) return NO;
     // Notification Center can be visible with an unlocked UI. Per-view
@@ -81,39 +91,82 @@ static NSString *LMVFileRevision(NSString *path) {
         info.st_ctimespec.tv_nsec];
 }
 
-static LMVVideoState *LMVCreatePlayer(NSString *path) {
-    if (!LMVAssets[path]) return nil;
-    LMVVideoState *state = [LMVVideoState new];
-    state.path = path;
-    state.revision = LMVRevisions[path];
-    state.player = [AVQueuePlayer queuePlayerWithItems:@[]]; LMVPlayerCount++;
-    state.player.preventsDisplaySleepDuringVideoPlayback = NO;
-    state.player.muted = YES; state.player.volume = 0;
-    state.player.automaticallyWaitsToMinimizeStalling = NO;
-    AVPlayer *warm = LMVPrewarmedPlayers[path];
-    AVPlayerItem *item = warm.currentItem ?: [AVPlayerItem playerItemWithAsset:LMVAssets[path]];
-    item.preferredForwardBufferDuration = 1;
-    state.prewarmedPlayer = warm;
-    state.looper = [AVPlayerLooper playerLooperWithPlayer:state.player templateItem:item];
-    state.layer = [AVPlayerLayer playerLayerWithPlayer:state.player];
-    state.layer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    state.layer.bounds = CGRectMake(0, 0, 320, 160);
-    return state;
+static LMVSharedSource *LMVSourceForPath(NSString *path) {
+    LMVSharedSource *source=(LMVSharedSource *)LMVSharedSources[path];
+    if (source || !LMVAssets[path]) return source;
+    AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:LMVAssets[path]];
+    item.preferredForwardBufferDuration=1;
+    AVPlayerItemVideoOutput *output=[[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
+    [item addOutput:output];
+    AVPlayer *player=[AVPlayer playerWithPlayerItem:item];
+    player.preventsDisplaySleepDuringVideoPlayback=NO; player.muted=YES; player.volume=0; player.automaticallyWaitsToMinimizeStalling=NO;
+    source=[LMVSharedSource new]; source.player=player; source.output=output; source.path=path; source.imageTransform=[[LMVAssets[path] tracksWithMediaType:AVMediaTypeVideo] firstObject].preferredTransform; LMVSharedSources[path]=source;
+    __weak LMVSharedSource *weakSource=source;
+    source.endObserver=[NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:item queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { LMVSharedSource *live=weakSource; if (live && live.playing) { [live.player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero]; [live.player play]; } }];
+    return source;
 }
-static void LMVPrewarmPlayer(NSString *path, AVAsset *asset) {
-    if (LMVPrewarmedPlayers[path]) return;
-    AVPlayerItem *item = [AVPlayerItem playerItemWithAsset:asset];
-    item.preferredForwardBufferDuration = 1;
-    AVPlayer *player = [AVPlayer playerWithPlayerItem:item];
-    player.muted = YES;
-    player.volume = 0;
-    player.automaticallyWaitsToMinimizeStalling = NO;
-    LMVPrewarmedPlayers[path] = player;
+// One conversion in flight globally. No work queue grows with the card count.
+static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
+    if (!source || LMVFrameBusy || source.frameBusy || !source.playing || ![source.output hasNewPixelBufferForItemTime:time]) return;
+    CMTime itemTime=kCMTimeInvalid;
+    CVPixelBufferRef buffer=[source.output copyPixelBufferForItemTime:time itemTimeForDisplay:&itemTime];
+    if (!buffer) return;
+    source.frameBusy=YES; LMVFrameBusy=YES;
+    NSUInteger generation=source.generation;
+    CGAffineTransform transform=source.imageTransform;
+    dispatch_async(LMVFrameQueue, ^{
+        @autoreleasepool {
+            CIImage *ci=[[CIImage imageWithCVPixelBuffer:buffer] imageByApplyingTransform:transform];
+            CGFloat largest=MAX(ci.extent.size.width,ci.extent.size.height);
+            if (largest>960.0) ci=[ci imageByApplyingTransform:CGAffineTransformMakeScale(960.0/largest,960.0/largest)];
+            CGImageRef image=[LMVCIContext createCGImage:ci fromRect:ci.extent];
+            CVPixelBufferRelease(buffer); // copyPixelBuffer gives one +1; no extra retain.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (image && source.generation==generation && LMVSharedSources[source.path]==source && source.playing && LMVPlaybackAllowed()) {
+                    if (source.lastImage) CGImageRelease(source.lastImage);
+                    source.lastImage=image; source.lastTime=itemTime;
+                    [CATransaction begin]; [CATransaction setDisableActions:YES];
+                    for (UIView *cell in LMVCells.allObjects) {
+                        NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+                        for (LMVVideoState *state in states.allValues) if (state.source==source) state.layer.contents=(__bridge id)image;
+                    }
+                    [CATransaction commit];
+                } else if (image) CGImageRelease(image);
+                source.frameBusy=NO; LMVFrameBusy=NO;
+            });
+        }
+    });
+}
+static void LMVStartSource(LMVSharedSource *source) {
+    if (!source || source.playing || !source.player.currentItem) return;
+    source.playing=YES; [source.player play];
+}
+static void LMVStopSource(LMVSharedSource *source) {
+    if (source && source.playing) {
+        [source.player pause]; source.playing=NO; source.generation++;
+        // Freeze the playback clock at the last published frame, not the next decoded frame.
+        if (source.lastImage && CMTIME_IS_NUMERIC(source.lastTime))
+            [source.player seekToTime:source.lastTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+    }
+}
+static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
+    if (!source) return NO;
+    for (UIView *cell in LMVCells.allObjects) {
+        NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+        for (LMVVideoState *state in states.allValues) if (state.source==source && state.active && state.overlay.superview) return YES;
+    }
+    return NO;
+}
+static void LMVReleasePlayer(LMVVideoState *state) {
+    if (!state) return;
+    LMVSharedSource *source=state.source;
+    [state.layer removeFromSuperlayer]; state.layer.contents=nil; state.layer=nil; state.source=nil; state.active=NO;
+    if (!LMVSourceHasConsumer(source)) LMVStopSource(source);
 }
 static void LMVPrepareAssets(void) {
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
     for (NSString *path in LMVSources.allKeys) {
-        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; [LMVPrewarmedPlayers removeObjectForKey:path]; [LMVRevisions removeObjectForKey:path]; [LMVClockStarts removeObjectForKey:path]; }
+        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; LMVStopSource(LMVSharedSources[path]); [LMVSharedSources removeObjectForKey:path]; [LMVRevisions removeObjectForKey:path]; }
     }
     for (NSString *path in wanted) {
         NSString *revision = LMVFileRevision(path);
@@ -122,7 +175,7 @@ static void LMVPrepareAssets(void) {
         // prewarm decoder and time epoch together.
                 [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];
         [LMVReadyAssets removeObject:path];
-        [LMVPrewarmedPlayers removeObjectForKey:path]; [LMVClockStarts removeObjectForKey:path];
+        LMVStopSource(LMVSharedSources[path]); [LMVSharedSources removeObjectForKey:path];
         if (!revision) { [LMVRevisions removeObjectForKey:path]; continue; }
         LMVRevisions[path] = revision;
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @NO}];
@@ -160,7 +213,7 @@ static void LMVPrepareAssets(void) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (LMVSources[path] != asset || !ready) return;
                 LMVAssets[path] = playbackAsset;
-                LMVPrewarmPlayer(path, playbackAsset);
+
                                 [LMVReadyAssets addObject:path];
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
             });
@@ -283,82 +336,8 @@ static void LMVActionHosts(UIView *view, NSMapTable *hosts, NSUInteger depth) {
     if (LMVActionBranch(view)) { LMVFindActions(view, view, hosts, 0); return; }
     for (UIView *child in view.subviews) LMVActionHosts(child, hosts, depth + 1);
 }
-// Mirror masks into owned layers; never move or modify a system mask.
-static CALayer *LMVCopyMask(CALayer *source, CALayer *copy, NSUInteger depth) {
-    if (!source || depth > 8) return nil;
-    BOOL shape = [source isKindOfClass:CAShapeLayer.class];
-    if (!copy || [copy isKindOfClass:CAShapeLayer.class] != shape) copy = shape ? [CAShapeLayer layer] : [CALayer layer];
-    copy.bounds = source.bounds; copy.position = source.position; copy.anchorPoint = source.anchorPoint;
-    copy.transform = source.transform; copy.sublayerTransform = source.sublayerTransform;
-    copy.opacity = source.opacity; copy.hidden = source.hidden;
-    copy.cornerRadius = source.cornerRadius; copy.cornerCurve = source.cornerCurve;
-    copy.maskedCorners = source.maskedCorners; copy.masksToBounds = source.masksToBounds;
-    copy.backgroundColor = source.backgroundColor; copy.contents = source.contents;
-    copy.contentsRect = source.contentsRect; copy.contentsCenter = source.contentsCenter;
-    copy.contentsScale = source.contentsScale; copy.contentsGravity = source.contentsGravity;
-    if (shape) {
-        CAShapeLayer *a = (CAShapeLayer *)source, *b = (CAShapeLayer *)copy;
-        b.path = a.path; b.fillColor = a.fillColor; b.fillRule = a.fillRule;
-        b.strokeColor = a.strokeColor; b.lineWidth = a.lineWidth;
-        b.lineCap = a.lineCap; b.lineJoin = a.lineJoin; b.lineDashPattern = a.lineDashPattern;
-        b.lineDashPhase = a.lineDashPhase; b.strokeStart = a.strokeStart; b.strokeEnd = a.strokeEnd;
-    }
-    copy.mask = LMVCopyMask(source.mask, copy.mask, depth + 1);
-    NSArray *old = copy.sublayers ?: @[];
-    NSMutableArray *children = [NSMutableArray new];
-    NSUInteger i = 0;
-    for (CALayer *child in source.sublayers) {
-        CALayer *next = LMVCopyMask(child, i < old.count ? old[i] : nil, depth + 1);
-        if (next) [children addObject:next];
-        i++;
-    }
-    copy.sublayers = children;
-    return copy;
-}
-static CALayer *LMVClipSource(CALayer *layer, CALayer *excluded, NSUInteger depth) {
-    if (layer == excluded || depth > 5) return nil;
-    if (layer.mask || layer.cornerRadius > 0) return layer;
-    for (CALayer *child in layer.sublayers) {
-        if (!CGRectEqualToRect(child.frame, layer.bounds)) continue;
-        CALayer *source = LMVClipSource(child, excluded, depth + 1);
-        if (source) return source;
-    }
-    return nil;
-}
-static void LMVPause(LMVVideoState *state) {
-    if (state.playing) { [state.player pause]; state.playing = NO; }
-}
-static void LMVStopPlayback(LMVVideoState *state) {
-    if (!state) return;
-    [state.player pause];
-    state.playing = NO;
-}
-static void LMVStartSynchronized(LMVVideoState *state) {
-    AVPlayerItem *item = state.player.currentItem;
-    if (!state.player || state.playing || state.player.status != AVPlayerStatusReadyToPlay ||
-        !item || item.status != AVPlayerItemStatusReadyToPlay) return;
-    CMTime duration = LMVAssets[state.path].duration;
-    double seconds = CMTimeGetSeconds(duration);
-    if (!CMTIME_IS_NUMERIC(duration) || !isfinite(seconds) || seconds <= 0) return;
-    // One host-clock schedule on each visibility resume, not per-frame seeking.
-    // Every instance of a material uses the same epoch, including later arrivals.
-    CMTime host = CMClockGetTime(CMClockGetHostTimeClock());
-    host = CMTimeAdd(host, CMTimeMakeWithSeconds(0.10, 1000000000));
-    double start = CMTimeGetSeconds(host);
-    NSNumber *epoch = LMVClockStarts[state.path];
-    if (!epoch) { epoch = @(start); LMVClockStarts[state.path] = epoch; }
-    CMTime phase = CMTimeMakeWithSeconds(fmod(MAX(0.0, start - epoch.doubleValue), seconds), 60000);
-    [state.player setRate:1.0 time:phase atHostTime:host];
-    state.playing = YES;
-}
-static void LMVReleasePlayer(LMVVideoState *state) {
-    LMVPause(state);
-    [state.looper disableLooping];
-    [state.player removeAllItems];
-    [state.layer removeFromSuperlayer];
-    if (state.player && LMVPlayerCount) LMVPlayerCount--;
-    state.looper = nil; state.layer = nil; state.player = nil;
-}
+static void LMVPause(LMVVideoState *state) { LMVReleasePlayer(state); }
+
 static void LMVRetryDiscovery(UIView *cell) {
     if (objc_getAssociatedObject(cell, &LMVRetryKey)) return;
     objc_setAssociatedObject(cell, &LMVRetryKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -413,7 +392,7 @@ static void LMVUpdate(UIView *cell) {
             LMVVideoState *old = states[target];
             LMVPause(old); [old.overlay removeFromSuperview];
             objc_setAssociatedObject(old.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            old.anchor = nil; old.host = nil; old.clipSource = nil;
+            old.anchor = nil; old.host = nil;
         }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host && ([target isEqualToString:@"Message"] || visible)) missing = YES;
     }
@@ -436,7 +415,7 @@ static void LMVUpdate(UIView *cell) {
         }
         if (!anchor || !anchor.superview) {
             if (state && !state.detachedSince) state.detachedSince = now;
-            if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.0) continue;
+            if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.18) continue;
             LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue;
         }
         state.detachedSince = 0;
@@ -445,7 +424,7 @@ static void LMVUpdate(UIView *cell) {
         else if (state && !state.visibilityLossSince) state.visibilityLossSince = now;
         if (!anchorVisible && (!state.visibilityLossSince || now - state.visibilityLossSince >= 0.18)) LMVReleasePlayer(state);
         if (!state) {
-            // The fallback surface exists even while the decoder budget is exhausted.
+            // The material remains underneath until a real decoded frame is available.
             state = [LMVVideoState new]; state.path = path;
             state.revision = LMVRevisions[path];
             state.overlay = [UIView new]; state.overlay.userInteractionEnabled = NO;
@@ -457,13 +436,11 @@ static void LMVUpdate(UIView *cell) {
             LMVReleasePlayer(state);
             state.revision = LMVRevisions[path];
         }
-        if (anchorVisible && !state.player && [LMVReadyAssets containsObject:path]) {
-            LMVVideoState *created = LMVCreatePlayer(path);
-            if (created) {
-                state.player = created.player; state.looper = created.looper; state.layer = created.layer;
-                created.player = nil; created.looper = nil; created.layer = nil;
-                [state.overlay.layer addSublayer:state.layer];
-            }
+        if (!state.source && anchorVisible) state.source=LMVSourceForPath(path);
+        if (state.source && !state.layer) {
+            state.layer=[CALayer layer]; state.layer.contentsGravity=kCAGravityResizeAspectFill;
+            [state.overlay.layer addSublayer:state.layer];
+            if (state.source.lastImage) state.layer.contents=(__bridge id)state.source.lastImage;
         }
         BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
         UIView *host = material ? anchor.superview : anchor;
@@ -472,7 +449,6 @@ static void LMVUpdate(UIView *cell) {
         if (state.host && state.host != host) {
             [state.overlay removeFromSuperview];
             state.anchor = nil;
-            state.clipSource = nil;
         }
         NSDictionary *ownership = @{ @"target": target, @"host": [NSValue valueWithNonretainedObject:host] };
         objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, ownership, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -483,30 +459,27 @@ static void LMVUpdate(UIView *cell) {
             if (material) [host insertSubview:state.overlay aboveSubview:anchor];
             else [host insertSubview:state.overlay atIndex:0];
             state.anchor = anchor;
-            state.clipSource = nil;
         }
-        if (!state.clipSource || !state.clipSource.superlayer) state.clipSource = LMVClipSource(anchor.layer, state.overlay.layer, 0);
-        CALayer *clip = state.clipSource ?: anchor.layer;
-        // The plugin surface is strictly host-sized. It must never participate
-        // in the host's intrinsic size, constraints, or cell height calculation.
+        // Model geometry into the model host, never presentation-to-model coordinates.
+        // Only the plugin-owned surface participates in clipping; parent size is unchanged.
+        CALayer *clip=anchor.layer;
         state.overlay.transform = CGAffineTransformIdentity;
-        state.overlay.frame = host.bounds;
-        state.overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        state.overlay.layer.cornerRadius = clip.cornerRadius;
-        state.overlay.layer.cornerCurve = clip.cornerCurve;
-        state.overlay.layer.maskedCorners = clip.maskedCorners;
-        state.overlay.layer.mask = LMVCopyMask(clip.mask, state.overlay.layer.mask, 0);
+        state.overlay.frame = [anchor convertRect:anchor.bounds toView:host];
+        state.overlay.autoresizingMask = UIViewAutoresizingNone;
+        CGFloat radius=clip.cornerRadius;
+        if (radius<=0) radius=MIN(20.0, MIN(anchor.bounds.size.width,anchor.bounds.size.height)*0.5);
+        state.overlay.layer.cornerRadius = radius;
+        state.overlay.layer.cornerCurve = kCACornerCurveContinuous;
+        state.overlay.layer.maskedCorners = kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner|kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
+        state.overlay.layer.mask = nil;
         state.layer.frame = state.overlay.bounds;
         state.layer.hidden = NO;
         state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0;
         [CATransaction commit];
+        state.active=anchorVisible && LMVOpacityEnabled && LMVOpacity>0.0;
         if (anchorVisible) state.lastVisible = now;
-        // AVF configures a new looper's current item asynchronously. The common-
-        // mode display link retries on main after the layer is attached.
-        if (anchorVisible && state.player.status == AVPlayerStatusReadyToPlay &&
-            state.player.currentItem.status == AVPlayerItemStatusReadyToPlay && !state.playing) {
-            LMVStartSynchronized(state);
-        }
+        // Starting the one shared source has no host-clock delay or phase seek.
+        if (state.active && state.source) LMVStartSource(state.source);
     }
     LMVSyncDisplayLink();
 }
@@ -534,11 +507,11 @@ static void LMVUpdate(UIView *cell) {
 }
 %end
 static void LMVCoverSheetVisibilityChanged(UIView *view) {
-    if (!view.window || view.hidden || view.alpha < 0.01 || !view.superview) {
-        LMVReleaseAllPlayers();
-    } else {
-        LMVRefresh(NO);
-    }
+    BOOL window=[view isKindOfClass:UIWindow.class];
+    // A root UIWindow legitimately has no superview and its window accessor may be nil.
+    BOOL hidden=view.hidden || view.alpha<0.01 || (!window && (!view.window || !view.superview));
+    LMVCoverHidden=hidden;
+    if (hidden) LMVReleaseAllPlayers(); else LMVRefresh(NO);
 }
 %hook SBCoverSheetWindow
 - (void)setHidden:(BOOL)hidden {
@@ -582,21 +555,21 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
 }
 %end
 static void LMVReleaseAllPlayers(void) {
-    // Preserve each AVPlayer and its current time while Notification Center is
-    // temporarily hidden, so reopening resumes from the exact frozen frame.
-    [LMVLink invalidate];
-    LMVLink = nil;
+    // Keep one paused player/time and one last decoded CGImage per file, not per card.
+    [LMVLink invalidate]; LMVLink=nil;
+    for (LMVSharedSource *source in LMVSharedSources.allValues) LMVStopSource(source);
     for (UIView *cell in LMVCells.allObjects) {
-        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-        for (LMVVideoState *state in states.allValues) LMVStopPlayback(state);
+        NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+        for (LMVVideoState *state in states.allValues) state.active=NO;
     }
 }
 static void LMVRefresh(BOOL reload) {
     if (reload) {
         // Imports can overwrite an existing filename; URL equality does not mean same media.
         
-        [LMVSources removeAllObjects]; [LMVAssets removeAllObjects];; [LMVReadyAssets removeAllObjects]; [LMVPrewarmedPlayers removeAllObjects];
-        [LMVRevisions removeAllObjects]; [LMVClockStarts removeAllObjects];
+        LMVReleaseAllPlayers();
+        [LMVSources removeAllObjects]; [LMVAssets removeAllObjects]; [LMVReadyAssets removeAllObjects]; [LMVSharedSources removeAllObjects];
+        [LMVRevisions removeAllObjects];
         for (UIView *cell in LMVCells.allObjects) {
             NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
             for (LMVVideoState *state in states.allValues) {
@@ -627,25 +600,52 @@ static void LMVSuspend(void) {
     LMVReleaseAllPlayers();
 }
 static void LMVSyncDisplayLink(void) {
-    if (!LMVPlaybackAllowed()) {
-        [LMVLink invalidate];
-        LMVLink = nil;
-        return;
+    BOOL needed=NO;
+    if (LMVPlaybackAllowed()) for (UIView *cell in LMVCells.allObjects) {
+        NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+        for (LMVVideoState *state in states.allValues) if (state.active) { needed=YES; break; }
     }
+    if (!needed) { for (LMVSharedSource *source in LMVSharedSources.allValues) LMVStopSource(source); [LMVLink invalidate]; LMVLink=nil; return; }
     if (LMVLink) return;
-    LMVDisplayLinkTarget *target = [LMVDisplayLinkTarget new];
-    LMVLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
-    LMVLink.preferredFramesPerSecond = 90;
+    LMVDisplayLinkTarget *target=[LMVDisplayLinkTarget new];
+    LMVLink=[CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
+    LMVLink.preferredFramesPerSecond=30;
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-    objc_setAssociatedObject(LMVLink, @selector(LMVSyncDisplayLink), target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 @implementation LMVDisplayLinkTarget
 - (void)tick:(CADisplayLink *)link {
     if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
+    // Visibility is separate from frame conversion; never rediscover/layout every card per frame.
+    NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
+    NSUInteger consumers=0;
     for (UIView *cell in LMVCells.allObjects) {
-        if (!cell.window || !LMVVisible(cell)) continue;
-        LMVUpdate(cell);
+        NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+        BOOL cellVisible=LMVVisible(cell), changed=NO;
+        for (LMVVideoState *state in states.allValues) {
+            BOOL active=cellVisible && state.anchor && LMVVisible(state.anchor) && state.overlay.superview && LMVOpacityEnabled && LMVOpacity>0.0;
+            if (active!=state.active) changed=YES;
+            state.active=active;
+        }
+        if (changed) LMVUpdate(cell);
+        for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
+    for (LMVSharedSource *source in LMVSharedSources.allValues) {
+        if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
+    }
+    static NSUInteger lastSources=NSUIntegerMax,lastConsumers=NSUIntegerMax,nextSource=0;
+    if (lastSources!=visible.count || lastConsumers!=consumers) {
+        NSLog(@"[LockMessageVideo] shared sources=%lu visible sources=%lu consumers=%lu",(unsigned long)LMVSharedSources.count,(unsigned long)visible.count,(unsigned long)consumers);
+        lastSources=visible.count; lastConsumers=consumers;
+    }
+    NSArray *sources=visible.allObjects;
+    // Rotate priority when multiple materials compete for the single in-flight conversion.
+    for (NSUInteger n=0;n<sources.count;n++) {
+        LMVSharedSource *source=sources[(n+nextSource)%sources.count];
+        CMTime time=[source.output itemTimeForHostTime:link.timestamp];
+        LMVPublishFrame(source,time);
+    }
+    nextSource++;
+    LMVSyncDisplayLink();
 }
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -670,10 +670,12 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
 }
 %ctor {
     @autoreleasepool {
+        LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
+        LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
         LMVCells = [NSHashTable weakObjectsHashTable];
         
-        LMVRevisions = [NSMutableDictionary new]; LMVClockStarts = [NSMutableDictionary new];
-        LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVPrewarmedPlayers = [NSMutableDictionary new];
+        LMVRevisions = [NSMutableDictionary new];
+        LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];
         LMVLoadPreferences();
         %init;
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
