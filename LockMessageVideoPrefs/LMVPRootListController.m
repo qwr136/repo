@@ -7,10 +7,11 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "LMVImport.h"
+#import "LMVMaterialPicker.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
-static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除"]; }
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear"]; }
+static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"锁屏", @"选项", @"清除"]; }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
@@ -28,8 +29,8 @@ static void LMVNotify(void) {
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
     _specifiers = [NSMutableArray new];
-    NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材"];
-    SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:)};
+    NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材"];
+    SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
         PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -45,7 +46,7 @@ static void LMVNotify(void) {
     import.buttonAction = @selector(chooseVideo:);
     [import setProperty:@"ImportVideo" forKey:@"id"];
     [_specifiers addObject:import];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"所有视频重新压缩至 ≤5 MiB，原素材始终保留；无法压缩则提示失败"]];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"所有视频重新压缩至 ≤5 MiB；临时原素材仅在导入期间存在，无法压缩则提示失败"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"视频透明度"]];
     PSSpecifier *opacityEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用视频透明度" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [opacityEnabled setProperty:@"VideoOpacityEnabled" forKey:@"key"];
@@ -174,35 +175,29 @@ static void LMVNotify(void) {
     menu.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
     [self presentViewController:menu animated:YES completion:nil];
 }
-- (void)selectFile:(NSString *)file target:(NSString *)target {
+- (void)selectFile:(NSString *)file name:(NSString *)name target:(NSString *)target {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景"};
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)switchTarget:(NSString *)target {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *library = [LMVDirectory stringByAppendingPathComponent:@"library"];
-    NSArray *files = [[fm contentsOfDirectoryAtPath:library error:nil] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
-    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"选择素材" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    if (self.presentedViewController) return;
     NSString *key = [target stringByAppendingString:@"Video"];
-    NSString *selected = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    if (![selected isKindOfClass:NSString.class]) selected = nil;
-    if ([fm fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]]) {
-        BOOL current = [selected isEqualToString:@"message.mov"] || (!selected && [target isEqualToString:@"Message"]);
-        [menu addAction:[UIAlertAction actionWithTitle:current ? @"原消息视频（当前）" : @"原消息视频" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self selectFile:@"message.mov" target:target]; }]];
-    }
-    for (NSString *name in files) {
-        if (![@[@"mov", @"mp4", @"m4v"] containsObject:name.pathExtension.lowercaseString]) continue;
-        NSString *relative = [@"library" stringByAppendingPathComponent:name];
-        NSString *title = name.stringByDeletingPathExtension;
-        if ([selected isEqualToString:relative]) title = [title stringByAppendingString:@"（当前）"];
-        [menu addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self selectFile:relative target:target]; }]];
-    }
-    if (menu.actions.count == 0) menu.message = @"素材库为空";
-    [menu addAction:[UIAlertAction actionWithTitle:@"无素材" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self selectFile:@"" target:target]; }]];
-    [self presentMenu:menu];
+    id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov"};
+    if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
+    LMVMaterialPicker *picker = [LMVMaterialPicker new];
+    picker.selected = selected;
+    __weak typeof(self) weakSelf = self;
+    picker.apply = ^(NSString *relative, NSString *name) { [weakSelf selectFile:relative name:name target:target]; };
+    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
 - (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
+- (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
@@ -237,7 +232,7 @@ static void LMVNotify(void) {
                     if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)relative, kLMVPrefsID);
                 }
                 LMVNotify();
-                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已重新编码为无音轨 H.264 并验证，保存到素材库：%@\n原件保留在 /var/mobile/LockMessageVideo/原素材/", relative] preferredStyle:UIAlertControllerStyleAlert];
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已重新编码为无音轨 H.264 并验证，保存到素材库：%@\n导入临时原素材已清理。", relative] preferredStyle:UIAlertControllerStyleAlert];
                 [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
                 [self presentViewController:alert animated:YES completion:nil];
             }

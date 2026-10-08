@@ -112,7 +112,7 @@ static NSError *LMVCompressMovie(NSURL *source, NSURL *destination) {
         error=LMVEncodeMovie(asset,track,destination,plan);
         if (!error) error=LMVValidateMovie(destination,duration);
         unsigned long long bytes=[fm attributesOfItemAtPath:destination.path error:nil].fileSize;
-        if (!error && bytes>=inputBytes) error=LMVImportError(16,@"重新编码未能减小文件；未加入素材库，原素材已保留",nil);
+        if (!error && bytes>=inputBytes) error=LMVImportError(16,@"重新编码未能减小文件；未加入素材库，临时原素材将清理",nil);
         if (!error) return nil;
         // Only size failures can benefit from another encode. Decode/I/O/codec
         // or validation errors are terminal; never repeat the same doomed export.
@@ -129,24 +129,28 @@ static NSError *LMVCompressMovie(NSURL *source, NSURL *destination) {
 static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError) {
     NSFileManager *fm=NSFileManager.defaultManager; NSError *error=nil;
     NSString *base=@"/var/mobile/LockMessageVideo";
-    NSString *originals=[base stringByAppendingPathComponent:@"原素材"];
     NSString *library=[base stringByAppendingPathComponent:@"library"];
     NSString *stem=NSUUID.UUID.UUIDString;
     NSString *ext=source.pathExtension.lowercaseString;
     if (![@[@"mov",@"mp4",@"m4v"] containsObject:ext]) ext=@"mov";
-    [fm createDirectoryAtPath:originals withIntermediateDirectories:YES attributes:nil error:&error];
-    NSURL *original=[NSURL fileURLWithPath:[originals stringByAppendingPathComponent:[stem stringByAppendingPathExtension:ext]]];
-    if (!error) [fm copyItemAtURL:source toURL:original error:&error];
-    if (error) { if (outError) *outError=error; return nil; }
+    // Photos' representation is temporary. Own one private copy only for the
+    // encode transaction; never place this uncompressed copy in the library.
+    NSURL *ownedSource=[NSURL fileURLWithPath:[base stringByAppendingPathComponent:[NSString stringWithFormat:@".import-source-%@.%@",stem,ext]]];
+    if (![fm copyItemAtURL:source toURL:ownedSource error:&error]) {
+        if (outError) *outError=error;
+        return nil;
+    }
     [fm createDirectoryAtPath:library withIntermediateDirectories:YES attributes:nil error:&error];
     // Work outside library: incomplete output can never appear in material menus.
     NSURL *temporary=[NSURL fileURLWithPath:[base stringByAppendingPathComponent:[NSString stringWithFormat:@".encode-%@.mov",stem]]];
     NSString *name=[stem stringByAppendingPathExtension:@"mov"];
-    if (!error) error=LMVCompressMovie(original,temporary);
+    if (!error) error=LMVCompressMovie(ownedSource,temporary);
     if (!error) [fm moveItemAtURL:temporary toURL:[NSURL fileURLWithPath:[library stringByAppendingPathComponent:name]] error:&error];
+    // Both success and failure own and remove the temporary uncompressed copy.
+    [fm removeItemAtURL:ownedSource error:nil];
     if (error) {
         [fm removeItemAtURL:temporary error:nil];
-        if (outError) *outError=LMVImportError(17,[NSString stringWithFormat:@"导入未完成，原素材已保留：%@",original.path],error);
+        if (outError) *outError=LMVImportError(17,@"导入未完成；临时原素材已清理，未加入素材库",error);
         return nil;
     }
     return [@"library" stringByAppendingPathComponent:name];

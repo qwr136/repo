@@ -8,10 +8,13 @@
 #import <math.h>
 #import <sys/stat.h>
 #import <atomic>
+#import "LMVConsumerPolicy.h"
 
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSHashTable<UIView *> *LMVCells;
+static NSHashTable<UIView *> *LMVLockHosts;
+static char LMVLockStateKey;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
 // Stable semantic names prevent nil hosts when private MaterialView subclasses change.
 static NSDictionary<NSString *, NSString *> *LMVMaterialSources;
@@ -35,6 +38,7 @@ static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
+static void LMVUpdateLockScreens(void);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
@@ -121,6 +125,7 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
                     if (image) LMVCacheFrame(path,revision,image,actual,NO);
                     LMVDiagnostic([NSString stringWithFormat:@"cold-preview=%d errorcode=%ld",image!=NULL,(long)error.code]);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
+                    LMVUpdateLockScreens();
                 }
                 if (image) CGImageRelease(image);
             });
@@ -381,6 +386,10 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
                         for (LMVVideoState *state in states.allValues) if (state.source==source) state.layer.contents=(__bridge id)image;
                     }
+                    for (UIView *host in LMVLockHosts.allObjects) {
+                        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
+                        if (state.source == source && state.active) state.layer.contents = (__bridge id)image;
+                    }
                     [CATransaction commit];
                     if (source.published==1) LMVDiagnostic([NSString stringWithFormat:@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image)]);
                 } else if (image) {
@@ -425,6 +434,10 @@ static void LMVStopSource(LMVSharedSource *source) {
 }
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
     if (!source) return NO;
+    for (UIView *host in LMVLockHosts.allObjects) {
+        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
+        if (state.source == source && state.active && state.layer.superlayer) return YES;
+    }
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) if (state.source==source && state.active && state.overlay.superview) return YES;
@@ -492,6 +505,7 @@ static void LMVPrepareAssets(void) {
                 [LMVReadyAssets addObject:path];
                 LMVPreparePreview(path,revision,playbackAsset);
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
+                    LMVUpdateLockScreens();
             });
             });
         }];
@@ -511,14 +525,14 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen"]) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
         NSString *videoKey = [target stringByAppendingString:@"Video"];
         NSString *relative = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)videoKey, kLMVPrefsID);
         // Always resolve through the semantic source table; never pass a nil source name.
-        if (![relative isKindOfClass:NSString.class] || !relative.length) relative = LMVMaterialSources[target];
+        if (![relative isKindOfClass:NSString.class]) relative = LMVMaterialSources[target];
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
         NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
@@ -798,6 +812,105 @@ static void LMVUpdate(UIView *cell) {
     %orig;
 }
 %end
+// CoverSheet's own background consumer; it never edits system material views.
+static BOOL LMVLockHostVisible(UIView *host) {
+    Class cover = NSClassFromString(@"CSCoverSheetView");
+    Class windowClass = NSClassFromString(@"SBCoverSheetWindow");
+    return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host), LMVPlaybackAllowed());
+}
+static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
+    if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return YES;
+    if (depth >= 4) return NO;
+    // A mixed page/container can own clock or notifications as well: placing
+    // above that whole branch would cover content. Only follow one-child wrappers.
+    return view.subviews.count == 1 && LMVBranchHasWallpaper(view.subviews.firstObject, depth + 1);
+}
+static void LMVUpdateLockScreen(UIView *host) {
+    if (!host) return;
+    LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
+    NSString *path = LMVPaths[@"LockScreen"];
+    BOOL enabled = LMVEnabled[@"LockScreen"].boolValue && path.length;
+    if (state && (!enabled || ![state.path isEqualToString:path] || ![state.revision isEqualToString:LMVRevisions[path]])) {
+        LMVReleasePlayer(state);
+        [state.layer removeFromSuperlayer];
+        objc_setAssociatedObject(host, &LMVLockStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        state = nil;
+    }
+    if (!enabled) return;
+    if (!state) {
+        state = [LMVVideoState new];
+        state.path = path;
+        state.revision = LMVRevisions[path];
+        state.layer = [CALayer layer];
+        state.layer.name = @"com.minis.lockmessagevideo.lockscreen";
+        state.layer.contentsGravity = kCAGravityResizeAspectFill;
+        state.layer.masksToBounds = YES;
+        state.host = host;
+        objc_setAssociatedObject(host, &LMVLockStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    // Insert above the existing wallpaper branch, below CoverSheet content.
+    // UIKit remains untouched: no view insertion, material/opacity mutation or hit testing.
+    CALayer *wallpaper = nil;
+    for (UIView *child in host.subviews) if (LMVBranchHasWallpaper(child, 0)) { wallpaper = child.layer; break; }
+    NSArray *layers = host.layer.sublayers;
+    NSUInteger ownIndex = [layers indexOfObjectIdenticalTo:state.layer];
+    NSUInteger wallpaperIndex = wallpaper ? [layers indexOfObjectIdenticalTo:wallpaper] : NSNotFound;
+    BOOL ordered = ownIndex != NSNotFound && (wallpaperIndex == NSNotFound ? ownIndex == 0 : ownIndex == wallpaperIndex + 1);
+    if (!ordered) {
+        [state.layer removeFromSuperlayer];
+        if (wallpaper && wallpaper.superlayer == host.layer) [host.layer insertSublayer:state.layer above:wallpaper];
+        else [host.layer insertSublayer:state.layer atIndex:0];
+    }
+    state.layer.frame = host.bounds;
+    state.layer.hidden = NO;
+    LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
+    if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
+    BOOL active = LMVLockHostVisible(host);
+    if (active && [LMVReadyAssets containsObject:path]) {
+        if (!state.source) state.source = LMVSourceForPath(path);
+        if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
+    }
+    state.active = active && state.source != nil;
+    [CATransaction commit];
+    if (!state.active && !LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
+}
+static void LMVUpdateLockScreens(void) {
+    for (UIView *host in LMVLockHosts.allObjects) LMVUpdateLockScreen(host);
+}
+static BOOL LMVLockScreenNeedsFrames(void) {
+    if (!LMVEnabled[@"LockScreen"].boolValue || !LMVPaths[@"LockScreen"]) return NO;
+    for (UIView *host in LMVLockHosts.allObjects) if (LMVLockHostVisible(host)) return YES;
+    return NO;
+}
+%group LMVLockScreenHooks
+%hook CSCoverSheetView
+- (void)layoutSubviews {
+    %orig;
+    [LMVLockHosts addObject:(UIView *)self];
+    LMVUpdateLockScreen((UIView *)self);
+    LMVSyncDisplayLink();
+}
+- (void)didMoveToWindow {
+    %orig;
+    [LMVLockHosts addObject:(UIView *)self];
+    LMVUpdateLockScreen((UIView *)self);
+    LMVSyncDisplayLink();
+}
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVUpdateLockScreen((UIView *)self);
+    LMVSyncDisplayLink();
+}
+- (void)setAlpha:(CGFloat)alpha {
+    %orig;
+    LMVUpdateLockScreen((UIView *)self);
+    LMVSyncDisplayLink();
+}
+%end
+%end
+
 static void LMVCoverSheetVisibilityChanged(UIView *view) {
     // A root window has no superview. A callback from a hidden/detached sibling
     // is not evidence that every notification surface is hidden.
@@ -805,8 +918,10 @@ static void LMVCoverSheetVisibilityChanged(UIView *view) {
     if (!surfaceStates) surfaceStates=[NSMapTable weakToStrongObjectsMapTable];
     NSString *state=[NSString stringWithFormat:@"window=%d hidden=%d attached=%d",[view isKindOfClass:UIWindow.class],view.hidden,view.window!=nil];
     if (![[surfaceStates objectForKey:view] isEqualToString:state]) { [surfaceStates setObject:state forKey:view]; LMVDiagnostic([@"surface " stringByAppendingString:state]); }
+    LMVUpdateLockScreens();
     if (!LMVPlaybackAllowed()) LMVReleaseAllPlayers(); else LMVRefresh(NO);
 }
+%group LMVCoverWindowHooks
 %hook SBCoverSheetWindow
 - (void)setHidden:(BOOL)hidden {
     // Bind retained frames while still hidden, before UIKit exposes the surface.
@@ -818,6 +933,7 @@ static void LMVCoverSheetVisibilityChanged(UIView *view) {
     %orig;
     LMVCoverSheetVisibilityChanged((UIView *)self);
 }
+%end
 %end
 %hook CoverSheet
 - (void)setHidden:(BOOL)hidden {
@@ -856,6 +972,10 @@ static void LMVReleaseAllPlayers(void) {
     // Keep one paused player/time and one last decoded CGImage per file, not per card.
     [LMVLink invalidate]; LMVLink=nil;
     for (LMVSharedSource *source in LMVSharedSources.allValues) LMVStopSource(source);
+    for (UIView *host in LMVLockHosts.allObjects) {
+        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
+        state.active = NO;
+    }
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) state.active=NO;
@@ -878,6 +998,7 @@ static void LMVRefresh(BOOL reload) {
         }
         LMVUpdate(cell);
     }
+    LMVUpdateLockScreens();
     LMVSyncDisplayLink();
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
@@ -889,7 +1010,7 @@ static void LMVSuspend(void) {
     LMVReleaseAllPlayers();
 }
 static void LMVSyncDisplayLink(void) {
-    BOOL needed=NO;
+    BOOL needed=LMVLockScreenNeedsFrames();
     if (LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0) {
         for (UIView *cell in LMVCells.allObjects) {
             if (!LMVVisible(cell)) continue;
@@ -928,6 +1049,13 @@ static void LMVSyncDisplayLink(void) {
         }
         if (changed || (discover && cellVisible)) LMVUpdate(cell);
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
+    }
+    // Only the actual visible CoverSheet host consumes lockscreen frames.
+    for (UIView *host in LMVLockHosts.allObjects) {
+        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
+        BOOL active = LMVLockHostVisible(host);
+        if (discover || active != state.active) LMVUpdateLockScreen(host);
+        if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
@@ -1003,12 +1131,21 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
         LMVCells = [NSHashTable weakObjectsHashTable];
+        LMVLockHosts = [NSHashTable weakObjectsHashTable];
         
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVRevisions = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];
         LMVLoadPreferences();
         %init;
+        Class lockHost = NSClassFromString(@"CSCoverSheetView");
+        Class lockWindow = NSClassFromString(@"SBCoverSheetWindow");
+        if (lockWindow && [lockWindow isSubclassOfClass:UIWindow.class]) {
+            %init(LMVCoverWindowHooks);
+        }
+        if (lockHost && lockWindow && [lockHost isSubclassOfClass:UIView.class] && [lockWindow isSubclassOfClass:UIWindow.class]) {
+            %init(LMVLockScreenHooks);
+        }
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);

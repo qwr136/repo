@@ -1,0 +1,191 @@
+#pragma once
+#import <UIKit/UIKit.h>
+#import <AVFoundation/AVFoundation.h>
+#import "LMVMaterialCatalog.h"
+
+@interface LMVMaterialCell : UITableViewCell
+@end
+@implementation LMVMaterialCell
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.imageView.frame = CGRectMake(16, 10, 56, 56);
+    CGFloat width = MAX(0, self.contentView.bounds.size.width - 102);
+    self.textLabel.frame = CGRectMake(86, 10, width, self.detailTextLabel.text.length ? 38 : 56);
+    self.detailTextLabel.frame = CGRectMake(86, 48, width, 18);
+}
+@end
+
+@interface LMVMaterialPicker : UITableViewController
+@property(nonatomic, copy) NSString *selected;
+@property(nonatomic, copy) void (^apply)(NSString *relative, NSString *name);
+@property(nonatomic, copy) NSArray<NSDictionary *> *materials;
+@property(nonatomic, strong) NSCache<NSString *, UIImage *> *thumbnails;
+@property(nonatomic, strong) NSMutableSet<NSString *> *pending;
+@property(nonatomic, strong) NSOperationQueue *thumbnailQueue;
+@property(nonatomic) NSUInteger generation;
+@end
+
+@implementation LMVMaterialPicker
+- (instancetype)init {
+    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    if (self) {
+        _materials = @[];
+        _thumbnails = [NSCache new];
+        _thumbnails.countLimit = 60;
+        _thumbnails.totalCostLimit = 6 * 1024 * 1024;
+        _pending = [NSMutableSet new];
+        _thumbnailQueue = [NSOperationQueue new];
+        _thumbnailQueue.maxConcurrentOperationCount = 1;
+        _thumbnailQueue.qualityOfService = NSQualityOfServiceUtility;
+    }
+    return self;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"选择素材";
+    self.tableView.rowHeight = 76;
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
+    [self reloadLibrary];
+}
+- (void)cancel { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)dealloc { [_thumbnailQueue cancelAllOperations]; }
+- (void)didReceiveMemoryWarning {
+    [super didReceiveMemoryWarning];
+    [self.thumbnails removeAllObjects];
+}
+- (void)reloadLibrary {
+    NSUInteger generation = ++self.generation;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(LMVMaterialQueue(), ^{
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSString *base = @"/var/mobile/LockMessageVideo";
+        NSArray *library = [[fm contentsOfDirectoryAtPath:[base stringByAppendingPathComponent:@"library"] error:nil] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
+        NSMutableArray *paths = [NSMutableArray new];
+        for (NSString *legacy in @[@"message.mov", @"options.mov", @"clear.mov"]) if ([fm fileExistsAtPath:[base stringByAppendingPathComponent:legacy]]) [paths addObject:legacy];
+        for (NSString *file in library) if ([@[@"mov", @"mp4", @"m4v"] containsObject:file.pathExtension.lowercaseString]) [paths addObject:[@"library" stringByAppendingPathComponent:file]];
+        NSMutableDictionary *names = LMVReadMaterialNames();
+        BOOL namesChanged = NO;
+        NSMutableArray *rows = [NSMutableArray new];
+        for (NSString *relative in paths) {
+            NSDictionary *attributes = [fm attributesOfItemAtPath:[base stringByAppendingPathComponent:relative] error:nil];
+            if (![attributes[NSFileType] isEqualToString:NSFileTypeRegular]) continue;
+            NSString *name = LMVMaterialDisplayName(relative, names, attributes, rows.count);
+            if (![names[relative] isKindOfClass:NSString.class] || ![names[relative] length]) {
+                names[relative] = name;
+                namesChanged = YES;
+            }
+            NSString *revision = [NSString stringWithFormat:@"%@|%@|%@", relative, attributes[NSFileModificationDate], attributes[NSFileSize]];
+            [rows addObject:@{@"path": relative, @"name": name, @"revision": revision}];
+        }
+        if (namesChanged) LMVWriteMaterialNames(names);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LMVMaterialPicker *picker = weakSelf;
+            if (!picker || picker.generation != generation) return;
+            picker.materials = rows;
+            [picker.tableView reloadData];
+        });
+    });
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.materials.count + 1; }
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return self.materials.count ? @"向左滑动素材可重命名。名称修改不会影响当前选择。" : @"素材库为空，请先从相册导入视频。";
+}
+- (void)requestThumbnail:(NSDictionary *)row {
+    NSString *key = row[@"revision"];
+    if ([self.thumbnails objectForKey:key] || [self.pending containsObject:key] || self.pending.count >= 12) return;
+    [self.pending addObject:key];
+    NSString *path = [@"/var/mobile/LockMessageVideo" stringByAppendingPathComponent:row[@"path"]];
+    __weak typeof(self) weakSelf = self;
+    [self.thumbnailQueue addOperationWithBlock:^{
+        @autoreleasepool {
+            // Decode only a small poster, on a bounded serial background queue.
+            AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
+            AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+            generator.appliesPreferredTrackTransform = YES;
+            generator.maximumSize = CGSizeMake(144, 144);
+            CGImageRef image = [generator copyCGImageAtTime:kCMTimeZero actualTime:NULL error:nil];
+            UIImage *poster = image ? [UIImage imageWithCGImage:image] : nil;
+            NSUInteger cost = image ? CGImageGetBytesPerRow(image) * CGImageGetHeight(image) : 0;
+            if (image) CGImageRelease(image);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LMVMaterialPicker *picker = weakSelf;
+                if (!picker) return;
+                [picker.pending removeObject:key];
+                [picker.thumbnails setObject:poster ?: [UIImage systemImageNamed:@"film"] forKey:key cost:cost];
+                // Resolve current paths, never capture/reuse a cell from a previous generation.
+                for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
+                    if (index.row < picker.materials.count) {
+                        NSDictionary *visible = picker.materials[index.row];
+                        if ([visible[@"revision"] isEqualToString:key]) [picker.tableView reloadRowsAtIndexPaths:@[index] withRowAnimation:UITableViewRowAnimationNone];
+                        else [picker requestThumbnail:visible];
+                    }
+                }
+            });
+        }
+    }];
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Material"];
+    if (!cell) cell = [[LMVMaterialCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Material"];
+    BOOL none = indexPath.row == self.materials.count;
+    NSDictionary *row = none ? nil : self.materials[indexPath.row];
+    NSString *relative = none ? @"" : row[@"path"];
+    BOOL current = [self.selected isEqualToString:relative];
+    cell.textLabel.text = none ? @"无素材" : row[@"name"];
+    cell.textLabel.numberOfLines = 2;
+    cell.detailTextLabel.text = current ? @"使用中" : nil;
+    cell.accessoryType = current ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+    cell.imageView.image = none ? [UIImage systemImageNamed:@"nosign"] : [self.thumbnails objectForKey:row[@"revision"]] ?: [UIImage systemImageNamed:@"film"];
+    cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
+    cell.imageView.clipsToBounds = YES;
+    cell.imageView.layer.cornerRadius = 6;
+    cell.imageView.bounds = CGRectMake(0, 0, 56, 56);
+    cell.accessibilityLabel = [NSString stringWithFormat:@"%@%@", cell.textLabel.text, current ? @"，使用中" : @""];
+    if (!none) [self requestThumbnail:row];
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    BOOL none = indexPath.row == self.materials.count;
+    NSDictionary *row = none ? nil : self.materials[indexPath.row];
+    NSString *relative = none ? @"" : row[@"path"];
+    NSString *name = none ? @"无素材" : row[@"name"];
+    void (^apply)(NSString *, NSString *) = self.apply;
+    [self dismissViewControllerAnimated:YES completion:^{ if (apply) apply(relative, name); }];
+}
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= self.materials.count) return nil;
+    NSDictionary *row = self.materials[indexPath.row];
+    if (![row[@"path"] hasPrefix:@"library/"]) return nil;
+    __weak typeof(self) weakSelf = self;
+    UIContextualAction *rename = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"重命名" handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
+        LMVMaterialPicker *picker = weakSelf;
+        if (!picker) { done(NO); return; }
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名素材" message:@"仅修改显示名称，视频文件和当前选择保持不变。" preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *field) { field.text = row[@"name"]; field.clearButtonMode = UITextFieldViewModeWhileEditing; }];
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *save) {
+            NSString *name = alert.textFields.firstObject.text;
+            dispatch_async(LMVMaterialQueue(), ^{
+                NSError *error = LMVRenameMaterial(row[@"path"], name);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    LMVMaterialPicker *live = weakSelf;
+                    if (!live) return;
+                    if (!error) [live reloadLibrary];
+                    else {
+                        UIAlertController *failure = [UIAlertController alertControllerWithTitle:@"重命名失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+                        [failure addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+                        [live presentViewController:failure animated:YES completion:nil];
+                    }
+                });
+            });
+        }]];
+        [picker presentViewController:alert animated:YES completion:nil];
+        done(YES);
+    }];
+    rename.backgroundColor = UIColor.systemBlueColor;
+    UISwipeActionsConfiguration *configuration = [UISwipeActionsConfiguration configurationWithActions:@[rename]];
+    configuration.performsFirstActionWithFullSwipe = NO;
+    return configuration;
+}
+@end
