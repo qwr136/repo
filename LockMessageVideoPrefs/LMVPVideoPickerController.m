@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
+#import "LMVImport.h"
 
 static NSString * const LMVImportDomain = @"com.minis.lockmessagevideo.import";
 
@@ -36,15 +37,16 @@ static NSString * const LMVImportDomain = @"com.minis.lockmessagevideo.import";
     });
 }
 - (void)processPickedURL:(NSURL *)url error:(NSError *)loadError {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *dir = @"/var/mobile/LockMessageVideo";
-    NSString *dst = [dir stringByAppendingPathComponent:([self.mode isEqualToString:@"message"] ? @"message.mov" : @"options.mov")];
-    NSError *error = loadError; BOOL success = NO;
+    NSError *error = loadError;
     if (!error && !url) error = [self importError:1 description:@"无法读取视频文件"];
-    if (!error) [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&error];
-    if (!error) { [fm removeItemAtPath:dst error:nil]; success = [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dst] error:&error]; }
-    if (success && !error) CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, NULL, YES);
-    [self finishWithError:(success && !error) ? nil : (error ?: [self importError:2 description:@"导入失败"])];
+    NSString *relative = !error ? LMVImportMovie(url, &error) : nil;
+    if (relative && !error) {
+        NSString *key=[self.mode isEqualToString:@"message"] ? @"MessageVideo" : @"OptionsVideo";
+        CFPreferencesSetAppValue((__bridge CFStringRef)key,(__bridge CFPropertyListRef)relative,CFSTR("com.minis.lockmessagevideo"));
+        CFPreferencesAppSynchronize(CFSTR("com.minis.lockmessagevideo"));
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, NULL, YES);
+    }
+    [self finishWithError:(relative && !error) ? nil : (error ?: [self importError:2 description:@"导入失败"])];
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil]; PHPickerResult *result = results.firstObject;

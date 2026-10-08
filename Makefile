@@ -12,7 +12,7 @@ LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation CoreImage CoreVideo 
 
 BUNDLE_NAME = LockMessageVideoPrefs
 LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m
-LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI
+LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI AVFoundation CoreMedia CoreVideo
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LockMessageVideoPrefs_RESOURCE_FILES = Resources/Root.plist LockMessageVideoPrefs/Info.plist
 LockMessageVideoPrefs_CFLAGS = -fobjc-arc

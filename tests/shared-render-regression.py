@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.46')==1
+assert (root/'control').read_text().count('Version: 0.0.47')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.46'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.47'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -37,4 +37,31 @@ assert target(.1,2,5)==2.1
 assert target(3.2,2,5)<2
 assert target(4.9,0,5)>target(5.1,0,5)
 assert target(0,0,5)==0
-print('PASS: version/source invariants, cold startup, shared fallback, cleanup, geometry, reader-clock boundary models')
+# Last frame content survives hide and can bind while source/gate is not ready.
+release=s.split('static void LMVReleasePlayer(LMVVideoState *state) {',1)[1].split('static void LMVPrepareAssets',1)[0]
+assert 'contents=nil' not in release and 'removeFromSuperlayer' not in release
+update=s.split('static void LMVUpdate(UIView *cell) {',1)[1].split('%hook NCNotificationListCell',1)[0]
+assert update.index('state.layer.contents=(__bridge id)cached.image') < update.index('state.source=LMVSourceForPath(path)') < update.index('LMVStartSource(state.source)')
+assert 'if (!cached' not in update
+assert 'if (!rendered && old.image) return;' in s
+assert 'LMVPreparePreview(path,revision,playbackAsset)' in s
+assert 'cold-no-frame-0.75s' in s and 'source.restoreOnStart' in s
+refresh=s.split('static void LMVRefresh(BOOL reload) {',1)[1].split('// Tracking mode',1)[0]
+assert 'removeAllObjects' not in refresh
+# Both Photos paths use the same always-reencode, preserve-first importer.
+imp=(root/'LockMessageVideoPrefs/LMVImport.h').read_text()
+for name in ['LMVPRootListController.m','LMVPVideoPickerController.m']:
+    text=(root/'LockMessageVideoPrefs'/name).read_text()
+    assert 'LMVImportMovie(url, &copyError)' in text or 'LMVImportMovie(url, &error)' in text
+    assert 'bytes <= LMVMaxImportBytes' not in text
+assert imp.index('copyItemAtURL:source toURL:original') < imp.index('error=LMVCompressMovie(original,temporary)') < imp.index('moveItemAtURL:temporary')
+for token in ['AVVideoCodecTypeH264','NSUnderlyingErrorKey','BOOL ok=[input appendSampleBuffer:sample]','LMVValidateMovie(destination,duration)','bytes>=inputBytes','attempt<3']:
+    assert token in imp, token
+# State model: cold preview may fill a miss but not overwrite a rendered frame.
+cache={}
+def put(key,image,rendered):
+    if not rendered and key in cache: return
+    cache[key]=(image,rendered)
+put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
+assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
+print('PASS: 0.0.47 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
