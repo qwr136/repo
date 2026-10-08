@@ -11,6 +11,7 @@
 #import <sys/stat.h>
 #import <atomic>
 #import "LMVConsumerPolicy.h"
+#import "LMVOriginalBackground.h"
 
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
@@ -251,10 +252,19 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 @property(nonatomic, strong) CAShapeLayer *desktopDockMask;
 @property(nonatomic) CGRect desktopDockRect;
 @property(nonatomic, copy) NSString *desktopDockReason;
+@property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals;
+@property(nonatomic, weak) UIView *originalAnchor, *originalScope;
+@property(nonatomic, copy) NSString *originalDiagnostic;
 @end
 @implementation LMVVideoState
-- (void)dealloc { [_overlay removeFromSuperview]; }
+- (void)dealloc {
+    LMVReleaseOriginals(_originals, self);
+    [_overlay removeFromSuperview];
+    [_layer removeFromSuperlayer];
+}
 @end
+#import "LMVBackgroundDiscovery.h"
+
 static BOOL LMVPlaybackAllowed(void) {
     if (!LMVInitialized || !LMVLaunchReady) return NO;
     uint64_t blank=1;
@@ -575,7 +585,7 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.57 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.58 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -591,10 +601,14 @@ static void LMVLoadPreferences(void) {
         NSString *videoKey = [target stringByAppendingString:@"Video"];
         NSString *relative = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)videoKey, kLMVPrefsID);
         // Always resolve through the semantic source table; never pass a nil source name.
-        if (![relative isKindOfClass:NSString.class]) relative = LMVMaterialSources[target];
+        BOOL explicitSelection = [relative isKindOfClass:NSString.class];
+        if (!explicitSelection) relative = LMVMaterialSources[target];
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
         NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
-        if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]] && [[NSFileManager defaultManager] fileExistsAtPath:path]) LMVPaths[target] = path;
+        if (!explicitSelection && ![[NSFileManager defaultManager] fileExistsAtPath:path]) continue;
+        // A persisted selection survives unreadable/missing files. Empty selection
+        // (including successful material deletion) alone restores the original.
+        if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]]) LMVPaths[target] = path;
     }
     NSNumber *opacityEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacityEnabled"), kLMVPrefsID);
     LMVOpacityEnabled = !opacityEnabled || opacityEnabled.boolValue;
@@ -629,7 +643,7 @@ static BOOL LMVVisible(UIView *view) {
     if (!LMVNotificationCenterSurface(view)) return NO;
     if (!view.window || view.window.hidden || view.bounds.size.width < 1 || view.bounds.size.height < 1) return NO;
     for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
-        if (ancestor.hidden || ancestor.alpha < 0.01) return NO;
+        if (ancestor.hidden || LMVOriginalVisibilityAlpha(ancestor) < 0.01) return NO;
         if (ancestor.clipsToBounds && !CGRectIntersectsRect(LMVRectInView(view, ancestor), (ancestor.layer.presentationLayer ?: ancestor.layer).bounds)) return NO;
     }
     uint64_t blank = 0;
@@ -647,7 +661,7 @@ static BOOL LMVIsClassOrSubclass(UIView *view, NSString *name) {
     return cls && [view isKindOfClass:cls];
 }
 static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
-    if (depth > 12 || LMVActionBranch(view) || view.hidden || view.alpha < 0.01) return nil;
+    if (depth > 12 || LMVActionBranch(view) || view.hidden || LMVOriginalVisibilityAlpha(view) < 0.01) return nil;
     if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
     for (UIView *child in view.subviews) {
         if (LMVIsClassOrSubclass(child, @"NCNotificationListCell")) continue;
@@ -689,7 +703,10 @@ static void LMVActionHosts(UIView *view, NSMapTable *hosts, NSUInteger depth) {
     if (LMVActionBranch(view)) { LMVFindActions(view, view, hosts, 0); return; }
     for (UIView *child in view.subviews) LMVActionHosts(child, hosts, depth + 1);
 }
-static void LMVPause(LMVVideoState *state) { LMVReleasePlayer(state); }
+static void LMVPause(LMVVideoState *state) {
+    LMVRestoreBackground(state);
+    LMVReleasePlayer(state);
+}
 
 static void LMVRetryDiscovery(UIView *cell) {
     if (objc_getAssociatedObject(cell, &LMVRetryKey)) return;
@@ -789,7 +806,8 @@ static void LMVUpdate(UIView *cell) {
             state.overlay.clipsToBounds = YES;
                     states[target] = state;
         }
-        BOOL revisionChanged=![state.revision isEqualToString:LMVRevisions[path]];
+        if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
+        BOOL revisionChanged=LMVRevisions[path] && ![state.revision isEqualToString:LMVRevisions[path]];
         if (revisionChanged) {
             LMVReleasePlayer(state);
             state.revision = LMVRevisions[path];
@@ -805,11 +823,15 @@ static void LMVUpdate(UIView *cell) {
         if (cached.image) state.layer.contents=(__bridge id)cached.image;
         else if (revisionChanged) state.layer.contents=nil; // changed media is not its old revision
         [CATransaction commit];
-        BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"];
+        // A material with text/content is a container: put our surface below its
+        // children, never above the whole material. Only pure drawing anchors
+        // permit a sibling overlay and backing-branch suppression.
+        BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"] && LMVOriginalPureView(anchor, NO, 0);
         UIView *host = material ? anchor.superview : anchor;
         // Host identity is part of ownership. Never retain an overlay under a
         // reused parent when UIKit swaps the notification content host.
-        if (state.host && state.host != host) {
+        if (state.host && (state.host != host || state.anchor != anchor)) {
+            LMVRestoreBackground(state);
             [state.overlay removeFromSuperview];
             state.anchor = nil;
         }
@@ -839,6 +861,13 @@ static void LMVUpdate(UIView *cell) {
         state.layer.hidden = NO;
         state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0;
         [CATransaction commit];
+        // Lease depends on enabled + selected + target scope, never decoder,
+        // first frame, alpha or active consumption. Cold absence stays transparent.
+        BOOL originalInScope = cell.window && anchorVisible;
+        // Screen blank pauses frames but does not change an attached target lease.
+        if (!playbackAllowed && state.originals.count && cell.window &&
+            state.originalAnchor == anchor && state.originalScope == host) originalInScope = YES;
+        LMVReplaceBackground(state, anchor, host, target, originalInScope);
         state.active=playbackAllowed && anchorVisible && LMVOpacityEnabled && LMVOpacity>0.0;
         if (reportGeometry) LMVDiagnostic([NSString stringWithFormat:@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height]);
         if (anchorVisible) state.lastVisible = now;
@@ -872,14 +901,14 @@ static void LMVUpdate(UIView *cell) {
     %orig;
 }
 %end
-// CoverSheet's own background consumer; it never edits system material views.
+// CoverSheet owns its video layer; replacement is scoped to confirmed local wallpaper drawing.
 static BOOL LMVLockHostVisible(UIView *host) {
     Class cover = NSClassFromString(@"CSCoverSheetView");
     Class windowClass = NSClassFromString(@"SBCoverSheetWindow");
     return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host), LMVPlaybackAllowed());
 }
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
-    if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return YES;
+    if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return LMVOriginalPureView(view, YES, 0);
     if (depth >= 4) return NO;
     // A mixed page/container can own clock or notifications as well: placing
     // above that whole branch would cover content. Only follow one-child wrappers.
@@ -890,7 +919,8 @@ static void LMVUpdateLockScreen(UIView *host) {
     LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
     NSString *path = LMVPaths[@"LockScreen"];
     BOOL enabled = LMVEnabled[@"LockScreen"].boolValue && path.length;
-    if (state && (!enabled || ![state.path isEqualToString:path] || ![state.revision isEqualToString:LMVRevisions[path]])) {
+    if (state && (!enabled || ![state.path isEqualToString:path] || (LMVRevisions[path] && ![state.revision isEqualToString:LMVRevisions[path]]))) {
+        LMVRestoreBackground(state);
         LMVReleasePlayer(state);
         [state.layer removeFromSuperlayer];
         objc_setAssociatedObject(host, &LMVLockStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -910,8 +940,8 @@ static void LMVUpdateLockScreen(UIView *host) {
     }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    // Insert above the existing wallpaper branch, below CoverSheet content.
-    // UIKit remains untouched: no view insertion, material/opacity mutation or hit testing.
+    // Insert above a confidently local wallpaper branch, below CoverSheet content.
+    // No view insertion or hit testing; only confirmed original background drawing is leased.
     CALayer *wallpaper = nil;
     for (UIView *child in host.subviews) if (LMVBranchHasWallpaper(child, 0)) { wallpaper = child.layer; break; }
     NSArray *layers = host.layer.sublayers;
@@ -925,9 +955,13 @@ static void LMVUpdateLockScreen(UIView *host) {
     }
     state.layer.frame = host.bounds;
     state.layer.hidden = NO;
+    state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
     LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     BOOL active = LMVLockHostVisible(host);
+    if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
+    BOOL originalInScope = active || (!LMVPlaybackAllowed() && state.originals.count && host.window);
+    LMVReplaceBackground(state, host, host, @"LockScreen", originalInScope);
     if (active && [LMVReadyAssets containsObject:path]) {
         if (!state.source) state.source = LMVSourceForPath(path);
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
@@ -1315,6 +1349,12 @@ static void LMVReleaseDesktopSource(LMVVideoState *state) {
     if (LMVSharedSources[source.path] == source) [LMVSharedSources removeObjectForKey:source.path];
     LMVDiagnostic(@"desktop=decoder-released");
 }
+// A concrete application/locked/screen-off home is outside this replacement
+// scope even if the retained plugin frame remains attached behind other windows.
+static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity) {
+    return activity.draw && snapshot.screenOn && snapshot.lockKnown && !snapshot.locked &&
+        snapshot.foreground != LMVForegroundApp && LMVDesktopGeometryVisible(host);
+}
 static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     if (!NSThread.isMainThread) return;
     Class home = NSClassFromString(@"SBHomeScreenView");
@@ -1322,7 +1362,8 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
     NSString *path = LMVPaths[@"Desktop"];
     BOOL enabled = LMVEnabled[@"Desktop"].boolValue && path.length;
-    if (state && (!enabled || ![state.path isEqualToString:path] || ![state.revision isEqualToString:LMVRevisions[path]])) {
+    if (state && (!enabled || ![state.path isEqualToString:path] || (LMVRevisions[path] && ![state.revision isEqualToString:LMVRevisions[path]]))) {
+        LMVRestoreBackground(state);
         LMVReleaseDesktopSource(state); [state.layer removeFromSuperlayer];
         objc_setAssociatedObject(host, &LMVDesktopStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); state = nil;
     }
@@ -1331,6 +1372,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     // One immutable foreground/window snapshot drives this update and the tick.
     LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
     if (!activity.draw) {
+        LMVRestoreBackground(state);
         if (state) { state.layer.hidden = YES; LMVReleaseDesktopSource(state); }
         return;
     }
@@ -1353,6 +1395,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     // Keep live desktop everywhere except a safely measured lower Dock outline.
     // Only our layer is masked; no system/Dock window or wallpaper is rewritten.
     state.layer.frame = host.bounds; state.layer.hidden = !activity.draw;
+    state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
     LMVDesktopApplyDockMask(host, state, activity, snapshot);
     LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
@@ -1360,6 +1403,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
         if (!state.source || LMVSharedSources[path] != state.source) state.source = LMVSourceForPath(path);
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
     }
+    LMVReplaceBackground(state, host, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity));
     state.active = activity.decode && state.source != nil;
     [CATransaction commit];
     LMVDesktopDiagnostics(host, state, activity, snapshot);
@@ -1635,6 +1679,7 @@ static void LMVReleaseAllPlayers(void) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
         LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
         state.layer.hidden = !activity.draw; state.active = NO;
+        if (!LMVDesktopOriginalInScope(host, snapshot, activity)) LMVRestoreBackground(state);
         if (activity.releaseSource) LMVReleaseDesktopSource(state);
     }
 }

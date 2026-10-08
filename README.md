@@ -27,6 +27,16 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.58 TEST：原背景可恢复替换
+- 现有 Message、Options、Clear、LockScreen、Desktop 的 BackgroundEnabled 开关控制替换，没有增加 UI 开关。启用且存在合法素材选择后，确认的原背景立即从绘制链路脱离/关闭绘制，不等待首帧；选中但文件丢失、加载失败、decoder 失败、卡顿或透明度为 0 不恢复原背景。暂停保留最后真实帧；冷启动无帧为插件透明层，不主动填黑底。用户取消选择（空字符串）或成功删除素材清空选择、关闭开关才恢复；没有选择且不存在的 legacy 默认文件不当作有效选择。
+- Message/Options/Clear：优先对无 delegate、无 mask/子层且有明确 Backdrop 身份的独立绘制叶层执行 retained detach。保留原层对象、原父层弱引用、前后邻层及索引；关闭恢复同一对象。UIKit backing layer 不脱离：仅确认整个 Material/Backdrop 支路没有 UILabel、UIControl、文本、滚动、手势、accessibility 或未知绘制子层时，将该背景支路 layer.opacity 置 0 关闭绘制。材质混有文字时保留其容器，将插件视频放在内容下，只处理可辨认背景叶层；不能确认则 guarded-no-op。
+- 原背景 opacity 恢复实际基线（例如 0.37，而非强制 1）；多消费者共享弱 owner 租约，最后释放才恢复。重复布局不乘 alpha、不累加图层。可见性/材质发现使用租约原值，避免 UIView.alpha 映射 layer.opacity 后误判隐藏。复用、宿主更换或目标离开作用域释放旧租约；不会全局 hook UIView/CALayer 或清理其他插件属性。
+- LockScreen/Desktop：仅在现有 CSCoverSheetView/SBHomeScreenView 当前可见目标内部识别本地 Wallpaper 绘制叶层/纯背景视图，独立叶层 detach、UIView backing 背景支路关闭绘制。绝不借用、隐藏、移动 _SBWallpaperSecureWindow，也不移除 scene/remote/shared/thumbnail/snapshot 或未知混合支路。若真实原壁纸来自独立共享安全窗口且不能分离，保留原层，诊断 original target=... guarded-no-op:no-local-pure-wallpaper; secure-window-shared-or-unidentified。此测试版不承诺所有 iOS 私有壁纸宿主都已替换。
+- 桌面租约只存在于同一桌面宿主绘制范围；真实 App 前台、锁定、熄屏或宿主不可见时释放，回到桌面重新取得，不能影响锁屏共用壁纸。NC 完全遮盖/桌面菜单仅暂停解码时保持本地租约及最后帧。消息/锁屏在屏幕 blank 时保留已绑定且仍附着在同一宿主的租约，暂停帧；宿主移除、隐藏或复用后按作用域回收。系统将叶层移动到新父层时不抢回；离线叶层在旧父层仍存活时按邻层/索引恢复。
+- 系统在租约期间更新 mask、contents、corner 等属性不被改写；离线层仍为原对象。支路 suppression 在合并更新时观察新的非零 model opacity，并保存为恢复值。没有全局 setter hook，无法区分系统刻意写 0 与插件已写 0，也不能保证未取消的系统 opacity animation 的 presentation 值即时为零；以最近观察的非零 model 基线恢复。这是测试版兼容边界，需要真机验证。
+- 保留 0.57 自有视频 clipping/Dock mask、按路径共享 VideoOutput/Reader、真正最后帧、screen/App/NC 暂停、全部设置/缩略图/重命名/删除/应用提示/Filza/压缩临时源清理及默认关闭的限频诊断；没有音频会话、preroll、亮屏、Live Activity 或阴影控制恢复。设置源码和用户数据目录不变。
+- macOS CI 新增真实 QuartzCore CALayer + UIKit view doubles 测试：五目标启用/关闭/离域、cold/error/alpha0 不回退、100 次布局、非 1 基线与系统更新、同一对象/父层/邻序恢复、最后 owner、弱父层、材质锚点发现与混合文字拒绝、shared/remote/thumbnail 安全跳过。源码摘要保护九个 .57 启动/快照/共享源/Dock 函数，继续执行 .55 once 复现、.56 launch gate、.57 mask 与保帧回归。CI 与 doubles 不替代 iOS 真机冷启动、视觉层级、交互及 CPU/内存测试。
+
 ## 0.0.57
 - 修复 0.56 日志中长按期间 `dockFallback=1` 导致 `draw=0 decode=0` 的整块桌面隐藏：低层级 Dock 只触发局部兼容测量，桌面保持绘制；停留桌面的 Context Menu/Dock overlay 继续消费动态帧。真实 App 前台、NC 完全遮盖、锁屏/熄屏仍优先暂停或释放，保留原有缓存帧、App 返回和 NC 回露恢复。
 - 不再把 `SBFloatingDockWindow.bounds` 当裁剪区域。运行时仅有界读取同屏、可见且低于桌面的 Dock 窗口内实际 `SBFloatingDockView`/`SBFloatingDockPlatterView` 或已经加载的具体 Dock 内容控制器宿主；读取一致 presentation 坐标、真实单轮廓 shape mask 或圆形圆角半径。拒绝全屏/超过半屏、离屏、错误屏幕、未知轮廓及不稳定窗口坐标桥；实测阴影仅扩展最多 6pt。

@@ -33,6 +33,9 @@ jobs:
           python3 tests/desktop-runtime.py
           python3 tests/desktop-dock-geometry.py
           python3 tests/startup-reentry.py
+          python3 tests/original-background-regression.py
+          clang -fobjc-arc -framework Foundation -framework QuartzCore -framework CoreGraphics tests/original-background.m -o "$RUNNER_TEMP/lmv-original-background"
+          "$RUNNER_TEMP/lmv-original-background"
           clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
           "$RUNNER_TEMP/lmv-material-catalog"
           cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"

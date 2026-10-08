@@ -41,6 +41,7 @@ static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @property(nonatomic,copy) NSString *name, *contentsGravity;
 @property(nonatomic) BOOL masksToBounds, hidden;
 @property(nonatomic) CGRect frame;
+@property(nonatomic) float opacity;
 @property(nonatomic) NSUInteger inserts, removes;
 @property(nonatomic,strong) NSMutableArray *children;
 + (instancetype)layer;
@@ -102,10 +103,16 @@ static NSMutableDictionary<NSString *, NSString *> *LMVPaths, *LMVRevisions;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableSet *LMVReadyAssets;
+static BOOL LMVOpacityEnabled=YES;
+static CGFloat LMVOpacity=.55;
 static LMVDesktopActivity testActivity;
 static NSUInteger acquired,released,starts,stops;
 static LMVDesktopActivity LMVDesktopHostActivity(UIView *host, LMVVideoState *state, LMVDesktopSnapshot *snapshot) { return testActivity; }
 static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
+// Lease behavior is executed by original-background.m using REAL QuartzCore.
+static void LMVRestoreBackground(LMVVideoState *state) {}
+static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope) {}
+static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity) { return activity.draw; }
 static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) { return NO; }
 static LMVFrameSnapshot *LMVCachedFrame(NSString *path, NSString *revision) { return nil; }
