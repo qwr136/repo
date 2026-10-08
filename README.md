@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.52 通知堆叠阴影兼容
+- 在完整现有设置面板增加「降低通知堆叠阴影」（默认关闭）和「通知堆叠阴影透明度」（0–1，默认 0.35；开关关闭时滑块禁用）。开启时结果 alpha = 最新系统原始 alpha × 滑块值：0 隐藏、1 保留原样、0.35 保留原始透明度的 35%。开关关闭立即恢复记录的系统 alpha。
+- 仅在 `NCNotificationListStackDimmingOverlayView` 存在、继承 UIView 且所需方法存在时初始化独立 hook 组，执行时再检查精确运行时类。弱引用跟踪视图、关联对象保存原始 alpha，系统 setter 更新基线，layout/didMove 后重应用，内部写入有重入防护，不反复相乘。
+- 保留 0.0.51 的素材选择缩略图、改名、删除/清理与应用、四类背景开关、锁屏背景、相册导入/压缩、视频透明度、诊断开关、静音和熄屏恢复；不加入 Live Activity，不修改系统 masks、通知 frame/文字或插件视频 overlay。
+- 此功能只降低指定系统堆叠遮罩。如果另一个插件自己绘制 CALayer 阴影、边框或缩放重叠，此开关不一定影响该阴影。缺少目标类时安全跳过，无全局 UIView hook 或不明确的候选类回退。
+- 新增 `tests/stack-shadow-regression.py`，在 Actions 上用 Foundation view doubles 执行实际 alpha helper 和 setter，验证反复布局不累乘、系统更新、滑块两端、关闭恢复、重新开启、精确类过滤及弱引用释放。编译和此测试不能代替真机 UI 验证。
+
 ## 0.0.45 视频背景架构
 - 同一标准化素材路径只创建一个静音、仅含视频轨道的 `AVPlayer` / `AVPlayerItemVideoOutput`；Message、Options、Clear 选择同路径时自然复用，不再按卡片建立播放器或 looper。
 - 输出帧经复用 `CIContext` 在串行后台队列生成一次不可变 `CGImage`，再在主线程广播到各自独立的普通 `CALayer.contents`，每张卡片独立裁剪，不共享 `AVPlayerLayer`。

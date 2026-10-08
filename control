@@ -1,6 +1,6 @@
 Package: com.minis.lockmessagevideo
 Name: 锁屏背景视频
-Version: 0.0.51
+Version: 0.0.52
 Architecture: iphoneos-arm64
 Description: 锁屏消息通知视频背景与独立素材库插件
 Maintainer: 小飞

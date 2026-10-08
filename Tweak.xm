@@ -34,6 +34,58 @@ static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *LMVFrameCache;
 static NSMutableSet<NSString *> *LMVPreviewPending;
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
+// Independent compatibility option; it never changes our video overlays.
+static BOOL LMVStackShadowEnabled = NO;
+static CGFloat LMVStackShadowOpacity = 0.35;
+static Class LMVStackShadowClass;
+static NSHashTable<UIView *> *LMVStackShadowViews;
+static char LMVStackShadowStateKey;
+
+@interface LMVStackShadowState : NSObject
+@property(nonatomic) CGFloat originalAlpha;
+@property(nonatomic) CGFloat appliedAlpha;
+@property(nonatomic) BOOL applying;
+@end
+@implementation LMVStackShadowState
+@end
+
+static BOOL LMVIsStackShadowView(UIView *view) {
+    // Exact runtime class only: no global UIView hook or class-name substring match.
+    return LMVStackShadowClass && object_getClass(view) == LMVStackShadowClass;
+}
+static void LMVApplyStackShadow(UIView *view) {
+    if (!NSThread.isMainThread || !LMVIsStackShadowView(view)) return;
+    [LMVStackShadowViews addObject:view];
+    LMVStackShadowState *state = objc_getAssociatedObject(view, &LMVStackShadowStateKey);
+    if (state.applying) return;
+    if (!LMVStackShadowEnabled) {
+        if (state) {
+            state.applying = YES;
+            view.alpha = state.originalAlpha;
+            state.applying = NO;
+            objc_setAssociatedObject(view, &LMVStackShadowStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return;
+    }
+    CGFloat current = view.alpha;
+    if (!isfinite(current)) return;
+    if (!state) {
+        state = [LMVStackShadowState new];
+        state.originalAlpha = current;
+        state.appliedAlpha = current;
+        objc_setAssociatedObject(view, &LMVStackShadowStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else if (fabs(current - state.appliedAlpha) > 0.000001) {
+        // Also respect system writes made directly to the backing layer during layout.
+        state.originalAlpha = current;
+    }
+    CGFloat desired = state.originalAlpha * LMVStackShadowOpacity;
+    state.appliedAlpha = desired;
+    if (current != desired) {
+        state.applying = YES;
+        view.alpha = desired;
+        state.applying = NO;
+    }
+}
 static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
@@ -516,7 +568,7 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.48 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.52 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -543,6 +595,13 @@ static void LMVLoadPreferences(void) {
     if (!opacity) opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
     // Off means fully transparent; keep the historical enabled default.
     LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, opacity.floatValue)) : 0.55;
+    NSNumber *stackEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("StackShadowEnabled"), kLMVPrefsID);
+    LMVStackShadowEnabled = [stackEnabled respondsToSelector:@selector(boolValue)] && stackEnabled.boolValue;
+    NSNumber *stackOpacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("StackShadowOpacity"), kLMVPrefsID);
+    CGFloat multiplier = [stackOpacity respondsToSelector:@selector(doubleValue)] ? stackOpacity.doubleValue : 0.35;
+    LMVStackShadowOpacity = isfinite(multiplier) ? MAX(0.0, MIN(1.0, multiplier)) : 0.35;
+    // Weak tracking makes preference changes immediate, including restoration while detached.
+    for (UIView *view in LMVStackShadowViews.allObjects) LMVApplyStackShadow(view);
     LMVPrepareAssets();
 }
 static CGRect LMVRectInView(UIView *view, UIView *ancestor) {
@@ -921,6 +980,48 @@ static void LMVCoverSheetVisibilityChanged(UIView *view) {
     LMVUpdateLockScreens();
     if (!LMVPlaybackAllowed()) LMVReleaseAllPlayers(); else LMVRefresh(NO);
 }
+%group LMVStackShadowHooks
+%hook NCNotificationListStackDimmingOverlayView
+- (void)setAlpha:(CGFloat)alpha {
+    UIView *view = (UIView *)self;
+    if (!NSThread.isMainThread || !LMVIsStackShadowView(view)) {
+        %orig(alpha);
+        return;
+    }
+    [LMVStackShadowViews addObject:view];
+    LMVStackShadowState *state = objc_getAssociatedObject(view, &LMVStackShadowStateKey);
+    if (state.applying) {
+        %orig(alpha);
+        return;
+    }
+    if (!LMVStackShadowEnabled || !isfinite(alpha)) {
+        objc_setAssociatedObject(view, &LMVStackShadowStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        %orig(alpha);
+        return;
+    }
+    if (!state) {
+        state = [LMVStackShadowState new];
+        objc_setAssociatedObject(view, &LMVStackShadowStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    // Every external setter value is the latest unmodified system alpha.
+    // Internal writes use the applying guard, so reduction never compounds.
+    state.originalAlpha = alpha;
+    state.appliedAlpha = alpha * LMVStackShadowOpacity;
+    state.applying = YES;
+    %orig(state.appliedAlpha);
+    state.applying = NO;
+}
+- (void)layoutSubviews {
+    %orig;
+    LMVApplyStackShadow((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVApplyStackShadow((UIView *)self);
+}
+%end
+%end
+
 %group LMVCoverWindowHooks
 %hook SBCoverSheetWindow
 - (void)setHidden:(BOOL)hidden {
@@ -1132,12 +1233,20 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
         LMVCells = [NSHashTable weakObjectsHashTable];
         LMVLockHosts = [NSHashTable weakObjectsHashTable];
+        LMVStackShadowViews = [NSHashTable weakObjectsHashTable];
+        LMVStackShadowClass = NSClassFromString(@"NCNotificationListStackDimmingOverlayView");
         
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVRevisions = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];
         LMVLoadPreferences();
         %init;
+        if (LMVStackShadowClass && [LMVStackShadowClass isSubclassOfClass:UIView.class] &&
+            class_getInstanceMethod(LMVStackShadowClass, @selector(setAlpha:)) &&
+            class_getInstanceMethod(LMVStackShadowClass, @selector(layoutSubviews)) &&
+            class_getInstanceMethod(LMVStackShadowClass, @selector(didMoveToWindow))) {
+            %init(LMVStackShadowHooks);
+        }
         Class lockHost = NSClassFromString(@"CSCoverSheetView");
         Class lockWindow = NSClassFromString(@"SBCoverSheetWindow");
         if (lockWindow && [lockWindow isSubclassOfClass:UIWindow.class]) {
