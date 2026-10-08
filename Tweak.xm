@@ -1007,10 +1007,13 @@ static BOOL LMVDesktopHostAllowed(UIView *host) {
         if (![identifier isKindOfClass:NSString.class] || ![identifier isEqualToString:@"com.apple.springboard"]) return NO;
     }
     for (UIView *cover in LMVLockHosts.allObjects) if (LMVVisible(cover)) return NO;
-    for (UIWindow *window in app.windows) {
-        Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
-        // Fail closed even before CoverSheet's view callback arrives.
-        if (coverWindow && [window isKindOfClass:coverWindow] && !window.hidden && window.alpha > 0.01) return NO;
+    Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
+    for (UIScene *scene in app.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            // Fail closed even before CoverSheet's view callback arrives.
+            if (coverWindow && [window isKindOfClass:coverWindow] && !window.hidden && window.alpha > 0.01) return NO;
+        }
     }
     return LMVDesktopConsumerAllowed(homeHost, inHomeWindow, visible, screenOn, NO, YES, YES, NO);
 }
