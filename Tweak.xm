@@ -328,6 +328,11 @@ static CALayer *LMVClipSource(CALayer *layer, CALayer *excluded, NSUInteger dept
 static void LMVPause(LMVVideoState *state) {
     if (state.playing) { [state.player pause]; state.playing = NO; }
 }
+static void LMVStopPlayback(LMVVideoState *state) {
+    if (!state) return;
+    [state.player pause];
+    state.playing = NO;
+}
 static void LMVStartSynchronized(LMVVideoState *state) {
     AVPlayerItem *item = state.player.currentItem;
     if (!state.player || state.playing || state.player.status != AVPlayerStatusReadyToPlay ||
@@ -577,13 +582,13 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
 }
 %end
 static void LMVReleaseAllPlayers(void) {
-    // Notification Center can hide its entire surface without touching cards.
-    // Tear down every display decoder immediately while retaining prepared assets.
+    // Preserve each AVPlayer and its current time while Notification Center is
+    // temporarily hidden, so reopening resumes from the exact frozen frame.
     [LMVLink invalidate];
     LMVLink = nil;
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-        for (LMVVideoState *state in states.allValues) LMVReleasePlayer(state);
+        for (LMVVideoState *state in states.allValues) LMVStopPlayback(state);
     }
 }
 static void LMVRefresh(BOOL reload) {

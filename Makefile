@@ -16,7 +16,7 @@ LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LockMessageVideoPrefs_RESOURCE_FILES = Resources/Root.plist LockMessageVideoPrefs/Info.plist
 LockMessageVideoPrefs_CFLAGS = -fobjc-arc
-LockMessageVideoPrefs_LDFLAGS = -F$(THEOS_PROJECT_DIR)/Frameworks -framework Preferences
+LockMessageVideoPrefs_LDFLAGS = -F$(CURDIR)/Frameworks -framework Preferences
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk

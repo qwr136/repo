@@ -4,7 +4,9 @@
 #import <Preferences/PSSpecifier.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
+#import <AVFoundation/AVFoundation.h>
 
+static const unsigned long long LMVMaxImportBytes = 5ULL * 1024ULL * 1024ULL;
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
@@ -12,6 +14,37 @@ static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"�
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+}
+
+static NSError *LMVCompressMovie(NSURL *sourceURL, NSURL *destinationURL) {
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:sourceURL options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @NO}];
+    AVAssetTrack *videoTrack = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
+    if (!videoTrack) return [NSError errorWithDomain:@"LockMessageVideo" code:1 userInfo:@{NSLocalizedDescriptionKey: @"视频不包含可用的视频轨道"}];
+    AVAssetReader *reader = [[AVAssetReader alloc] initWithAsset:asset error:nil];
+    AVAssetWriter *writer = [[AVAssetWriter alloc] initWithURL:destinationURL fileType:AVFileTypeQuickTimeMovie error:nil];
+    if (!reader || !writer) return [NSError errorWithDomain:@"LockMessageVideo" code:2 userInfo:@{NSLocalizedDescriptionKey: @"无法创建视频压缩器"}];
+    NSDictionary *outputSettings = @{AVVideoCodecKey: AVVideoCodecTypeH264, AVVideoWidthKey: @720, AVVideoHeightKey: @1280, AVVideoCompressionPropertiesKey: @{AVVideoAverageBitRateKey: @1200000, AVVideoMaxKeyFrameIntervalKey: @30}};
+    AVAssetReaderTrackOutput *output = [AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:videoTrack outputSettings:@{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)}];
+    AVAssetWriterInput *input = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:outputSettings];
+    input.expectsMediaDataInRealTime = NO;
+    input.transform = videoTrack.preferredTransform;
+    if (![reader canAddOutput:output] || ![writer canAddInput:input]) return [NSError errorWithDomain:@"LockMessageVideo" code:3 userInfo:@{NSLocalizedDescriptionKey: @"视频格式不受支持"}];
+    [reader addOutput:output]; [writer addInput:input];
+    if (![reader startReading] || ![writer startWriting]) return reader.error ?: writer.error ?: [NSError errorWithDomain:@"LockMessageVideo" code:4 userInfo:@{NSLocalizedDescriptionKey: @"无法开始压缩"}];
+    [writer startSessionAtSourceTime:kCMTimeZero];
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    dispatch_queue_t queue = dispatch_queue_create("com.minis.lockmessagevideo.import", DISPATCH_QUEUE_SERIAL);
+    [input requestMediaDataWhenReadyOnQueue:queue usingBlock:^{
+        while (input.readyForMoreMediaData) {
+            CMSampleBufferRef sample = [output copyNextSampleBuffer];
+            if (sample) { [input appendSampleBuffer:sample]; CFRelease(sample); }
+            else { [input markAsFinished]; [writer finishWritingWithCompletionHandler:^{ dispatch_semaphore_signal(done); }]; break; }
+        }
+    }];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    if (writer.status != AVAssetWriterStatusCompleted) return writer.error ?: [NSError errorWithDomain:@"LockMessageVideo" code:5 userInfo:@{NSLocalizedDescriptionKey: @"压缩结果无效"}];
+    unsigned long long size = [[[NSFileManager alloc] init] attributesOfItemAtPath:destinationURL.path error:nil].fileSize;
+    return size <= LMVMaxImportBytes ? nil : [NSError errorWithDomain:@"LockMessageVideo" code:6 userInfo:@{NSLocalizedDescriptionKey: @"压缩后仍超过 5MB"}];
 }
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
@@ -178,16 +211,30 @@ static void LMVNotify(void) {
         if (!url && !copyError) copyError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil];
         if (url && !copyError) {
             NSString *library = [LMVDirectory stringByAppendingPathComponent:@"library"];
+            NSString *originals = [LMVDirectory stringByAppendingPathComponent:@"原素材"];
             NSFileManager *fm = [NSFileManager defaultManager];
             [fm createDirectoryAtPath:library withIntermediateDirectories:YES attributes:nil error:&copyError];
+            if (!copyError) [fm createDirectoryAtPath:originals withIntermediateDirectories:YES attributes:nil error:&copyError];
             NSString *ext = url.pathExtension.lowercaseString;
             if (![@[@"mov", @"mp4", @"m4v"] containsObject:ext]) ext = @"mov";
-            NSDateFormatter *format = [NSDateFormatter new];
-            format.dateFormat = @"yyyyMMdd-HHmmss";
-            NSString *name = [NSString stringWithFormat:@"%@-%@.%@", [format stringFromDate:NSDate.date], NSUUID.UUID.UUIDString, ext];
-            NSString *final = [library stringByAppendingPathComponent:name];
-            if (!copyError) [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:final] error:&copyError];
-            else relative = [@"library" stringByAppendingPathComponent:name];
+            NSDateFormatter *format = [NSDateFormatter new]; format.dateFormat = @"yyyyMMdd-HHmmss";
+            NSString *stem = [NSString stringWithFormat:@"%@-%@", [format stringFromDate:NSDate.date], NSUUID.UUID.UUIDString];
+            NSString *originalPath = [originals stringByAppendingPathComponent:[stem stringByAppendingPathExtension:ext]];
+            if (!copyError) [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:originalPath] error:&copyError];
+            if (!copyError) {
+                unsigned long long bytes = [fm attributesOfItemAtPath:originalPath error:nil].fileSize;
+                NSString *finalName = [stem stringByAppendingPathExtension:ext];
+                NSString *finalPath = [library stringByAppendingPathComponent:finalName];
+                if (bytes <= LMVMaxImportBytes) [fm copyItemAtPath:originalPath toPath:finalPath error:&copyError];
+                else {
+                    NSError *compressionError = LMVCompressMovie([NSURL fileURLWithPath:originalPath], [NSURL fileURLWithPath:finalPath]);
+                    if (compressionError) {
+                        [fm removeItemAtPath:finalPath error:nil];
+                        copyError = [NSError errorWithDomain:@"LockMessageVideo" code:7 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"压缩失败，原素材已保留：%@", compressionError.localizedDescription]}];
+                    }
+                }
+                if (!copyError) relative = [@"library" stringByAppendingPathComponent:finalName];
+            }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (copyError) [self showError:copyError];
