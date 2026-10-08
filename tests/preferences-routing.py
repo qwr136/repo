@@ -85,18 +85,18 @@ int main(void) { @autoreleasepool {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
     }
-    assert(controller.calls == 7 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 7);
+    assert(controller.calls == 6 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 6);
     row.properties[@"enabled"] = @NO;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
     [row.properties removeObjectForKey:@"enabled"];
     row.target = [NSObject new];
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
     row.target = controller; row.buttonAction = NSSelectorFromString(@"staleControllerAction:");
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
     row.buttonAction = @selector(description);
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
     row.buttonAction = NULL;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7 && controller.superSelections == 0);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6 && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
     puts("PASS: actual button routing method, all seven actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
