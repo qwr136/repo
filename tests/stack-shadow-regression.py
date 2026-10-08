@@ -30,6 +30,7 @@ hook = s.split('%hook NCNotificationListStackDimmingOverlayView\n',1)[1].split('
 hook = hook.replace('%orig(alpha);','[super setAlpha:alpha];').replace('%orig(state.appliedAlpha);','[super setAlpha:state.appliedAlpha];')
 hook = hook.replace('%orig;\n    LMVApplyStackShadow', '[super layoutSubviews];\n    LMVApplyStackShadow',1)
 hook = hook.replace('%orig;\n    LMVApplyStackShadow', '[super didMoveToWindow];\n    LMVApplyStackShadow',1)
+hook = hook.replace('%orig;\n    LMVApplyStackShadow', '[super didMoveToSuperview];\n    LMVApplyStackShadow',1)
 assert '%orig' not in hook
 preamble = r'''
 #import <Foundation/Foundation.h>
@@ -39,15 +40,22 @@ preamble = r'''
 typedef double CGFloat;
 @interface UIView : NSObject
 @property(nonatomic) CGFloat alpha;
+@property(nonatomic, weak) UIView *superview;
 - (void)layoutSubviews;
 - (void)didMoveToWindow;
+- (void)didMoveToSuperview;
 - (void)systemLayerAlpha:(CGFloat)alpha;
 @end
 @implementation UIView
 - (instancetype)init { if ((self=[super init])) _alpha=1; return self; }
 - (void)layoutSubviews {}
 - (void)didMoveToWindow {}
+- (void)didMoveToSuperview {}
 - (void)systemLayerAlpha:(CGFloat)alpha { _alpha=alpha; }
+@end
+@interface NCNotificationListCell : UIView
+@end
+@implementation NCNotificationListCell
 @end
 '''
 tests = r'''
@@ -61,6 +69,9 @@ int main(void) { @autoreleasepool {
     LMVStackShadowClass=NCNotificationListStackDimmingOverlayView.class;
     LMVStackShadowViews=[NSHashTable weakObjectsHashTable];
     NCNotificationListStackDimmingOverlayView *v=[NCNotificationListStackDimmingOverlayView new];
+    NCNotificationListCell *cell=[NCNotificationListCell new];
+    cell.alpha=0.85;
+    UIView *wrapper=[UIView new]; wrapper.superview=cell; v.superview=wrapper;
     [v setAlpha:0.8]; [v didMoveToWindow]; [v layoutSubviews]; near(v.alpha,0.8);
     assert(!objc_getAssociatedObject(v,&LMVStackShadowStateKey));
     LMVStackShadowEnabled=YES; refresh(); near(v.alpha,0.28);
@@ -77,6 +88,14 @@ int main(void) { @autoreleasepool {
     assert(!objc_getAssociatedObject(v,&LMVStackShadowStateKey));
     [v setAlpha:0.2]; [v layoutSubviews]; near(v.alpha,0.2);
     LMVStackShadowEnabled=YES; refresh(); near(v.alpha,0.07);
+    v.superview=nil; [v didMoveToSuperview]; near(v.alpha,0.2);
+    assert(!objc_getAssociatedObject(v,&LMVStackShadowStateKey));
+    [v setAlpha:0.6]; [v layoutSubviews]; near(v.alpha,0.6);
+    v.superview=wrapper; [v didMoveToSuperview]; near(v.alpha,0.21);
+    near(cell.alpha,0.85); near(wrapper.alpha,1);
+    NCNotificationListStackDimmingOverlayView *outside=[NCNotificationListStackDimmingOverlayView new];
+    [outside setAlpha:0.8]; [outside layoutSubviews]; near(outside.alpha,0.8);
+    assert(!objc_getAssociatedObject(outside,&LMVStackShadowStateKey));
     ShadowSubclass *child=[ShadowSubclass new]; [child setAlpha:0.8]; [child layoutSubviews]; near(child.alpha,0.8);
     assert(!objc_getAssociatedObject(child,&LMVStackShadowStateKey));
     UIView *other=[UIView new]; other.alpha=0.75; LMVApplyStackShadow(other); near(other.alpha,0.75);
@@ -84,11 +103,11 @@ int main(void) { @autoreleasepool {
     __weak UIView *weakView;
     @autoreleasepool {
         UIView *temporary=[NCNotificationListStackDimmingOverlayView new];
-        weakView=temporary; LMVApplyStackShadow(temporary);
+        temporary.superview=cell; weakView=temporary; LMVApplyStackShadow(temporary);
     }
     assert(!weakView); // Weak registry must not retain removed views.
-    LMVStackShadowEnabled=NO; refresh(); near(v.alpha,0.2);
-    puts("PASS: actual alpha helper and setter, 100 repeated layouts, system updates, 0/1 endpoints, immediate off restoration, re-enable, direct-layer changes, exact-class exclusion, missing class, weak teardown (Foundation doubles; not device-tested)");
+    LMVStackShadowEnabled=NO; refresh(); near(v.alpha,0.6);
+    puts("PASS: actual alpha helper and setter, 100 repeated layouts, system updates, 0/1 endpoints, immediate off restoration, re-enable, direct-layer changes, exact-class and cell ancestry exclusion, detach restoration, untouched cell/wrapper alpha, missing class, weak teardown (Foundation doubles; not device-tested)");
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:

@@ -12,8 +12,8 @@
 #import "LMVMaterialPicker.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear"]; }
-static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"锁屏", @"选项", @"清除"]; }
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear", @"Desktop"]; }
+static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"锁屏", @"选项", @"清除", @"桌面"]; }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
@@ -31,11 +31,11 @@ static void LMVNotify(void) {
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
     _specifiers = [NSMutableArray new];
-    NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材"];
-    SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:)};
+    NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材", @"切换桌面背景素材"];
+    SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:), @selector(switchDesktop:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
-        PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+        PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:([LMVTargets()[i] isEqualToString:@"Desktop"] ? @"启用桌面背景视频" : [@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]]) target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
         [enabled setProperty:[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
         [enabled setProperty:@NO forKey:@"default"];
         [_specifiers addObject:enabled];
@@ -43,6 +43,7 @@ static void LMVNotify(void) {
         choose.buttonAction = actions[i];
         [_specifiers addObject:choose];
     }
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面与锁屏独立选择；打开应用、通知中心、锁屏或熄屏时暂停桌面视频。系统不支持安全桌面宿主时保留静态壁纸"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
@@ -77,7 +78,7 @@ static void LMVNotify(void) {
     [stackOpacity setProperty:@"StackShadowOpacitySlider" forKey:@"id"];
     [stackOpacity setProperty:[self enabled:stackEnabled] forKey:@"enabled"];
     [_specifiers addObject:stackOpacity];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"默认关闭；0 隐藏，1 保留原始阴影，0.35 保留原始透明度的 35%。仅调整系统通知堆叠遮罩"]];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"默认关闭；0 隐藏，1 保留原始阴影，0.35 保留原始透明度的 35%。仅调整通知单元内的系统堆叠遮罩"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材路径"]];
     PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     open.buttonAction = @selector(openMaterialPath:);
@@ -210,7 +211,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -230,6 +231,7 @@ static void LMVNotify(void) {
 - (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
 - (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
+- (void)switchDesktop:(PSSpecifier *)specifier { [self switchTarget:@"Desktop"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;

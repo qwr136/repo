@@ -17,7 +17,7 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'chooseVideo:', 'openMaterialPath:'}
+assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'switchDesktop:', 'chooseVideo:', 'openMaterialPath:'}
 assert 'clearOriginals' not in source and '清空原素材' not in source
 for action in actions:
     assert re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier', source), action
@@ -85,18 +85,18 @@ int main(void) { @autoreleasepool {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
     }
-    assert(controller.calls == 6 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 6);
+    assert(controller.calls == 7 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 7);
     row.properties[@"enabled"] = @NO;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
     [row.properties removeObjectForKey:@"enabled"];
     row.target = [NSObject new];
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
     row.target = controller; row.buttonAction = NSSelectorFromString(@"staleControllerAction:");
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
     row.buttonAction = @selector(description);
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
     row.buttonAction = NULL;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 6 && controller.superSelections == 0);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7 && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
     puts("PASS: actual button routing method, all seven actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");

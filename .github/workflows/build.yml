@@ -35,6 +35,8 @@ jobs:
           "$RUNNER_TEMP/lmv-material-catalog"
           cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"
           "$RUNNER_TEMP/lmv-lock-consumer"
+          cc tests/desktop-consumer.c -o "$RUNNER_TEMP/lmv-desktop-consumer"
+          "$RUNNER_TEMP/lmv-desktop-consumer"
           cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
           "$RUNNER_TEMP/lmv-import-plan"
 
