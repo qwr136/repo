@@ -6,7 +6,7 @@ from pathlib import Path
 import platform, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
 s=(r/'Tweak.xm').read_text()
-geometry=s.split('// Read-only, bounded discovery.',1)[1].split('// Opt-in bounded structural diagnostics',1)[0]
+geometry='// Read-only, bounded discovery.'+s.split('// Read-only, bounded discovery.',1)[1].split('// Opt-in bounded structural diagnostics',1)[0]
 assert 'window.bounds' not in geometry
 assert 'node != window && LMVDesktopDockContainer(node)' in geometry
 assert 'visited >= 96' in geometry and 'windows > 16' in geometry
@@ -28,7 +28,7 @@ preamble=r'''
 @property(nonatomic,strong) CALayer *shown;
 @end
 @implementation TestLayer
-- (id)presentationLayer { return self.shown; }
+- (TestLayer *)presentationLayer { return (TestLayer *)self.shown; }
 @end
 @class UIView, UIWindow, ScreenSpace;
 @interface UIViewController : NSObject

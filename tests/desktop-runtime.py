@@ -32,6 +32,8 @@ preamble=r'''
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 #include "LMVConsumerPolicy.h"
+#define CALayer LMVTestLayer
+#define CATransaction LMVTestTransaction
 static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @interface CALayer : NSObject
 @property(nonatomic,weak) CALayer *superlayer;
