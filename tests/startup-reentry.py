@@ -76,7 +76,8 @@ typedef NS_ENUM(NSInteger, UISceneActivationState) { UISceneActivationStateForeg
 static NSString *UIApplicationDidFinishLaunchingNotification=@"UIApplicationDidFinishLaunchingNotification";
 static NSHashTable *LMVCells, *LMVDesktopHosts;
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying, LMVPreferencesDirty=YES;
-static NSMutableDictionary *LMVEnabled, *LMVPaths;
+static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
+static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
 static NSTimer *LMVDesktopVisibilityTimer;
 static NSUInteger policies, singletonCreations, captures, desktopUpdates, retires, depth, maxDepth;
 static BOOL insideWallpaperOnce, nestCallback;
