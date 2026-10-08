@@ -27,6 +27,14 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.57
+- 修复 0.56 日志中长按期间 `dockFallback=1` 导致 `draw=0 decode=0` 的整块桌面隐藏：低层级 Dock 只触发局部兼容测量，桌面保持绘制；停留桌面的 Context Menu/Dock overlay 继续消费动态帧。真实 App 前台、NC 完全遮盖、锁屏/熄屏仍优先暂停或释放，保留原有缓存帧、App 返回和 NC 回露恢复。
+- 不再把 `SBFloatingDockWindow.bounds` 当裁剪区域。运行时仅有界读取同屏、可见且低于桌面的 Dock 窗口内实际 `SBFloatingDockView`/`SBFloatingDockPlatterView` 或已经加载的具体 Dock 内容控制器宿主；读取一致 presentation 坐标、真实单轮廓 shape mask 或圆形圆角半径。拒绝全屏/超过半屏、离屏、错误屏幕、未知轮廓及不稳定窗口坐标桥；实测阴影仅扩展最多 6pt。
+- 仅桌面自有 CALayer 使用一个可复用的 CAShapeLayer even-odd 遮罩，在实际 Dock 区域露出系统背景，其他区域保持视频。无法可靠识别容器/轮廓时不造矩形、不隐藏视频，诊断为 `no-safe-dock-region`，表示该布局的 Dock 兼容尚未完成。用户日志没有 Dock 子节点，不能据此宣称已知真实矩形；连续圆角且没有可读取 shape mask 的布局同样保守保留视频。
+- 具体 Dock window/view/platter 原回调只观察并请求 0.56 已有主线程合并更新；启动 gate、非递归保护、notify 锁状态查询保持。没有全局 UIView hook，没有系统窗口 level/frame/transform/hidden/alpha 修改，没有重挂 Dock/壁纸/系统图层。
+- 诊断默认关闭，原限频/组数/轮转不变；桌面记录 draw/decode/mask/maskrect/sourcecount 和安全区域原因。新增生产几何函数真实 CALayer 测试，覆盖全屏/未知/图标/离屏/错屏/低透明度拒绝、presentation 桥、真实圆角路径、500 次重复布局与缓存内容。策略测试复现实际 296431.243/296433.339/296435.345 时间序列并验证视频持续可见和动态解码。Foundation/QuartzCore doubles 和编译不替代 iOS/iPadDock 真机验证。
+- 保留 0.56 所有五目标设置、素材库/缩略图/重命名/删除、相册重新压缩/临时原素材清理、应用提示、Filza、共享源、透明度与静态最后帧；没有 Live Activity、音频会话、preroll/亮屏控制或恢复已删除的阴影控件。
+
 ## 0.0.56
 - 修复 0.0.55 启动初始化重入：壁纸窗口初始化触发插件同步桌面策略，策略创建 `SBLockScreenManager`，管理器又请求正在 `dispatch_once` 中创建的壁纸控制器，造成 libdispatch recursive-lock SIGTRAP；不是视频素材错误。已核对 0.0.55 实际包 arm64e UUID 与用户 ips 一致。
 - 全部早期窗口/宿主 layout、didMove、hidden/alpha、Dock level 及控制器进度回调只登记弱宿主并请求合并更新。集合先初始化再注册通知和 Logos hooks；只有 `UIApplicationDidFinishLaunchingNotification` 后的主队列任务可以开启启动门，策略在随后主队列任务执行。晚注入采用既有 public application/scene active 或 background 状态证据，inactive 场景不能提前开门；真实 didBecomeActive 事件也可补足晚注入证据。

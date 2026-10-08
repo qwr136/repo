@@ -29,7 +29,7 @@ assert 'LMVUpdateDesktop(host, nil)' in updates
 assert 'notify_get_state(LMVLockToken, &lockState)' in s
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','_sharedInstanceIfExists']:
     assert forbidden not in s, forbidden
-for name in ['NCNotificationListCell','SBHomeScreenView','SBHomeScreenWindow','SBHomeScreenViewController','CSCoverSheetViewController','SBFloatingDockWindow','_SBWallpaperSecureWindow','CSCoverSheetView','SBCoverSheetWindow','CoverSheet','PLActionButtonsPresentingView']:
+for name in ['NCNotificationListCell','SBHomeScreenView','SBHomeScreenWindow','SBHomeScreenViewController','CSCoverSheetViewController','SBFloatingDockWindow','SBFloatingDockView','SBFloatingDockPlatterView','_SBWallpaperSecureWindow','CSCoverSheetView','SBCoverSheetWindow','CoverSheet','PLActionButtonsPresentingView']:
     hook=s.split('%hook '+name+'\n',1)[1].split('%end',1)[0]
     for forbidden in ['LMVUpdate(', 'LMVUpdateDesktops(', 'LMVDesktopCapture(', 'LMVUpdateLockScreen(', 'LMVRefresh(', 'LMVSyncDisplayLink(', 'objc_msgSend']:
         assert forbidden not in hook, (name,forbidden)

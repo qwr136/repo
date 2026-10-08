@@ -12,7 +12,7 @@ assert update.count('[state.layer removeFromSuperlayer]')==1
 assert 'LMVDesktopShouldAttach(state.layer.superlayer == host.layer)' in update
 assert '%hook UIView' not in s and '%hook SBIconContentView' not in s
 observer=s.split('%hook SBFloatingDockWindow',1)[1].split('%end',1)[0]
-assert observer.count('%orig;')==1
+assert observer.count('%orig;')==4
 for forbidden in ['windowLevel =', 'setWindowLevel:', '.frame =', '.alpha =', '.transform =', '.hidden =']:
     assert forbidden not in observer.split('%orig;',1)[1]
 sync=s.split('static void LMVSyncDisplayLink(void) {',1)[1].split('@implementation LMVDisplayLinkTarget',1)[0]
@@ -35,7 +35,7 @@ preamble=r'''
 static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @interface CALayer : NSObject
 @property(nonatomic,weak) CALayer *superlayer;
-@property(nonatomic,strong) id contents;
+@property(nonatomic,strong) id contents, mask;
 @property(nonatomic,copy) NSString *name, *contentsGravity;
 @property(nonatomic) BOOL masksToBounds, hidden;
 @property(nonatomic) CGRect frame;
@@ -103,7 +103,8 @@ static NSMutableSet *LMVReadyAssets;
 static LMVDesktopActivity testActivity;
 static NSUInteger acquired,released,starts,stops;
 static LMVDesktopActivity LMVDesktopHostActivity(UIView *host, LMVVideoState *state, LMVDesktopSnapshot *snapshot) { return testActivity; }
-static void LMVDesktopDiagnostics(UIView *host, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
+static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
+static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) { return NO; }
 static LMVFrameSnapshot *LMVCachedFrame(NSString *path, NSString *revision) { return nil; }
 static LMVSharedSource *LMVSourceForPath(NSString *path) { acquired++; LMVSharedSource *source=[LMVSharedSource new]; LMVSharedSources[path]=source; return source; }
@@ -150,11 +151,11 @@ int main(void) { @autoreleasepool {
     testActivity=step(LMVForegroundHome,1,0,0,291860.2,state,&clock); LMVUpdateDesktop(host,nil); assert(released==0);
     testActivity=step(LMVForegroundHome,0,0,0,291860.21,state,&clock); LMVUpdateDesktop(host,nil);
     assert(state.active && state.source==originalSource && state.source.time==18.25 && !state.source.restoreOnStart);
-    // Original iPadDock level change 25 -> -3 is external; update never writes it.
+    // Original iPadDock level change 25 -> -3 is external; video stays live.
     dock.windowLevel=-3;
     for(int n=0;n<20;n++) {
         testActivity=step(LMVForegroundHome,0,1,1,291861+n*.1,state,&clock); LMVUpdateDesktop(host,nil);
-        assert(!state.active && state.layer.hidden && state.source==originalSource);
+        assert(state.active && !state.layer.hidden && state.source==originalSource);
         assert([state.layer.contents isEqual:@"last-real-frame"] && host.layer.inserts==inserts && state.layer.removes==removes);
         assert(!dock.hidden && dock.alpha==1 && dock.windowLevel==-3 && CGRectEqualToRect(dock.frame,originalFrame));
         assert(CGAffineTransformEqualToTransform(dock.transform,originalTransform) && unrelated.hidden && unrelated.alpha==1);
@@ -172,7 +173,7 @@ int main(void) { @autoreleasepool {
     LMVEnabled[@"Desktop"]=@NO; LMVUpdateDesktop(host,nil);
     assert(!objc_getAssociatedObject(host,&LMVDesktopStateKey) && !state.layer.superlayer);
     assert([host.layer.children containsObject:systemLayer] && dock.alpha==1);
-    puts("PASS: actual desktop update; .54 source4..7 timings do not rebuild; partial/full/reveal NC; paused clock/frame retained; lower Dock fallback changes only owned layer; real app pauses/retires; screen off/disable; system attributes unchanged (Foundation doubles, NOT device test)");
+    puts("PASS: actual desktop update; .54 source4..7 timings do not rebuild; partial/full/reveal NC; paused clock/frame retained; lower Dock keeps live desktop and masks only owned layer; real app pauses/retires; screen off/disable; system attributes unchanged (Foundation doubles, NOT device test)");
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:

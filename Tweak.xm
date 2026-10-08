@@ -248,6 +248,9 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 @property(nonatomic) CFTimeInterval visibilityLossSince;
 @property(nonatomic) CFTimeInterval detachedSince;
 @property(nonatomic) LMVDesktopGateClock desktopClock;
+@property(nonatomic, strong) CAShapeLayer *desktopDockMask;
+@property(nonatomic) CGRect desktopDockRect;
+@property(nonatomic, copy) NSString *desktopDockReason;
 @end
 @implementation LMVVideoState
 - (void)dealloc { [_overlay removeFromSuperview]; }
@@ -572,7 +575,7 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.56 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.57 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -1074,11 +1077,9 @@ static LMVDesktopActivity LMVDesktopHostActivity(UIView *host, LMVVideoState *st
     BOOL dockBelow = NO;
     if (inHomeWindow) for (UIWindow *window in snapshot.windows) {
         if (LMVDesktopRole(window) != LMVWindowFloatingDock) continue;
-        CGRect dockRect = [window convertRect:window.bounds toCoordinateSpace:window.screen.coordinateSpace];
-        CGRect hostRect = [host convertRect:host.bounds toCoordinateSpace:host.window.screen.coordinateSpace];
         dockBelow |= LMVDesktopDockBelow(window.screen == host.window.screen,
             !window.hidden && window.alpha >= 0.01, window.windowLevel, host.window.windowLevel,
-            CGRectIntersectsRect(dockRect, hostRect));
+            YES); // Window is a level signal only; concrete content is measured below.
     }
     LMVForeground foreground = snapshot.foreground;
     // Preserve normal 0.53 foreground behavior. During NC, an unknown UI proxy
@@ -1092,15 +1093,166 @@ static LMVDesktopActivity LMVDesktopHostActivity(UIView *host, LMVVideoState *st
     if (state) state.desktopClock = clock;
     return activity;
 }
+// Read-only, bounded discovery. A full-screen Dock window is only an owner/level
+// signal, never the exclusion geometry. No icon or generic backdrop is a region.
+static BOOL LMVDesktopDockContainer(UIView *view) {
+    for (Class cls = object_getClass(view); cls; cls = class_getSuperclass(cls)) {
+        const char *name = class_getName(cls);
+        if (!strcmp(name, "SBFloatingDockView") || !strcmp(name, "SBFloatingDockPlatterView")) return YES;
+    }
+    // Only already-loaded concrete Dock content controllers; no view getter or
+    // private singleton can create a system object here.
+    UIResponder *next = view.nextResponder;
+    if (![next isKindOfClass:UIViewController.class] || ((UIViewController *)next).viewIfLoaded != view) return NO;
+    for (Class cls = object_getClass(next); cls; cls = class_getSuperclass(cls)) {
+        const char *name = class_getName(cls);
+        if (!strcmp(name, "SBFloatingDockViewController") || !strcmp(name, "SBFloatingDockIconListViewController")) return YES;
+    }
+    return NO;
+}
+static BOOL LMVDesktopDockVisible(UIView *view, UIWindow *window) {
+    NSUInteger depth = 0;
+    for (UIView *node = view; node && depth++ < 24; node = node.superview) {
+        CALayer *shown = node.layer.presentationLayer ?: node.layer;
+        if (node.hidden || node.alpha < 0.01 || shown.hidden || shown.opacity < 0.01) return NO;
+        if (node == window) return YES;
+    }
+    return NO;
+}
+static BOOL LMVDesktopStableWindow(UIWindow *window) {
+    CALayer *shown = window.layer.presentationLayer;
+    // Public screen-coordinate conversion is safe only while the window bridge
+    // itself is stable. Descendant animations use one coherent presentation tree.
+    return !shown || (CGRectEqualToRect(shown.bounds, window.layer.bounds) &&
+        CGPointEqualToPoint(shown.position, window.layer.position) &&
+        CATransform3DEqualToTransform(shown.transform, window.layer.transform));
+}
+static BOOL LMVDesktopDockPoint(CGPoint point, CALayer *dockLayer, UIWindow *dockWindow,
+    UIView *host, BOOL presentation, CGPoint *result) {
+    CALayer *dockRoot = presentation ? dockWindow.layer.presentationLayer : dockWindow.layer;
+    CALayer *homeRoot = presentation ? host.window.layer.presentationLayer : host.window.layer;
+    CALayer *homeLayer = presentation ? host.layer.presentationLayer : host.layer;
+    if (!dockRoot || !homeRoot || !homeLayer) return NO;
+    CGPoint inWindow = [dockLayer convertPoint:point toLayer:dockRoot];
+    CGPoint inScreen = [dockWindow convertPoint:inWindow toCoordinateSpace:dockWindow.screen.coordinateSpace];
+    CGPoint inHome = [host.window.screen.coordinateSpace convertPoint:inScreen toCoordinateSpace:host.window];
+    *result = [homeLayer convertPoint:inHome fromLayer:homeRoot];
+    return isfinite(result->x) && isfinite(result->y);
+}
+typedef struct { NSUInteger moves, closes; } LMVDockPathCount;
+static void LMVDesktopDockCountPath(void *info, const CGPathElement *element) {
+    LMVDockPathCount *count = (LMVDockPathCount *)info;
+    if (element->type == kCGPathElementMoveToPoint) count->moves++;
+    if (element->type == kCGPathElementCloseSubpath) count->closes++;
+}
+static CGPathRef LMVDesktopDockPath(UIView *node, UIWindow *window, UIView *host, CGRect *region) {
+    if (!LMVDesktopDockVisible(node, window) || !LMVDesktopStableWindow(window) || !LMVDesktopStableWindow(host.window)) return NULL;
+    CALayer *shown = node.layer.presentationLayer;
+    BOOL presentation = shown != nil;
+    if (!shown) shown = node.layer;
+    // Do not mix a descendant's model tree with the host's presentation tree.
+    if (presentation != (host.layer.presentationLayer != nil)) return NULL;
+    CGRect bounds = shown.bounds;
+    if (!isfinite(bounds.origin.x) || !isfinite(bounds.origin.y) || !isfinite(bounds.size.width) || !isfinite(bounds.size.height) || CGRectIsEmpty(bounds)) return NULL;
+    CGPoint origin, right, bottom, opposite;
+    if (!LMVDesktopDockPoint(bounds.origin, shown, window, host, presentation, &origin) ||
+        !LMVDesktopDockPoint(CGPointMake(CGRectGetMaxX(bounds), CGRectGetMinY(bounds)), shown, window, host, presentation, &right) ||
+        !LMVDesktopDockPoint(CGPointMake(CGRectGetMinX(bounds), CGRectGetMaxY(bounds)), shown, window, host, presentation, &bottom) ||
+        !LMVDesktopDockPoint(CGPointMake(CGRectGetMaxX(bounds), CGRectGetMaxY(bounds)), shown, window, host, presentation, &opposite)) return NULL;
+    // Rotated/sheared/perspective content is ambiguous: leave the video visible.
+    if (fabs(right.y-origin.y) > 0.5 || fabs(bottom.x-origin.x) > 0.5 || right.x <= origin.x || bottom.y <= origin.y ||
+        fabs(opposite.x-right.x) > 0.5 || fabs(opposite.y-bottom.y) > 0.5) return NULL;
+    CGFloat sx = (right.x-origin.x)/bounds.size.width, sy = (bottom.y-origin.y)/bounds.size.height;
+    CGRect rect = CGRectMake(origin.x, origin.y, right.x-origin.x, bottom.y-origin.y);
+    if (!LMVDesktopDockRegionSafe(LMVDesktopPolicyRect(rect), LMVDesktopPolicyRect(host.bounds))) return NULL;
+    CGAffineTransform mapping = CGAffineTransformMake(sx,0,0,sy,origin.x-bounds.origin.x*sx,origin.y-bounds.origin.y*sy);
+    CGPathRef path = NULL;
+    CALayer *mask = shown.mask;
+    if ([mask isKindOfClass:CAShapeLayer.class] && ((CAShapeLayer *)mask).path &&
+        CGRectEqualToRect(mask.frame, bounds) && CGRectEqualToRect(mask.bounds, bounds) &&
+        CATransform3DIsIdentity(mask.transform)) {
+        CGPathRef actual = ((CAShapeLayer *)mask).path;
+        LMVDockPathCount count = {0,0}; CGPathApply(actual, &count, LMVDesktopDockCountPath);
+        // Require a single complete outline, never icon holes or an arbitrary mask.
+        if (count.moves == 1 && count.closes == 1 && CGRectEqualToRect(CGPathGetPathBoundingBox(actual), bounds))
+            path = CGPathCreateCopyByTransformingPath(actual, &mapping);
+    } else if (!mask && [shown.cornerCurve isEqualToString:kCACornerCurveCircular] && isfinite(shown.cornerRadius) && shown.cornerRadius > 0 &&
+        shown.maskedCorners == (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner)) {
+        CGFloat margin = shown.shadowOpacity > 0 && isfinite(shown.shadowRadius) ? MIN(6.0, MAX(0.0, shown.shadowRadius)) : 0;
+        CGRect expanded = CGRectInset(rect, -margin, -margin);
+        if (!LMVDesktopDockRegionSafe(LMVDesktopPolicyRect(expanded), LMVDesktopPolicyRect(host.bounds))) return NULL;
+        CGFloat rx = MIN(shown.cornerRadius*sx+margin, expanded.size.width/2);
+        CGFloat ry = MIN(shown.cornerRadius*sy+margin, expanded.size.height/2);
+        path = CGPathCreateWithRoundedRect(expanded, rx, ry, NULL);
+        rect = expanded;
+    }
+    if (!path) return NULL; // No measured corner/mask: no invented Dock rectangle.
+    *region = CGRectIntersection(rect, host.bounds);
+    return path;
+}
+static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
+    CGRect region = CGRectZero;
+    CGPathRef hole = NULL;
+    NSString *reason = @"dock-not-below-home";
+    if (activity.dockFallback) {
+        reason = @"no-safe-dock-region";
+        NSUInteger windows = 0, visited = 0;
+        for (UIWindow *window in snapshot.windows) {
+            if (++windows > 16 || visited >= 96) break;
+            if (LMVDesktopRole(window) != LMVWindowFloatingDock ||
+                !LMVDesktopDockBelow(window.screen == host.window.screen, !window.hidden && window.alpha >= 0.01,
+                    window.windowLevel, host.window.windowLevel, YES)) continue;
+            NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:window];
+            while (pending.count && visited++ < 96) {
+                UIView *node = pending.firstObject; [pending removeObjectAtIndex:0];
+                if (node != window && LMVDesktopDockContainer(node)) {
+                    CGRect measured;
+                    CGPathRef candidate = LMVDesktopDockPath(node, window, host, &measured);
+                    if (candidate) {
+                        // Prefer the smallest reliable concrete outline (platter
+                        // over wrapper), retaining just one mask/path per host.
+                        if (!hole || measured.size.width*measured.size.height < region.size.width*region.size.height) {
+                            if (hole) CGPathRelease(hole);
+                            hole = candidate; region = measured;
+                        } else CGPathRelease(candidate);
+                    }
+                }
+                for (UIView *child in node.subviews) { if (pending.count >= 96) break; [pending addObject:child]; }
+            }
+        }
+        if (hole) reason = @"scoped-dock-region";
+    }
+    if (hole) {
+        CGMutablePathRef full = CGPathCreateMutable();
+        CGPathAddRect(full, NULL, state.layer.bounds);
+        CGAffineTransform local = CGAffineTransformMakeTranslation(state.layer.bounds.origin.x-host.bounds.origin.x, state.layer.bounds.origin.y-host.bounds.origin.y);
+        CGPathAddPath(full, &local, hole);
+        if (!state.desktopDockMask) {
+            state.desktopDockMask = [CAShapeLayer layer];
+            state.desktopDockMask.name = @"com.minis.lockmessagevideo.desktop.dock-mask";
+            state.desktopDockMask.fillRule = kCAFillRuleEvenOdd;
+        }
+        // Geometry can change without allocating another layer. An identical
+        // layout does not rewrite the path or append a second mask.
+        if (!CGRectEqualToRect(state.desktopDockMask.frame, state.layer.bounds) ||
+            !state.desktopDockMask.path || !CGPathEqualToPath(state.desktopDockMask.path, full)) {
+            state.desktopDockMask.frame = state.layer.bounds; state.desktopDockMask.path = full;
+        }
+        state.layer.mask = state.desktopDockMask;
+        CGPathRelease(full); CGPathRelease(hole);
+    } else state.layer.mask = nil;
+    state.desktopDockRect = region; state.desktopDockReason = reason;
+}
+
 // Opt-in bounded structural diagnostics; never log labels, app identifiers or message text.
-static void LMVDesktopDiagnostics(UIView *host, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
+static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
     if (!LMVDiagnosticsEnabled.load()) return;
     static CFTimeInterval last = 0;
     static NSUInteger samples = 0;
     CFTimeInterval now = CACurrentMediaTime();
     if (now - last < 2.0 || samples >= 30) return;
     last = now; samples++;
-    LMVDiagnostic([NSString stringWithFormat:@"desktop draw=%d decode=%d release=%d dockFallback=%d foreground=%d object=%@ parent=%@ reason=%@", activity.draw, activity.decode, activity.releaseSource, activity.dockFallback, snapshot.foreground, snapshot.foregroundClass, NSStringFromClass(host.superview.class), activity.dockFallback ? @"dock-window-below-home-owned-layer-hidden" : (activity.decode ? @"home-playing" : @"paused-retained-frame")]);
+    LMVDiagnostic([NSString stringWithFormat:@"desktop draw=%d decode=%d release=%d dockFallback=%d mask=%d maskrect=%@ sourcecount=%lu foreground=%d object=%@ parent=%@ reason=%@", activity.draw, activity.decode, activity.releaseSource, activity.dockFallback, state.layer.mask != nil, NSStringFromCGRect(state.desktopDockRect), (unsigned long)LMVSharedSources.count, snapshot.foreground, snapshot.foregroundClass, NSStringFromClass(host.superview.class), activity.dockFallback ? (state.desktopDockReason ?: @"no-safe-dock-region") : (activity.decode ? @"home-playing" : @"paused-retained-frame")]);
     NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:host];
     NSUInteger count = 0;
     for (UIWindow *window in snapshot.windows) {
@@ -1178,8 +1330,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     // Same 0.53 home renderer/source; only drawing and pausing are separated.
     // One immutable foreground/window snapshot drives this update and the tick.
     LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
-    LMVDesktopDiagnostics(host, activity, snapshot);
-    if (!activity.draw && !activity.dockFallback) {
+    if (!activity.draw) {
         if (state) { state.layer.hidden = YES; LMVReleaseDesktopSource(state); }
         return;
     }
@@ -1199,10 +1350,10 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
         if (wallpaper && wallpaper.superlayer == host.layer) [host.layer insertSublayer:state.layer above:wallpaper];
         else [host.layer insertSublayer:state.layer atIndex:0];
     }
-    // Temporary compatibility fallback: expose original wallpaper/blur when
-    // iPadDock lowers its own window below HomeScreenWindow. Keep image/time;
-    // never move or rewrite a Dock/system window or the shared lock wallpaper.
+    // Keep live desktop everywhere except a safely measured lower Dock outline.
+    // Only our layer is masked; no system/Dock window or wallpaper is rewritten.
     state.layer.frame = host.bounds; state.layer.hidden = !activity.draw;
+    LMVDesktopApplyDockMask(host, state, activity, snapshot);
     LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     if (activity.decode && [LMVReadyAssets containsObject:path]) {
@@ -1211,6 +1362,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     }
     state.active = activity.decode && state.source != nil;
     [CATransaction commit];
+    LMVDesktopDiagnostics(host, state, activity, snapshot);
     if (state.active) LMVStartSource(state.source);
     else if (activity.releaseSource) LMVReleaseDesktopSource(state);
     else if (!LMVSourceHasConsumer(state.source)) {
@@ -1316,7 +1468,59 @@ static void LMVDesktopHostChanged(UIView *view) {
 %hook SBFloatingDockWindow
 - (void)setWindowLevel:(UIWindowLevel)level {
     %orig;
-    // Observe iPadDock's original level; only our desktop layer may be hidden.
+    // Observe the original level; only our desktop layer may be partially masked.
+    LMVRequestSafeUpdate();
+}
+- (void)layoutSubviews {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setAlpha:(CGFloat)alpha {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+%end
+%end
+%group LMVDesktopDockContentHooks
+%hook SBFloatingDockView
+- (void)layoutSubviews {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setAlpha:(CGFloat)alpha {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+%end
+%end
+%group LMVDesktopDockPlatterHooks
+%hook SBFloatingDockPlatterView
+- (void)layoutSubviews {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setAlpha:(CGFloat)alpha {
+    %orig;
     LMVRequestSafeUpdate();
 }
 %end
@@ -1655,8 +1859,23 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             %init(LMVDesktopCoverProgressHooks);
         }
         Class dockWindow = NSClassFromString(@"SBFloatingDockWindow");
-        if (dockWindow && [dockWindow isSubclassOfClass:UIWindow.class] && class_getInstanceMethod(dockWindow, @selector(setWindowLevel:))) {
+        if (dockWindow && [dockWindow isSubclassOfClass:UIWindow.class] &&
+            class_getInstanceMethod(dockWindow, @selector(setWindowLevel:)) &&
+            class_getInstanceMethod(dockWindow, @selector(layoutSubviews)) &&
+            class_getInstanceMethod(dockWindow, @selector(setHidden:)) && class_getInstanceMethod(dockWindow, @selector(setAlpha:))) {
             %init(LMVDesktopDockObserverHooks);
+        }
+        Class dockContent = NSClassFromString(@"SBFloatingDockView");
+        if (dockContent && [dockContent isSubclassOfClass:UIView.class] &&
+            class_getInstanceMethod(dockContent, @selector(layoutSubviews)) && class_getInstanceMethod(dockContent, @selector(didMoveToWindow)) &&
+            class_getInstanceMethod(dockContent, @selector(setHidden:)) && class_getInstanceMethod(dockContent, @selector(setAlpha:))) {
+            %init(LMVDesktopDockContentHooks);
+        }
+        Class dockPlatter = NSClassFromString(@"SBFloatingDockPlatterView");
+        if (dockPlatter && [dockPlatter isSubclassOfClass:UIView.class] &&
+            class_getInstanceMethod(dockPlatter, @selector(layoutSubviews)) && class_getInstanceMethod(dockPlatter, @selector(didMoveToWindow)) &&
+            class_getInstanceMethod(dockPlatter, @selector(setHidden:)) && class_getInstanceMethod(dockPlatter, @selector(setAlpha:))) {
+            %init(LMVDesktopDockPlatterHooks);
         }
         if (wallpaperWindow && [wallpaperWindow isSubclassOfClass:UIWindow.class] && class_getInstanceMethod(wallpaperWindow, @selector(layoutSubviews))) {
             %init(LMVWallpaperWindowHooks);

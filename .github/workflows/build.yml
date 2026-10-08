@@ -31,6 +31,7 @@ jobs:
           python3 tests/settings-import-regression.py
           python3 tests/preferences-routing.py
           python3 tests/desktop-runtime.py
+          python3 tests/desktop-dock-geometry.py
           python3 tests/startup-reentry.py
           clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
           "$RUNNER_TEMP/lmv-material-catalog"

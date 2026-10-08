@@ -10,9 +10,9 @@ int main(void) {
         bool known=bits&32, locked=bits&64, covered=bits&128, menu=bits&256;
         LMVDesktopDecision d=LMVDesktopDecide(host,window,attached,visible,screen,known,locked,f,covered,menu);
         assert(d.retainFrame == (host && window && attached && screen && known && !locked));
-        assert(d.decode == (d.retainFrame && visible && f==LMVForegroundHome && !covered && !menu));
+        assert(d.decode == (d.retainFrame && visible && f==LMVForegroundHome && !covered));
         if (!screen || locked || !attached || !host || !window || !known) assert(!d.retainFrame && !d.decode);
-        if (f!=LMVForegroundHome || covered || menu) assert(!d.decode);
+        if (f!=LMVForegroundHome || covered) assert(!d.decode);
     }
     LMVDesktopRect home={0,0,390,844}, partial={0,-700,390,844}, full={0,0,390,844};
     assert(!LMVDesktopFullyCovered(full,partial,home,1)); // model at destination, animation not finished
@@ -24,7 +24,7 @@ int main(void) {
     assert(decide(LMVForegroundHome,0,0).decode); // partial NC
     assert(decide(LMVForegroundHome,1,0).retainFrame && !decide(LMVForegroundHome,1,0).decode);
     assert(decide(LMVForegroundUnknown,0,0).retainFrame && !decide(LMVForegroundUnknown,0,0).decode);
-    assert(decide(LMVForegroundHome,0,1).retainFrame && !decide(LMVForegroundHome,0,1).decode);
+    assert(decide(LMVForegroundHome,0,1).retainFrame && decide(LMVForegroundHome,0,1).decode);
     assert(decide(LMVForegroundApp,0,0).retainFrame && !decide(LMVForegroundApp,0,0).decode);
     LMVWindowRole dock=LMVDesktopWindowRole("SBFloatingDockWindow");
     assert(dock==LMVWindowFloatingDock);
@@ -70,7 +70,26 @@ int main(void) {
     assert(!LMVDesktopDockBelow(1,0,-3,-2,1));
     assert(!LMVDesktopDockBelow(1,1,-3,-2,0));
     a=LMVDesktopGate(decide(LMVForegroundHome,0,1),LMVForegroundHome,1,1,0,1,1,1,291861,&clock);
-    assert(a.dockFallback && !a.draw && !a.decode && !a.releaseSource);
+    assert(a.dockFallback && a.draw && a.decode && !a.releaseSource);
+    // .56 actual 47816-byte log: lower Dock must never blank/pause home.
+    double observed[]={296431.243,296433.339,296435.345};
+    for(unsigned i=0;i<3;i++) {
+        a=LMVDesktopGate(decide(LMVForegroundHome,0,1),LMVForegroundHome,1,1,0,1,i<2,1,observed[i],&clock);
+        assert(a.draw && a.decode && !a.releaseSource && a.dockFallback==(i<2));
+    }
+    // Sustained overlay remains live even after it takes the key window.
+    a=LMVDesktopGate(decide(LMVForegroundOverlay,0,1),LMVForegroundOverlay,0,1,0,1,1,1,296439,&clock);
+    assert(a.draw && a.decode && !a.releaseSource);
+    a=LMVDesktopGate(decide(LMVForegroundOverlay,1,1),LMVForegroundOverlay,1,1,1,1,1,1,296440,&clock);
+    assert(a.draw && !a.decode && !a.releaseSource); // full NC still wins
+    a=LMVDesktopGate(decide(LMVForegroundApp,0,1),LMVForegroundApp,1,1,0,1,1,1,296441,&clock);
+    assert(a.draw && !a.decode); // app bundle wins over Dock/menu
+    LMVDesktopRect concrete={12,720,366,100};
+    assert(LMVDesktopDockRegionSafe(concrete,home));
+    assert(!LMVDesktopDockRegionSafe(home,home));
+    assert(!LMVDesktopDockRegionSafe((LMVDesktopRect){0,0,390,422},home));
+    assert(!LMVDesktopDockRegionSafe((LMVDesktopRect){12,900,366,100},home));
+    assert(!LMVDesktopDockRegionSafe((LMVDesktopRect){12,720,NAN,100},home));
     a=LMVDesktopGate(decide(LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,0,291862,&clock);
     assert(!a.dockFallback && a.draw && a.decode);
     a=LMVDesktopGate(decide(LMVForegroundApp,0,0),LMVForegroundApp,1,1,0,0,0,1,291863,&clock);
@@ -79,6 +98,6 @@ int main(void) {
     assert(!a.decode && a.releaseSource); // unused media bounded retirement
     a=LMVDesktopGate(LMVDesktopDecide(1,1,1,1,0,1,0,LMVForegroundHome,0,0),LMVForegroundHome,1,1,0,0,0,1,291865,&clock);
     assert(!a.draw && !a.decode && a.releaseSource);
-    puts("PASS: 2048 desktop policy combinations; source4..7 .54 log timeline; unknown home-key recovery, partial/full/reveal NC, Dock25->-3 fallback, real app hard pause/bounded retirement, screen off");
+    puts("PASS: 2048 desktop policy combinations; source4..7 .54 log timeline; unknown home-key recovery, partial/full/reveal NC, Dock25->-3 scoped compatibility, .56 longpress timestamps stay live, real app hard pause/bounded retirement, screen off");
     return 0;
 }

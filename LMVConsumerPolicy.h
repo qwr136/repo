@@ -1,6 +1,7 @@
 #pragma once
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
 static inline bool LMVLockConsumerAllowed(bool coverHost, bool coverWindow, bool visible, bool screenOn) {
     return coverHost && coverWindow && visible && screenOn;
 }
@@ -33,14 +34,24 @@ static inline bool LMVDesktopFullyCovered(LMVDesktopRect model, LMVDesktopRect p
                                          LMVDesktopRect home, bool opaque) {
     return opaque && LMVDesktopRectCovers(model, home) && LMVDesktopRectCovers(presentation, home);
 }
+// Geometry must come from a concrete Dock content container, never window bounds.
+static inline bool LMVDesktopDockRegionSafe(LMVDesktopRect dock, LMVDesktopRect home) {
+    if (!isfinite(dock.x) || !isfinite(dock.y) || !isfinite(dock.width) || !isfinite(dock.height) ||
+        !isfinite(home.x) || !isfinite(home.y) || !isfinite(home.width) || !isfinite(home.height) ||
+        dock.width <= 1 || dock.height <= 1 || home.width <= 0 || home.height <= 0) return false;
+    return dock.width <= home.width + 0.5 && dock.height < home.height / 2 &&
+        dock.width * dock.height < home.width * home.height / 2 &&
+        dock.x < home.x + home.width && dock.y < home.y + home.height &&
+        dock.x + dock.width > home.x && dock.y + dock.height > home.y;
+}
 typedef struct { bool retainFrame, decode; } LMVDesktopDecision;
 static inline LMVDesktopDecision LMVDesktopDecide(bool homeHost, bool homeWindow, bool attached,
     bool visible, bool screenOn, bool lockKnown, bool locked, LMVForeground foreground, bool fullyCovered,
     bool contextOverlay) {
     LMVDesktopDecision decision;
     decision.retainFrame = homeHost && homeWindow && attached && screenOn && lockKnown && !locked;
-    decision.decode = decision.retainFrame && visible && foreground == LMVForegroundHome &&
-        !fullyCovered && !contextOverlay;
+    decision.decode = decision.retainFrame && visible && foreground == LMVForegroundHome && !fullyCovered;
+    (void)contextOverlay; // Home menus do not obscure the entire desktop.
     return decision;
 }
 // An attached owned layer keeps its position across system context-menu snapshots.
@@ -57,7 +68,7 @@ static inline bool LMVDesktopDockBelow(bool sameScreen, bool dockVisible, double
 static inline LMVDesktopActivity LMVDesktopGate(LMVDesktopDecision decision, LMVForeground foreground,
     bool homeKey, bool visible, bool covered, bool context, bool dockBelow, bool wasDecoding,
     double now, LMVDesktopGateClock *clock) {
-    LMVDesktopActivity activity = { decision.retainFrame && !dockBelow, false, false,
+    LMVDesktopActivity activity = { decision.retainFrame, false, false,
                                    decision.retainFrame && dockBelow };
     if (!decision.retainFrame) {
         clock->transientSince = clock->offscreenSince = 0;
@@ -67,17 +78,18 @@ static inline LMVDesktopActivity LMVDesktopGate(LMVDesktopDecision decision, LMV
     bool app = foreground == LMVForegroundApp;
     bool unknown = foreground == LMVForegroundUnknown;
     bool home = foreground == LMVForegroundHome || (unknown && homeKey && visible && !covered && !context);
-    bool transient = unknown || context || foreground == LMVForegroundOverlay || dockBelow;
+    bool transient = unknown || context || foreground == LMVForegroundOverlay;
     if (transient) { if (!clock->transientSince) clock->transientSince = now; }
     else clock->transientSince = 0;
-    // At most 150ms of grace for ambiguous transitions; never for a real app,
-    // hidden host, full cover, lock, screen off, or a lower Dock window.
+    // A home context menu/Dock overlay keeps live video. Concrete app, full NC,
+    // invisible host, lock and screen off still override every transition hint.
+    bool overlayHome = (context || foreground == LMVForegroundOverlay) &&
+        (foreground == LMVForegroundHome || homeKey || wasDecoding);
     bool settledHome = home && (!unknown || now - clock->transientSince >= 0.15);
     bool grace = transient && now - clock->transientSince < 0.15 && wasDecoding;
-    activity.decode = visible && !app && !covered && !dockBelow &&
-        ((settledHome && !context) || grace);
+    activity.decode = visible && !app && !covered && (settledHome || overlayHome || grace);
     // Confirmed app/offscreen: pause immediately and retire unused media after
-    // 1.25s. Full NC/context retains a paused source without frame pulls.
+    // 1.25s. Full NC retains a paused source without frame pulls.
     bool offscreen = app || (!visible && !covered);
     if (offscreen) { if (!clock->offscreenSince) clock->offscreenSince = now; }
     else clock->offscreenSince = 0;
