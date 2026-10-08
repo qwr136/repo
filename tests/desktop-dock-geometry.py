@@ -193,5 +193,5 @@ with tempfile.TemporaryDirectory() as tmp:
     src=Path(tmp)/'dock.m'; binary=Path(tmp)/'dock'
     preamble=preamble.replace('#include <assert.h>','#include <assert.h>\n#import <objc/runtime.h>\n@compatibility_alias UIResponder NSObject;')
     src.write_text(preamble+geometry+tests)
-    subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','QuartzCore',str(src),'-o',str(binary)],check=True)
+    subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
