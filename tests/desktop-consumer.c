@@ -1,15 +1,42 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../LMVConsumerPolicy.h"
+static LMVDesktopDecision decide(LMVForeground f, bool covered, bool menu) {
+    return LMVDesktopDecide(1,1,1,1,1,1,0,f,covered,menu);
+}
 int main(void) {
-    for (unsigned bits=0; bits<256; ++bits) {
-        bool host=bits&1, window=bits&2, visible=bits&4, screen=bits&8;
-        bool locked=bits&16, known=bits&32, home=bits&64, covered=bits&128;
-        bool actual=LMVDesktopConsumerAllowed(host,window,visible,screen,locked,known,home,covered);
-        assert(actual == (host && window && visible && screen && !locked && known && home && !covered));
-        if (!screen || locked || !known || !home || covered) assert(!actual);
+    for (unsigned bits=0; bits<512; ++bits) for (int f=0;f<4;f++) {
+        bool host=bits&1, window=bits&2, attached=bits&4, visible=bits&8, screen=bits&16;
+        bool known=bits&32, locked=bits&64, covered=bits&128, menu=bits&256;
+        LMVDesktopDecision d=LMVDesktopDecide(host,window,attached,visible,screen,known,locked,f,covered,menu);
+        assert(d.retainFrame == (host && window && attached && screen && known && !locked));
+        assert(d.decode == (d.retainFrame && visible && f==LMVForegroundHome && !covered && !menu));
+        if (!screen || locked || !attached || !host || !window || !known) assert(!d.retainFrame && !d.decode);
+        if (f!=LMVForegroundHome || covered || menu) assert(!d.decode);
     }
-    assert(LMVDesktopConsumerAllowed(1,1,1,1,0,1,1,0));
-    puts("PASS: all 256 desktop visibility gates; app/lock/NC/blank/unknown deny; visible desktop resumes (portable policy, not device test)");
+    LMVDesktopRect home={0,0,390,844}, partial={0,-700,390,844}, full={0,0,390,844};
+    assert(!LMVDesktopFullyCovered(full,partial,home,1)); // model at destination, animation not finished
+    assert(!LMVDesktopFullyCovered(partial,full,home,1)); // dismissal already started
+    assert(!LMVDesktopFullyCovered(full,full,home,0));
+    assert(LMVDesktopFullyCovered(full,full,home,1));
+    assert(!LMVDesktopFullyCovered((LMVDesktopRect){500,0,390,844},full,home,1));
+    assert(!LMVDesktopFullyCovered((LMVDesktopRect){0,0,0,0},full,home,1));
+    assert(decide(LMVForegroundHome,0,0).decode); // partial NC
+    assert(decide(LMVForegroundHome,1,0).retainFrame && !decide(LMVForegroundHome,1,0).decode);
+    assert(decide(LMVForegroundUnknown,0,0).retainFrame && !decide(LMVForegroundUnknown,0,0).decode);
+    assert(decide(LMVForegroundHome,0,1).retainFrame && !decide(LMVForegroundHome,0,1).decode);
+    assert(decide(LMVForegroundApp,0,0).retainFrame && !decide(LMVForegroundApp,0,0).decode);
+    LMVWindowRole dock=LMVDesktopWindowRole("SBFloatingDockWindow");
+    assert(dock==LMVWindowFloatingDock);
+    assert(LMVDesktopResolveForeground(0,0,0,dock,0)==LMVForegroundOverlay);
+    assert(LMVDesktopResolveForeground(1,0,0,dock,1)==LMVForegroundApp);
+    assert(LMVDesktopResolveForeground(1,1,0,dock,0)==LMVForegroundHome);
+    assert(LMVDesktopResolveForeground(0,0,0,LMVWindowOther,1)==LMVForegroundOverlay);
+    assert(LMVDesktopResolveForeground(0,0,1,LMVWindowHome,0)==LMVForegroundHome);
+    assert(LMVDesktopWindowRole("ThirdPartyWindow")==LMVWindowOther);
+    assert(LMVDesktopWindowRole("SBFloatingDockWindowFake")==LMVWindowOther);
+    assert(LMVDesktopResolveForeground(0,0,0,LMVWindowOther,0)==LMVForegroundUnknown);
+    assert(!LMVDesktopShouldAttach(1) && LMVDesktopShouldAttach(0));
+    puts("PASS: 2048 actual desktop policy combinations; NC model/presentation geometry; long press/floating Dock own UI; unknown/app paused; owned frame retained; unrelated windows unclassified");
     return 0;
 }

@@ -27,43 +27,14 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
-## 0.0.52 通知堆叠阴影兼容
-- 在完整现有设置面板增加「降低通知堆叠阴影」（默认关闭）和「通知堆叠阴影透明度」（0–1，默认 0.35；开关关闭时滑块禁用）。开启时结果 alpha = 最新系统原始 alpha × 滑块值：0 隐藏、1 保留原样、0.35 保留原始透明度的 35%。开关关闭立即恢复记录的系统 alpha。
-- 仅在 `NCNotificationListStackDimmingOverlayView` 存在、继承 UIView 且所需方法存在时初始化独立 hook 组，执行时再检查精确运行时类。弱引用跟踪视图、关联对象保存原始 alpha，系统 setter 更新基线，layout/didMove 后重应用，内部写入有重入防护，不反复相乘。
-- 保留 0.0.51 的素材选择缩略图、改名、删除/清理与应用、四类背景开关、锁屏背景、相册导入/压缩、视频透明度、诊断开关、静音和熄屏恢复；不加入 Live Activity，不修改系统 masks、通知 frame/文字或插件视频 overlay。
-- 此功能只降低指定系统堆叠遮罩。如果另一个插件自己绘制 CALayer 阴影、边框或缩放重叠，此开关不一定影响该阴影。缺少目标类时安全跳过，无全局 UIView hook 或不明确的候选类回退。
-- 新增 `tests/stack-shadow-regression.py`，在 Actions 上用 Foundation view doubles 执行实际 alpha helper 和 setter，验证反复布局不累乘、系统更新、滑块两端、关闭恢复、重新开启、精确类过滤及弱引用释放。编译和此测试不能代替真机 UI 验证。
+## 0.0.54
+- 移除通知堆叠阴影开关、滑块、专用状态/helper/hook 及专用测试；保留原有视频透明度语义。
+- 桌面自有层的显示与解码分开：下拉通知中心及长按菜单过程中保留最后真实帧，完整遮挡后暂停桌面解码，收起后恢复。未知前台对象或打开应用时不继续桌面解码。锁定、熄屏或失去合法桌面宿主时隐藏自有层；关闭功能或更换素材时仅移除自有层。
+- 通知中心完整遮挡需要 CoverSheet 实际宿主的 model 与 presentation 屏幕矩形都覆盖桌面；不能仅凭一个可见的全屏窗口提前判断动画完成。
+- 桌面层只在未挂载时插入；布局和长按过渡不反复 remove/reinsert。浮动 Dock 窗口/控制器属于 SpringBoard 的 UI，不能当作已打开的应用；真实前台应用标识优先。未修改系统 Dock/图标内容布局，不重置其他插件的 alpha、hidden、frame 或 transform。
+- 消息、选项、清除和锁屏的共享媒体链保留；桌面与锁屏独立素材选择，素材库缩略图、重命名、删除、当前标记、应用提示、相册导入重新压缩与临时原素材清理、Filza 路径入口及诊断默认关闭均保留。
+- 诊断打开后，最多 30 组、间隔至少 2 秒采样，每组最多 16 个窗口与 32 个视图节点，记录窗口类/level/hidden/alpha/key 和 backdrop 父层状态，不采集应用文本。日志仍位于 `/var/mobile/LockMessageVideo/shared-render.log`，沿用 64 KiB 轮转和总记录上限。
+- `tests/desktop-consumer.c` 执行实际共享策略的 2048 种状态及通知中心过渡几何、浮动 Dock、真实应用和未知前台判定；`tests/desktop-runtime.py` 在 macOS 执行实际桌面更新/解绑函数的 Foundation doubles，验证暂停保留帧和层级、锁定隐藏、关闭仅移除自有层及无关视图不变。编译与 doubles 不能替代 iPadDock 真机兼容验收。
 
-## 0.0.45 视频背景架构
-- 同一标准化素材路径只创建一个静音、仅含视频轨道的 `AVPlayer` / `AVPlayerItemVideoOutput`；Message、Options、Clear 选择同路径时自然复用，不再按卡片建立播放器或 looper。
-- 输出帧经复用 `CIContext` 在串行后台队列生成一次不可变 `CGImage`，再在主线程广播到各自独立的普通 `CALayer.contents`，每张卡片独立裁剪，不共享 `AVPlayerLayer`。
-- 显示更新上限为 30 FPS，最大共享帧边长 960；仅在可见消费者存在时使用 common-mode display link。只复制新像素缓冲，全局至多一个转换任务在途；不代表源视频编码帧率或码率保证。
-- 熄屏、通知中心隐藏或无可见消费者时暂停共享源，保留最后真实解码帧和对应播放时间，重新下拉直接显示缓存帧并恢复，不生成无关的首帧海报；移除旧的 0.10 秒人为起播延迟。
-- 背景范围使用 `anchor.bounds` 转换到模型 host 坐标；插件拥有自己的连续圆角剪裁，不复制系统复合遮罩，不调整宿主 frame、约束或文字层级。
-- 修复根 `UIWindow` 没有 `superview` 导致误暂停的判断。只 hook 通知卡片、动作呈现器及 CoverSheet 类，无全局 UIView hook。
-- 保留 0.0.44 设置、相册导入/原素材保存、压缩、Filza、透明度语义、独立选项和清除区域；不扩展到 Live Activity。
+覆盖安装相同包 ID `com.minis.lockmessagevideo`，保持 rootless 安装路径；不删除 `/var/mobile/LockMessageVideo` 或现有偏好。安装后重新载入 SpringBoard。若 iPadDock 自己在长按时隐藏 Dock，本补丁不强制改写系统窗口状态，需要开启诊断采样并结合真机层级/ips 确认。
 
-编译和静态结构验证不能代替真机验证。不同 iOS 私有视图层级、异形系统圆角/素材、循环接缝、首次冷启动解码时间、CPU/GPU 和滚动流畅度仍需设备实测，不能保证完全不卡顿。
-
-## 0.0.47 缓存先附着 / 所有相册导入重新编码
-- 修复 0.0.46 的实际空窗：`LMVReleasePlayer` 在隐藏时清掉图层，`LMVUpdate` 又依赖 source/asset ready 才创建并赋图；现在保留 owned layer 的最后真实画面，按标准化路径 + 文件修订缓存，缓存赋图/透明度/圆角/布局完成后才创建并启动共享源。
-- 卡片未入窗、播放门控未开启或 source inactive 时也可附着现有帧；CoverSheet 露出前刷新已知卡片。隐藏、熄屏、离屏只暂停消费；恢复从最后发布帧时间继续，拒绝隐藏时在途帧覆盖冻结画面。同文件仍共用一个 output/reader，无每卡播放器。
-- 新选素材在串行后台帧队列生成冷预览。首帧预览绝不替换真实末帧。无发布帧的 output 等待从 3 秒缩至 0.75 秒后允许现有共享 reader 恢复；播放中停滞仍 3 秒。未恢复完时间不发布其它位置帧。
-- 原件先保存在 `/var/mobile/LockMessageVideo/原素材/`，每个相册导入视频（包括 ≤5 MiB）都走 H.264 reader/writer，去除音频、保留方向、自适应偶数尺寸和码率，最多 3 次降码率/尺寸尝试。只有非空、≤5 MiB、实际比原件小、时长/可播放/首帧解码/无音轨验证通过的结果才原子移入 library；失败保留原件并显示原始 NSError 域、码、描述/underlying，不注册原件。
-- 提供的 1.533 秒录屏 `video_2E974439.mov` 按 12 Hz 抽帧可见：下拉前段 0–约 0.42 秒仍原材质，约 0.50 秒起多卡同时有视频，符合共享第一帧晚于材质露出的空窗；这只能定位旧版现象，不是新版真机验证。
-- **限制**：缓存目前内存持有（最多 12 个历史修订），没有磁盘末帧持久化。respring/冷启动/首次选材且没有预览时仍须异步准备，不能保证零延迟；材质尚未创建或私有层级尚不可发现也无法提前挂载。编码遇到极小文件、超长视频、不支持的素材或系统编码器故障可能失败，绝非 100% 成功。
-- 所有设置与 Filza native 路由保留；没有 Live Activity、AVAudioSession、唤醒、preroll 或播放取消逻辑。
-
-## 注意
-- 当前实现按 iOS 16 锁屏通知常见类名做了候选挂载，不同小版本可能需要再微调。
-- 修改视频后建议注销或重启 SpringBoard。
-- 若 roothide 环境有特殊 PreferenceLoader 路径差异，可按你的环境微调 layout。
-
-## 0.0.48 设置与导入优化
-- 新增「启用诊断日志」，CFPreferences 键 `DiagnosticsEnabled` **默认关闭**（包括升级未设置该键）。开启才写 `/var/mobile/LockMessageVideo/shared-render.log`；关闭不删除历史日志。设置 Darwin 通知更新原子缓存，入队和实际执行都检查开关，保留原有 64 KiB 轮转 / 每进程 1200 条上限，不记录通知正文。
-- 「打开素材路径」正下方新增「清空原素材」。确认框展示 `/var/mobile/LockMessageVideo/原素材/` 并提示不可撤销；后台只删除此目录的直属普通文件，目录和符号链接不跟随也不删除，随后再次枚举确认，全部清空才提示成功，失败/剩余项提示未完成。library、当前所选优化视频、选择偏好、旧日志不会改动。
-- 保存原件→压缩→验证→原子移入 library 和清空共用串行素材队列；导入/清理期间禁用两操作按钮。Photos 临时 URL 在后台回调返回前完成保存，主线程调用导入被拒绝，不在 UI 线程等待解码、编码、文件复制或清理。
-- 所有视频仍必须重新编码成无音轨 H.264，包括 ≤5 MiB 视频。按 `min(原文件大小, 5 MiB) × 82%` 和时长先规划码率；首轮最大长边 960，较低码率按 720/540/360 降档，偶数尺寸，保留方向，最大 30 FPS，低码率 24/15 FPS。VideoComposition 在交给 writer 前缩放和限帧，避免完整高分辨率/高帧率编码。解码原素材仍有成本，系统是否使用硬件取决于素材和编码器，不能保证硬件加速或耗时。
-- 通常一次预算编码即可进入完整验证；只有「超过 5 MiB / 没比原件小」才按实测字节数反馈降码率和尺寸，最多三次。不可解码、无法写入、格式不支持、时长不完整等错误立即停止，不重复无效编码。失败保留原件、删除临时输出，不登记原文件。
-- 保留 0.0.47 的非空、≤5 MiB、比原件小、可播放、时长完整、首帧可解码、无音轨验证；保留全部设置、三类素材、共享源/卡片/缓存/熄屏恢复、静音无音频会话、不支持 Live Activity、Filza 原生路径、包名和中文显示名。
-- 可执行检查：`python3 tests/shared-render-regression.py`、`python3 tests/settings-import-regression.py`、`cc tests/import-plan.c -lm -o /tmp/lmv-plan && /tmp/lmv-plan`。这些验证源契约、文件边界模型和预算算法；不等于真机 AVFoundation/Filza/锁屏测试。降分辨率及帧率是速度/体积取舍；极小或超长视频仍可能失败。没有相同设备同素材性能对比时不声称提速百分比。

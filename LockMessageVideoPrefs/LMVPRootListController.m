@@ -43,7 +43,7 @@ static void LMVNotify(void) {
         choose.buttonAction = actions[i];
         [_specifiers addObject:choose];
     }
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面与锁屏独立选择；打开应用、通知中心、锁屏或熄屏时暂停桌面视频。系统不支持安全桌面宿主时保留静态壁纸"]];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面与锁屏独立选择；下拉通知中心或长按菜单时保留桌面最后画面，完全遮挡时暂停解码，返回桌面恢复。打开应用、锁屏或熄屏时暂停；不支持安全桌面宿主时保留静态壁纸"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
@@ -64,21 +64,6 @@ static void LMVNotify(void) {
     [opacity setProperty:@"VideoOpacitySlider" forKey:@"id"];
     [opacity setProperty:[self enabled:opacityEnabled] forKey:@"enabled"];
     [_specifiers addObject:opacity];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"通知堆叠阴影"]];
-    PSSpecifier *stackEnabled = [PSSpecifier preferenceSpecifierNamed:@"降低通知堆叠阴影" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [stackEnabled setProperty:@"StackShadowEnabled" forKey:@"key"];
-    [stackEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:stackEnabled];
-    PSSpecifier *stackOpacity = [PSSpecifier preferenceSpecifierNamed:@"通知堆叠阴影透明度" target:self set:@selector(setStackShadowOpacity:specifier:) get:@selector(stackShadowOpacity:) detail:nil cell:PSSliderCell edit:nil];
-    [stackOpacity setProperty:@"StackShadowOpacity" forKey:@"key"];
-    [stackOpacity setProperty:@0.0 forKey:@"min"];
-    [stackOpacity setProperty:@1.0 forKey:@"max"];
-    [stackOpacity setProperty:@0.35 forKey:@"default"];
-    [stackOpacity setProperty:@YES forKey:@"showValue"];
-    [stackOpacity setProperty:@"StackShadowOpacitySlider" forKey:@"id"];
-    [stackOpacity setProperty:[self enabled:stackEnabled] forKey:@"enabled"];
-    [_specifiers addObject:stackOpacity];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"默认关闭；0 隐藏，1 保留原始阴影，0.35 保留原始透明度的 35%。仅调整通知单元内的系统堆叠遮罩"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材路径"]];
     PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     open.buttonAction = @selector(openMaterialPath:);
@@ -124,8 +109,7 @@ static void LMVNotify(void) {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotify();
     NSString *key = [specifier propertyForKey:@"key"];
-    NSString *sliderKey = [key isEqualToString:@"VideoOpacityEnabled"] ? @"VideoOpacity" :
-        ([key isEqualToString:@"StackShadowEnabled"] ? @"StackShadowOpacity" : nil);
+    NSString *sliderKey = [key isEqualToString:@"VideoOpacityEnabled"] ? @"VideoOpacity" : nil;
     if (sliderKey) {
         for (PSSpecifier *slider in _specifiers) {
             if ([[slider propertyForKey:@"key"] isEqualToString:sliderKey]) {
@@ -144,17 +128,6 @@ static void LMVNotify(void) {
 - (void)setOpacity:(id)value specifier:(PSSpecifier *)specifier {
     NSNumber *opacity = @(MAX(0.0, MIN(1.0, [value floatValue])));
     CFPreferencesSetAppValue(CFSTR("VideoOpacity"), (__bridge CFPropertyListRef)opacity, kLMVPrefsID);
-    LMVNotify();
-}
-- (id)stackShadowOpacity:(PSSpecifier *)specifier {
-    NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("StackShadowOpacity"), kLMVPrefsID);
-    double opacity = [value respondsToSelector:@selector(doubleValue)] ? value.doubleValue : 0.35;
-    return @(isfinite(opacity) ? MAX(0.0, MIN(1.0, opacity)) : 0.35);
-}
-- (void)setStackShadowOpacity:(id)value specifier:(PSSpecifier *)specifier {
-    double opacity = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 0.35;
-    NSNumber *clamped = @(isfinite(opacity) ? MAX(0.0, MIN(1.0, opacity)) : 0.35);
-    CFPreferencesSetAppValue(CFSTR("StackShadowOpacity"), (__bridge CFPropertyListRef)clamped, kLMVPrefsID);
     LMVNotify();
 }
 - (void)showMaterialPath {
