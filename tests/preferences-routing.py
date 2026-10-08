@@ -17,7 +17,8 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'chooseVideo:', 'openMaterialPath:', 'clearOriginals:'}
+assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'chooseVideo:', 'openMaterialPath:'}
+assert 'clearOriginals' not in source and '清空原素材' not in source
 for action in actions:
     assert re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier', source), action
 assert 'row.target = self;' in source and 'row.detailControllerClass = Nil;' in source

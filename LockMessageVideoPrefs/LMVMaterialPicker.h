@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import "LMVMaterialCatalog.h"
+#import "LMVMaterialDeletion.h"
 
 @interface LMVMaterialCell : UITableViewCell
 @end
@@ -88,7 +89,7 @@
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.materials.count + 1; }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return self.materials.count ? @"向左滑动素材可重命名。名称修改不会影响当前选择。" : @"素材库为空，请先从相册导入视频。";
+    return self.materials.count ? @"向左滑动素材可重命名或删除。删除正在使用的素材会取消相关背景选择。" : @"素材库为空，请先从相册导入视频。";
 }
 - (void)requestThumbnail:(NSDictionary *)row {
     NSString *key = row[@"revision"];
@@ -153,6 +154,38 @@
     void (^apply)(NSString *, NSString *) = self.apply;
     [self dismissViewControllerAnimated:YES completion:^{ if (apply) apply(relative, name); }];
 }
+- (void)confirmDelete:(NSDictionary *)row {
+    if (self.presentedViewController) return;
+    NSString *relative=row[@"path"];
+    UIAlertController *confirm=[UIAlertController alertControllerWithTitle:@"删除素材？" message:[NSString stringWithFormat:@"将删除“%@”，无法撤销。消息、锁屏、选项或清除背景如果正在使用它，会取消该素材选择。",row[@"name"]] preferredStyle:UIAlertControllerStyleAlert];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf=self;
+    [confirm addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        LMVMaterialPicker *picker=weakSelf;
+        picker.tableView.userInteractionEnabled=NO;
+        [picker dismissViewControllerAnimated:YES completion:^{
+            dispatch_async(LMVMaterialQueue(),^{
+                BOOL deleted=NO;
+                NSError *error=LMVDeleteMaterial(relative,&deleted);
+                dispatch_async(dispatch_get_main_queue(),^{
+                    LMVMaterialPicker *live=weakSelf;
+                    if (!live) return;
+                    live.tableView.userInteractionEnabled=YES;
+                    if (deleted) {
+                        if ([live.selected isEqualToString:relative]) live.selected=@"";
+                        [live.thumbnails removeObjectForKey:row[@"revision"]];
+                        [live reloadLibrary];
+                    }
+                    NSString *title=error ? (deleted ? @"素材已删除，清理未完成" : @"删除失败") : @"素材已删除";
+                    UIAlertController *result=[UIAlertController alertControllerWithTitle:title message:error.localizedDescription ?: @"相关背景选择已更新。其他素材保持不变。" preferredStyle:UIAlertControllerStyleAlert];
+                    [result addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+                    [live presentViewController:result animated:YES completion:nil];
+                });
+            });
+        }];
+    }]];
+    [self presentViewController:confirm animated:YES completion:nil];
+}
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.row >= self.materials.count) return nil;
     NSDictionary *row = self.materials[indexPath.row];
@@ -184,7 +217,13 @@
         done(YES);
     }];
     rename.backgroundColor = UIColor.systemBlueColor;
-    UISwipeActionsConfiguration *configuration = [UISwipeActionsConfiguration configurationWithActions:@[rename]];
+    UIContextualAction *remove = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
+        LMVMaterialPicker *picker = weakSelf;
+        if (!picker || picker.presentedViewController) { done(NO); return; }
+        done(YES);
+        [picker confirmDelete:row];
+    }];
+    UISwipeActionsConfiguration *configuration = [UISwipeActionsConfiguration configurationWithActions:@[rename, remove]];
     configuration.performsFirstActionWithFullSwipe = NO;
     return configuration;
 }

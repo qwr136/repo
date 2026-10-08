@@ -66,10 +66,6 @@ static void LMVNotify(void) {
     PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     open.buttonAction = @selector(openMaterialPath:);
     [_specifiers addObject:open];
-    PSSpecifier *clear = [PSSpecifier preferenceSpecifierNamed:@"清空原素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    clear.buttonAction = @selector(clearOriginals:);
-    [clear setProperty:@"ClearOriginals" forKey:@"id"];
-    [_specifiers addObject:clear];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"诊断"]];
     PSSpecifier *diagnostics = [PSSpecifier preferenceSpecifierNamed:@"启用诊断日志" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [diagnostics setProperty:@"DiagnosticsEnabled" forKey:@"key"];
@@ -163,32 +159,11 @@ static void LMVNotify(void) {
     _materialBusy = busy;
     for (PSSpecifier *item in _specifiers) {
         NSString *identifier = [item propertyForKey:@"id"];
-        if ([identifier isEqualToString:@"ImportVideo"] || [identifier isEqualToString:@"ClearOriginals"]) {
+        if ([identifier isEqualToString:@"ImportVideo"]) {
             [item setProperty:@(!busy) forKey:@"enabled"];
             [self reloadSpecifier:item animated:NO];
         }
     }
-}
-- (void)clearOriginals:(PSSpecifier *)specifier {
-    if (self.materialBusy || self.presentedViewController) return;
-    UIAlertController *confirm = [UIAlertController alertControllerWithTitle:@"清空原素材？" message:@"将永久删除 /var/mobile/LockMessageVideo/原素材/ 中的原视频，无法撤销。不会删除素材库或当前选中的压缩视频。子目录及符号链接不会删除。" preferredStyle:UIAlertControllerStyleAlert];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        if (self.materialBusy) return;
-        self.materialBusy = YES;
-        [self dismissViewControllerAnimated:YES completion:^{
-        dispatch_async(LMVMaterialQueue(), ^{
-            NSError *error = LMVClearOriginals();
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.materialBusy = NO;
-                UIAlertController *result = [UIAlertController alertControllerWithTitle:error ? @"清理未完成" : @"清空成功" message:error.localizedDescription ?: @"原素材已清空，素材库和当前选中视频保持不变。" preferredStyle:UIAlertControllerStyleAlert];
-                [result addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-                [self presentViewController:result animated:YES completion:nil];
-            });
-        });
-        }];
-    }]];
-    [self presentViewController:confirm animated:YES completion:nil];
 }
 - (void)showError:(NSError *)error {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败" message:error.localizedDescription ?: @"无法复制视频" preferredStyle:UIAlertControllerStyleAlert];
