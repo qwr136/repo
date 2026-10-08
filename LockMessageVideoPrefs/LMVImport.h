@@ -1,5 +1,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <math.h>
+#import "LMVMaterialStorage.h"
+#import "LMVEncodePlan.h"
 
 static const unsigned long long LMVMaxImportBytes = 5ULL * 1024ULL * 1024ULL;
 static NSError *LMVImportError(NSInteger code, NSString *message, NSError *underlying) {
@@ -11,27 +13,32 @@ static NSError *LMVImportError(NSInteger code, NSString *message, NSError *under
     return [NSError errorWithDomain:@"LockMessageVideo.Import" code:code userInfo:info];
 }
 // Called only on the Photos provider/background queue, never layout or main.
-static NSError *LMVEncodeMovie(AVURLAsset *asset, AVAssetTrack *track, NSURL *destination, NSInteger attempt, unsigned long long inputBytes) {
+static NSError *LMVEncodeMovie(AVURLAsset *asset, AVAssetTrack *track, NSURL *destination, LMVEncodePlan plan) {
     NSError *error=nil;
     AVAssetReader *reader=[[AVAssetReader alloc] initWithAsset:asset error:&error];
     if (!reader) return error ?: LMVImportError(2,@"无法创建视频读取器",nil);
     AVAssetWriter *writer=[[AVAssetWriter alloc] initWithURL:destination fileType:AVFileTypeQuickTimeMovie error:&error];
     if (!writer) return error ?: LMVImportError(3,@"无法创建 H.264 编码器",nil);
-    double duration=CMTimeGetSeconds(asset.duration);
-    CGFloat width=fabs(track.naturalSize.width), height=fabs(track.naturalSize.height);
-    if (!isfinite(width) || !isfinite(height) || width<2 || height<2) return LMVImportError(4,@"视频尺寸无效",nil);
-    CGFloat limit=attempt==0 ? 1280 : (attempt==1 ? 854 : 640);
-    CGFloat scale=MIN(1.0,MIN(limit/MAX(width,height),720.0/MIN(width,height)));
-    NSInteger w=MAX(2,((NSInteger)(width*scale)/2)*2), h=MAX(2,((NSInteger)(height*scale)/2)*2);
-    // Budget includes container overhead; even <=5 MiB input ALWAYS re-encodes.
-    double budget=MIN((double)LMVMaxImportBytes,(double)inputBytes)*0.90;
-    NSInteger rate=(NSInteger)MIN(1200000.0,budget*8.0/duration)*pow(0.60,attempt);
-    rate=MAX(32000,rate);
-    NSDictionary *settings=@{AVVideoCodecKey:AVVideoCodecTypeH264,AVVideoWidthKey:@(w),AVVideoHeightKey:@(h),AVVideoCompressionPropertiesKey:@{AVVideoAverageBitRateKey:@(rate),AVVideoMaxKeyFrameIntervalKey:@30,AVVideoProfileLevelKey:AVVideoProfileLevelH264MainAutoLevel}};
-    AVAssetReaderTrackOutput *output=[AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:track outputSettings:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)}];
+    NSDictionary *settings=@{AVVideoCodecKey:AVVideoCodecTypeH264,AVVideoWidthKey:@(plan.width),AVVideoHeightKey:@(plan.height),AVVideoCompressionPropertiesKey:@{AVVideoAverageBitRateKey:@(plan.bitrate),AVVideoExpectedSourceFrameRateKey:@(plan.fps),AVVideoMaxKeyFrameIntervalKey:@((NSInteger)ceil(plan.fps)),AVVideoProfileLevelKey:AVVideoProfileLevelH264MainAutoLevel}};
+    // Composition delivers already scaled / frame-limited buffers to the encoder.
+    // Unlike dropping samples after full-rate decode/append, 4K/60+ imports do not
+    // encode full resolution or every source frame. Source decode is still required.
+    AVAssetReaderVideoCompositionOutput *output=[AVAssetReaderVideoCompositionOutput assetReaderVideoCompositionOutputWithVideoTracks:@[track] videoSettings:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)}];
+    CGRect oriented=CGRectApplyAffineTransform((CGRect){CGPointZero,track.naturalSize},track.preferredTransform);
+    CGAffineTransform transform=track.preferredTransform;
+    transform=CGAffineTransformConcat(transform,CGAffineTransformMakeTranslation(-CGRectGetMinX(oriented),-CGRectGetMinY(oriented)));
+    transform=CGAffineTransformConcat(transform,CGAffineTransformMakeScale(plan.width/CGRectGetWidth(oriented),plan.height/CGRectGetHeight(oriented)));
+    AVMutableVideoCompositionLayerInstruction *layer=[AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:track];
+    [layer setTransform:transform atTime:kCMTimeZero];
+    AVMutableVideoCompositionInstruction *instruction=[AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange=CMTimeRangeMake(kCMTimeZero,asset.duration); instruction.layerInstructions=@[layer];
+    AVMutableVideoComposition *composition=[AVMutableVideoComposition videoComposition];
+    composition.renderSize=CGSizeMake(plan.width,plan.height);
+    composition.frameDuration=CMTimeMake(1000,(int32_t)llround(plan.fps*1000));
+    composition.instructions=@[instruction]; output.videoComposition=composition;
     output.alwaysCopiesSampleData=NO;
     AVAssetWriterInput *input=[AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:settings];
-    input.expectsMediaDataInRealTime=NO; input.transform=track.preferredTransform;
+    input.expectsMediaDataInRealTime=NO; // Orientation is baked by the composition.
     if (![reader canAddOutput:output] || ![writer canAddInput:input]) return LMVImportError(5,@"视频格式无法重新编码",nil);
     [reader addOutput:output]; [writer addInput:input]; // NO audio input/output.
     if (![writer startWriting]) return writer.error ?: LMVImportError(6,@"无法开始编码",nil);
@@ -95,22 +102,31 @@ static NSError *LMVCompressMovie(NSURL *source, NSURL *destination) {
     AVAssetTrack *track=[asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
     double duration=CMTimeGetSeconds(asset.duration);
     if (!track || !isfinite(duration) || duration<=0) return LMVImportError(1,@"原视频没有有效视频轨道或时长",nil);
+    CGRect oriented=CGRectApplyAffineTransform((CGRect){CGPointZero,track.naturalSize},track.preferredTransform);
+    double width=CGRectGetWidth(oriented), height=CGRectGetHeight(oriented);
+    if (!isfinite(width) || !isfinite(height) || width<2 || height<2) return LMVImportError(4,@"视频尺寸无效",nil);
+    double feedbackScale=1.0;
     for (NSInteger attempt=0;attempt<3;attempt++) {
         [fm removeItemAtURL:destination error:nil];
-        error=LMVEncodeMovie(asset,track,destination,attempt,inputBytes);
+        LMVEncodePlan plan=LMVMakeEncodePlan(width,height,duration,track.nominalFrameRate,inputBytes,attempt,feedbackScale);
+        error=LMVEncodeMovie(asset,track,destination,plan);
         if (!error) error=LMVValidateMovie(destination,duration);
-        if (!error) {
-            unsigned long long bytes=[fm attributesOfItemAtPath:destination.path error:nil].fileSize;
-            if (bytes>=inputBytes) error=LMVImportError(16,@"重新编码未能减小文件；未加入素材库，原素材已保留",nil);
-        }
+        unsigned long long bytes=[fm attributesOfItemAtPath:destination.path error:nil].fileSize;
+        if (!error && bytes>=inputBytes) error=LMVImportError(16,@"重新编码未能减小文件；未加入素材库，原素材已保留",nil);
         if (!error) return nil;
+        // Only size failures can benefit from another encode. Decode/I/O/codec
+        // or validation errors are terminal; never repeat the same doomed export.
+        BOOL sizeFailure=[error.domain isEqualToString:@"LockMessageVideo.Import"] && (error.code==11 || error.code==16) && bytes>0;
+        if (!sizeFailure) break;
+        double target=MIN((double)LMVMaxImportBytes,(double)inputBytes)*0.82;
+        feedbackScale=MIN(feedbackScale,MIN(1.0,target/(double)bytes));
     }
     [fm removeItemAtURL:destination error:nil];
     return error;
 }
 // Copies Photos' temporary representation synchronously before its callback ends.
 // Library receives ONLY a validated, smaller, silent H.264 variant, via final move.
-static NSString *LMVImportMovie(NSURL *source, NSError **outError) {
+static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError) {
     NSFileManager *fm=NSFileManager.defaultManager; NSError *error=nil;
     NSString *base=@"/var/mobile/LockMessageVideo";
     NSString *originals=[base stringByAppendingPathComponent:@"原素材"];
@@ -134,4 +150,20 @@ static NSString *LMVImportMovie(NSURL *source, NSError **outError) {
         return nil;
     }
     return [@"library" stringByAppendingPathComponent:name];
+}
+
+// NSItemProvider's file URL expires when its callback returns. Keep that callback
+// alive while the serial background transaction runs; NEVER wait on the UI thread.
+static NSString *LMVImportMovie(NSURL *source, NSError **outError) {
+    if (NSThread.isMainThread) {
+        if (outError) *outError=LMVImportError(18,@"视频导入必须在相册后台回调中执行",nil);
+        return nil;
+    }
+    __block NSString *relative=nil;
+    __block NSError *error=nil;
+    dispatch_sync(LMVMaterialQueue(), ^{
+        @autoreleasepool { relative=LMVImportMovieOnMaterialQueue(source,&error); }
+    });
+    if (outError) *outError=error;
+    return relative;
 }

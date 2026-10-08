@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.47')==1
+assert (root/'control').read_text().count('Version: 0.0.48')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.47'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.48'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -64,4 +64,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.47 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.48 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')

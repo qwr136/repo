@@ -7,6 +7,7 @@
 #import <float.h>
 #import <math.h>
 #import <sys/stat.h>
+#import <atomic>
 
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
@@ -42,10 +43,13 @@ static CADisplayLink *LMVLink;
 
 // Diagnostics intentionally contain no notification text, labels or filenames.
 static dispatch_queue_t LMVDiagnosticQueue;
+static std::atomic_bool LMVDiagnosticsEnabled(false);
 static void LMVDiagnostic(NSString *event) {
-    if (!event.length) return;
+    if (!LMVDiagnosticsEnabled.load() || !event.length || !LMVDiagnosticQueue) return;
     dispatch_async(LMVDiagnosticQueue, ^{
         @autoreleasepool {
+            // Drop queued records after the switch is turned off, too.
+            if (!LMVDiagnosticsEnabled.load()) return;
             static NSUInteger records=0;
             if (++records>1200) return;
             NSFileManager *fm=NSFileManager.defaultManager;
@@ -495,6 +499,10 @@ static void LMVPrepareAssets(void) {
 }
 static void LMVLoadPreferences(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
+    NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
+    BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
+    BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.48 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -992,7 +1000,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
 %ctor {
     @autoreleasepool {
         LMVDiagnosticQueue=dispatch_queue_create("com.minis.lockmessagevideo.diagnostics",DISPATCH_QUEUE_SERIAL);
-        LMVDiagnostic(@"version=0.0.47 retained last-frame before source startup, shared-output/reader recovery");
         LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
         LMVCells = [NSHashTable weakObjectsHashTable];

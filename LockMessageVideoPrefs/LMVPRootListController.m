@@ -17,6 +17,7 @@ static void LMVNotify(void) {
 }
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
+@property(nonatomic) BOOL materialBusy;
 @end
 
 @implementation LMVPRootListController
@@ -42,6 +43,7 @@ static void LMVNotify(void) {
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
+    [import setProperty:@"ImportVideo" forKey:@"id"];
     [_specifiers addObject:import];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"所有视频重新压缩至 ≤5 MiB，原素材始终保留；无法压缩则提示失败"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"视频透明度"]];
@@ -62,6 +64,16 @@ static void LMVNotify(void) {
     PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     open.buttonAction = @selector(openMaterialPath:);
     [_specifiers addObject:open];
+    PSSpecifier *clear = [PSSpecifier preferenceSpecifierNamed:@"清空原素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    clear.buttonAction = @selector(clearOriginals:);
+    [clear setProperty:@"ClearOriginals" forKey:@"id"];
+    [_specifiers addObject:clear];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"诊断"]];
+    PSSpecifier *diagnostics = [PSSpecifier preferenceSpecifierNamed:@"启用诊断日志" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [diagnostics setProperty:@"DiagnosticsEnabled" forKey:@"key"];
+    [diagnostics setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:diagnostics];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志"]];
     return _specifiers;
 }
 - (id)enabled:(PSSpecifier *)specifier {
@@ -120,6 +132,37 @@ static void LMVNotify(void) {
         if (!success) dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showMaterialPath]; });
     }];
 }
+- (void)setMaterialBusy:(BOOL)busy {
+    _materialBusy = busy;
+    for (PSSpecifier *item in _specifiers) {
+        NSString *identifier = [item propertyForKey:@"id"];
+        if ([identifier isEqualToString:@"ImportVideo"] || [identifier isEqualToString:@"ClearOriginals"]) {
+            [item setProperty:@(!busy) forKey:@"enabled"];
+            [self reloadSpecifier:item animated:NO];
+        }
+    }
+}
+- (void)clearOriginals:(PSSpecifier *)specifier {
+    if (self.materialBusy || self.presentedViewController) return;
+    UIAlertController *confirm = [UIAlertController alertControllerWithTitle:@"清空原素材？" message:@"将永久删除 /var/mobile/LockMessageVideo/原素材/ 中的原视频，无法撤销。不会删除素材库或当前选中的压缩视频。子目录及符号链接不会删除。" preferredStyle:UIAlertControllerStyleAlert];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        if (self.materialBusy) return;
+        self.materialBusy = YES;
+        [self dismissViewControllerAnimated:YES completion:^{
+        dispatch_async(LMVMaterialQueue(), ^{
+            NSError *error = LMVClearOriginals();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.materialBusy = NO;
+                UIAlertController *result = [UIAlertController alertControllerWithTitle:error ? @"清理未完成" : @"清空成功" message:error.localizedDescription ?: @"原素材已清空，素材库和当前选中视频保持不变。" preferredStyle:UIAlertControllerStyleAlert];
+                [result addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+                [self presentViewController:result animated:YES completion:nil];
+            });
+        });
+        }];
+    }]];
+    [self presentViewController:confirm animated:YES completion:nil];
+}
 - (void)showError:(NSError *)error {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败" message:error.localizedDescription ?: @"无法复制视频" preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
@@ -163,6 +206,7 @@ static void LMVNotify(void) {
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
+    if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
     config.filter = [PHPickerFilter videosFilter];
     config.selectionLimit = 1;
@@ -174,6 +218,7 @@ static void LMVNotify(void) {
     [picker dismissViewControllerAnimated:YES completion:nil];
     PHPickerResult *result = results.firstObject;
     if (!result || ![result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
+    self.materialBusy = YES;
     [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
         NSError *copyError = error;
         NSString *relative = nil;
@@ -182,6 +227,7 @@ static void LMVNotify(void) {
             relative = LMVImportMovie(url, &copyError);
         }
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.materialBusy = NO;
             if (copyError) [self showError:copyError];
             else {
                 for (NSString *target in LMVTargets()) {

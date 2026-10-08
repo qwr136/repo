@@ -25,6 +25,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Source and import-plan regression tests
+        run: |
+          python3 tests/shared-render-regression.py
+          python3 tests/settings-import-regression.py
+          cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
+          "$RUNNER_TEMP/lmv-import-plan"
+
       - name: Setup Theos and iOS SDK
         run: |
           git clone --depth=1 --recursive https://github.com/theos/theos.git "$HOME/theos"
