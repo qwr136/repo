@@ -117,14 +117,16 @@ static void LMVDiagnostic(NSString *event) {
         @autoreleasepool {
             // Drop queued records after the switch is turned off, too.
             if (!LMVDiagnosticsEnabled.load()) return;
+            BOOL trace = [event hasPrefix:@"wallpaper-call "] || [event hasPrefix:@"wallpaper-hook "] || [event hasPrefix:@"wallpaper-coverage "];
             BOOL wallpaper = [event hasPrefix:@"wallpaper-"];
-            static NSUInteger records=0, wallpaperRecords=0;
-            if (wallpaper) { if (++wallpaperRecords > 900) return; }
+            static NSUInteger records=0, wallpaperRecords=0, traceRecords=0;
+            if (trace) { if (++traceRecords > 1800) return; }
+            else if (wallpaper) { if (++wallpaperRecords > 900) return; }
             else if (++records > 1200) return;
             NSFileManager *fm=NSFileManager.defaultManager;
             [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-            NSString *path=[LMVDirectory stringByAppendingPathComponent:wallpaper ? @"wallpaper-structure.log" : @"shared-render.log"];
-            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>65536) {
+            NSString *path=[LMVDirectory stringByAppendingPathComponent:trace ? @"wallpaper-call.log" : (wallpaper ? @"wallpaper-structure.log" : @"shared-render.log")];
+            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>(trace ? 262144 : 65536)) {
                 NSString *old=[path stringByAppendingString:@".1"];
                 [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
             }
@@ -139,6 +141,8 @@ static void LMVDiagnostic(NSString *event) {
         }
     });
 }
+
+#import "LMVWallpaperCallTrace.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -662,7 +666,10 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.63 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) {
+        LMVDiagnostic(@"version=0.0.64 diagnostics-enabled");
+        LMVReportWallpaperTrace();
+    }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -1781,6 +1788,7 @@ static void LMVRefresh(BOOL reload) {
     }
     LMVUpdateLockScreens();
     LMVUpdateDesktops();
+    LMVReportWallpaperTrace();
     LMVCaptureWallpaperDiagnostics();
     LMVSyncDisplayLink();
 }
@@ -1931,6 +1939,13 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVPaths = [NSMutableDictionary new]; LMVEnabled = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];
         LMVInitialized = YES;
+        // Capture calls during initial wallpaper construction if diagnostics was
+        // already enabled before respring; no system manager is constructed.
+        NSNumber *traceEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
+        LMVDiagnosticsEnabled.store([traceEnabled respondsToSelector:@selector(boolValue)] && traceEnabled.boolValue);
+        LMVInstallWallpaperTrace();
+        LMVReportWallpaperTrace();
+        LMVStartWallpaperTraceReports();
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         notify_register_check("com.apple.springboard.lockstate", &LMVLockToken);
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {

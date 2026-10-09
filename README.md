@@ -27,6 +27,14 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.64
+
+- 基于 0.0.63 增加壁纸调用追踪，不改变原方法返回值、素材预览或壁纸显示逻辑。
+- 对 25 个专用候选接口校验真实返回类型及参数 ABI；不匹配/类不存在/方法不存在会记录原因，不强行 hook。
+- 单独保存 wallpaper-call.log（256 KiB 轮转）：wallpaper-hook 表示安装状态，wallpaper-call 表示实际调用和返回对象类型，wallpaper-coverage 区分 called 与 not-observed。前两次调用记录模块、偏移和符号调用栈。
+- 开启诊断后注销 SpringBoard，不必开启视频；进入桌面、下拉/收回通知中心、锁屏/解锁。若可以，切换一次系统壁纸以触发缓存以外的加载，30 秒后提交 wallpaper-call.log/.1 和 wallpaper-structure.log/.1。
+- 仅观测 SpringBoard 进程已确认的接口；方法安装不等于实际调用，也不能证明远程进程的静态图像读取已被观测。本版不拦截、不删除原壁纸。
+
 ## 0.0.63
 
 - 修复悬浮素材选择页视频预览：导入时生成首帧海报，旧素材首次打开时补生成，取帧失败不再把蓝色胶片占位图永久当成成功缓存。
