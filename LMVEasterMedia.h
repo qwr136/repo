@@ -23,7 +23,10 @@ static BOOL LMVEasterSafeDirectory(NSString *path, NSError **error) {
     NSFileManager *fm = NSFileManager.defaultManager;
     if (![fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:error]) return NO;
     struct stat status;
-    if (lstat(path.fileSystemRepresentation, &status) || !S_ISDIR(status.st_mode) || ![[path stringByResolvingSymlinksInPath] isEqualToString:path]) {
+    // /var itself is Apple's /private/var alias. Reject links only beneath mobile.
+    NSString *parent = path.stringByDeletingLastPathComponent;
+    NSString *expected = [[parent stringByResolvingSymlinksInPath] stringByAppendingPathComponent:path.lastPathComponent];
+    if (lstat(path.fileSystemRepresentation, &status) || !S_ISDIR(status.st_mode) || ![[path stringByResolvingSymlinksInPath] isEqualToString:expected]) {
         if (error) *error = LMVStorageError(60, @"素材目录不安全，未保存文件");
         return NO;
     }
@@ -35,7 +38,12 @@ static NSString *LMVEasterImagePath(id relative) {
     if (parts.count != 2 || ![parts[0] isEqualToString:@"\u5c0f\u5f69\u86cb"] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
     NSString *path = [@"/var/mobile/LockMessageVideo" stringByAppendingPathComponent:relative];
     struct stat status;
-    if (lstat(path.fileSystemRepresentation, &status) || !S_ISREG(status.st_mode) || status.st_size <= 0 || status.st_size > 20 * 1024 * 1024 || ![[path stringByResolvingSymlinksInPath] isEqualToString:path]) return nil;
+    struct stat rootStatus, folderStatus;
+    NSString *root = @"/var/mobile/LockMessageVideo";
+    if (lstat(root.fileSystemRepresentation, &rootStatus) || !S_ISDIR(rootStatus.st_mode) || lstat(LMVEasterFolder.fileSystemRepresentation, &folderStatus) || !S_ISDIR(folderStatus.st_mode)) return nil;
+    NSString *expected = [[[root stringByDeletingLastPathComponent] stringByResolvingSymlinksInPath] stringByAppendingPathComponent:@"LockMessageVideo"];
+    expected = [expected stringByAppendingPathComponent:relative];
+    if (lstat(path.fileSystemRepresentation, &status) || !S_ISREG(status.st_mode) || status.st_size <= 0 || status.st_size > 20 * 1024 * 1024 || ![[path stringByResolvingSymlinksInPath] isEqualToString:expected]) return nil;
     return path;
 }
 
@@ -107,7 +115,7 @@ static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) 
             NSDictionary *attrs = [fm attributesOfItemAtPath:source.path error:&error];
             unsigned long long maximum = movie ? 512ULL * 1024 * 1024 : 20ULL * 1024 * 1024;
             if (error || !attrs.fileSize || attrs.fileSize > maximum) { error = error ?: LMVStorageError(67, movie ? @"视频需小于 512 MiB" : @"图片需小于 20 MiB"); return; }
-            if (![fm copyItemAtURL:source toURL:[NSURL fileURLWithPath:staging] error:&error]) return;
+            if (![fm copyItemAtURL:source toURL:[NSURL fileURLWithPath:staging] error:&error]) { [fm removeItemAtPath:staging error:nil]; return; }
             NSURL *owned = [NSURL fileURLWithPath:staging];
             if (movie) {
                 AVURLAsset *asset = [AVURLAsset URLAssetWithURL:owned options:nil];
@@ -128,7 +136,8 @@ static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) 
                     }
                 }
             } else if (!LMVEasterDecode(owned, &error)) error = error ?: LMVStorageError(70, @"图片无法解码");
-            if (!error && ![fm moveItemAtPath:staging toPath:destination error:&error]) { /* atomic same-volume publication */ }
+            // Same-volume move publishes only a fully validated source.
+            if (!error) [fm moveItemAtPath:staging toPath:destination error:&error];
             if (!error && movie) {
                 NSString *relative = [@"library" stringByAppendingPathComponent:name];
                 NSMutableDictionary *names = LMVReadMaterialNames();

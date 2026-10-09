@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = LockMessageVideo
 LockMessageVideo_FILES = Tweak.xm
 LockMessageVideo_CFLAGS = -fobjc-arc
-LockMessageVideo_CCFLAGS = -std=c++11
+LockMessageVideo_CCFLAGS = -std=gnu++11
 LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation CoreImage CoreVideo CoreMedia QuartzCore CoreGraphics ImageIO Photos PhotosUI
 
 BUNDLE_NAME = LockMessageVideoPrefs
