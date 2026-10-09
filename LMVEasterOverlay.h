@@ -161,7 +161,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (!previous || previous == self.window || previous.hidden || previous.windowScene != self.window.windowScene || !previous.canBecomeKeyWindow) previous = self.hostWindow;
     if (previous && previous != self.window && !previous.hidden && previous.canBecomeKeyWindow) [previous makeKeyWindow];
     else [self.window resignKeyWindow];
-    LMVEasterWindowDiagnostic([NSString stringWithFormat:@"key-restored to=%@", previous ? NSStringFromClass(previous.class) : @"none"]);
+    NSString *keyReason = [NSString stringWithFormat:@"key-restored to=%@", previous ? NSStringFromClass(previous.class) : @"none"];
+    LMVEasterWindowDiagnostic(keyReason);
 }
 - (void)refresh {
     if (!NSThread.isMainThread || !self.ready || self.pending) return;
@@ -253,7 +254,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         }); return;
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
-    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld cover=%@",NSStringFromClass(host.class),level,(long)host.windowScene.activationState,cover ? [NSString stringWithFormat:@"%.0f",cover.windowLevel] : @"none"]]];
+    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld cover=%@",NSStringFromClass(host.class),level,(long)host.windowScene.activationState,cover ? [NSString stringWithFormat:@"%.0f",cover.windowLevel] : @"none"]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {
