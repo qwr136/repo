@@ -115,7 +115,6 @@ static void LMVNotify(void) {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
     return value ?: [specifier propertyForKey:@"default"] ?: @NO;
 }
-- (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self reloadEasterPreview];
@@ -125,7 +124,7 @@ static void LMVNotify(void) {
     NSString *path = LMVEasterImagePath(selected);
     __weak typeof(self) weakSelf = self;
     dispatch_async(LMVMaterialQueue(), ^{
-        UIImage *preview = path ? LMVEasterDecode([NSURL fileURLWithPath:path], NULL).frames.firstObject : nil;
+        UIImage *preview = path ? LMVEasterPreviewImage(LMVEasterDecode([NSURL fileURLWithPath:path], NULL)) : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
             LMVPRootListController *controller = weakSelf;
             if (!controller || ![(selected ?: @"") isEqual:(LMVEasterRead(@"EasterEggImage") ?: @"")]) return;

@@ -29,6 +29,11 @@ jobs:
         run: |
           python3 tests/shared-render-regression.py
           python3 tests/easter-regression.py
+          python3 tests/easter-movie.py
+          python3 tests/easter-window.py
+          python3 tests/frame-disk-regression.py
+          clang -fobjc-arc -framework Foundation -framework CoreGraphics -framework ImageIO -framework CoreMedia tests/frame-disk.m -o "$RUNNER_TEMP/lmv-frame-disk"
+          "$RUNNER_TEMP/lmv-frame-disk"
           python3 tests/settings-import-regression.py
           python3 tests/preferences-routing.py
           python3 tests/desktop-runtime.py

@@ -25,11 +25,14 @@ protected={
     'static void LMVDesktopHostChanged(UIView *view)': 'd913d26ac489c99b48578e7e522d60563220bb895894b7199cb53a4336876526',
     'static void LMVUpdateDesktops(void)': 'a4ce7b7140232c7150e03cd380dd9fa652626850d4091ff551cc337f81219665',
     'static void LMVReleaseDesktopSource(LMVVideoState *state)': 'd37775b7f77e6299ae4b38d0b6f7dd683eb9cecc1967bb0e53dd8f2b4b28270b',
-    'static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot)': '14c91244536ff3c553a7e5644d039ac2efbd3d7819ce0aad94cd70ac6e846966',
-    'static LMVSharedSource *LMVSourceForPath(NSString *path)': 'f40b5d647e63928c3fbd64d060a59ecff21cc2e38bae05b7d81c629133be4f1c'
+    'static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot)': '14c91244536ff3c553a7e5644d039ac2efbd3d7819ce0aad94cd70ac6e846966'
 }
 for signature, expected in protected.items():
     assert hashlib.sha256(function(s,signature).encode()).hexdigest()==expected,signature
+# Source initialization now intentionally defers disk PTS seek until ready (.59).
+source=function(s,'static LMVSharedSource *LMVSourceForPath(NSString *path)')
+assert 'LMVDiskPending' in source and 'source.restoreOnStart=YES' in source
+assert 'seekToTime:' not in source.split('LMVSharedSources[path]=source',1)[0]
 # No early hook, singleton, global layer/view mutation or second decoder path.
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','%hook UIView','%hook CALayer','AVAudioSession','prerollAtRate','idleTimerDisabled']:
     assert forbidden not in s+h+l,forbidden

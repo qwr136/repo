@@ -27,11 +27,15 @@ assert 'LMVEasterFolder' in media and 'parts.count != 2' in media
 assert 'stringByResolvingSymlinksInPath' in media and 'lstat(' in media
 assert 'NSFileTypeRegular' in media and 'S_ISREG' in media
 assert 'NSUUID.UUID.UUIDString' in media and '.pending-' in media
-assert media.index('copyItemAtURL:source') < media.index('moveItemAtPath:staging')
-assert media.index('tracksWithMediaType:AVMediaTypeVideo') < media.index('moveItemAtPath:staging')
+movie = media[media.index('static NSString *LMVEasterImport('):]
+assert movie.index('copyItemAtURL:source') < movie.index('tracksWithMediaType:AVMediaTypeVideo') < movie.index('[fm moveItemAtPath:staging')
+assert 'if (!error) [fm moveItemAtPath:staging' in movie
 assert 'copyNextSampleBuffer' in media and 'dispatch_sync(LMVMaterialQueue()' in media
 assert 'count > 60' in media and 'kCGImageSourceThumbnailMaxPixelSize:@160' in media
 assert '8 * 1024 * 1024' in media and '20 * 1024 * 1024' in media
+assert 'totalDuration>60.0' in media and 'animatedImageWithImages:' in media
+assert 'LMVEasterVisibleDrawing' in overlay and 'area/full>=0.30' in overlay
+assert 'MAX((CGFloat)1200' in overlay and 'UISceneActivationStateUnattached' in overlay
 assert 'requireGestureRecognizerToFail:pan' in overlay
 assert 'UIGestureRecognizerStateEnded' in overlay and 'EasterEggX' in overlay
 assert 'safeAreaInsets' in overlay and 'MAX(0, inset.size.width - 64)' in overlay
@@ -40,7 +44,7 @@ assert '- (BOOL)canBecomeKeyWindow { return NO; }' in overlay
 assert 'makeKey' not in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
-assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= level' in overlay
+assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel>=level' in overlay
 assert 'notify_get_state(LMVLockToken' in overlay and 'blank || locked' in overlay
 assert 'sharedInstance' not in overlay and 'SBLock' not in overlay and 'SBWall' not in overlay
 assert 'UIWindowDidBecomeVisibleNotification' in overlay and 'UISceneDidActivateNotification' in overlay

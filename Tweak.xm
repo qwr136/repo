@@ -39,6 +39,11 @@ static CIContext *LMVCIContext;
 @class LMVFrameSnapshot;
 static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *LMVFrameCache;
 static NSMutableSet<NSString *> *LMVPreviewPending;
+#import "LMVFrameDisk.h"
+static dispatch_queue_t LMVDiskQueue;
+static NSMutableSet<NSString *> *LMVDiskPending, *LMVDiskAttempted, *LMVDiskWriting;
+static NSMutableDictionary<NSString *, NSNumber *> *LMVDiskEpochs, *LMVDiskSavedTimes;
+static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset);
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
@@ -57,6 +62,8 @@ static int LMVLockToken = -1;
 // Launch readiness is independent: a system initializer must never run policy.
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying;
 static BOOL LMVPreferencesDirty = YES;
+static void LMVDiagnostic(NSString *event);
+#define LMVEasterWindowDiagnostic(reason) LMVDiagnostic([@"easter-window " stringByAppendingString:(reason)])
 #import "LMVEasterOverlay.h"
 static LMVEasterManager *LMVEaster;
 static void LMVLoadPreferences(void);
@@ -165,7 +172,7 @@ static void LMVCacheFrame(NSString *path, NSString *revision, CGImageRef image, 
 }
 static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset) {
     NSString *key=LMVFrameKey(path,revision);
-    if (!key || LMVFrameCache[key].image || [LMVPreviewPending containsObject:key]) return;
+    if (!key || LMVFrameCache[key].image || [LMVDiskPending containsObject:key] || [LMVPreviewPending containsObject:key]) return;
     [LMVPreviewPending addObject:key];
     dispatch_async(LMVFrameQueue, ^{
         @autoreleasepool {
@@ -244,6 +251,52 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
     if (_endObserver) [NSNotificationCenter.defaultCenter removeObserver:_endObserver];
 }
 @end
+// Main thread coordinates epochs; all disk encode/read/write happens serially off-main.
+static void LMVCheckpointFrame(NSString *path, NSString *revision) {
+    NSString *key=LMVFrameKey(path,revision);
+    LMVFrameSnapshot *snapshot=LMVCachedFrame(path,revision);
+    if (!LMVLaunchReady || !key || !snapshot.rendered || !snapshot.image ||
+        !CMTIME_IS_NUMERIC(snapshot.time) || [LMVDiskWriting containsObject:key]) return;
+    NSNumber *seconds=@(CMTimeGetSeconds(snapshot.time));
+    if ([LMVDiskSavedTimes[key] isEqual:seconds]) return;
+    [LMVDiskWriting addObject:key];
+    dispatch_async(LMVDiskQueue, ^{
+        @autoreleasepool {
+            BOOL saved=LMVDiskWrite(path,revision,snapshot.image,snapshot.time);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [LMVDiskWriting removeObject:key];
+                if (saved && [LMVRevisions[path] isEqualToString:revision]) LMVDiskSavedTimes[key]=seconds;
+                // A new pause during the write is coalesced to the newest displayed frame.
+                LMVFrameSnapshot *latest=LMVCachedFrame(path,revision);
+                if (latest != snapshot && LMVSharedSources[path] && !LMVSharedSources[path].playing)
+                    LMVCheckpointFrame(path,revision);
+            });
+        }
+    });
+}
+static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
+    NSString *key=LMVFrameKey(path,revision);
+    if (!LMVLaunchReady || !key || LMVFrameCache[key].image || [LMVDiskAttempted containsObject:key]) return;
+    [LMVDiskAttempted addObject:key]; [LMVDiskPending addObject:key];
+    NSUInteger epoch=[LMVDiskEpochs[path] unsignedIntegerValue]+1; LMVDiskEpochs[path]=@(epoch);
+    dispatch_async(LMVDiskQueue, ^{
+        @autoreleasepool {
+            CMTime time=kCMTimeInvalid; CGImageRef image=LMVDiskRead(path,revision,&time);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [LMVDiskPending removeObject:key];
+                if ([LMVDiskEpochs[path] unsignedIntegerValue]==epoch && [LMVRevisions[path] isEqualToString:revision]) {
+                    // A late disk response cannot replace a newer live published frame.
+                    if (image && !LMVFrameCache[key].rendered) LMVCacheFrame(path,revision,image,time,YES);
+                    if (!LMVFrameCache[key].image && LMVAssets[path]) LMVPreparePreview(path,revision,LMVAssets[path]);
+                    for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
+                    LMVUpdateLockScreens(); LMVUpdateDesktops();
+                }
+                if (image) CGImageRelease(image);
+            });
+        }
+    });
+}
+
 @interface LMVVideoState : NSObject
 @property(nonatomic, strong) UIView *overlay;
 @property(nonatomic, strong) CALayer *layer;
@@ -297,7 +350,7 @@ static NSString *LMVFileRevision(NSString *path) {
 
 static LMVSharedSource *LMVSourceForPath(NSString *path) {
     LMVSharedSource *source=LMVSharedSources[path];
-    if (source || !LMVAssets[path]) return source;
+    if (source || !LMVAssets[path] || [LMVDiskPending containsObject:LMVFrameKey(path,LMVRevisions[path])]) return source;
     AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:LMVAssets[path]];
     item.preferredForwardBufferDuration=1;
     AVPlayerItemVideoOutput *output=[[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA), (id)kCVPixelBufferIOSurfacePropertiesKey:@{}}];
@@ -314,13 +367,8 @@ static LMVSharedSource *LMVSourceForPath(NSString *path) {
     if (snapshot.image) {
         source.lastImage=CGImageRetain(snapshot.image);
         if (snapshot.rendered && CMTIME_IS_NUMERIC(snapshot.time)) {
-            source.lastTime=snapshot.time; source.restoringTime=YES;
-            [player seekToTime:snapshot.time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    source.restoringTime=NO;
-                    if (source.playing && !source.readerMode && LMVSharedSources[path]==source) [source.player play];
-                });
-            }];
+            source.lastTime=snapshot.time; source.restoreOnStart=YES;
+            // Wait for ready-to-play before restoring. Cached image is already local.
         }
     }
     LMVSharedSources[path]=source;
@@ -472,7 +520,12 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
     });
 }
 static void LMVStartSource(LMVSharedSource *source) {
-    if (!source || source.playing) return;
+    if (!source) return;
+    if (source.playing) {
+        if (!source.readerMode && source.restoreOnStart && !source.restoringTime &&
+            source.player.currentItem.status==AVPlayerItemStatusReadyToPlay) source.playing=NO;
+        else return;
+    }
     if (!source.player.currentItem && !source.readerMode) { LMVDiagnostic([NSString stringWithFormat:@"source=%lu start=no-currentItem",(unsigned long)source.identifier]); return; }
     source.playing=YES; source.startedAt=CACurrentMediaTime(); source.lastProgressAt=source.startedAt; source.lastRequestAt=0;
     if (source.readerMode) {
@@ -485,12 +538,16 @@ static void LMVStartSource(LMVSharedSource *source) {
         });
     } else {
         [source.output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
+        if (source.restoreOnStart && source.player.currentItem.status!=AVPlayerItemStatusReadyToPlay) return;
         if (!source.restoringTime && source.restoreOnStart && CMTIME_IS_NUMERIC(source.lastTime)) {
             source.restoreOnStart=NO; source.restoringTime=YES;
+            NSUInteger epoch=source.generation;
             [source.player seekToTime:source.lastTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    source.restoringTime=NO; source.restoreOnStart=NO;
-                    if (source.playing && !source.readerMode) [source.player play];
+                    source.restoringTime=NO;
+                    if (finished && source.generation==epoch && source.playing && !source.readerMode && LMVSharedSources[source.path]==source) {
+                        source.restoreOnStart=NO; [source.player play];
+                    } else source.restoreOnStart=CMTIME_IS_NUMERIC(source.lastTime);
                 });
             }];
         } else if (!source.restoringTime) [source.player play];
@@ -500,6 +557,7 @@ static void LMVStopSource(LMVSharedSource *source) {
     if (source && source.playing) {
         [source.player pause]; source.playing=NO; source.generation++;
         source.restoreOnStart=CMTIME_IS_NUMERIC(source.lastTime);
+        LMVCheckpointFrame(source.path,source.revision);
         // Do not launch asynchronous pause-seeks that can flush the next startup.
     }
 }
@@ -543,6 +601,11 @@ static void LMVPrepareAssets(void) {
         LMVStopSource(LMVSharedSources[path]); [LMVSharedSources removeObjectForKey:path];
         if (!revision) { [LMVRevisions removeObjectForKey:path]; continue; }
         LMVRevisions[path] = revision;
+        // Drop old memory revisions and supersede pending loads before rebuilding.
+        NSString *keep=LMVFrameKey(path,revision);
+        for (NSString *key in LMVFrameCache.allKeys)
+            if ([key hasPrefix:[path stringByAppendingString:@"|"]] && ![key isEqual:keep]) [LMVFrameCache removeObjectForKey:key];
+        LMVLoadDiskFrame(path,revision);
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @NO}];
         LMVSources[path] = asset;
         [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"playable", @"duration"] completionHandler:^{
@@ -593,7 +656,7 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.58 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.59 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -1798,12 +1861,12 @@ static void LMVSyncDisplayLink(void) {
         if (!source.readerMode && now-source.lastRequestAt>=1.0) {
             source.lastRequestAt=now;
             [source.output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
-            if (!source.restoringTime && item.status==AVPlayerItemStatusReadyToPlay && source.player.rate==0 && source.playing) [source.player play];
+            if (!source.restoringTime && !source.restoreOnStart && item.status==AVPlayerItemStatusReadyToPlay && source.player.rate==0 && source.playing) [source.player play];
         }
         // A persistent AVPlayer-output stall switches explicitly to a shared,
         // video-only AVAssetReader. Never attach an AVPlayerLayer to a card.
         CFTimeInterval stallLimit=source.published ? 3.0 : 0.75;
-        if (!source.readerMode && !source.restoringTime && !source.frameBusy && (item.status==AVPlayerItemStatusFailed || now-source.lastProgressAt>=stallLimit)) {
+        if (!source.readerMode && !source.restoringTime && !source.restoreOnStart && !source.frameBusy && (item.status==AVPlayerItemStatusFailed || now-source.lastProgressAt>=stallLimit)) {
             source.readerMode=YES; [source.player pause]; source.generation++;
             CMTime resume=CMTIME_IS_NUMERIC(source.lastTime)?source.lastTime:kCMTimeZero;
             dispatch_async(LMVFrameQueue, ^{ source.readerClock=CACurrentMediaTime(); source.readerOffset=resume; source.readerLastTarget=kCMTimeInvalid; });
@@ -1854,6 +1917,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVLockHosts = [NSHashTable weakObjectsHashTable];
         LMVDesktopHosts = [NSHashTable weakObjectsHashTable];
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
+        LMVDiskQueue=dispatch_queue_create("com.minis.lockmessagevideo.last-frame",DISPATCH_QUEUE_SERIAL);
+        LMVDiskPending=[NSMutableSet new]; LMVDiskAttempted=[NSMutableSet new]; LMVDiskWriting=[NSMutableSet new];
+        LMVDiskEpochs=[NSMutableDictionary new]; LMVDiskSavedTimes=[NSMutableDictionary new];
         LMVRevisions = [NSMutableDictionary new];
         LMVPaths = [NSMutableDictionary new]; LMVEnabled = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];

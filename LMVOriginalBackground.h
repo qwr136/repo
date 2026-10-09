@@ -69,7 +69,8 @@ static NSMapTable<CALayer *, LMVOriginalLease *> *LMVOriginalLeases(void) {
 }
 - (void)releaseOwner:(NSObject *)owner {
     [self.owners removeObject:owner];
-    if (!self.owners.count) [self restore];
+    // Weak tables may retain empty buckets; count only live owner objects.
+    if (!self.owners.allObjects.count) [self restore];
 }
 - (void)dealloc { [self restore]; }
 @end

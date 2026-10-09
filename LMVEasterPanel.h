@@ -42,7 +42,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     self.preview = nil;
     __weak typeof(self) weakSelf = self;
     dispatch_async(LMVMaterialQueue(), ^{
-        UIImage *image = path ? LMVEasterDecode([NSURL fileURLWithPath:path], NULL).frames.firstObject : nil;
+        UIImage *image = path ? LMVEasterPreviewImage(LMVEasterDecode([NSURL fileURLWithPath:path], NULL)) : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
             if (weakSelf.previewGeneration != generation) return;
             weakSelf.preview = image; [weakSelf.tableView reloadData];

@@ -6,6 +6,9 @@
 #import "LockMessageVideoPrefs/LMVMaterialStorage.h"
 #import "LockMessageVideoPrefs/LMVMaterialCatalog.h"
 
+#ifndef LMVEasterWindowDiagnostic
+#define LMVEasterWindowDiagnostic(reason) ((void)0)
+#endif
 static NSString * const LMVEasterFolder = @"/var/mobile/LockMessageVideo/\u5c0f\u5f69\u86cb";
 static CFStringRef const LMVEasterPrefs = CFSTR("com.minis.lockmessagevideo");
 static void LMVEasterNotify(void) {
@@ -69,7 +72,7 @@ static LMVEasterImage *LMVEasterDecode(NSURL *url, NSError **error) {
         return nil;
     }
     NSMutableArray *frames = [NSMutableArray new], *delays = [NSMutableArray new];
-    NSUInteger cost = 0;
+    NSUInteger cost = 0; double totalDuration=0;
     for (size_t i = 0; i < count; i++) {
         @autoreleasepool {
             CGImageRef image = CGImageSourceCreateThumbnailAtIndex(source, i, (__bridge CFDictionaryRef)@{(id)kCGImageSourceCreateThumbnailFromImageAlways:@YES, (id)kCGImageSourceCreateThumbnailWithTransform:@YES, (id)kCGImageSourceThumbnailMaxPixelSize:@160, (id)kCGImageSourceShouldCacheImmediately:@YES});
@@ -81,16 +84,26 @@ static LMVEasterImage *LMVEasterDecode(NSURL *url, NSError **error) {
             NSDictionary *properties = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, i, NULL);
             NSDictionary *gif = properties[(id)kCGImagePropertyGIFDictionary];
             double delay = [gif[(id)kCGImagePropertyGIFUnclampedDelayTime] ?: gif[(id)kCGImagePropertyGIFDelayTime] doubleValue];
-            [delays addObject:@(isfinite(delay) && delay >= 0.02 ? MIN(delay, 10.0) : 0.1)];
+            delay=isfinite(delay) && delay>=0.02 ? MIN(delay,10.0) : 0.1;
+            totalDuration+=delay;
+            if (totalDuration>60.0) { [frames removeLastObject]; break; }
+            [delays addObject:@(delay)];
         }
     }
     CFRelease(source);
     if (frames.count != count) {
-        if (error) *error = LMVStorageError(63, @"图片解码失败或超过内存限制");
+        if (error) *error = LMVStorageError(63, @"图片解码失败、超过内存限制或动画时长超过 60 秒");
         return nil;
     }
     LMVEasterImage *decoded = [LMVEasterImage new]; decoded.frames = frames; decoded.delays = delays;
     return decoded;
+}
+
+static UIImage *LMVEasterPreviewImage(LMVEasterImage *decoded) {
+    if (!decoded.frames.count) return nil;
+    if (decoded.frames.count==1) return decoded.frames.firstObject;
+    double duration=0; for (NSNumber *delay in decoded.delays) duration+=delay.doubleValue;
+    return [UIImage animatedImageWithImages:decoded.frames duration:duration];
 }
 
 // Must execute inside NSItemProvider's background callback: its URL expires on return.

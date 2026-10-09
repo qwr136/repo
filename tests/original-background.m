@@ -169,12 +169,20 @@ int main(void) { @autoreleasepool {
     // Give the backing layer its own draw content so this exercises suppression.
     color=CGColorCreateGenericRGB(.1,.1,.1,1); material.layer.backgroundColor=color; CGColorRelease(color);
     scope=[UIView new]; [scope addSubview:material];
-    LMVVideoState *second=[LMVVideoState new];
-    LMVReplaceBackground(state,material,scope,@"Options",YES);
-    LMVReplaceBackground(second,material,scope,@"Clear",YES);
-    assert(state.originals[0]==second.originals[0] && material.layer.opacity==0);
-    LMVRestoreBackground(state); assert(material.layer.opacity==0);
-    @autoreleasepool { second=nil; }
+    __weak LMVVideoState *weakSecond;
+    __strong LMVOriginalLease *retainedLease;
+    @autoreleasepool {
+        LMVVideoState *second=[LMVVideoState new]; weakSecond=second;
+        LMVReplaceBackground(state,material,scope,@"Options",YES);
+        LMVReplaceBackground(second,material,scope,@"Clear",YES);
+        retainedLease=second.originals[0];
+        assert(state.originals[0]==retainedLease && material.layer.opacity==0);
+        assert(weakSecond && retainedLease.owners.allObjects.count==2);
+        LMVRestoreBackground(state); assert(material.layer.opacity==0);
+        // Weak-table enumerations and ObjC return temporaries may retain until pool drains.
+    }
+    assert(!weakSecond); // If this fails it is an owner lifetime bug, not restoration.
+    assert(retainedLease.retired && retainedLease.owners.allObjects.count==0);
     assert(closeTo(material.layer.opacity,.29));
     puts("PASS: actual QuartzCore lease/discovery; all five target detach/restore; 100 layouts; last-owner restore; baseline/system updates; missing-frame/alpha0 stay replaced; content/secure/remote/thumb guarded; NOT iOS device validation");
 } return 0; }

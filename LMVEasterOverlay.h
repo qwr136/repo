@@ -39,11 +39,14 @@
 @property(nonatomic, strong) UINavigationController *panel;
 @property(nonatomic, strong) LMVEasterImage *decoded;
 @property(nonatomic, strong) NSTimer *timer;
-@property(nonatomic, copy) NSString *imageKey;
+@property(nonatomic, copy) NSString *imageKey, *windowReason;
+@property(nonatomic, strong) NSTimer *visibilityTimer;
 @property(nonatomic) NSUInteger generation, frame;
 @property(nonatomic) BOOL pending, ready;
 @property(nonatomic) CGPoint normalized;
 - (void)refresh;
+- (void)closePanel;
+- (void)reportWindow:(NSString *)reason;
 - (void)layout;
 @end
 @implementation LMVEasterRoot
@@ -54,6 +57,37 @@
 static BOOL LMVEasterKnownWindow(UIWindow *window, NSArray<NSString *> *names) {
     for (NSString *name in names) { Class cls = NSClassFromString(name); if (cls && [window isKindOfClass:cls]) return YES; }
     return NO;
+}
+// Inspect only visible bounded drawing branches, not mere persistent window existence.
+static BOOL LMVEasterSecurityName(NSString *name) {
+    for (NSString *word in @[@"Passcode",@"Authentication",@"Biometric",@"Permission",@"Privacy",@"Authorization",@"LocalAuth",@"Credential"])
+        if ([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound) return YES;
+    return NO;
+}
+static BOOL LMVEasterVisibleDrawing(UIView *view, UIWindow *window, NSUInteger depth, NSUInteger *budget, BOOL *security) {
+    if (!view || !*budget || depth>7 || view.hidden || view.alpha<0.01) return NO;
+    --*budget;
+    CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
+    if (CGRectIsNull(rect) || CGRectIsEmpty(rect)) return NO;
+    if (LMVEasterSecurityName(NSStringFromClass(view.class))) *security=YES;
+    CGFloat area=rect.size.width*rect.size.height, full=window.bounds.size.width*window.bounds.size.height;
+    BOOL draws=view.layer.contents!=nil || (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor)>0.05) ||
+        [view isKindOfClass:UIVisualEffectView.class];
+    BOOL substantive=draws && full>0 && area/full>=0.30;
+    for (UIView *child in view.subviews) if (LMVEasterVisibleDrawing(child,window,depth+1,budget,security)) substantive=YES;
+    return substantive;
+}
+static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
+    if (window.hidden || window.alpha<0.01 || window.screen!=UIScreen.mainScreen) return NO;
+    UIViewController *controller=window.rootViewController;
+    while (controller.presentedViewController) controller=controller.presentedViewController;
+    BOOL security=LMVEasterSecurityName(NSStringFromClass(window.class)) ||
+        (controller.viewIfLoaded.window==window && LMVEasterSecurityName(NSStringFromClass(controller.class)));
+    NSUInteger budget=96;
+    BOOL substantive=LMVEasterVisibleDrawing(controller.viewIfLoaded,window,0,&budget,&security);
+    // Known security UI is protected even below the floating level. Empty clear
+    // screenshot/status/notch windows do not suppress a bubble in another scene.
+    return security || (window.windowLevel>=level && substantive);
 }
 static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterManager *manager = (__bridge LMVEasterManager *)observer;
@@ -74,7 +108,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     return self;
 }
 - (void)dealloc {
-    [self.timer invalidate]; [NSNotificationCenter.defaultCenter removeObserver:self];
+    [self.timer invalidate]; [self.visibilityTimer invalidate]; [NSNotificationCenter.defaultCenter removeObserver:self];
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self);
 }
 - (void)changed:(NSNotification *)notification {
@@ -83,6 +117,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.generation++; self.decoded = nil; self.imageKey = nil; self.bubble.image = nil; [self.timer invalidate]; self.timer = nil;
     }
     dispatch_async(dispatch_get_main_queue(), ^{ [self refresh]; });
+}
+- (void)reportWindow:(NSString *)reason {
+    if ([self.windowReason isEqual:reason]) return;
+    self.windowReason=reason;
+    LMVEasterWindowDiagnostic(reason);
 }
 - (void)hide {
     self.window.hidden = YES; [self.timer invalidate]; self.timer = nil;
@@ -96,25 +135,35 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 - (void)apply {
     CFPreferencesAppSynchronize(LMVEasterPrefs);
     if (![LMVEasterRead(@"EasterEggEnabled") boolValue]) {
-        self.generation++; [self hide]; self.decoded = nil; self.imageKey = nil; self.bubble.image = nil; return;
+        self.generation++; [self hide]; [self.visibilityTimer invalidate]; self.visibilityTimer=nil;
+        self.decoded = nil; self.imageKey = nil; self.bubble.image = nil; [self reportWindow:@"disabled"]; return;
+    }
+    if (!self.visibilityTimer) {
+        __weak typeof(self) weakSelf=self;
+        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [weakSelf refresh]; }];
+        [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     }
     // No private singleton construction; published lock/blank state fails closed.
     uint64_t blank = 1, locked = 1;
-    if (LMVBlankToken < 0 || LMVLockToken < 0 || notify_get_state(LMVBlankToken, &blank) != NOTIFY_STATUS_OK || notify_get_state(LMVLockToken, &locked) != NOTIFY_STATUS_OK || blank || locked) { [self hide]; return; }
+    if (LMVBlankToken < 0 || LMVLockToken < 0 || notify_get_state(LMVBlankToken, &blank) != NOTIFY_STATUS_OK || notify_get_state(LMVLockToken, &locked) != NOTIFY_STATUS_OK || blank || locked) { [self hide]; [self reportWindow:@"lock-or-screen-gate"]; return; }
     NSArray *trusted = @[@"SBHomeScreenWindow", @"SBCoverSheetWindow", @"SBControlCenterWindow", @"CCUIOverlayWindow"];
     NSMutableArray<UIWindow *> *windows = [NSMutableArray new];
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState == UISceneActivationStateForegroundActive) [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
+        if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState!=UISceneActivationStateUnattached)
+            [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
     UIWindow *host = nil;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01 || window.screen != UIScreen.mainScreen) continue;
         if (LMVEasterKnownWindow(window, trusted) && window.windowLevel < UIWindowLevelAlert - 1 && (!host || window.windowLevel > host.windowLevel)) host = window;
     }
-    if (!host || !host.windowScene) { [self hide]; return; }
-    CGFloat level = MAX(UIWindowLevelNormal + 1, MIN(host.windowLevel + 1, UIWindowLevelAlert - 1));
-    // Unknown high-level windows include permission/authentication UI: hide, not outrank.
+    if (!host || !host.windowScene) { [self hide]; [self reportWindow:@"no-trusted-main-scene"]; return; }
+    // SpringBoard-owned scene above ordinary app surfaces, bounded below alerts.
+    CGFloat level = MAX((CGFloat)1200, MIN(host.windowLevel + 1, UIWindowLevelAlert - 1));
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
-        if (window.windowLevel >= level && !LMVEasterKnownWindow(window, trusted)) { [self hide]; return; }
+        if (!LMVEasterKnownWindow(window,trusted) && LMVEasterBlockingWindow(window,level)) {
+            [self hide]; [self reportWindow:[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(window.class),window.windowLevel]]; return;
+        }
     }
     if (self.window && self.window.windowScene != host.windowScene) { [self hide]; self.window = nil; self.bubble = nil; }
     if (!self.window) {
@@ -129,6 +178,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         [self.bubble addGestureRecognizer:pan]; [self.bubble addGestureRecognizer:tap]; [root.view addSubview:self.bubble]; self.window.bubble = self.bubble;
     }
     self.window.windowLevel = level;
+    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
     NSString *path = LMVEasterImagePath(LMVEasterRead(@"EasterEggImage"));
     struct stat info; NSString *key = nil;
     if (path && lstat(path.fileSystemRepresentation, &info) == 0) key = [NSString stringWithFormat:@"%@:%llu:%lld:%lld:%ld", path, (unsigned long long)info.st_ino, (long long)info.st_size, (long long)info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec];
