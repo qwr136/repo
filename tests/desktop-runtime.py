@@ -143,7 +143,7 @@ int main(void) { @autoreleasepool {
     LMVDesktopGateClock clock={0,0};
     testActivity=(LMVDesktopActivity){1,1,0,0}; LMVUpdateDesktop(host,nil);
     LMVVideoState *state=objc_getAssociatedObject(host,&LMVDesktopStateKey);
-    assert(state.active && acquired==1 && state.layer.superlayer==host.layer);
+    assert(state.active && acquired==1 && state.layer.hidden && !state.layer.superlayer);
     state.layer.contents=@"last-real-frame"; state.source.time=18.25;
     LMVSharedSource *originalSource=state.source;
     NSUInteger inserts=host.layer.inserts, removes=state.layer.removes;
@@ -155,13 +155,13 @@ int main(void) { @autoreleasepool {
         testActivity=step(LMVForegroundUnknown,0,0,0,releases[phase]+.16,state,&clock); LMVUpdateDesktop(host,nil);
         testActivity=step(LMVForegroundHome,0,0,0,resumes[phase],state,&clock); LMVUpdateDesktop(host,nil);
         assert(state.source==originalSource && acquired==1 && released==0);
-        assert(!state.layer.hidden && [state.layer.contents isEqual:@"last-real-frame"]);
+        assert(state.layer.hidden && [state.layer.contents isEqual:@"last-real-frame"]);
     }
     // Partial NC continues; full actual content cover pauses without hiding/releasing;
     // first exposed rectangle resumes same source/time immediately.
     testActivity=step(LMVForegroundHome,0,0,0,291855.1,state,&clock); LMVUpdateDesktop(host,nil); assert(state.active);
     testActivity=step(LMVForegroundHome,1,0,0,291855.2,state,&clock); LMVUpdateDesktop(host,nil);
-    assert(!state.active && !state.source.playing && !state.layer.hidden && state.source==originalSource);
+    assert(!state.active && !state.source.playing && state.layer.hidden && state.source==originalSource);
     testActivity=step(LMVForegroundHome,1,0,0,291860.2,state,&clock); LMVUpdateDesktop(host,nil); assert(released==0);
     testActivity=step(LMVForegroundHome,0,0,0,291860.21,state,&clock); LMVUpdateDesktop(host,nil);
     assert(state.active && state.source==originalSource && state.source.time==18.25 && !state.source.restoreOnStart);
@@ -169,14 +169,14 @@ int main(void) { @autoreleasepool {
     dock.windowLevel=-3;
     for(int n=0;n<20;n++) {
         testActivity=step(LMVForegroundHome,0,1,1,291861+n*.1,state,&clock); LMVUpdateDesktop(host,nil);
-        assert(state.active && !state.layer.hidden && state.source==originalSource);
+        assert(state.active && state.layer.hidden && state.source==originalSource);
         assert([state.layer.contents isEqual:@"last-real-frame"] && host.layer.inserts==inserts && state.layer.removes==removes);
         assert(!dock.hidden && dock.alpha==1 && dock.windowLevel==-3 && CGRectEqualToRect(dock.frame,originalFrame));
         assert(CGAffineTransformEqualToTransform(dock.transform,originalTransform) && unrelated.hidden && unrelated.alpha==1);
         assert([host.layer.children containsObject:systemLayer]);
     }
     dock.windowLevel=25; testActivity=step(LMVForegroundHome,0,0,0,291864,state,&clock); LMVUpdateDesktop(host,nil);
-    assert(state.active && !state.layer.hidden && acquired==1);
+    assert(state.active && state.layer.hidden && acquired==1);
     testActivity=step(LMVForegroundApp,0,0,0,291865,state,&clock); LMVUpdateDesktop(host,nil);
     assert(!state.active && !originalSource.playing && state.source==originalSource);
     testActivity=step(LMVForegroundApp,0,0,0,291866.26,state,&clock); LMVUpdateDesktop(host,nil);
