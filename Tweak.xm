@@ -1003,7 +1003,7 @@ static BOOL LMVLockHostVisible(UIView *host) {
     Class windowClass = NSClassFromString(@"SBCoverSheetWindow");
     return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host), LMVPlaybackAllowed());
 }
-static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
+static __attribute__((unused)) BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
     if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return LMVOriginalPureView(view, YES, 0);
     if (depth >= 4) return NO;
     // A mixed page/container can own clock or notifications as well: placing
@@ -1309,7 +1309,7 @@ static CGPathRef LMVDesktopDockPath(UIView *node, UIWindow *window, UIView *host
     *region = CGRectIntersection(rect, host.bounds);
     return path;
 }
-static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
+static __attribute__((unused)) void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
     CGRect region = CGRectZero;
     CGPathRef hole = NULL;
     NSString *reason = @"dock-not-below-home";
