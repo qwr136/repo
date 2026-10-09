@@ -125,7 +125,7 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
         BOOL exists = NO;
         for (LMVOriginalLease *lease in live) if (lease.layer == layer) { exists = YES; break; }
         if (exists) continue;
-        LMVOriginalLease *lease = LMVAcquireOriginal(layer, scope.layer, [candidate[@"method"] unsignedIntegerValue], state);
+        LMVOriginalLease *lease = LMVAcquireOriginal(layer, scope.layer, (LMVOriginalMethod)[candidate[@"method"] unsignedIntegerValue], state);
         if (lease) { lease.anchor = anchor.layer; [live addObject:lease]; }
     }
     state.originals = live;
