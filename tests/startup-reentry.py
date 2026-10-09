@@ -60,7 +60,9 @@ static void mainTurn(void) { NSArray *turn=queued.copy; [queued removeAllObjects
 @implementation UIView @end
 @interface SBHomeScreenView : UIView @end
 @implementation SBHomeScreenView @end
-@interface _SBWallpaperSecureWindow : UIView @end
+@interface UIWindow : UIView @end
+@implementation UIWindow @end
+@interface _SBWallpaperSecureWindow : UIWindow @end
 @implementation _SBWallpaperSecureWindow @end
 typedef NS_ENUM(NSInteger, UIApplicationState) { UIApplicationStateActive, UIApplicationStateInactive, UIApplicationStateBackground };
 typedef NS_ENUM(NSInteger, UISceneActivationState) { UISceneActivationStateForegroundActive, UISceneActivationStateForegroundInactive, UISceneActivationStateBackground, UISceneActivationStateUnattached };
