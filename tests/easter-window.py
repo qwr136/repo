@@ -6,7 +6,7 @@ r=Path(__file__).resolve().parents[1]
 s=(r/'LMVEasterOverlay.h').read_text()
 helpers=s[s.index('static BOOL LMVEasterSecurityName('):s.index('static void LMVEasterDarwin(')]
 if platform.system()!='Darwin':
-    assert 'window.windowLevel>=level && substantive' in helpers and 'area/full>=0.30' in helpers
+    assert 'window.windowLevel >= UIWindowLevelAlert && substantive' in helpers and 'area/full>=0.30' in helpers
     print('PASS: content-based floating window contracts; native predicates run in macOS CI')
     raise SystemExit(0)
 preamble=r'''
@@ -14,6 +14,7 @@ preamble=r'''
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
+static const CGFloat UIWindowLevelAlert = 2000;
 @class UIWindow;
 @interface UIScreen : NSObject
 + (instancetype)mainScreen;
@@ -62,6 +63,10 @@ preamble=r'''
 @implementation SSScreenshotsWindow @end
 @interface SBRecordingIndicatorWindow : UIWindow @end
 @implementation SBRecordingIndicatorWindow @end
+@interface WallpaperSecureWindow : UIWindow @end
+@implementation WallpaperSecureWindow @end
+@interface AuthenticationWindow : UIWindow @end
+@implementation AuthenticationWindow @end
 @interface AuthenticationView : UIView @end
 @implementation AuthenticationView @end
 '''
@@ -73,6 +78,10 @@ int main(void) { @autoreleasepool {
         UIView *indicator=[UIView new];indicator.bounds=CGRectMake(0,0,60,20);solid(indicator);
         window.rootViewController.viewIfLoaded.subviews=@[indicator];assert(!LMVEasterBlockingWindow(window,1200));
     }
+    UIWindow *wall=[WallpaperSecureWindow new]; wall.windowLevel=1500;solid(wall.rootViewController.viewIfLoaded);
+    assert(!LMVEasterBlockingWindow(wall,1200));
+    UIWindow *emptyAuth=[AuthenticationWindow new];emptyAuth.windowLevel=100;assert(!LMVEasterBlockingWindow(emptyAuth,1200));
+    solid(emptyAuth.rootViewController.viewIfLoaded);assert(LMVEasterBlockingWindow(emptyAuth,1200));
     UIWindow *alert=[UIWindow new];alert.windowLevel=2000;solid(alert.rootViewController.viewIfLoaded);
     assert(LMVEasterBlockingWindow(alert,1200));alert.hidden=YES;assert(!LMVEasterBlockingWindow(alert,1200));alert.hidden=NO;
     alert.rootViewController.viewIfLoaded.alpha=0;assert(!LMVEasterBlockingWindow(alert,1200));

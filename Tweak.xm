@@ -313,18 +313,21 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 @property(nonatomic, strong) CAShapeLayer *desktopDockMask;
 @property(nonatomic) CGRect desktopDockRect;
 @property(nonatomic, copy) NSString *desktopDockReason;
-@property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals;
+@property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals, *wallpaperOriginals;
+@property(nonatomic, copy) NSString *wallpaperDiagnostic;
 @property(nonatomic, weak) UIView *originalAnchor, *originalScope;
 @property(nonatomic, copy) NSString *originalDiagnostic;
 @end
 @implementation LMVVideoState
 - (void)dealloc {
     LMVReleaseOriginals(_originals, self);
+    LMVReleaseOriginals(_wallpaperOriginals, self);
     [_overlay removeFromSuperview];
     [_layer removeFromSuperlayer];
 }
 @end
 #import "LMVBackgroundDiscovery.h"
+#import "LMVObservedWallpaper.h"
 
 static BOOL LMVPlaybackAllowed(void) {
     if (!LMVInitialized || !LMVLaunchReady) return NO;
@@ -756,22 +759,13 @@ static NSString *LMVSemanticTarget(UIView *view) {
     }
     return nil;
 }
-static void LMVFindActions(UIView *view, UIView *root, NSMapTable *hosts, NSUInteger depth) {
-    if (depth > 10) return;
-    NSString *target = LMVSemanticTarget(view);
-    if (target) {
-        UIView *host = view;
-        while (host && host != root && ![host isKindOfClass:UIControl.class]) host = host.superview;
-        if (host && host != root) {
-            UIView *material = LMVMessageMaterial(host, 0);
-            [hosts setObject:(material ?: host) forKey:target];
-        }
-    }
-    for (UIView *child in view.subviews) LMVFindActions(child, root, hosts, depth + 1);
-}
+#import "LMVActionDiscovery.h"
 static void LMVActionHosts(UIView *view, NSMapTable *hosts, NSUInteger depth) {
     if (depth > 12) return;
-    if (LMVActionBranch(view)) { LMVFindActions(view, view, hosts, 0); return; }
+    // Platter containers are discovery boundaries only after exact Clear/Options
+    // semantics are found; they never become a suppression/overlay target.
+    BOOL platter = [NSStringFromClass(view.class) containsString:@"Platter"];
+    if (LMVActionBranch(view) || platter) { LMVFindActions(view, view, hosts, 0); return; }
     for (UIView *child in view.subviews) LMVActionHosts(child, hosts, depth + 1);
 }
 static void LMVPause(LMVVideoState *state) {
@@ -837,7 +831,11 @@ static void LMVUpdate(UIView *cell) {
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
-    if (missing && (!last || now - last.doubleValue >= 0.1)) {
+    BOOL refreshActions = (!last || now - last.doubleValue >= 0.1);
+    if (refreshActions) {
+        [hosts removeObjectForKey:@"Options"]; [hosts removeObjectForKey:@"Clear"];
+    }
+    if ((missing || refreshActions) && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         LMVActionHosts(cell, hosts, 0);
         if (messageEligible) {
@@ -897,7 +895,7 @@ static void LMVUpdate(UIView *cell) {
         // A material with text/content is a container: put our surface below its
         // children, never above the whole material. Only pure drawing anchors
         // permit a sibling overlay and backing-branch suppression.
-        BOOL material = [NSStringFromClass(anchor.class) containsString:@"MaterialView"] && LMVOriginalPureView(anchor, NO, 0);
+        BOOL material = LMVOriginalPureView(anchor, NO, 0);
         UIView *host = material ? anchor.superview : anchor;
         // Host identity is part of ownership. Never retain an overlay under a
         // reused parent when UIKit swaps the notification content host.
@@ -1031,8 +1029,9 @@ static void LMVUpdateLockScreen(UIView *host) {
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     BOOL active = LMVLockHostVisible(host);
     if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
-    BOOL originalInScope = active || (!LMVPlaybackAllowed() && state.originals.count && host.window);
+    BOOL originalInScope = active || (!LMVPlaybackAllowed() && (state.originals.count || state.wallpaperOriginals.count) && host.window);
     LMVReplaceBackground(state, host, host, @"LockScreen", originalInScope);
+    LMVReplaceObservedWallpaper(state, host, @"LockScreen", originalInScope);
     if (active && [LMVReadyAssets containsObject:path]) {
         if (!state.source) state.source = LMVSourceForPath(path);
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
@@ -1475,6 +1474,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
     }
     LMVReplaceBackground(state, host, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity));
+    LMVReplaceObservedWallpaper(state, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity));
     state.active = activity.decode && state.source != nil;
     [CATransaction commit];
     LMVDesktopDiagnostics(host, state, activity, snapshot);

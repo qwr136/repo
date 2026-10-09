@@ -4,19 +4,31 @@
 #import <objc/runtime.h>
 #include <assert.h>
 #import "../LMVOriginalBackground.h"
+@class UIWindow;
 @interface UIView : NSObject
 @property(nonatomic, strong) CALayer *layer;
 @property(nonatomic, strong) NSMutableArray *subviews;
 @property(nonatomic, copy) NSArray *gestureRecognizers;
 @property(nonatomic) BOOL isAccessibilityElement;
 @property(nonatomic) CGFloat alpha;
+@property(nonatomic) BOOL hidden;
+@property(nonatomic) CGRect bounds;
+@property(nonatomic,weak) UIView *superview;
+@property(nonatomic,copy) NSString *accessibilityLabel;
+@property(nonatomic,weak) UIWindow *window;
+- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view;
+- (BOOL)isDescendantOfView:(UIView *)view;
 - (void)addSubview:(UIView *)view;
 @end
 @implementation UIView
 - (instancetype)init { if ((self=[super init])) { _layer=[CALayer layer]; _layer.delegate=(id)self; _layer.bounds=CGRectMake(0,0,390,844); _subviews=[NSMutableArray new]; } return self; }
 - (CGFloat)alpha { return self.layer.opacity; }
 - (void)setAlpha:(CGFloat)alpha { self.layer.opacity=alpha; }
-- (void)addSubview:(UIView *)view { [self.subviews addObject:view]; [self.layer addSublayer:view.layer]; }
+- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return rect; }
+- (CGRect)bounds { return self.layer.bounds; }
+- (void)setBounds:(CGRect)bounds { self.layer.bounds = bounds; }
+- (BOOL)isDescendantOfView:(UIView *)view { for (UIView *node=self; node; node=node.superview) if (node==view) return YES; return NO; }
+- (void)addSubview:(UIView *)view { view.superview=self; view.window=self.window; [self.subviews addObject:view]; [self.layer addSublayer:view.layer]; }
 @end
 @interface UIControl : UIView @end
 @implementation UIControl @end
@@ -36,23 +48,55 @@
 @implementation WallpaperSceneView @end
 @interface WallpaperThumbnailView : UIView @end
 @implementation WallpaperThumbnailView @end
-@interface _SBWallpaperSecureWindow : UIView @end
+@interface UIScreen : NSObject
++ (instancetype)mainScreen;
+@end
+@implementation UIScreen
++ (instancetype)mainScreen { static UIScreen *s; static dispatch_once_t once; dispatch_once(&once,^{s=[self new];}); return s; }
+@end
+@interface UIWindow : UIView
+@property(nonatomic,strong) UIScreen *screen;
+@end
+@implementation UIWindow
+- (instancetype)init { if ((self=[super init])) { self.window=self; _screen=UIScreen.mainScreen; } return self; }
+@end
+@interface UIScene : NSObject
+@property(nonatomic) NSInteger activationState;
+@end
+@implementation UIScene @end
+static const NSInteger UISceneActivationStateUnattached = -1;
+@interface UIWindowScene : UIScene
+@property(nonatomic,strong) NSArray *windows;
+@end
+@implementation UIWindowScene @end
+@interface UIApplication : NSObject
+@property(nonatomic,strong) NSArray *connectedScenes;
++ (instancetype)sharedApplication;
+@end
+@implementation UIApplication
++ (instancetype)sharedApplication { static UIApplication *a; static dispatch_once_t once; dispatch_once(&once,^{a=[self new];}); return a; }
+@end
+@interface _SBWallpaperSecureWindow : UIWindow @end
 @implementation _SBWallpaperSecureWindow @end
 @interface LMVTestBackdropLayer : CALayer @end
 @implementation LMVTestBackdropLayer @end
 @interface LocalWallpaperLayer : CALayer @end
 @implementation LocalWallpaperLayer @end
 @interface LMVVideoState : NSObject
-@property(nonatomic,strong) NSArray<LMVOriginalLease *> *originals;
+@property(nonatomic,strong) NSArray<LMVOriginalLease *> *originals, *wallpaperOriginals;
 @property(nonatomic,weak) UIView *originalAnchor, *originalScope;
-@property(nonatomic,copy) NSString *originalDiagnostic;
+@property(nonatomic,copy) NSString *originalDiagnostic, *wallpaperDiagnostic;
 @end
 @implementation LMVVideoState
-- (void)dealloc { LMVReleaseOriginals(_originals,self); }
+- (void)dealloc { LMVReleaseOriginals(_originals,self); LMVReleaseOriginals(_wallpaperOriginals,self); }
 @end
 static NSUInteger diagnostics;
-static void LMVDiagnostic(NSString *event) { assert([event hasPrefix:@"original target="]); diagnostics++; }
+static void LMVDiagnostic(NSString *event) { assert([event hasPrefix:@"original "]); diagnostics++; }
 #import "../LMVBackgroundDiscovery.h"
+#import "../LMVObservedWallpaper.h"
+static BOOL LMVMessageCell(UIView *view) { return NO; }
+static NSString *LMVSemanticTarget(UIView *view) { return [view.accessibilityLabel isEqualToString:@"Clear All"] ? @"Clear" : ([view.accessibilityLabel isEqualToString:@"Options"] ? @"Options" : nil); }
+#import "../LMVActionDiscovery.h"
 static CALayer *leaf(void) { CALayer *layer=[LMVTestBackdropLayer layer]; layer.bounds=CGRectMake(0,0,200,100); layer.opacity=.37f; return layer; }
 static BOOL closeTo(float a,float b) { return fabsf(a-b)<.00001f; }
 int main(void) { @autoreleasepool {
@@ -184,5 +228,53 @@ int main(void) { @autoreleasepool {
     assert(!weakSecond); // If this fails it is an owner lifetime bug, not restoration.
     assert(retainedLease.retired && retainedLease.owners.allObjects.count==0);
     assert(closeTo(material.layer.opacity,.29));
+    // Expanded Clear All: semantic label/control and separate large material.
+    // Execute production discovery, never hide the platter/control/text layer.
+    UIView *platter=[UIView new]; UIControl *clear=[UIControl new];
+    UILabel *clearLabel=[UILabel new]; clearLabel.accessibilityLabel=@"Clear All";
+    [clear addSubview:clearLabel]; [platter addSubview:clear];
+    MTMaterialView *wide=[MTMaterialView new]; wide.bounds=CGRectMake(0,0,240,80);
+    CGColorRef backdropColor=CGColorCreateGenericRGB(.2,.2,.2,.8); wide.layer.backgroundColor=backdropColor; CGColorRelease(backdropColor);
+    [platter addSubview:wide]; NSMapTable *hosts=[NSMapTable strongToStrongObjectsMapTable];
+    LMVFindActions(platter,platter,hosts,0); assert([hosts objectForKey:@"Clear"]==wide);
+    LMVReplaceBackground(state,wide,platter,@"Clear",YES);
+    assert(wide.layer.opacity==0 && clear.layer.opacity==1 && clearLabel.layer.opacity==1 && platter.layer.opacity==1);
+    // Deletion/reuse changes material identity; old branch restores immediately.
+    wide.hidden=YES; MTMaterialView *replacement=[MTMaterialView new]; replacement.bounds=CGRectMake(0,0,280,90);
+    replacement.layer.backgroundColor=wide.layer.backgroundColor; [platter addSubview:replacement]; [hosts removeAllObjects];
+    LMVFindActions(platter,platter,hosts,0); assert([hosts objectForKey:@"Clear"]==replacement);
+    LMVReplaceBackground(state,replacement,platter,@"Clear",YES);
+    assert(wide.layer.opacity==1 && replacement.layer.opacity==0 && clearLabel.layer.opacity==1);
+    LMVReplaceBackground(state,replacement,platter,@"Clear",NO); assert(replacement.layer.opacity==1);
+    // Mixed Options/Clear root cannot lend its sibling material to either control.
+    UIControl *options=[UIControl new]; options.accessibilityLabel=@"Options"; [platter addSubview:options];
+    [hosts removeAllObjects]; LMVFindActions(platter,platter,hosts,0);
+    assert([hosts objectForKey:@"Clear"]==clear && [hosts objectForKey:@"Options"]==options);
+    // Observed secure WINDOW is never leased. The single real full local pure
+    // wallpaper branch inside it can be suppressed while every sibling remains.
+    _SBWallpaperSecureWindow *wallWindow=[_SBWallpaperSecureWindow new];
+    UIView *wallRoot=[UIView new]; [wallWindow addSubview:wallRoot];
+    LocalWallpaperView *local=[LocalWallpaperView new]; [wallRoot addSubview:local];
+    UILabel *clock=[UILabel new]; [wallRoot addSubview:clock];
+    UIWindowScene *wallScene=[UIWindowScene new]; wallScene.windows=@[wallWindow];
+    UIApplication.sharedApplication.connectedScenes=@[wallScene];
+    UIWindow *consumerWindow=[UIWindow new]; UIView *consumer=[UIView new]; [consumerWindow addSubview:consumer];
+    LMVReplaceObservedWallpaper(state,consumer,@"Desktop",YES);
+    assert(state.wallpaperOriginals.count==1 && local.layer.opacity==0 && wallWindow.alpha==1 && wallRoot.alpha==1 && clock.alpha==1);
+    NSUInteger observedLogs=diagnostics;
+    for (int n=0;n<100;n++) LMVReplaceObservedWallpaper(state,consumer,@"Desktop",YES);
+    assert(state.wallpaperOriginals.count==1 && diagnostics==observedLogs && clock.alpha==1);
+    // Scope loss restores even when zero-opacity video/failure never restored it.
+    LMVReplaceObservedWallpaper(state,consumer,@"Desktop",NO); assert(local.layer.opacity==1 && !state.wallpaperOriginals.count);
+    // Two visible local branches are ambiguous: no suppression.
+    LocalWallpaperView *secondLocal=[LocalWallpaperView new]; [wallRoot addSubview:secondLocal];
+    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",YES);
+    assert(!state.wallpaperOriginals.count && local.alpha==1 && secondLocal.alpha==1);
+    secondLocal.hidden=YES; local.hidden=YES;
+    WallpaperSceneView *remoteScene=[WallpaperSceneView new]; [wallRoot addSubview:remoteScene];
+    LocalWallpaperView *remoteLeaf=[LocalWallpaperView new]; [remoteScene addSubview:remoteLeaf];
+    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",YES);
+    assert(!state.wallpaperOriginals.count && remoteScene.alpha==1 && remoteLeaf.alpha==1 && wallWindow.alpha==1);
+    assert([state.wallpaperDiagnostic containsString:@"WallpaperSceneView"]);
     puts("PASS: actual QuartzCore lease/discovery; all five target detach/restore; 100 layouts; last-owner restore; baseline/system updates; missing-frame/alpha0 stay replaced; content/secure/remote/thumb guarded; NOT iOS device validation");
 } return 0; }

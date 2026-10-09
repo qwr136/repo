@@ -1,22 +1,24 @@
 #pragma once
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
+#import "LMVEasterPhotoFlow.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
 
+// Floating video controls have no image settings or image import role.
 @interface LMVEasterPanel : UITableViewController <PHPickerViewControllerDelegate>
-@property(nonatomic) BOOL imageControls, importingMovie, busy;
-@property(nonatomic) NSUInteger previewGeneration;
-@property(nonatomic, strong) UIImage *preview;
+@property(nonatomic) BOOL busy, opacityTracking;
+@property(nonatomic) NSUInteger catalogGeneration;
+@property(nonatomic, copy) NSDictionary *names;
+@property(nonatomic, strong) LMVEasterPhotoFlow *photoFlow;
 @property(nonatomic, copy) void (^close)(void);
 @end
-
 static NSArray *LMVEasterTargets(void) { return @[@"Message", @"LockScreen", @"Desktop", @"Options", @"Clear"]; }
 static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"锁屏背景", @"桌面背景", @"选项背景", @"清除背景"]; }
 static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterPanel *panel = (__bridge LMVEasterPanel *)observer;
     dispatch_async(dispatch_get_main_queue(), ^{
         CFPreferencesAppSynchronize(LMVEasterPrefs);
-        if (panel.isViewLoaded) [panel.tableView reloadData];
+        if (panel.isViewLoaded && !panel.opacityTracking) { [panel.tableView reloadData]; [panel loadNames]; }
     });
 }
 @implementation LMVEasterPanel
@@ -27,122 +29,144 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (void)dealloc { CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self); }
 - (void)viewDidLoad {
-    [super viewDidLoad]; self.title = @"小彩蛋";
+    [super viewDidLoad]; self.title = @"背景视频";
+    self.tableView.sectionHeaderHeight = 26;
+    self.tableView.sectionFooterHeight = 6;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(finish)];
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated]; CFPreferencesAppSynchronize(LMVEasterPrefs);
-    [self.tableView reloadData]; [self loadPreview];
+    [self.tableView reloadData]; [self loadNames];
 }
 - (void)finish { if (self.close) self.close(); else [self dismissViewControllerAnimated:YES completion:nil]; }
-- (void)loadPreview {
-    if (!self.imageControls) return;
-    NSUInteger generation = ++self.previewGeneration;
-    NSString *path = LMVEasterImagePath(LMVEasterRead(@"EasterEggImage"));
-    self.preview = nil;
+- (void)loadNames {
+    NSUInteger generation = ++self.catalogGeneration;
     __weak typeof(self) weakSelf = self;
     dispatch_async(LMVMaterialQueue(), ^{
-        UIImage *image = path ? LMVEasterPreviewImage(LMVEasterDecode([NSURL fileURLWithPath:path], NULL)) : nil;
+        NSDictionary *names = LMVReadMaterialNames();
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (weakSelf.previewGeneration != generation) return;
-            weakSelf.preview = image; [weakSelf.tableView reloadData];
+            if (!weakSelf || weakSelf.catalogGeneration != generation) return;
+            weakSelf.names = names; [weakSelf.tableView reloadData];
         });
     });
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return self.imageControls ? 7 : 6; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (self.imageControls && section == 0) return 3;
-    NSInteger targetSection = section - (self.imageControls ? 1 : 0);
-    return targetSection < 5 ? 2 : 1;
-}
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 7; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return section == 6 ? 1 : 2; }
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row == 1 ? 60 : 44; }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (self.imageControls && section == 0) return @"悬浮图片";
-    NSInteger targetSection = section - (self.imageControls ? 1 : 0);
-    return targetSection < 5 ? LMVEasterTitles()[targetSection] : @"独立原片导入";
+    return section < 5 ? LMVEasterTitles()[section] : (section == 5 ? @"视频透明度" : @"独立原片导入");
+}
+- (CGFloat)opacity {
+    id value = LMVEasterRead(@"VideoOpacity");
+    double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.55;
+    return isfinite(raw) ? MAX(0, MIN(1, raw)) : 0.55;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    if (self.imageControls && index.section == 0) {
+    if (index.section == 6) {
+        cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入视频（原片）";
+        cell.imageView.image = [UIImage systemImageNamed:@"square.and.arrow.down"];
+        cell.userInteractionEnabled = !self.busy; return cell;
+    }
+    if (index.section == 5) {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
         if (index.row == 0) {
-            cell.textLabel.text = @"启用小彩蛋";
-            UISwitch *toggle = [UISwitch new]; toggle.tag = 100;
-            toggle.on = [LMVEasterRead(@"EasterEggEnabled") boolValue];
+            cell.textLabel.text = @"启用视频透明度";
+            UISwitch *toggle = [UISwitch new]; toggle.tag = 5;
+            id enabled = LMVEasterRead(@"VideoOpacityEnabled");
+            toggle.on = enabled ? [enabled boolValue] : YES;
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
-        } else if (index.row == 1) {
-            cell.textLabel.text = @"图片预览"; cell.imageView.image = self.preview ?: [UIImage systemImageNamed:@"photo"];
-            cell.imageView.contentMode = UIViewContentModeScaleAspectFit; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        } else { cell.textLabel.text = @"从相册导入图片 / GIF"; cell.imageView.image = [UIImage systemImageNamed:@"photo.on.rectangle"]; }
+        } else {
+            UISlider *slider = [UISlider new]; slider.minimumValue = 0; slider.maximumValue = 1; slider.value = [self opacity];
+            slider.accessibilityLabel = @"视频透明度";
+            [slider addTarget:self action:@selector(opacityChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+            slider.translatesAutoresizingMaskIntoConstraints = NO; [cell.contentView addSubview:slider];
+            [NSLayoutConstraint activateConstraints:@[
+                [slider.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
+                [slider.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+                [slider.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor]
+            ]];
+        }
         return cell;
     }
-    NSInteger targetIndex = index.section - (self.imageControls ? 1 : 0);
-    if (targetIndex == 5) { cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入视频（原片）"; cell.imageView.image = [UIImage systemImageNamed:@"square.and.arrow.down"]; cell.userInteractionEnabled = !self.busy; return cell; }
-    NSString *target = LMVEasterTargets()[targetIndex];
+    NSString *target = LMVEasterTargets()[index.section];
     if (index.row == 0) {
         cell.textLabel.text = @"启用";
-        UISwitch *toggle = [UISwitch new]; toggle.tag = targetIndex;
+        UISwitch *toggle = [UISwitch new]; toggle.tag = index.section;
         toggle.on = [LMVEasterRead([target stringByAppendingString:@"BackgroundEnabled"]) boolValue];
         [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
     } else {
         cell.textLabel.text = @"选择素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         id selected = LMVEasterRead([target stringByAppendingString:@"Video"]);
-        cell.detailTextLabel.text = [selected isKindOfClass:NSString.class] && [selected length] ? [selected lastPathComponent] : @"未选择";
+        NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov"};
+        NSString *relative = [selected isKindOfClass:NSString.class] ? selected : legacy[target];
+        cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
+        cell.detailTextLabel.numberOfLines = 2;
     }
     return cell;
 }
 - (void)toggle:(UISwitch *)toggle {
-    NSString *key = toggle.tag == 100 ? @"EasterEggEnabled" : [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
+    NSString *key = toggle.tag == 5 ? @"VideoOpacityEnabled" : [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     LMVEasterSet(key, @(toggle.on));
+}
+- (void)opacityChanged:(UISlider *)slider {
+    self.opacityTracking = slider.isTracking;
+    LMVEasterSet(@"VideoOpacity", @(MAX(0, MIN(1, slider.value))));
+    if (!slider.isTracking) { self.opacityTracking = NO; [self.tableView reloadData]; }
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES];
     if (self.presentedViewController || self.busy) return;
-    if (self.imageControls && index.section == 0) { if (index.row == 2) [self importMedia:NO]; return; }
-    NSInteger targetIndex = index.section - (self.imageControls ? 1 : 0);
-    if (targetIndex == 5) { [self importMedia:YES]; return; }
-    if (index.row != 1) return;
-    NSString *key = [LMVEasterTargets()[targetIndex] stringByAppendingString:@"Video"];
-    LMVMaterialPicker *picker = [LMVMaterialPicker new];
+    if (index.section == 6) { [self importVideo]; return; }
+    if (index.section >= 5 || index.row != 1) return;
+    NSString *key = [LMVEasterTargets()[index.section] stringByAppendingString:@"Video"];
+    LMVMaterialPicker *picker = [LMVMaterialPicker new]; picker.pushed = YES;
     id current = LMVEasterRead(key);
     NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov"};
-    picker.selected = [current isKindOfClass:NSString.class] ? current : legacy[LMVEasterTargets()[targetIndex]] ?: @"";
+    picker.selected = [current isKindOfClass:NSString.class] ? current : legacy[LMVEasterTargets()[index.section]] ?: @"";
     __weak typeof(self) weakSelf = self;
     picker.apply = ^(NSString *relative, NSString *name) { LMVEasterSet(key, relative); [weakSelf.tableView reloadData]; };
-    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
+    [self.navigationController pushViewController:picker animated:YES];
 }
-- (void)importMedia:(BOOL)movie {
-    self.importingMovie = movie;
+- (void)importVideo {
     PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
-    configuration.filter = movie ? PHPickerFilter.videosFilter : PHPickerFilter.imagesFilter;
-    configuration.selectionLimit = 1;
+    configuration.filter = PHPickerFilter.videosFilter; configuration.selectionLimit = 1;
     configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration]; picker.delegate = self;
-    [self presentViewController:picker animated:YES completion:nil];
+    self.photoFlow = [[LMVEasterPhotoFlow alloc] initWithPicker:picker];
+    __weak typeof(self) weakSelf = self;
+    self.photoFlow.cancel = ^{ [weakSelf finishPhotoFlow]; };
+    [self.navigationController pushViewController:self.photoFlow animated:YES];
+}
+- (void)finishPhotoFlow {
+    if (!self.photoFlow) return;
+    self.photoFlow.picker.delegate = nil;
+    [self.navigationController popToViewController:self animated:YES]; self.photoFlow = nil;
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    PHPickerResult *picked = results.firstObject; BOOL movie = self.importingMovie;
-    [picker dismissViewControllerAnimated:YES completion:^{
-        if (!picked || self.busy) return;
-        NSString *type = movie ? @"public.movie" : ([picked.itemProvider hasItemConformingToTypeIdentifier:@"com.compuserve.gif"] ? @"com.compuserve.gif" : @"public.image");
-        if (![picked.itemProvider hasItemConformingToTypeIdentifier:type]) return;
-        self.busy = YES; [self.tableView reloadData];
-        __weak typeof(self) weakSelf = self;
-        [picked.itemProvider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url, NSError *providerError) {
-            NSError *error = providerError; NSString *relative = nil;
-            if (!url && !error) error = LMVStorageError(71, @"相册未返回文件");
-            if (url && !error) relative = LMVEasterImport(url, movie, &error);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                LMVEasterPanel *panel = weakSelf; if (!panel) return;
-                panel.busy = NO;
-                if (relative && !movie) { LMVEasterSet(@"EasterEggImage", relative); [panel loadPreview]; }
-                else if (relative) LMVEasterNotify();
-                [panel.tableView reloadData];
-                if (error && panel.view.window && !panel.presentedViewController) {
-                    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
-                    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]];
-                    [panel presentViewController:alert animated:YES completion:nil];
-                }
-            });
-        }];
+    if (picker != self.photoFlow.picker) return;
+    PHPickerResult *picked = results.firstObject; [self finishPhotoFlow];
+    if (!picked || self.busy || ![picked.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
+    self.busy = YES; [self.tableView reloadData];
+    __weak typeof(self) weakSelf = self;
+    [picked.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *providerError) {
+        NSError *error = providerError; NSString *relative = nil;
+        if (!url && !error) error = LMVStorageError(71, @"相册未返回文件");
+        // The raw video import is independent of the Settings encoder.
+        if (url && !error) relative = LMVEasterImport(url, YES, &error);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LMVEasterPanel *panel = weakSelf; if (!panel) return;
+            panel.busy = NO;
+            if (relative) LMVEasterNotify();
+            [panel.tableView reloadData]; [panel loadNames];
+            if (error && panel.view.window && !panel.presentedViewController) {
+                LMVMaterialPrompt *alert = [LMVMaterialPrompt new]; alert.promptTitle = @"导入失败"; alert.message = error.localizedDescription;
+                UIViewController *host = panel.navigationController ?: panel;
+                [host addChildViewController:alert]; [host.view addSubview:alert.view];
+                alert.view.frame = host.view.bounds; alert.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                [alert didMoveToParentViewController:host];
+            }
+        });
     }];
 }
 @end

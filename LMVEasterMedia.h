@@ -3,6 +3,7 @@
 #import <ImageIO/ImageIO.h>
 #import <AVFoundation/AVFoundation.h>
 #import <math.h>
+#import "LMVEasterGeometry.h"
 #import "LockMessageVideoPrefs/LMVMaterialStorage.h"
 #import "LockMessageVideoPrefs/LMVMaterialCatalog.h"
 
@@ -21,6 +22,12 @@ static id LMVEasterRead(NSString *key) {
 static void LMVEasterSet(NSString *key, id value) {
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, LMVEasterPrefs);
     LMVEasterNotify();
+}
+// Geometry only: changing size never changes the bounded image decode key.
+static CGFloat LMVEasterSize(void) {
+    id value = LMVEasterRead(@"EasterEggSize");
+    double size = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 64;
+    return LMVEasterBoundedSize(size);
 }
 static BOOL LMVEasterSafeDirectory(NSString *path, NSError **error) {
     NSFileManager *fm = NSFileManager.defaultManager;

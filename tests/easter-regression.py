@@ -10,7 +10,8 @@ overlay = (root / 'LMVEasterOverlay.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 tweak = (root / 'Tweak.xm').read_text()
 
-assert 'EasterEggEnabled' in prefs and 'EasterEggImage' in media + panel + overlay
+image = (root / 'LMVEasterImageSettings.h').read_text()
+assert 'EasterEggEnabled' in prefs and 'EasterEggImage' in media + image + overlay
 assert 'EasterEggPreview' in prefs and 'iconImage' in prefs
 assert '@selector(openEaster:)' in prefs and '- (void)openEaster:' in prefs
 assert 'LMVMaterialPicker *picker = [LMVMaterialPicker new]' in panel
@@ -38,13 +39,13 @@ assert 'LMVEasterVisibleDrawing' in overlay and 'area/full>=0.30' in overlay
 assert 'MAX((CGFloat)1200' in overlay and 'UISceneActivationStateUnattached' in overlay
 assert 'requireGestureRecognizerToFail:pan' in overlay
 assert 'UIGestureRecognizerStateEnded' in overlay and 'EasterEggX' in overlay
-assert 'safeAreaInsets' in overlay and 'MAX(0, inset.size.width - 64)' in overlay
+assert 'safeAreaInsets' in overlay and 'LMVEasterCenterArea(safeRect, LMVEasterSize())' in overlay
 assert 'self.normalized.x' in overlay and 'self.normalized.y' in overlay
 assert '- (BOOL)canBecomeKeyWindow { return NO; }' in overlay
 assert 'makeKey' not in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
-assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel>=level' in overlay
+assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay
 assert 'notify_get_state(LMVLockToken' in overlay and 'blank || locked' in overlay
 assert 'sharedInstance' not in overlay and 'SBLock' not in overlay and 'SBWall' not in overlay
 assert 'UIWindowDidBecomeVisibleNotification' in overlay and 'UISceneDidActivateNotification' in overlay
@@ -54,3 +55,12 @@ start = tweak[tweak.index('static void LMVEasterStartIfReady(void)'):tweak.index
 assert start.index('!LMVLaunchReady') < start.index('LMVEaster = [LMVEasterManager new]')
 assert '%hook UIView' not in tweak and '%hook UIWindow' not in tweak
 print('PASS: toggle/picker keys, shared catalog, independent atomic original import, image bounds, no global hook/key window, launch/lock/screen gates, safe drag/state/revision contracts')
+
+assert 'imageControls' not in panel and 'EasterEgg' not in panel
+assert 'LMVEasterImageSettings *panel' in prefs
+assert 'numberOfSectionsInTableView:' in image and 'return 1;' in image
+assert 'LMVEasterTargets' not in image and 'VideoOpacity' not in image
+assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterBoundedSize' in (root / 'LMVEasterGeometry.h').read_text()
+assert 'VideoOpacityEnabled' in panel and 'opacityChanged:' in panel
+assert 'pushViewController:picker' in panel and 'picker.pushed = YES' in panel
+assert 'LMVMaterialDisplayName(relative' in panel

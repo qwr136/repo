@@ -10,7 +10,7 @@
 
 #import "LMVImport.h"
 #import "LMVMaterialPicker.h"
-#import "../LMVEasterPanel.h"
+#import "../LMVEasterImageSettings.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear", @"Desktop"]; }
@@ -138,8 +138,8 @@ static void LMVNotify(void) {
 }
 - (void)openEaster:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;
-    LMVEasterPanel *panel = [LMVEasterPanel new]; panel.imageControls = YES;
-    __weak typeof(self) weakSelf = self; __weak LMVEasterPanel *weakPanel = panel;
+    LMVEasterImageSettings *panel = [LMVEasterImageSettings new];
+    __weak typeof(self) weakSelf = self; __weak LMVEasterImageSettings *weakPanel = panel;
     panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:^{ [weakSelf reloadEasterPreview]; }]; };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
 }

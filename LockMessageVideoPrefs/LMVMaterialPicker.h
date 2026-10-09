@@ -3,6 +3,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import "LMVMaterialCatalog.h"
 #import "LMVMaterialDeletion.h"
+#import "LMVMaterialPrompt.h"
 
 @interface LMVMaterialCell : UITableViewCell
 @end
@@ -18,6 +19,8 @@
 
 @interface LMVMaterialPicker : UITableViewController
 @property(nonatomic, copy) NSString *selected;
+@property(nonatomic) BOOL pushed;
+@property(nonatomic, strong) LMVMaterialPrompt *prompt;
 @property(nonatomic, copy) void (^apply)(NSString *relative, NSString *name);
 @property(nonatomic, copy) NSArray<NSDictionary *> *materials;
 @property(nonatomic, strong) NSCache<NSString *, UIImage *> *thumbnails;
@@ -48,7 +51,10 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
     [self reloadLibrary];
 }
-- (void)cancel { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)cancel {
+    if (self.pushed) [self.navigationController popViewControllerAnimated:YES];
+    else [self dismissViewControllerAnimated:YES completion:nil];
+}
 - (void)dealloc { [_thumbnailQueue cancelAllOperations]; }
 - (void)didReceiveMemoryWarning {
     [super didReceiveMemoryWarning];
@@ -152,9 +158,58 @@
     NSString *relative = none ? @"" : row[@"path"];
     NSString *name = none ? @"无素材" : row[@"name"];
     void (^apply)(NSString *, NSString *) = self.apply;
-    [self dismissViewControllerAnimated:YES completion:^{ if (apply) apply(relative, name); }];
+    if (self.pushed) {
+        if (apply) apply(relative, name);
+        [self.navigationController popViewControllerAnimated:YES];
+    } else [self dismissViewControllerAnimated:YES completion:^{ if (apply) apply(relative, name); }];
+}
+- (void)showPrompt:(NSString *)title message:(NSString *)message initial:(NSString *)initial action:(NSString *)action destructive:(BOOL)destructive completion:(void (^)(NSString *, BOOL))completion {
+    if (self.prompt) return;
+    LMVMaterialPrompt *prompt = [LMVMaterialPrompt new];
+    prompt.promptTitle = title; prompt.message = message; prompt.initialText = initial;
+    prompt.editing = initial != nil; prompt.actionTitle = action; prompt.destructive = destructive;
+    __weak typeof(self) weakSelf = self;
+    prompt.complete = ^(NSString *text, BOOL accepted) { weakSelf.prompt = nil; if (completion) completion(text, accepted); };
+    UIViewController *host = self.navigationController ?: self;
+    self.prompt = prompt; [host addChildViewController:prompt]; [host.view addSubview:prompt.view];
+    prompt.view.frame = host.view.bounds; prompt.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [prompt didMoveToParentViewController:host];
+}
+- (void)deleteContained:(NSDictionary *)row {
+    __weak typeof(self) weakSelf = self;
+    [self showPrompt:@"删除素材？" message:[NSString stringWithFormat:@"将删除“%@”，相关背景会取消此素材选择。", row[@"name"]] initial:nil action:@"删除" destructive:YES completion:^(NSString *text, BOOL accepted) {
+        LMVMaterialPicker *picker = weakSelf; if (!accepted || !picker) return;
+        picker.tableView.userInteractionEnabled = NO;
+        dispatch_async(LMVMaterialQueue(), ^{
+            BOOL deleted = NO; NSError *error = LMVDeleteMaterial(row[@"path"], &deleted);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LMVMaterialPicker *live = weakSelf; if (!live) return;
+                live.tableView.userInteractionEnabled = YES;
+                if (deleted) {
+                    if ([live.selected isEqualToString:row[@"path"]]) live.selected = @"";
+                    [live.thumbnails removeObjectForKey:row[@"revision"]]; [live reloadLibrary];
+                }
+                [live showPrompt:error ? (deleted ? @"素材已删除，清理未完成" : @"删除失败") : @"素材已删除" message:error.localizedDescription ?: @"相关背景选择已更新。" initial:nil action:nil destructive:NO completion:nil];
+            });
+        });
+    }];
+}
+- (void)renameContained:(NSDictionary *)row {
+    __weak typeof(self) weakSelf = self;
+    [self showPrompt:@"重命名素材" message:@"仅修改显示名称。" initial:row[@"name"] action:@"保存" destructive:NO completion:^(NSString *text, BOOL accepted) {
+        if (!accepted) return;
+        dispatch_async(LMVMaterialQueue(), ^{
+            NSError *error = LMVRenameMaterial(row[@"path"], text);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LMVMaterialPicker *live = weakSelf; if (!live) return;
+                if (!error) [live reloadLibrary];
+                else [live showPrompt:@"重命名失败" message:error.localizedDescription initial:nil action:nil destructive:NO completion:nil];
+            });
+        });
+    }];
 }
 - (void)confirmDelete:(NSDictionary *)row {
+    if (self.pushed) { [self deleteContained:row]; return; }
     if (self.presentedViewController) return;
     NSString *relative=row[@"path"];
     UIAlertController *confirm=[UIAlertController alertControllerWithTitle:@"删除素材？" message:[NSString stringWithFormat:@"将删除“%@”，无法撤销。消息、锁屏、选项或清除背景如果正在使用它，会取消该素材选择。",row[@"name"]] preferredStyle:UIAlertControllerStyleAlert];
@@ -193,7 +248,8 @@
     __weak typeof(self) weakSelf = self;
     UIContextualAction *rename = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"重命名" handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
         LMVMaterialPicker *picker = weakSelf;
-        if (!picker) { done(NO); return; }
+        if (!picker || picker.prompt) { done(NO); return; }
+        if (picker.pushed) { [picker renameContained:row]; done(YES); return; }
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名素材" message:@"仅修改显示名称，视频文件和当前选择保持不变。" preferredStyle:UIAlertControllerStyleAlert];
         [alert addTextFieldWithConfigurationHandler:^(UITextField *field) { field.text = row[@"name"]; field.clearButtonMode = UITextFieldViewModeWhileEditing; }];
         [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -219,7 +275,7 @@
     rename.backgroundColor = UIColor.systemBlueColor;
     UIContextualAction *remove = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
         LMVMaterialPicker *picker = weakSelf;
-        if (!picker || picker.presentedViewController) { done(NO); return; }
+        if (!picker || picker.presentedViewController || picker.prompt) { done(NO); return; }
         done(YES);
         [picker confirmDelete:row];
     }];

@@ -81,7 +81,7 @@ static void LMVOriginalCandidateBranch(UIView *view, BOOL wallpaper, NSUInteger 
         if (wallpaper && [name containsString:@"Wallpaper"] && LMVOriginalPureView(child, YES, 0)) {
             [candidates addObject:@{@"layer":child.layer, @"method":@(LMVOriginalSuppressDrawing)}];
         } else if ((!wallpaper && ([name containsString:@"Backdrop"] || [name containsString:@"MaterialView"] ||
-                     [name containsString:@"VisualEffect"])) || (wallpaper && [name containsString:@"Wallpaper"])) {
+                     [name containsString:@"VisualEffect"] || object_getClass(child) == UIView.class)) || (wallpaper && [name containsString:@"Wallpaper"])) {
             LMVOriginalCandidateBranch(child, wallpaper, depth + 1, candidates, remaining);
         }
     }
@@ -92,6 +92,7 @@ static void LMVOriginalCandidates(UIView *view, BOOL wallpaper, NSUInteger depth
 }
 static void LMVRestoreBackground(LMVVideoState *state) {
     LMVReleaseOriginals(state.originals, state);
+    LMVReleaseOriginals(state.wallpaperOriginals, state); state.wallpaperOriginals = nil;
     state.originals = nil; state.originalAnchor = nil; state.originalScope = nil;
 }
 static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope) {

@@ -1,5 +1,6 @@
 #pragma once
 #import "LMVEasterPanel.h"
+#import "LMVEasterGeometry.h"
 #import <notify.h>
 #import <objc/message.h>
 #import <string.h>
@@ -16,14 +17,8 @@
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     if (self.hidden || self.alpha < 0.01) return nil;
-    // Our presented picker/alert is part of the panel, never a system window.
-    UIViewController *modal = self.rootViewController;
-    while (modal.presentedViewController) modal = modal.presentedViewController;
-    if (modal != self.rootViewController && modal.viewIfLoaded.window == self) {
-        CGPoint local = [modal.view convertPoint:point fromView:self];
-        if ([modal.view pointInside:local withEvent:event]) return [modal.view hitTest:local withEvent:event];
-        return nil;
-    }
+    // Only the actual bubble/panel rectangles accept touches. Navigation,
+    // Photos children and contained prompts remain inside that same panel.
     for (UIView *view in @[self.panel ?: [NSNull null], self.bubble ?: [NSNull null]]) {
         if (![view isKindOfClass:UIView.class] || view.hidden || view.alpha < 0.01) continue;
         CGPoint local = [view convertPoint:point fromView:self];
@@ -81,13 +76,15 @@ static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
     if (window.hidden || window.alpha<0.01 || window.screen!=UIScreen.mainScreen) return NO;
     UIViewController *controller=window.rootViewController;
     while (controller.presentedViewController) controller=controller.presentedViewController;
-    BOOL security=LMVEasterSecurityName(NSStringFromClass(window.class)) ||
-        (controller.viewIfLoaded.window==window && LMVEasterSecurityName(NSStringFromClass(controller.class)));
-    NSUInteger budget=96;
-    BOOL substantive=LMVEasterVisibleDrawing(controller.viewIfLoaded,window,0,&budget,&security);
-    // Known security UI is protected even below the floating level. Empty clear
-    // screenshot/status/notch windows do not suppress a bubble in another scene.
-    return security || (window.windowLevel>=level && substantive);
+    BOOL visibleSecurity = NO; NSUInteger budget = 96;
+    BOOL substantive = LMVEasterVisibleDrawing(controller.viewIfLoaded, window, 0, &budget, &visibleSecurity);
+    // Persistent camera/widget/wallpaper windows are not permission dialogs.
+    // A security-named window/controller counts only if it visibly draws; a
+    // visible security view found in the bounded traversal counts directly.
+    BOOL classSecurity = LMVEasterSecurityName(NSStringFromClass(window.class)) ||
+        (controller.viewIfLoaded.window == window && LMVEasterSecurityName(NSStringFromClass(controller.class)));
+    return visibleSecurity || (classSecurity && substantive) ||
+        (window.windowLevel >= UIWindowLevelAlert && substantive);
 }
 static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterManager *manager = (__bridge LMVEasterManager *)observer;
@@ -145,7 +142,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     }
     // No private singleton construction; published lock/blank state fails closed.
     uint64_t blank = 1, locked = 1;
-    if (LMVBlankToken < 0 || LMVLockToken < 0 || notify_get_state(LMVBlankToken, &blank) != NOTIFY_STATUS_OK || notify_get_state(LMVLockToken, &locked) != NOTIFY_STATUS_OK || blank || locked) { [self hide]; [self reportWindow:@"lock-or-screen-gate"]; return; }
+    BOOL blankKnown = LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK;
+    BOOL lockKnown = LMVLockToken >= 0 && notify_get_state(LMVLockToken, &locked) == NOTIFY_STATUS_OK;
+    if (!blankKnown || !lockKnown || blank || locked) {
+        [self hide]; [self reportWindow:[NSString stringWithFormat:@"lock-or-screen-gate blankKnown=%d lockKnown=%d blank=%llu locked=%llu", blankKnown, lockKnown, (unsigned long long)blank, (unsigned long long)locked]]; return;
+    }
     NSArray *trusted = @[@"SBHomeScreenWindow", @"SBCoverSheetWindow", @"SBControlCenterWindow", @"CCUIOverlayWindow"];
     NSMutableArray<UIWindow *> *windows = [NSMutableArray new];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
@@ -178,13 +179,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         [self.bubble addGestureRecognizer:pan]; [self.bubble addGestureRecognizer:tap]; [root.view addSubview:self.bubble]; self.window.bubble = self.bubble;
     }
     self.window.windowLevel = level;
-    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
     NSString *path = LMVEasterImagePath(LMVEasterRead(@"EasterEggImage"));
     struct stat info; NSString *key = nil;
     if (path && lstat(path.fileSystemRepresentation, &info) == 0) key = [NSString stringWithFormat:@"%@:%llu:%lld:%lld:%ld", path, (unsigned long long)info.st_ino, (long long)info.st_size, (long long)info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec];
-    if (!key) { self.generation++; self.imageKey = nil; self.decoded = nil; self.bubble.image = nil; [self hide]; return; }
+    if (!key) { self.generation++; self.imageKey = nil; self.decoded = nil; self.bubble.image = nil; [self hide]; [self reportWindow:@"hide:image-selection-missing-or-invalid"]; return; }
     if (![self.imageKey isEqualToString:key]) {
-        self.imageKey = key; self.decoded = nil; self.frame = 0; self.bubble.image = nil; [self hide];
+        self.imageKey = key; self.decoded = nil; self.frame = 0; self.bubble.image = nil; [self hide]; [self reportWindow:@"hide:image-decode-pending"];
         NSUInteger generation = ++self.generation; __weak typeof(self) weakSelf = self;
         dispatch_async(LMVMaterialQueue(), ^{
             LMVEasterImage *decoded = LMVEasterDecode([NSURL fileURLWithPath:path], NULL);
@@ -195,29 +195,36 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
             });
         }); return;
     }
-    if (!self.decoded.frames.count) { [self hide]; return; }
+    if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
+    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {
     CGRect bounds = self.window.rootViewController.view.bounds;
     UIEdgeInsets safe = self.window.rootViewController.view.safeAreaInsets;
     CGRect inset = UIEdgeInsetsInsetRect(bounds, UIEdgeInsetsMake(safe.top + 8, safe.left + 8, safe.bottom + 8, safe.right + 8));
-    return CGRectMake(CGRectGetMinX(inset) + 32, CGRectGetMinY(inset) + 32, MAX(0, inset.size.width - 64), MAX(0, inset.size.height - 64));
+    LMVEasterRect safeRect = { inset.origin.x, inset.origin.y, inset.size.width, inset.size.height };
+    LMVEasterRect area = LMVEasterCenterArea(safeRect, LMVEasterSize());
+    return CGRectMake(area.x, area.y, area.width, area.height);
 }
 - (void)layout {
     if (!self.window || !self.bubble) return;
+    CGFloat size = LMVEasterSize(); self.bubble.bounds = CGRectMake(0, 0, size, size);
     CGRect area = [self dragArea];
     self.bubble.center = CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
     if (self.panel) {
         CGRect bounds = UIEdgeInsetsInsetRect(self.window.rootViewController.view.bounds, self.window.rootViewController.view.safeAreaInsets);
-        CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height - 24));
+        CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height * .65));
         self.panel.view.frame = CGRectMake(CGRectGetMidX(bounds) - width / 2, CGRectGetMidY(bounds) - height / 2, width, height);
+        self.panel.view.layer.cornerRadius = 20;
+        self.panel.view.layer.cornerCurve = kCACornerCurveContinuous;
+        self.panel.view.clipsToBounds = YES;
     }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
     CGPoint translation = [pan translationInView:self.window.rootViewController.view]; CGRect area = [self dragArea];
     CGPoint point = CGPointMake(MAX(CGRectGetMinX(area), MIN(CGRectGetMaxX(area), self.bubble.center.x + translation.x)), MAX(CGRectGetMinY(area), MIN(CGRectGetMaxY(area), self.bubble.center.y + translation.y)));
-    self.normalized = CGPointMake(area.size.width ? (point.x - area.origin.x) / area.size.width : 0.5, area.size.height ? (point.y - area.origin.y) / area.size.height : 0.5);
+    self.normalized = CGPointMake(LMVEasterNormalizedPosition(point.x, area.origin.x, area.size.width), LMVEasterNormalizedPosition(point.y, area.origin.y, area.size.height));
     self.bubble.center = point; [pan setTranslation:CGPointZero inView:self.window.rootViewController.view];
     if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
         LMVEasterSet(@"EasterEggX", @(self.normalized.x)); LMVEasterSet(@"EasterEggY", @(self.normalized.y));
@@ -241,11 +248,10 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     panel.close = ^{ [weakSelf closePanel]; };
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
     UIViewController *root = self.window.rootViewController; [root addChildViewController:self.panel]; [root.view addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
-    self.panel.view.layer.cornerRadius = 8; self.panel.view.clipsToBounds = YES; self.window.panel = self.panel.view; [self layout];
+    self.panel.view.layer.cornerRadius = 20; self.panel.view.layer.cornerCurve = kCACornerCurveContinuous; self.panel.view.clipsToBounds = YES; self.window.panel = self.panel.view; [self layout];
 }
 - (void)closePanel {
     if (!self.panel) return;
-    [self.panel dismissViewControllerAnimated:NO completion:nil];
     [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview]; [self.panel removeFromParentViewController]; self.panel = nil; self.window.panel = nil;
 }
 @end
