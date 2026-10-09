@@ -11,6 +11,7 @@
 @property(nonatomic, copy) NSDictionary *names;
 @property(nonatomic, strong) LMVEasterPhotoFlow *photoFlow;
 @property(nonatomic, copy) void (^close)(void);
+- (void)loadNames;
 @end
 static NSArray *LMVEasterTargets(void) { return @[@"Message", @"LockScreen", @"Desktop", @"Options", @"Clear"]; }
 static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"锁屏背景", @"桌面背景", @"选项背景", @"清除背景"]; }
