@@ -106,7 +106,7 @@ static LMVEasterImage *LMVEasterDecode(NSURL *url, NSError **error) {
     return decoded;
 }
 
-static UIImage *LMVEasterPreviewImage(LMVEasterImage *decoded) {
+static __attribute__((unused)) UIImage *LMVEasterPreviewImage(LMVEasterImage *decoded) {
     if (!decoded.frames.count) return nil;
     if (decoded.frames.count==1) return decoded.frames.firstObject;
     double duration=0; for (NSNumber *delay in decoded.delays) duration+=delay.doubleValue;
