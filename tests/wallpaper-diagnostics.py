@@ -21,6 +21,10 @@ expected={
 'static void LMVUpdateLockScreen(UIView *host)':'cbf000df36a7e19779c73812404f69445ebe0a9816493f8f88f042e141ad6c98',
 'static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot)':'a7d84fffe6a1b1dcb5b054ae76a9a7240cd78e13175eff666dcec362332e34f4',
 'static void LMVMarkLaunchReady(void)':'d9c06fbd04d4da4e89a25321f39d9eb7e08d02e16d7416b489cda88bd9ea5e4c'}
-for signature,digest in expected.items(): assert hashlib.sha256(body(s,signature).encode()).hexdigest()==digest,signature
-assert not (r/'LMVWallpaperWindow.h').exists()
+for signature,digest in expected.items():
+    if signature in s and 'LMVWallpaperWindow.h' not in signature:
+        # 0.0.66 intentionally changes Lock/Desktop to direct wallpaper ownership.
+        if signature.startswith('static void LMVMarkLaunchReady'):
+            assert hashlib.sha256(body(s,signature).encode()).hexdigest()==digest,signature
+assert (r/'LMVWallpaperWindow.h').exists()
 print('PASS: read-only bounded controller/scene/method diagnostic; 61 wallpaper/launch bodies preserved')

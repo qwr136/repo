@@ -57,7 +57,8 @@ assert 'LMVOriginalPureView(anchor, NO, 0)' in update
 assert 'LMVRestoreBackground(state)' in update
 for target,signature in [('LockScreen','static void LMVUpdateLockScreen(UIView *host)'),('Desktop','static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot)')]:
     f=function(s,signature)
-    assert 'LMVRestoreBackground(state)' in f and 'LMVReplaceBackground(state, host, host, @"'+target+'"' in f
+    assert 'LMVRestoreBackground(state)' in f and 'wallpaperEligible' in f
+    assert 'LMVUpdateWallpaperWindows();' in f
     assert 'LMVRevisions[path] &&' in f # invalid selection does not reconstruct target each layout
 scope=function(s,'static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity)')
 assert 'snapshot.foreground != LMVForegroundApp' in scope and 'snapshot.screenOn' in scope and '!snapshot.locked' in scope

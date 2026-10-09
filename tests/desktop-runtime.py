@@ -8,8 +8,9 @@ update='static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot)
 release_desktop=s.split('static void LMVReleaseDesktopSource(LMVVideoState *state) {',1)[1].split('static void LMVUpdateDesktop',1)[0]
 for forbidden in ['removeFromSuperlayer', 'layer.hidden', 'layer.contents']:
     assert forbidden not in release_desktop
-assert update.count('[state.layer removeFromSuperlayer]')==1
-assert 'LMVDesktopShouldAttach(state.layer.superlayer == host.layer)' in update
+assert 'state.layer.hidden = YES' in update
+assert 'insertSublayer:state.layer' not in update
+assert 'wallpaperEligible' in update
 assert '%hook UIView' not in s and '%hook SBIconContentView' not in s
 observer=s.split('%hook SBFloatingDockWindow',1)[1].split('%end',1)[0]
 assert observer.count('%orig;')==4

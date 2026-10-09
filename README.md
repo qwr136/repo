@@ -27,6 +27,12 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.66
+
+- 锁屏与桌面视频直接接管 `_SBWallpaperSecureWindow`：确认的原壁纸分支从父层移除，视频层接管壁纸窗口根层；关闭、切换素材或离开场景时恢复原壁纸对象和原层级。
+- 锁屏/桌面内容宿主只保留帧缓存，不再显示叠加视频层；时间、通知、图标和 Dock 保留在各自上层窗口。
+- 保留 0.0.65 的预览和壁纸诊断日志，便于验证直接接管是否命中。
+
 ## 0.0.65
 
 - 完善锁屏/桌面诊断，保持 0.0.64 的 25 个 ABI 校验透传 hook；记录累计 hits 和本会话 sessionHits，重新开启诊断后重新采样前 12 次调用和前两次调用栈。
