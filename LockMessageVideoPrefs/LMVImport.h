@@ -1,6 +1,8 @@
 #import <AVFoundation/AVFoundation.h>
 #import <math.h>
 #import "LMVMaterialStorage.h"
+#import "LMVThumbnailDiagnosticLog.h"
+#import "LMVMaterialThumbnail.h"
 #import "LMVEncodePlan.h"
 
 static const unsigned long long LMVMaxImportBytes = 5ULL * 1024ULL * 1024ULL;
@@ -153,7 +155,18 @@ static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError
         if (outError) *outError=LMVImportError(17,@"导入未完成；临时原素材已清理，未加入素材库",error);
         return nil;
     }
-    return [@"library" stringByAppendingPathComponent:name];
+    NSString *relative = [@"library" stringByAppendingPathComponent:name];
+    NSString *revision = LMVThumbnailRevision(relative);
+    if (revision) {
+        UIImage *poster = LMVDecodeThumbnail(relative);
+        if (poster) {
+            NSError *thumbnailError = LMVWriteThumbnail(relative, revision, poster);
+            if (thumbnailError) LMVThumbnailLog(@"import-sidecar-write", relative, thumbnailError);
+        } else {
+            LMVThumbnailLog(@"import-sidecar-decode", relative, nil);
+        }
+    }
+    return relative;
 }
 
 // NSItemProvider's file URL expires when its callback returns. Keep that callback

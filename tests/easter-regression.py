@@ -46,7 +46,7 @@ assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
 assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay
-assert 'notify_get_state(LMVLockToken' in overlay and 'pulledDown' in overlay and 'blank' in overlay
+assert 'notify_get_state(LMVLockToken' in overlay and 'blank || locked' in overlay
 assert 'sharedInstance' not in overlay and 'SBLock' not in overlay and 'SBWall' not in overlay
 assert 'UIWindowDidBecomeVisibleNotification' in overlay and 'UISceneDidActivateNotification' in overlay
 assert 'generation != manager.generation' in overlay

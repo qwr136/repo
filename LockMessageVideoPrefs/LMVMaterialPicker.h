@@ -2,6 +2,8 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import "LMVMaterialCatalog.h"
+#import "LMVThumbnailDiagnosticLog.h"
+#import "LMVMaterialThumbnail.h"
 #import "LMVMaterialDeletion.h"
 #import "LMVMaterialPrompt.h"
 
@@ -54,6 +56,12 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
     [self reloadLibrary];
 }
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // Another process may have published sidecars since this picker last appeared.
+    [self.thumbnailFailures removeAllObjects];
+    [self requestVisibleThumbnails];
+}
 - (void)cancel {
     if (self.pushed) [self.navigationController popViewControllerAnimated:YES];
     else [self dismissViewControllerAnimated:YES completion:nil];
@@ -91,8 +99,8 @@
                 names[relative] = name;
                 namesChanged = YES;
             }
-            NSString *revision = [NSString stringWithFormat:@"%@|%@|%@", relative, attributes[NSFileModificationDate], attributes[NSFileSize]];
-            [rows addObject:@{@"path": relative, @"name": name, @"revision": revision}];
+            NSString *revision = LMVThumbnailRevision(relative);
+            if (revision) [rows addObject:@{@"path": relative, @"name": name, @"revision": revision}];
         }
         if (namesChanged) LMVWriteMaterialNames(names);
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -110,37 +118,23 @@
 - (void)requestThumbnail:(NSDictionary *)row {
     NSString *key = row[@"revision"];
     // A full queue defers (completion re-requests visible rows), it never drops a row forever.
-    if ([self.thumbnails objectForKey:key] || [self.pending containsObject:key] || self.pending.count >= 12) return;
+    if ([self.thumbnails objectForKey:key] || [self.thumbnailFailures[key] boolValue] || [self.pending containsObject:key] || self.pending.count >= 12) return;
     [self.pending addObject:key];
-    NSString *path = [@"/var/mobile/LockMessageVideo" stringByAppendingPathComponent:row[@"path"]];
+    NSString *relative = row[@"path"];
     __weak typeof(self) weakSelf = self;
     [self.thumbnailQueue addOperationWithBlock:^{
         @autoreleasepool {
-            // Decode only a small poster, on a bounded serial background queue.
-            AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
-            AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-            generator.appliesPreferredTrackTransform = YES;
-            generator.maximumSize = CGSizeMake(144, 144);
-            // Exact t=0 fails on many HEVC/edited clips; accept the nearest decodable frame.
-            generator.requestedTimeToleranceBefore = kCMTimePositiveInfinity;
-            generator.requestedTimeToleranceAfter = kCMTimePositiveInfinity;
-            CGImageRef image = NULL;
-            for (NSNumber *seconds in @[@0, @0.1, @1.0]) {
-                image = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(seconds.doubleValue, 600) actualTime:NULL error:nil];
-                if (image) break;
-            }
-            UIImage *poster = image ? [UIImage imageWithCGImage:image] : nil;
-            NSUInteger cost = image ? CGImageGetBytesPerRow(image) * CGImageGetHeight(image) : 0;
-            if (image) CGImageRelease(image);
+            // Settings imports publish this poster; old files decode only on cache miss.
+            if (!weakSelf) return;
+            UIImage *poster = LMVEnsureThumbnail(relative, key);
+            NSUInteger cost = poster.CGImage ? CGImageGetBytesPerRow(poster.CGImage) * CGImageGetHeight(poster.CGImage) : 0;
             dispatch_async(dispatch_get_main_queue(), ^{
                 LMVMaterialPicker *picker = weakSelf;
                 if (!picker) return;
                 [picker.pending removeObject:key];
-                // Only real posters are cached; a failure retries a bounded number of times.
-                NSUInteger tries = [picker.thumbnailFailures[key] unsignedIntegerValue];
+                // Never cache the film symbol as if it were a successfully decoded poster.
                 if (poster) [picker.thumbnails setObject:poster forKey:key cost:cost];
-                else if (tries >= 2) [picker.thumbnails setObject:[UIImage systemImageNamed:@"film"] forKey:key cost:1];
-                else picker.thumbnailFailures[key] = @(tries + 1);
+                else picker.thumbnailFailures[key] = @YES;
                 // Resolve current paths, never capture/reuse a cell from a previous generation.
                 for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
                     if (index.row < picker.materials.count) {

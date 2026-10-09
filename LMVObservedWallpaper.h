@@ -26,8 +26,7 @@ static void LMVObservedWallpaperBranches(UIView *view, UIWindow *window, NSUInte
     }
     for (UIView *child in view.subviews) LMVObservedWallpaperBranches(child, window, depth + 1, budget, branches, guards);
 }
-// 0.0.62: superseded by LMVWallpaperWindow.h (kept for the native contract test).
-static __attribute__((unused)) void LMVReplaceObservedWallpaper(LMVVideoState *state, UIView *host, NSString *target, BOOL inScope) {
+static void LMVReplaceObservedWallpaper(LMVVideoState *state, UIView *host, NSString *target, BOOL inScope) {
     if (!state) return;
     // Host-local leases no longer short-circuit: the separate wallpaper window still draws.
     if (!inScope || !host.window) {

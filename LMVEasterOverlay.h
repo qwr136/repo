@@ -184,21 +184,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     uint64_t blank = 1, locked = 1;
     BOOL blankKnown = LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK;
     BOOL lockKnown = LMVLockToken >= 0 && notify_get_state(LMVLockToken, &locked) == NOTIFY_STATUS_OK;
-    // 0.0.62: unlocked Notification Center pull-down can publish lockstate=1.
-    // lockcomplete (device actually locked) separates it; also an unlock observed
-    // since the last lockcomplete means the user is authenticated.
-    BOOL pulledDown = NO;
-    if (blankKnown && lockKnown && !blank && locked) {
-        uint64_t complete = 1;
-        BOOL completeKnown = LMVLockCompleteToken >= 0 && notify_get_state(LMVLockCompleteToken, &complete) == NOTIFY_STATUS_OK;
-        Class coverClass = NSClassFromString(@"SBCoverSheetWindow");
-        BOOL coverVisible = NO;
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
-            if ([scene isKindOfClass:UIWindowScene.class]) for (UIWindow *window in ((UIWindowScene *)scene).windows)
-                if (coverClass && [window isKindOfClass:coverClass] && !window.hidden && window.alpha >= 0.01) coverVisible = YES;
-        pulledDown = coverVisible && ((completeKnown && complete == 0) || LMVEasterUnlockedSinceLock);
-    }
-    if (!blankKnown || !lockKnown || blank || (locked && !pulledDown)) {
+    if (!blankKnown || !lockKnown || blank || locked) {
         [self hide]; [self reportWindow:[NSString stringWithFormat:@"lock-or-screen-gate blankKnown=%d lockKnown=%d blank=%llu locked=%llu", blankKnown, lockKnown, (unsigned long long)blank, (unsigned long long)locked]]; return;
     }
     NSArray *trusted = @[@"SBHomeScreenWindow", @"SBCoverSheetWindow", @"SBControlCenterWindow", @"CCUIOverlayWindow"];
@@ -268,7 +254,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         }); return;
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
-    [self reportWindow:[NSString stringWithFormat:@"pulldown=%d host=%@ level=%.0f scene=%ld cover=%@",pulledDown,NSStringFromClass(host.class),level,(long)host.windowScene.activationState,cover ? [NSString stringWithFormat:@"%.0f",cover.windowLevel] : @"none"]];
+    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld cover=%@",NSStringFromClass(host.class),level,(long)host.windowScene.activationState,cover ? [NSString stringWithFormat:@"%.0f",cover.windowLevel] : @"none"]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {

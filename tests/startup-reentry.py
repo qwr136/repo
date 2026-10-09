@@ -60,9 +60,7 @@ static void mainTurn(void) { NSArray *turn=queued.copy; [queued removeAllObjects
 @implementation UIView @end
 @interface SBHomeScreenView : UIView @end
 @implementation SBHomeScreenView @end
-@interface UIWindow : UIView @end
-@implementation UIWindow @end
-@interface _SBWallpaperSecureWindow : UIWindow @end
+@interface _SBWallpaperSecureWindow : UIView @end
 @implementation _SBWallpaperSecureWindow @end
 typedef NS_ENUM(NSInteger, UIApplicationState) { UIApplicationStateActive, UIApplicationStateInactive, UIApplicationStateBackground };
 typedef NS_ENUM(NSInteger, UISceneActivationState) { UISceneActivationStateForegroundActive, UISceneActivationStateForegroundInactive, UISceneActivationStateBackground, UISceneActivationStateUnattached };
@@ -76,8 +74,7 @@ typedef NS_ENUM(NSInteger, UISceneActivationState) { UISceneActivationStateForeg
 @end
 @implementation UIApplication @end
 static NSString *UIApplicationDidFinishLaunchingNotification=@"UIApplicationDidFinishLaunchingNotification";
-static NSHashTable *LMVCells, *LMVDesktopHosts, *LMVWallpaperWindows;
-static void LMVDiscoverWallpaperHosts(void) {}
+static NSHashTable *LMVCells, *LMVDesktopHosts;
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying, LMVPreferencesDirty=YES;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
