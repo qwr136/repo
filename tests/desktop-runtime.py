@@ -112,6 +112,9 @@ static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDeskt
 // Lease behavior is executed by original-background.m using REAL QuartzCore.
 static void LMVRestoreBackground(LMVVideoState *state) {}
 static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope) {}
+// Wallpaper discovery/leases run with actual QuartzCore in original-background.m;
+// this harness isolates desktop playback and lifetime from UIKit wall/scene enumeration.
+static void LMVReplaceObservedWallpaper(LMVVideoState *state, UIView *host, NSString *target, BOOL inScope) {}
 static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity) { return activity.draw; }
 static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) { return NO; }

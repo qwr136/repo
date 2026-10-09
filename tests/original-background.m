@@ -92,6 +92,11 @@ static const NSInteger UISceneActivationStateUnattached = -1;
 @end
 static NSUInteger diagnostics;
 static void LMVDiagnostic(NSString *event) { assert([event hasPrefix:@"original "]); diagnostics++; }
+// UIKit's NSStringFromCGRect is unavailable in the macOS native test runner.
+static NSString *NSStringFromCGRect(CGRect rect) {
+    return [NSString stringWithFormat:@"{{%g, %g}, {%g, %g}}", (double)rect.origin.x,
+        (double)rect.origin.y, (double)rect.size.width, (double)rect.size.height];
+}
 #import "../LMVBackgroundDiscovery.h"
 #import "../LMVObservedWallpaper.h"
 static BOOL LMVMessageCell(UIView *view) { return NO; }

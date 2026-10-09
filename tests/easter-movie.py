@@ -84,5 +84,5 @@ int main(void) { @autoreleasepool {
 with tempfile.TemporaryDirectory() as tmp:
     source=Path(tmp)/'movie.m'; source.write_text(preamble+media+main)
     binary=Path(tmp)/'movie'
-    subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','AVFoundation','-framework','CoreVideo','-framework','CoreMedia','-framework','CoreGraphics','-framework','ImageIO',str(source),'-o',str(binary)],check=True)
+    subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','AVFoundation','-framework','CoreVideo','-framework','CoreMedia','-framework','CoreGraphics','-framework','ImageIO',str(source),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True,timeout=30)
