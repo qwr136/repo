@@ -9,7 +9,10 @@ s=(r/'Tweak.xm').read_text()
 h=(r/'LMVBackgroundDiscovery.h').read_text()
 l=(r/'LMVOriginalBackground.h').read_text()
 def function(text,signature):
-    start=text.index(signature+' {'); depth=0
+    start=text.find(signature+' {')
+    if start < 0:
+        start=text.index(signature+' __attribute__((unused)) {')
+    depth=0
     for i in range(start+len(signature)+1,len(text)):
         if text[i]=='{':depth+=1
         elif text[i]=='}':
