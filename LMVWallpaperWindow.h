@@ -84,7 +84,7 @@ static void LMVWallpaperUpdate(UIWindow *window) {
     }
     surface.leases=live;
     [CATransaction commit];
-    NSString *frame=contents?([state.source.lastImage?@"live":@"cached"]):@"blank";
+    NSString *frame = contents ? (state.source.lastImage ? @"live" : @"cached") : @"blank";
     NSString *diag=[NSString stringWithFormat:@"wallpaper-direct target=%@ branches=%lu detached=%lu layer=%@ frame=%@",target,(unsigned long)branches.count,(unsigned long)live.count,surface.layer.superlayer?@"attached":@"none",frame];
     if (![surface.diagnostic isEqualToString:diag]) { surface.diagnostic=diag; LMVDiagnostic(diag); }
 }
