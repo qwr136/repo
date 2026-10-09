@@ -114,6 +114,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
     configuration.filter = movie ? PHPickerFilter.videosFilter : PHPickerFilter.imagesFilter;
     configuration.selectionLimit = 1;
+    configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration]; picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
