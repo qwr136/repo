@@ -32,13 +32,18 @@ static NSString *LMVThumbnailRecordPath(NSString *relative) {
 #ifndef LMVThumbnailDiagnostic
 #define LMVThumbnailDiagnostic(event) do { } while (0)
 #endif
+static NSString *LMVThumbnailItemID(NSString *relative) {
+    NSData *bytes = [relative dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
+    return [NSString stringWithFormat:@"%02x%02x%02x%02x%02x%02x", digest[0], digest[1], digest[2], digest[3], digest[4], digest[5]];
+}
 static void LMVThumbnailLog(NSString *stage, NSString *relative, NSError *error) {
-    (void)relative;
     // Hooked by the including host; never include paths, filenames or error descriptions.
     NSError *underlying = error.userInfo[NSUnderlyingErrorKey];
     if (![underlying isKindOfClass:NSError.class]) underlying = nil;
-    NSString *event = [NSString stringWithFormat:@"thumbnail stage=%@ error=%@/%ld underlying=%@/%ld",
-        stage, error.domain ?: @"none", (long)error.code, underlying.domain ?: @"none", (long)underlying.code];
+    NSString *event = [NSString stringWithFormat:@"thumbnail item=%@ stage=%@ error=%@/%ld underlying=%@/%ld",
+        LMVThumbnailItemID(relative), stage, error.domain ?: @"none", (long)error.code, underlying.domain ?: @"none", (long)underlying.code];
     LMVThumbnailDiagnostic(event);
     (void)event;
 }
@@ -47,17 +52,24 @@ static UIImage *LMVReadThumbnail(NSString *relative, NSString *revision) {
     struct stat s;
     if (lstat(target.fileSystemRepresentation, &s)) {
         if (errno != ENOENT) LMVThumbnailLog(@"sidecar-stat", relative, [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil]);
+        else LMVThumbnailLog(@"disk-miss", relative, nil);
         return nil;
     }
-    if (!S_ISREG(s.st_mode) || s.st_size <= 0 || s.st_size > 256 * 1024) return nil;
+    if (!S_ISREG(s.st_mode) || s.st_size <= 0 || s.st_size > 256 * 1024) {
+        LMVThumbnailLog(@"disk-invalid-file", relative, nil); return nil;
+    }
     NSError *error = nil;
     NSData *data = [NSData dataWithContentsOfFile:target options:0 error:&error];
     id record = data ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:&error] : nil;
     if (error) LMVThumbnailLog(@"sidecar-read", relative, error);
     if (![record isKindOfClass:NSDictionary.class] || ![record[@"schema"] isEqual:@1] ||
-        ![record[@"revision"] isEqual:revision] || ![LMVThumbnailRevision(relative) isEqualToString:revision]) return nil;
+        ![record[@"revision"] isEqual:revision] || ![LMVThumbnailRevision(relative) isEqualToString:revision]) {
+        LMVThumbnailLog(@"disk-stale-or-invalid-record", relative, nil); return nil;
+    }
     NSData *encoded = record[@"image"];
-    if (![encoded isKindOfClass:NSData.class] || !encoded.length || encoded.length > 240 * 1024) return nil;
+    if (![encoded isKindOfClass:NSData.class] || !encoded.length || encoded.length > 240 * 1024) {
+        LMVThumbnailLog(@"disk-invalid-image-data", relative, nil); return nil;
+    }
     CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)encoded, NULL);
     NSDictionary *props = source ? (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, 0, NULL) : nil;
     NSUInteger width = [props[(id)kCGImagePropertyPixelWidth] unsignedIntegerValue];
@@ -68,6 +80,7 @@ static UIImage *LMVReadThumbnail(NSString *relative, NSString *revision) {
     UIImage *poster = image ? [UIImage imageWithCGImage:image] : nil;
     if (image) CGImageRelease(image);
     if (!poster) LMVThumbnailLog(@"sidecar-image", relative, LMVStorageError(40, @"海报图像无效"));
+    else LMVThumbnailLog(@"disk-hit", relative, nil);
     return poster;
 }
 static NSError *LMVWriteThumbnail(NSString *relative, NSString *revision, UIImage *poster) {
@@ -131,6 +144,7 @@ static UIImage *LMVThumbnailFromBuffer(CVPixelBufferRef buffer, CGAffineTransfor
     return poster;
 }
 static UIImage *LMVDecodeThumbnail(NSString *relative) {
+    LMVThumbnailLog(@"decode-start", relative, nil);
     NSString *path = [LMV_CATALOG_ROOT stringByAppendingPathComponent:relative];
     NSError *error = nil;
     if (![NSFileManager.defaultManager attributesOfItemAtPath:path error:&error] || ![NSFileManager.defaultManager isReadableFileAtPath:path]) {
@@ -140,6 +154,9 @@ static UIImage *LMVDecodeThumbnail(NSString *relative) {
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
     AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
     if (!track) { LMVThumbnailLog(@"video-track", relative, LMVStorageError(45, @"没有视频轨道")); return nil; }
+    NSString *trackInfo = [NSString stringWithFormat:@"track-ready width=%.0f height=%.0f start=%.3f duration=%.3f",
+        track.naturalSize.width, track.naturalSize.height, CMTimeGetSeconds(track.timeRange.start), CMTimeGetSeconds(track.timeRange.duration)];
+    LMVThumbnailLog(trackInfo, relative, nil);
     AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
     generator.appliesPreferredTrackTransform = YES;
     generator.maximumSize = CGSizeMake(144, 144);
@@ -152,8 +169,13 @@ static UIImage *LMVDecodeThumbnail(NSString *relative) {
         double seconds = offset.doubleValue;
         if (seconds > 0 && (!isfinite(duration) || seconds >= duration)) continue;
         error = nil;
+        LMVThumbnailLog([NSString stringWithFormat:@"generator-start offset=%.3f", seconds], relative, nil);
         CGImageRef image = [generator copyCGImageAtTime:CMTimeAdd(start, CMTimeMakeWithSeconds(seconds, 600)) actualTime:NULL error:&error];
-        if (image) { UIImage *poster = [UIImage imageWithCGImage:image]; CGImageRelease(image); return poster; }
+        if (image) {
+            UIImage *poster = [UIImage imageWithCGImage:image];
+            LMVThumbnailLog([NSString stringWithFormat:@"generator-success width=%lu height=%lu", (unsigned long)CGImageGetWidth(image), (unsigned long)CGImageGetHeight(image)], relative, nil);
+            CGImageRelease(image); return poster;
+        }
         LMVThumbnailLog(@"image-generator", relative, error ?: LMVStorageError(46, @"取帧未返回图像"));
     }
     // A different decode path; exactly one sample, with a bounded decoded frame size.
@@ -163,6 +185,7 @@ static UIImage *LMVDecodeThumbnail(NSString *relative) {
         LMVThumbnailLog(@"reader-budget", relative, LMVStorageError(49, @"首帧尺寸超过预览解码预算"));
         return nil;
     }
+    LMVThumbnailLog(@"reader-fallback-start", relative, nil);
     AVAssetReader *reader = [[AVAssetReader alloc] initWithAsset:asset error:&error];
     AVAssetReaderTrackOutput *output = [AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:track
         outputSettings:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
@@ -176,17 +199,19 @@ static UIImage *LMVDecodeThumbnail(NSString *relative) {
     error = reader.error;
     [reader cancelReading];
     if (!poster) LMVThumbnailLog(@"reader-frame", relative, error ?: LMVStorageError(48, @"首帧无法转换为海报"));
+    else LMVThumbnailLog(@"reader-success", relative, nil);
     return poster;
 }
 static UIImage *LMVEnsureThumbnail(NSString *relative, NSString *revision) {
-    if (!revision.length) return nil;
+    if (!revision.length) { LMVThumbnailLog(@"invalid-revision", relative, nil); return nil; }
     UIImage *poster = LMVReadThumbnail(relative, revision);
     if (poster) return poster;
     poster = LMVDecodeThumbnail(relative);
-    if (![LMVThumbnailRevision(relative) isEqualToString:revision]) return nil;
+    if (![LMVThumbnailRevision(relative) isEqualToString:revision]) { LMVThumbnailLog(@"decode-stale-discard", relative, nil); return nil; }
     if (poster) {
         NSError *error = LMVWriteThumbnail(relative, revision, poster);
         if (error) LMVThumbnailLog(@"sidecar-write", relative, error);
+        else LMVThumbnailLog(@"disk-write-success", relative, nil);
     }
     // A sidecar I/O failure must not discard an already decoded in-memory poster.
     return poster;

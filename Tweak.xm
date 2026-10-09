@@ -64,7 +64,6 @@ static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateA
 static BOOL LMVPreferencesDirty = YES;
 static void LMVDiagnostic(NSString *event);
 #define LMVEasterWindowDiagnostic(reason) LMVDiagnostic([@"easter-window " stringByAppendingString:(reason)])
-#define LMVThumbnailDiagnostic(event) LMVDiagnostic(event)
 #import "LMVEasterOverlay.h"
 static LMVEasterManager *LMVEaster;
 static void LMVLoadPreferences(void);
@@ -111,22 +110,31 @@ static BOOL LMVAlreadyLaunched(UIApplication *app) {
 // Diagnostics intentionally contain no notification text, labels or filenames.
 static dispatch_queue_t LMVDiagnosticQueue;
 static std::atomic_bool LMVDiagnosticsEnabled(false);
+static std::atomic<unsigned long> LMVDiagnosticEpoch(0);
 static void LMVDiagnostic(NSString *event) {
     if (!LMVDiagnosticsEnabled.load() || !event.length || !LMVDiagnosticQueue) return;
+    unsigned long epoch = LMVDiagnosticEpoch.load();
     dispatch_async(LMVDiagnosticQueue, ^{
         @autoreleasepool {
             // Drop queued records after the switch is turned off, too.
-            if (!LMVDiagnosticsEnabled.load()) return;
+            if (!LMVDiagnosticsEnabled.load() || epoch != LMVDiagnosticEpoch.load()) return;
             BOOL trace = [event hasPrefix:@"wallpaper-call "] || [event hasPrefix:@"wallpaper-hook "] || [event hasPrefix:@"wallpaper-coverage "];
+            BOOL provider = [event hasPrefix:@"wallpaper-metadata "] || [event hasPrefix:@"wallpaper-inheritance "] || [event hasPrefix:@"wallpaper-field "] || [event hasPrefix:@"wallpaper-provider-method "];
             BOOL wallpaper = [event hasPrefix:@"wallpaper-"];
-            static NSUInteger records=0, wallpaperRecords=0, traceRecords=0;
+            static NSUInteger records=0, wallpaperRecords=0, traceRecords=0, providerRecords=0;
+            static unsigned long lastEpoch=0;
+            if (lastEpoch != epoch) {
+                records=wallpaperRecords=traceRecords=providerRecords=0;
+                lastEpoch=epoch;
+            }
             if (trace) { if (++traceRecords > 1800) return; }
-            else if (wallpaper) { if (++wallpaperRecords > 900) return; }
+            else if (provider) { if (++providerRecords > 2400) return; }
+            else if (wallpaper) { if (++wallpaperRecords > 2400) return; }
             else if (++records > 1200) return;
             NSFileManager *fm=NSFileManager.defaultManager;
             [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-            NSString *path=[LMVDirectory stringByAppendingPathComponent:trace ? @"wallpaper-call.log" : (wallpaper ? @"wallpaper-structure.log" : @"shared-render.log")];
-            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>(trace ? 262144 : 65536)) {
+            NSString *path=[LMVDirectory stringByAppendingPathComponent:trace ? @"wallpaper-call.log" : (provider ? @"wallpaper-provider.log" : (wallpaper ? @"wallpaper-structure.log" : @"shared-render.log"))];
+            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>((trace || provider || wallpaper) ? 262144 : 65536)) {
                 NSString *old=[path stringByAppendingString:@".1"];
                 [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
             }
@@ -134,7 +142,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f %@\n",CACurrentMediaTime(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.65 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -142,6 +150,7 @@ static void LMVDiagnostic(NSString *event) {
     });
 }
 
+static void LMVCaptureWallpaperDiagnostics(void);
 #import "LMVWallpaperCallTrace.h"
 
 @interface LMVFrameSnapshot : NSObject
@@ -667,8 +676,10 @@ static void LMVLoadPreferences(void) {
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
-        LMVDiagnostic(@"version=0.0.64 diagnostics-enabled");
+        LMVDiagnosticEpoch.fetch_add(1);
+        LMVDiagnostic(@"version=0.0.65 diagnostics-enabled");
         LMVReportWallpaperTrace();
+        LMVStartWallpaperTraceReports();
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1943,6 +1954,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         // already enabled before respring; no system manager is constructed.
         NSNumber *traceEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
         LMVDiagnosticsEnabled.store([traceEnabled respondsToSelector:@selector(boolValue)] && traceEnabled.boolValue);
+        if (LMVDiagnosticsEnabled.load()) LMVDiagnosticEpoch.fetch_add(1);
         LMVInstallWallpaperTrace();
         LMVReportWallpaperTrace();
         LMVStartWallpaperTraceReports();

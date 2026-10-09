@@ -17,6 +17,8 @@ preamble=r'''
 #import <atomic>
 #include <assert.h>
 static BOOL testEnabled=YES;
+static unsigned long testEpoch=1;
+#define LMVTraceEpoch() testEpoch
 static NSMutableArray<NSString *> *events;
 #define LMV_TRACE_TEST 1
 #define LMVTraceEnabled() testEnabled
@@ -101,11 +103,23 @@ int main(void) {@autoreleasepool {
   if([event hasPrefix:@"wallpaper-call return"])sawReturn=YES;
  }
  assert(sawClass && sawStack && sawReturn);
+ NSUInteger oldEvents=events.count;
+ testEpoch++;
+ LMVReportWallpaperTrace();
+ assert(LMVTraceSpecs[1].emitted.load()==0 && LMVTraceSpecs[1].sessionHits.load()==0);
+ assert([remote updateImageProviderView:value withImage:value]);
+ assert(LMVTraceSpecs[1].emitted.load()==1 && LMVTraceSpecs[1].sessionHits.load()==1 && events.count>oldEvents);
+ BOOL providerMeta=NO,lockTarget=NO;
+ for (NSString *event in events) {
+  if([event containsString:@"kind=provider-return"])providerMeta=YES;
+  if([event containsString:@"target=LockScreen"])lockTarget=YES;
+ }
+ assert(providerMeta && lockTarget);
  puts("PASS: production typed IMP hooks installed, inherited methods isolated, originals called once, pointer/BOOL/id/void/new ownership preserved, mismatch skipped, off switch and rate limit honored; NOT device hook-hit proof");
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as tmp:
  source=Path(tmp)/'trace.mm';binary=Path(tmp)/'trace'
  source.write_text(preamble+h+tests)
- subprocess.run(['clang++','-std=c++11','-fobjc-arc','-framework','Foundation','-framework','QuartzCore',str(source),'-o',str(binary)],check=True)
+ subprocess.run(['clang++','-std=c++11','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','QuartzCore',str(source),'-o',str(binary)],check=True)
  subprocess.run([str(binary)],check=True,timeout=30)

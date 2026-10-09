@@ -31,6 +31,7 @@ jobs:
           check() { "$@" || failures=$((failures + 1)); }
           check python3 tests/shared-render-regression.py
           check python3 tests/material-thumbnail.py
+          check python3 tests/preview-diagnostics.py
           check python3 tests/wallpaper-diagnostics.py
           check python3 tests/wallpaper-call-trace.py
           check python3 tests/easter-regression.py

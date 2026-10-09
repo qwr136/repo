@@ -22,6 +22,8 @@ wrapper=r'''
 #import <AVFoundation/AVFoundation.h>
 #import <CoreVideo/CoreVideo.h>
 #include <assert.h>
+static NSMutableArray<NSString *> *posterEvents;
+#define LMVThumbnailDiagnostic(event) do { if (!posterEvents) posterEvents=[NSMutableArray new]; [posterEvents addObject:(event)]; } while(0)
 @interface UIImage : NSObject
 @property(nonatomic,assign) CGImageRef CGImage;
 + (instancetype)imageWithCGImage:(CGImageRef)image;
@@ -82,7 +84,17 @@ fixture=r'''
         assert(LMVReadThumbnail(clipRelative,clipRevision));
         assert([[NSData dataWithContentsOfFile:clipPath] isEqualToData:before]);
 '''
-tests=tests.replace('        [fm removeItemAtPath:LMV_CATALOG_ROOT error:nil];\n        puts(',fixture+'        [fm removeItemAtPath:LMV_CATALOG_ROOT error:nil];\n        puts(')
+tests=tests.replace('        [fm removeItemAtPath:LMV_CATALOG_ROOT error:nil];\n        puts(',fixture+'''        BOOL hit=NO,miss=NO,decodedSuccess=NO,write=NO;
+        for (NSString *event in posterEvents) {
+            assert(![event containsString:clipRelative] && ![event containsString:@"fixture.mov"]);
+            if ([event containsString:@"stage=disk-hit"]) hit=YES;
+            if ([event containsString:@"stage=disk-miss"]) miss=YES;
+            if ([event containsString:@"stage=generator-success"]) decodedSuccess=YES;
+            if ([event containsString:@"stage=disk-write-success"]) write=YES;
+        }
+        assert(hit && miss && decodedSuccess && write);
+        [fm removeItemAtPath:LMV_CATALOG_ROOT error:nil];
+        puts(''')
 with tempfile.TemporaryDirectory() as tmp:
     source=Path(tmp)/'poster.m'; binary=Path(tmp)/'poster'
     source.write_text(wrapper+tests)

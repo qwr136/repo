@@ -27,6 +27,15 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.65
+
+- 完善锁屏/桌面诊断，保持 0.0.64 的 25 个 ABI 校验透传 hook；记录累计 hits 和本会话 sessionHits，重新开启诊断后重新采样前 12 次调用和前两次调用栈。
+- 新增 wallpaper-provider.log：采集实际返回的壁纸提供者、实际回调场景及客户端参数的类、继承链、模块名、相关方法 ABI 和 ivar 声明；不读取 ivar 值或调用未确认私有 getter。Lock/Home 使用实际控制器类标识；远程 PID 未确认时明确 unknown。
+- wallpaper-structure.log 改为每启用会话最多 8 份快照，允许晚出现控制器的有界重试。壁纸三类日志分别限额/轮转，每行含版本、PID、会话编号；不修改壁纸渲染。
+- 预览全过程日志：匿名素材编号、列表行号、请求/跳过/排队、内存和磁盘缓存、取帧阶段/错误码/耗时、最终显示海报或占位图。SpringBoard 写 thumbnail-preview-springboard.log，设置页写 thumbnail-preview-settings.log；独立串行写入与每分钟额度，不再受播放日志终身额度影响。
+- 用法：安装注销后，关闭再打开「启用诊断日志」；无需开启视频。在桌面停留、下拉通知中心、锁屏/解锁；打开悬浮素材列表，滚动到无缩略图项目并停留。提交 wallpaper-call.log、wallpaper-provider.log、wallpaper-structure.log、thumbnail-preview-springboard.log 及存在的 .1；设置页测试另交 thumbnail-preview-settings.log。
+- 本版补诊断，不宣称已修复剩余素材预览或已阻止静态壁纸读取。
+
 ## 0.0.64
 
 - 基于 0.0.63 增加壁纸调用追踪，不改变原方法返回值、素材预览或壁纸显示逻辑。

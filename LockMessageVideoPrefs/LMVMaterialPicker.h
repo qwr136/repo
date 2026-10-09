@@ -30,7 +30,9 @@
 @property(nonatomic, strong) NSOperationQueue *thumbnailQueue;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *thumbnailFailures;
 @property(nonatomic) NSUInteger generation;
+@property(nonatomic, strong) NSMutableSet<NSString *> *previewStages;
 - (void)requestThumbnail:(NSDictionary *)row;
+- (void)tracePreview:(NSString *)stage row:(NSDictionary *)row;
 @end
 
 @implementation LMVMaterialPicker
@@ -42,6 +44,7 @@
         _thumbnails.countLimit = 60;
         _thumbnails.totalCostLimit = 6 * 1024 * 1024;
         _pending = [NSMutableSet new];
+        _previewStages = [NSMutableSet new];
         _thumbnailFailures = [NSMutableDictionary new];
         _thumbnailQueue = [NSOperationQueue new];
         _thumbnailQueue.maxConcurrentOperationCount = 1;
@@ -60,6 +63,8 @@
     [super viewWillAppear:animated];
     // Another process may have published sidecars since this picker last appeared.
     [self.thumbnailFailures removeAllObjects];
+    [self.previewStages removeAllObjects];
+    LMVThumbnailLog(@"picker-appear", @"", nil);
     [self requestVisibleThumbnails];
 }
 - (void)cancel {
@@ -107,6 +112,8 @@
             LMVMaterialPicker *picker = weakSelf;
             if (!picker || picker.generation != generation) return;
             picker.materials = rows;
+            [picker.previewStages removeAllObjects];
+            LMVThumbnailLog([NSString stringWithFormat:@"catalog-ready count=%lu generation=%lu", (unsigned long)rows.count, (unsigned long)generation], @"", nil);
             [picker.tableView reloadData];
         });
     });
@@ -115,23 +122,43 @@
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     return self.materials.count ? @"向左滑动素材可重命名或删除。删除正在使用的素材会取消相关背景选择。" : @"素材库为空，请先从相册导入视频。";
 }
+- (void)tracePreview:(NSString *)stage row:(NSDictionary *)row {
+    if (!LMVThumbnailDiagnosticIsEnabled()) return;
+    NSString *identity = [NSString stringWithFormat:@"%@|%@", row[@"revision"] ?: @"invalid", stage];
+    if ([self.previewStages containsObject:identity] || self.previewStages.count >= 400) return;
+    [self.previewStages addObject:identity];
+    NSUInteger index = [self.materials indexOfObjectIdenticalTo:row];
+    LMVThumbnailLog([NSString stringWithFormat:@"%@ row=%ld generation=%lu", stage,
+        index == NSNotFound ? -1L : (long)index + 1, (unsigned long)self.generation], row[@"path"] ?: @"", nil);
+}
 - (void)requestThumbnail:(NSDictionary *)row {
     NSString *key = row[@"revision"];
-    // A full queue defers (completion re-requests visible rows), it never drops a row forever.
-    if ([self.thumbnails objectForKey:key] || [self.thumbnailFailures[key] boolValue] || [self.pending containsObject:key] || self.pending.count >= 12) return;
+    if (!key.length) { [self tracePreview:@"request-invalid" row:row]; return; }
+    [self tracePreview:@"request" row:row];
+    if ([self.thumbnails objectForKey:key]) { [self tracePreview:@"memory-hit" row:row]; return; }
+    if ([self.thumbnailFailures[key] boolValue]) { [self tracePreview:@"skip-previous-failure" row:row]; return; }
+    if ([self.pending containsObject:key]) { [self tracePreview:@"skip-pending" row:row]; return; }
+    if (self.pending.count >= 12) { [self tracePreview:@"defer-queue-full" row:row]; return; }
+    [self tracePreview:@"enqueue" row:row];
     [self.pending addObject:key];
     NSString *relative = row[@"path"];
+    NSTimeInterval queuedAt = NSDate.date.timeIntervalSince1970;
     __weak typeof(self) weakSelf = self;
     [self.thumbnailQueue addOperationWithBlock:^{
         @autoreleasepool {
             // Settings imports publish this poster; old files decode only on cache miss.
-            if (!weakSelf) return;
+            if (!weakSelf) { LMVThumbnailLog(@"cancel-picker-gone", relative, nil); return; }
+            NSTimeInterval startedAt = NSDate.date.timeIntervalSince1970;
+            LMVThumbnailLog([NSString stringWithFormat:@"worker-start waitMs=%.1f", (startedAt - queuedAt) * 1000], relative, nil);
             UIImage *poster = LMVEnsureThumbnail(relative, key);
+            LMVThumbnailLog([NSString stringWithFormat:@"worker-finish poster=%d elapsedMs=%.1f", poster != nil,
+                (NSDate.date.timeIntervalSince1970 - startedAt) * 1000], relative, nil);
             NSUInteger cost = poster.CGImage ? CGImageGetBytesPerRow(poster.CGImage) * CGImageGetHeight(poster.CGImage) : 0;
             dispatch_async(dispatch_get_main_queue(), ^{
                 LMVMaterialPicker *picker = weakSelf;
                 if (!picker) return;
                 [picker.pending removeObject:key];
+                [picker tracePreview:poster ? @"apply-poster" : @"apply-placeholder" row:row];
                 // Never cache the film symbol as if it were a successfully decoded poster.
                 if (poster) [picker.thumbnails setObject:poster forKey:key cost:cost];
                 else picker.thumbnailFailures[key] = @YES;
@@ -164,7 +191,10 @@
     cell.imageView.layer.cornerRadius = 6;
     cell.imageView.bounds = CGRectMake(0, 0, 56, 56);
     cell.accessibilityLabel = [NSString stringWithFormat:@"%@%@", cell.textLabel.text, current ? @"，使用中" : @""];
-    if (!none) [self requestThumbnail:row];
+    if (!none) {
+        [self tracePreview:[self.thumbnails objectForKey:row[@"revision"]] ? @"display-poster" : @"display-placeholder" row:row];
+        [self requestThumbnail:row];
+    }
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

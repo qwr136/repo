@@ -12,6 +12,15 @@
 #define LMVTraceEnabled() LMVDiagnosticsEnabled.load()
 #define LMVTraceLog(...) LMVDiagnostic((__VA_ARGS__))
 #endif
+#if !defined(LMV_TRACE_TEST) || __has_include("LMVWallpaperProviderDiagnostics.h")
+#import "LMVWallpaperProviderDiagnostics.h"
+#else
+// Existing standalone wrapper tests concatenate this header in a temp directory.
+#ifndef LMVTraceEpoch
+#define LMVTraceEpoch() 0UL
+#endif
+static void LMVWallpaperDiagnosticObserved(id value, id owner, NSString *kind) {}
+#endif
 struct LMVTraceSpec {
     const char *className, *selectorName, *returnType;
     unsigned count;
@@ -19,6 +28,7 @@ struct LMVTraceSpec {
     IMP replacement, original;
     Class owner;
     std::atomic<unsigned long> hits{0};
+    std::atomic<unsigned long> sessionHits{0};
     std::atomic<unsigned> emitted{0};
     const char *status;
     bool announced;
@@ -28,6 +38,21 @@ static LMVTraceSpec LMVTraceSpecs[LMVTraceCount];
 static std::mutex LMVTraceInstallMutex;
 static std::atomic<unsigned long> LMVTraceCallID(0);
 static thread_local BOOL LMVInsideTrace = NO;
+static std::atomic<unsigned long> LMVTraceSessionEpoch(~0UL);
+static CFTimeInterval LMVTraceLastSummary;
+static void LMVTraceResetSession(void) {
+    unsigned long epoch = LMVTraceEpoch();
+    if (LMVTraceSessionEpoch.load() == epoch) return;
+    std::lock_guard<std::mutex> guard(LMVTraceInstallMutex);
+    if (LMVTraceSessionEpoch.load() == epoch) return;
+    for (NSUInteger i = 0; i < LMVTraceCount; i++) {
+        LMVTraceSpecs[i].emitted.store(0);
+        LMVTraceSpecs[i].sessionHits.store(0);
+        LMVTraceSpecs[i].announced = false;
+    }
+    LMVTraceLastSummary = 0;
+    LMVTraceSessionEpoch.store(epoch);
+}
 static NSString *LMVTraceClass(id value) { return value ? NSStringFromClass(object_getClass(value)) : @"nil"; }
 static NSString *LMVTraceStack(void) {
     NSMutableArray *frames = [NSMutableArray new];
@@ -46,18 +71,21 @@ static NSString *LMVTraceStack(void) {
 }
 static unsigned long LMVTraceBegin(NSUInteger index, id object, NSString *arguments) {
     if (!LMVTraceEnabled() || LMVInsideTrace) return 0;
+    LMVTraceResetSession();
     LMVTraceSpec &spec = LMVTraceSpecs[index];
     unsigned long hit = spec.hits.fetch_add(1) + 1;
+    spec.sessionHits.fetch_add(1);
     // Calls are counted while enabled; only the first twelve per interface are
     // expanded, with two call stacks. No decoding or disk I/O in the wrapper.
-    if (spec.emitted.fetch_add(1) >= 12) return 0;
+    unsigned record = spec.emitted.fetch_add(1);
+    if (record >= 12) return 0;
     unsigned long call = LMVTraceCallID.fetch_add(1) + 1;
     LMVInsideTrace = YES;
     @try {
         LMVTraceLog([NSString stringWithFormat:@"wallpaper-call enter id=%lu slot=%lu pid=%d thread=%@ class=%@ installedOn=%s selector=%s hit=%lu args=%@",
             call, (unsigned long)index, getpid(), NSThread.isMainThread ? @"main" : @"background",
             LMVTraceClass(object), spec.className, spec.selectorName, hit, arguments]);
-        if (hit <= 2) LMVTraceLog([NSString stringWithFormat:@"wallpaper-call stack id=%lu frames=%@", call, LMVTraceStack()]);
+        if (record < 2) LMVTraceLog([NSString stringWithFormat:@"wallpaper-call stack id=%lu frames=%@", call, LMVTraceStack()]);
     } @catch (NSException *exception) {} @finally { LMVInsideTrace = NO; }
     return call;
 }
@@ -93,6 +121,7 @@ static id LMVTraceWrap2(id self, SEL cmd, NSInteger *a, NSInteger b, id c) {
     LMVTraceOriginal2 original = (LMVTraceOriginal2)LMVTraceSpecs[2].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(2, self, [NSString stringWithFormat:@"stylePointer=%d variant=%lld traits=%@", a != NULL, (long long)b, LMVTraceClass(c)]) : 0;
     id result = original(self, cmd, a, b, c);
+    LMVWallpaperDiagnosticObserved(result, self, @"provider-return");
     if (call) LMVTraceEnd(2, call, LMVTraceClass(result));
     return result;
 }
@@ -216,6 +245,7 @@ static void LMVTraceWrap15(id self, SEL cmd, id a, id b);
 static void LMVTraceWrap15(id self, SEL cmd, id a, id b) {
     LMVTraceOriginal15 original = (LMVTraceOriginal15)LMVTraceSpecs[15].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(15, self, [NSString stringWithFormat:@"%@,%@", LMVTraceClass(a), LMVTraceClass(b)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a, b);
     LMVTraceEnd(15, call, @"void");
 }
@@ -225,6 +255,7 @@ static void LMVTraceWrap16(id self, SEL cmd, id a, id b, id c);
 static void LMVTraceWrap16(id self, SEL cmd, id a, id b, id c) {
     LMVTraceOriginal16 original = (LMVTraceOriginal16)LMVTraceSpecs[16].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(16, self, [NSString stringWithFormat:@"%@,%@,%@", LMVTraceClass(a), LMVTraceClass(b), LMVTraceClass(c)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a, b, c);
     LMVTraceEnd(16, call, @"void");
 }
@@ -234,6 +265,7 @@ static void LMVTraceWrap17(id self, SEL cmd, id a, id b, id c, id d);
 static void LMVTraceWrap17(id self, SEL cmd, id a, id b, id c, id d) {
     LMVTraceOriginal17 original = (LMVTraceOriginal17)LMVTraceSpecs[17].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(17, self, [NSString stringWithFormat:@"%@,%@,%@,%@", LMVTraceClass(a), LMVTraceClass(b), LMVTraceClass(c), LMVTraceClass(d)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a, b, c, d);
     LMVTraceEnd(17, call, @"void");
 }
@@ -243,6 +275,7 @@ static void LMVTraceWrap18(id self, SEL cmd, id a);
 static void LMVTraceWrap18(id self, SEL cmd, id a) {
     LMVTraceOriginal18 original = (LMVTraceOriginal18)LMVTraceSpecs[18].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(18, self, [NSString stringWithFormat:@"%@", LMVTraceClass(a)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a);
     LMVTraceEnd(18, call, @"void");
 }
@@ -252,6 +285,7 @@ static void LMVTraceWrap19(id self, SEL cmd, id a, id b);
 static void LMVTraceWrap19(id self, SEL cmd, id a, id b) {
     LMVTraceOriginal19 original = (LMVTraceOriginal19)LMVTraceSpecs[19].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(19, self, [NSString stringWithFormat:@"%@,%@", LMVTraceClass(a), LMVTraceClass(b)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a, b);
     LMVTraceEnd(19, call, @"void");
 }
@@ -261,6 +295,8 @@ static void LMVTraceWrap20(id self, SEL cmd, id a, id b);
 static void LMVTraceWrap20(id self, SEL cmd, id a, id b) {
     LMVTraceOriginal20 original = (LMVTraceOriginal20)LMVTraceSpecs[20].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(20, self, [NSString stringWithFormat:@"%@,%@", LMVTraceClass(a), LMVTraceClass(b)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
+    LMVWallpaperDiagnosticObserved(b, self, @"client-callback-argument");
     original(self, cmd, a, b);
     LMVTraceEnd(20, call, @"void");
 }
@@ -288,6 +324,7 @@ static void LMVTraceWrap23(id self, SEL cmd, id a, id b);
 static void LMVTraceWrap23(id self, SEL cmd, id a, id b) {
     LMVTraceOriginal23 original = (LMVTraceOriginal23)LMVTraceSpecs[23].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(23, self, [NSString stringWithFormat:@"%@,%@", LMVTraceClass(a), LMVTraceClass(b)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a, b);
     LMVTraceEnd(23, call, @"void");
 }
@@ -297,6 +334,7 @@ static void LMVTraceWrap24(id self, SEL cmd, id a);
 static void LMVTraceWrap24(id self, SEL cmd, id a) {
     LMVTraceOriginal24 original = (LMVTraceOriginal24)LMVTraceSpecs[24].original;
     unsigned long call = LMVTraceEnabled() ? LMVTraceBegin(24, self, [NSString stringWithFormat:@"%@", LMVTraceClass(a)]) : 0;
+    LMVWallpaperDiagnosticObserved(a, self, @"scene-callback");
     original(self, cmd, a);
     LMVTraceEnd(24, call, @"void");
 }
@@ -435,11 +473,11 @@ static void LMVInstallWallpaperTrace(void) {
 }
 static void LMVReportWallpaperTrace(void) {
     if (!LMVTraceEnabled()) return;
+    LMVTraceResetSession();
     LMVInstallWallpaperTrace();
-    static CFTimeInterval lastSummary;
-    BOOL report = CACurrentMediaTime() - lastSummary >= 5.0;
-    if (report) lastSummary = CACurrentMediaTime();
     std::lock_guard<std::mutex> guard(LMVTraceInstallMutex);
+    BOOL report = !LMVTraceLastSummary || CACurrentMediaTime() - LMVTraceLastSummary >= 5.0;
+    if (report) LMVTraceLastSummary = CACurrentMediaTime();
     for (NSUInteger i = 0; i < LMVTraceCount; i++) {
         LMVTraceSpec &spec = LMVTraceSpecs[i];
         Class cls = objc_getClass(spec.className);
@@ -451,17 +489,22 @@ static void LMVReportWallpaperTrace(void) {
                 (unsigned long)i, spec.className, spec.selectorName, spec.status ?: "pending",
                 ours ? @"ours" : @"other", method ? method_getTypeEncoding(method) : "none"]);
         }
-        if (report) LMVTraceLog([NSString stringWithFormat:@"wallpaper-coverage slot=%lu selector=%s hits=%lu records=%u currentIMP=%@ observation=%@",
-            (unsigned long)i, spec.selectorName, spec.hits.load(), MIN(spec.emitted.load(),12U),
-            ours ? @"ours" : @"other", spec.hits.load() ? @"called" : @"not-observed"]);
+        if (report) LMVTraceLog([NSString stringWithFormat:@"wallpaper-coverage slot=%lu selector=%s hits=%lu sessionHits=%lu records=%u currentIMP=%@ observation=%@",
+            (unsigned long)i, spec.selectorName, spec.hits.load(), spec.sessionHits.load(), MIN(spec.emitted.load(),12U),
+            ours ? @"ours" : @"other", spec.sessionHits.load() ? @"called-this-session" : @"not-observed-this-session"]);
     }
 }
 
 static void LMVStartWallpaperTraceReports(void) {
     // Bounded checkpoints even with all video switches off. A later preferences
     // refresh also retries classes that were absent at injection.
+    unsigned long epoch = LMVTraceEpoch();
     for (NSNumber *seconds in @[@1, @3, @8, @15, @30, @60])
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (!LMVTraceEnabled() || epoch != LMVTraceEpoch()) return;
             LMVInstallWallpaperTrace(); LMVReportWallpaperTrace();
+#ifndef LMV_TRACE_TEST
+            LMVCaptureWallpaperDiagnostics();
+#endif
         });
 }

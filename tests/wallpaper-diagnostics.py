@@ -1,12 +1,12 @@
 from pathlib import Path
 import hashlib
 r=Path(__file__).resolve().parents[1]
-h=(r/'LMVWallpaperDiagnostics.h').read_text(); s=(r/'Tweak.xm').read_text()
-for required in ['viewIfLoaded','childViewControllers','nextResponder','class_copyMethodList','method_getTypeEncoding','class_copyIvarList','presentationLayer','wallpaper-consumer','snapshots >= 4']:
-    assert required in h,required
+h=(r/'LMVWallpaperDiagnostics.h').read_text(); p=(r/'LMVWallpaperProviderDiagnostics.h').read_text(); s=(r/'Tweak.xm').read_text()
+for required in ['viewIfLoaded','childViewControllers','nextResponder','class_copyMethodList','method_getTypeEncoding','class_copyIvarList','presentationLayer','wallpaper-consumer','snapshots >= 8']:
+    assert required in h+p,required
 for forbidden in ['objc_msgSend','object_getIvar','setHidden:','setAlpha:','removeFromSuperview','removeFromSuperlayer','makeKeyWindow','valueForKey','sharedInstance']:
-    assert forbidden not in h,forbidden
-assert 'wallpaper-structure.log' in s and 'wallpaperRecords > 900' in s
+    assert forbidden not in h+p,forbidden
+assert 'wallpaper-structure.log' in s and 'wallpaperRecords > 2400' in s
 assert 'LMVCaptureWallpaperDiagnostics();' in s
 # The requested baseline keeps the three production bodies byte-identical to 0.0.61.
 def body(text,signature):
