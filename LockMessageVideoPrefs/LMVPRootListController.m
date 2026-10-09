@@ -10,6 +10,7 @@
 
 #import "LMVImport.h"
 #import "LMVMaterialPicker.h"
+#import "../LMVEasterPanel.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear", @"Desktop"]; }
@@ -31,6 +32,15 @@ static void LMVNotify(void) {
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
     _specifiers = [NSMutableArray new];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
+    PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
+    [eggEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:eggEnabled];
+    PSSpecifier *eggImage = [PSSpecifier preferenceSpecifierNamed:@"图片预览 / 导入图片或 GIF" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    eggImage.buttonAction = @selector(openEaster:);
+    [eggImage setProperty:@"EasterEggPreview" forKey:@"id"];
+    [_specifiers addObject:eggImage];
     NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材", @"切换桌面背景素材"];
     SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:), @selector(switchDesktop:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
@@ -104,6 +114,35 @@ static void LMVNotify(void) {
 - (id)enabled:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
     return value ?: [specifier propertyForKey:@"default"] ?: @NO;
+}
+- (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self reloadEasterPreview];
+}
+- (void)reloadEasterPreview {
+    id selected = LMVEasterRead(@"EasterEggImage");
+    NSString *path = LMVEasterImagePath(selected);
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(LMVMaterialQueue(), ^{
+        UIImage *preview = path ? LMVEasterDecode([NSURL fileURLWithPath:path], NULL).frames.firstObject : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LMVPRootListController *controller = weakSelf;
+            if (!controller || ![(selected ?: @"") isEqual:(LMVEasterRead(@"EasterEggImage") ?: @"")]) return;
+            for (PSSpecifier *row in controller->_specifiers) {
+                if (![[row propertyForKey:@"id"] isEqualToString:@"EasterEggPreview"]) continue;
+                [row setProperty:preview ?: [UIImage systemImageNamed:@"photo"] forKey:@"iconImage"];
+                [controller reloadSpecifier:row animated:NO];
+            }
+        });
+    });
+}
+- (void)openEaster:(PSSpecifier *)specifier {
+    if (self.presentedViewController) return;
+    LMVEasterPanel *panel = [LMVEasterPanel new]; panel.imageControls = YES;
+    __weak typeof(self) weakSelf = self; __weak LMVEasterPanel *weakPanel = panel;
+    panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:^{ [weakSelf reloadEasterPreview]; }]; };
+    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);

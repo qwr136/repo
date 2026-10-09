@@ -57,6 +57,8 @@ static int LMVLockToken = -1;
 // Launch readiness is independent: a system initializer must never run policy.
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying;
 static BOOL LMVPreferencesDirty = YES;
+#import "LMVEasterOverlay.h"
+static LMVEasterManager *LMVEaster;
 static void LMVLoadPreferences(void);
 static void LMVRetryDiscovery(UIView *cell);
 static void LMVRequestSafeUpdate(void) {
@@ -80,6 +82,12 @@ static void LMVMarkLaunchReady(void) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     LMVLaunchReady = YES;
     LMVRequestSafeUpdate();
+}
+static void LMVEasterStartIfReady(void) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
+    if (!LMVEaster) LMVEaster = [LMVEasterManager new];
+    LMVEaster.ready = YES;
+    [LMVEaster refresh];
 }
 // Public, already-existing scene state is evidence for late injection. Inactive
 // scenes alone are NOT evidence: they also exist during wallpaper construction.
@@ -1926,6 +1934,12 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             %init(LMVWallpaperWindowHooks);
         }
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {
+            [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
+                dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); });
+            }];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); }); });
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVScreenNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);

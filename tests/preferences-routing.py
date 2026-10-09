@@ -16,8 +16,8 @@ assert 'Resources/Root.plist' not in (root/'Makefile').read_text()
 assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources automatically.
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
-actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'switchDesktop:', 'chooseVideo:', 'openMaterialPath:'}
+actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals):)\)', source))
+assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'switchDesktop:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
 assert 'clearOriginals' not in source and '清空原素材' not in source
 for action in actions:
     assert re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier', source), action
@@ -29,7 +29,7 @@ end = source.index('\n- (id)enabled:', start)
 method = source[start:end]
 assert 'invoke(self, action, row);' in method
 assert method.index('invoke(self, action, row);') < method.index('[super tableView:')
-print('PASS: entry/principal class, version, programmatic-only rows, seven existing action selectors and stale route cleanup')
+print('PASS: entry/principal class, version, programmatic-only rows, eight action selectors and stale route cleanup')
 if platform.system() != 'Darwin':
     print('Foundation runtime routing test requires macOS; runs in GitHub Actions')
     raise SystemExit(0)
@@ -85,21 +85,21 @@ int main(void) { @autoreleasepool {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
     }
-    assert(controller.calls == 7 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 7);
+    assert(controller.calls == 8 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 8);
     row.properties[@"enabled"] = @NO;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
     [row.properties removeObjectForKey:@"enabled"];
     row.target = [NSObject new];
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
     row.target = controller; row.buttonAction = NSSelectorFromString(@"staleControllerAction:");
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
     row.buttonAction = @selector(description);
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
     row.buttonAction = NULL;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 7 && controller.superSelections == 0);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8 && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all seven actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, all eight actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:

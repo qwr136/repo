@@ -28,6 +28,7 @@ jobs:
       - name: Source and import-plan regression tests
         run: |
           python3 tests/shared-render-regression.py
+          python3 tests/easter-regression.py
           python3 tests/settings-import-regression.py
           python3 tests/preferences-routing.py
           python3 tests/desktop-runtime.py
