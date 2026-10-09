@@ -27,6 +27,14 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.60
+- 彩蛋图片设置独立：只显示图片预览、启用开关、图片/GIF 导入和 32–128 点大小设置，不混入五项视频设置。彩蛋视频面板保留 Message、Options、Clear、LockScreen、Desktop 五项开关、素材选择、透明度开关/滑块及底部原视频导入；面板圆角 20 点，高度以可用安全区域的 65% 为上限。
+- 素材选择复用共享选择器的导航 push 模式；PHPicker 和素材命名提示由子控制器 containment 管理。系统相册远端服务、权限提示和键盘仍可能显示系统全屏 UI，不能保证所有系统界面都嵌在面板内。
+- 解锁状态下，不再因通知中心窗口仅仅存在就隐藏悬浮气泡；锁定、熄屏或确认的安全遮挡仍隐藏。
+- Options/Clear 原材质发现扩展到同组 ClearAll 相邻支路。壁纸观察只尝试覆盖目标区域至少 85%、唯一且能确认是纯本地背景的支路；remote/scene/shared 或未知混合层仍 guarded-no-op，不销毁、移动或隐藏系统窗口容器，不承诺所有原壁纸都已消失。
+- 保留 0.0.59 的按路径共享视频源、磁盘最后帧、静音、启动门及重入保护、Dock 几何和原背景可恢复租约；现有数据与偏好继续使用。包、偏好 bundle 和诊断版本统一为 0.0.60。
+- 生产 macOS 工作流执行全部源码、C 几何/消费策略及 Foundation/QuartzCore/ImageIO 原生回归，再编译 arm64 + arm64e rootless 包。CI 通过与产物检查不等于 iOS 真机验证；冷启动、视觉/触控层级、GIF、通知中心、系统相册权限及资源占用仍需设备验收。
+
 ## 0.0.58 TEST：原背景可恢复替换
 - 现有 Message、Options、Clear、LockScreen、Desktop 的 BackgroundEnabled 开关控制替换，没有增加 UI 开关。启用且存在合法素材选择后，确认的原背景立即从绘制链路脱离/关闭绘制，不等待首帧；选中但文件丢失、加载失败、decoder 失败、卡顿或透明度为 0 不恢复原背景。暂停保留最后真实帧；冷启动无帧为插件透明层，不主动填黑底。用户取消选择（空字符串）或成功删除素材清空选择、关闭开关才恢复；没有选择且不存在的 legacy 默认文件不当作有效选择。
 - Message/Options/Clear：优先对无 delegate、无 mask/子层且有明确 Backdrop 身份的独立绘制叶层执行 retained detach。保留原层对象、原父层弱引用、前后邻层及索引；关闭恢复同一对象。UIKit backing layer 不脱离：仅确认整个 Material/Backdrop 支路没有 UILabel、UIControl、文本、滚动、手势、accessibility 或未知绘制子层时，将该背景支路 layer.opacity 置 0 关闭绘制。材质混有文字时保留其容器，将插件视频放在内容下，只处理可辨认背景叶层；不能确认则 guarded-no-op。
