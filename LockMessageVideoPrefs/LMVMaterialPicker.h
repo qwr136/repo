@@ -26,7 +26,9 @@
 @property(nonatomic, strong) NSCache<NSString *, UIImage *> *thumbnails;
 @property(nonatomic, strong) NSMutableSet<NSString *> *pending;
 @property(nonatomic, strong) NSOperationQueue *thumbnailQueue;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *thumbnailFailures;
 @property(nonatomic) NSUInteger generation;
+- (void)requestThumbnail:(NSDictionary *)row;
 @end
 
 @implementation LMVMaterialPicker
@@ -38,6 +40,7 @@
         _thumbnails.countLimit = 60;
         _thumbnails.totalCostLimit = 6 * 1024 * 1024;
         _pending = [NSMutableSet new];
+        _thumbnailFailures = [NSMutableDictionary new];
         _thumbnailQueue = [NSOperationQueue new];
         _thumbnailQueue.maxConcurrentOperationCount = 1;
         _thumbnailQueue.qualityOfService = NSQualityOfServiceUtility;
@@ -56,6 +59,13 @@
     else [self dismissViewControllerAnimated:YES completion:nil];
 }
 - (void)dealloc { [_thumbnailQueue cancelAllOperations]; }
+// Rows skipped while the queue was full are requested once scrolling settles.
+- (void)requestVisibleThumbnails {
+    for (NSIndexPath *index in self.tableView.indexPathsForVisibleRows)
+        if (index.row < self.materials.count) [self requestThumbnail:self.materials[index.row]];
+}
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView { [self requestVisibleThumbnails]; }
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate { if (!decelerate) [self requestVisibleThumbnails]; }
 - (void)didReceiveMemoryWarning {
     [super didReceiveMemoryWarning];
     [self.thumbnails removeAllObjects];
@@ -99,6 +109,7 @@
 }
 - (void)requestThumbnail:(NSDictionary *)row {
     NSString *key = row[@"revision"];
+    // A full queue defers (completion re-requests visible rows), it never drops a row forever.
     if ([self.thumbnails objectForKey:key] || [self.pending containsObject:key] || self.pending.count >= 12) return;
     [self.pending addObject:key];
     NSString *path = [@"/var/mobile/LockMessageVideo" stringByAppendingPathComponent:row[@"path"]];
@@ -110,7 +121,14 @@
             AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
             generator.appliesPreferredTrackTransform = YES;
             generator.maximumSize = CGSizeMake(144, 144);
-            CGImageRef image = [generator copyCGImageAtTime:kCMTimeZero actualTime:NULL error:nil];
+            // Exact t=0 fails on many HEVC/edited clips; accept the nearest decodable frame.
+            generator.requestedTimeToleranceBefore = kCMTimePositiveInfinity;
+            generator.requestedTimeToleranceAfter = kCMTimePositiveInfinity;
+            CGImageRef image = NULL;
+            for (NSNumber *seconds in @[@0, @0.1, @1.0]) {
+                image = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(seconds.doubleValue, 600) actualTime:NULL error:nil];
+                if (image) break;
+            }
             UIImage *poster = image ? [UIImage imageWithCGImage:image] : nil;
             NSUInteger cost = image ? CGImageGetBytesPerRow(image) * CGImageGetHeight(image) : 0;
             if (image) CGImageRelease(image);
@@ -118,12 +136,16 @@
                 LMVMaterialPicker *picker = weakSelf;
                 if (!picker) return;
                 [picker.pending removeObject:key];
-                [picker.thumbnails setObject:poster ?: [UIImage systemImageNamed:@"film"] forKey:key cost:cost];
+                // Only real posters are cached; a failure retries a bounded number of times.
+                NSUInteger tries = [picker.thumbnailFailures[key] unsignedIntegerValue];
+                if (poster) [picker.thumbnails setObject:poster forKey:key cost:cost];
+                else if (tries >= 2) [picker.thumbnails setObject:[UIImage systemImageNamed:@"film"] forKey:key cost:1];
+                else picker.thumbnailFailures[key] = @(tries + 1);
                 // Resolve current paths, never capture/reuse a cell from a previous generation.
                 for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
                     if (index.row < picker.materials.count) {
                         NSDictionary *visible = picker.materials[index.row];
-                        if ([visible[@"revision"] isEqualToString:key]) [picker.tableView reloadRowsAtIndexPaths:@[index] withRowAnimation:UITableViewRowAnimationNone];
+                        if ([visible[@"revision"] isEqualToString:key]) { if (poster || [picker.thumbnails objectForKey:key]) [picker.tableView reloadRowsAtIndexPaths:@[index] withRowAnimation:UITableViewRowAnimationNone]; else [picker requestThumbnail:visible]; }
                         else [picker requestThumbnail:visible];
                     }
                 }

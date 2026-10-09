@@ -52,12 +52,19 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static void LMVUpdate(UIView *cell);
 static void LMVUpdateLockScreens(void);
 static void LMVUpdateDesktops(void);
+static void LMVUpdateWallpaperWindows(void);
+static void LMVDiscoverWallpaperHosts(void);
+@class LMVSharedSource;
+static void LMVWallpaperPublish(LMVSharedSource *source, CGImageRef image);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
 static BOOL LMVVisible(UIView *view);
 static CADisplayLink *LMVLink;
 static int LMVLockToken = -1;
+// 0.0.62: lockcomplete=1 only when the device is really locked (not an NC pull-down).
+static int LMVLockCompleteToken = -1;
+static BOOL LMVEasterUnlockedSinceLock;
 // Collections are initialized before any observer or hook can register a host.
 // Launch readiness is independent: a system initializer must never run policy.
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying;
@@ -88,7 +95,11 @@ static void LMVRequestSafeUpdate(void) {
 static void LMVMarkLaunchReady(void) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     LMVLaunchReady = YES;
+    LMVDiscoverWallpaperHosts();
     LMVRequestSafeUpdate();
+    // Respring without locking: windows/hosts appear in stages. Retry briefly.
+    for (NSUInteger attempt = 1; attempt <= 6; attempt++)
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(attempt * 0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ LMVDiscoverWallpaperHosts(); LMVRequestSafeUpdate(); });
 }
 static void LMVEasterStartIfReady(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
@@ -317,6 +328,8 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 @property(nonatomic, copy) NSString *wallpaperDiagnostic;
 @property(nonatomic, weak) UIView *originalAnchor, *originalScope;
 @property(nonatomic, copy) NSString *originalDiagnostic;
+// 0.0.62: this lock/desktop consumer currently owns the system wallpaper window.
+@property(nonatomic) BOOL wallpaperEligible;
 @end
 @implementation LMVVideoState
 - (void)dealloc {
@@ -512,6 +525,7 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
                         if (state.source == source && state.active) state.layer.contents = (__bridge id)image;
                     }
+                    LMVWallpaperPublish(source, image);
                     [CATransaction commit];
                     if (source.published==1) LMVDiagnostic([NSString stringWithFormat:@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image)]);
                 } else if (image) {
@@ -659,7 +673,7 @@ static void LMVLoadPreferences(void) {
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
-    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.59 diagnostics-enabled");
+    if (diagnosticsEnabled && !wasEnabled) LMVDiagnostic(@"version=0.0.62 diagnostics-enabled");
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
     LMVMaterialSources = @{
@@ -977,7 +991,7 @@ static BOOL LMVLockHostVisible(UIView *host) {
     Class windowClass = NSClassFromString(@"SBCoverSheetWindow");
     return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host), LMVPlaybackAllowed());
 }
-static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
+static __attribute__((unused)) BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
     if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return LMVOriginalPureView(view, YES, 0);
     if (depth >= 4) return NO;
     // A mixed page/container can own clock or notifications as well: placing
@@ -1010,30 +1024,20 @@ static void LMVUpdateLockScreen(UIView *host) {
     }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    // Insert above a confidently local wallpaper branch, below CoverSheet content.
-    // No view insertion or hit testing; only confirmed original background drawing is leased.
-    CALayer *wallpaper = nil;
-    for (UIView *child in host.subviews) if (LMVBranchHasWallpaper(child, 0)) { wallpaper = child.layer; break; }
-    NSArray *layers = host.layer.sublayers;
-    NSUInteger ownIndex = [layers indexOfObjectIdenticalTo:state.layer];
-    NSUInteger wallpaperIndex = wallpaper ? [layers indexOfObjectIdenticalTo:wallpaper] : NSNotFound;
-    BOOL ordered = ownIndex != NSNotFound && (wallpaperIndex == NSNotFound ? ownIndex == 0 : ownIndex == wallpaperIndex + 1);
-    if (!ordered) {
-        [state.layer removeFromSuperlayer];
-        if (wallpaper && wallpaper.superlayer == host.layer) [host.layer insertSublayer:state.layer above:wallpaper];
-        else [host.layer insertSublayer:state.layer atIndex:0];
-    }
+    // Detached frame holder; only the dedicated wallpaper window renders video.
     state.layer.frame = host.bounds;
-    state.layer.hidden = NO;
+    state.layer.hidden = YES;
     state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
     LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     BOOL active = LMVLockHostVisible(host);
     if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
     BOOL originalInScope = active || (!LMVPlaybackAllowed() && (state.originals.count || state.wallpaperOriginals.count) && host.window);
-    LMVReplaceBackground(state, host, host, @"LockScreen", originalInScope);
-    // Fail-open: the original wallpaper is removed only once a real video frame is attached.
-    LMVReplaceObservedWallpaper(state, host, @"LockScreen", originalInScope && state.layer.contents != nil);
+    // 0.0.62: never stack over CoverSheet content. The wallpaper window surface
+    // renders this state's frames and replaces the original wallpaper itself.
+    LMVRestoreBackground(state);
+    state.wallpaperEligible = originalInScope;
+    state.layer.hidden = YES;
     if (active && [LMVReadyAssets containsObject:path]) {
         if (!state.source) state.source = LMVSourceForPath(path);
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
@@ -1296,6 +1300,7 @@ static CGPathRef LMVDesktopDockPath(UIView *node, UIWindow *window, UIView *host
     *region = CGRectIntersection(rect, host.bounds);
     return path;
 }
+static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) __attribute__((unused));
 static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
     CGRect region = CGRectZero;
     CGPathRef hole = NULL;
@@ -1445,7 +1450,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
     if (!activity.draw) {
         LMVRestoreBackground(state);
-        if (state) { state.layer.hidden = YES; LMVReleaseDesktopSource(state); }
+        if (state) { state.wallpaperEligible = NO; state.layer.hidden = YES; LMVReleaseDesktopSource(state); }
         return;
     }
     if (!state) {
@@ -1457,26 +1462,21 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
         LMVDiagnostic(@"desktop=guarded-home-host");
     }
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    CALayer *wallpaper = nil;
-    for (UIView *child in host.subviews) if (LMVBranchHasWallpaper(child, 0)) { wallpaper = child.layer; break; }
-    // Own CALayer has no hit testing. Place below home content/icons, never above their branch.
-    if (LMVDesktopShouldAttach(state.layer.superlayer == host.layer)) {
-        if (wallpaper && wallpaper.superlayer == host.layer) [host.layer insertSublayer:state.layer above:wallpaper];
-        else [host.layer insertSublayer:state.layer atIndex:0];
-    }
-    // Keep live desktop everywhere except a safely measured lower Dock outline.
-    // Only our layer is masked; no system/Dock window or wallpaper is rewritten.
-    state.layer.frame = host.bounds; state.layer.hidden = !activity.draw;
+    // Detached frame holder; the dedicated wallpaper window owns the visible layer.
+    state.layer.frame = host.bounds; state.layer.hidden = YES;
     state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
-    LMVDesktopApplyDockMask(host, state, activity, snapshot);
     LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     if (activity.decode && [LMVReadyAssets containsObject:path]) {
         if (!state.source || LMVSharedSources[path] != state.source) state.source = LMVSourceForPath(path);
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
     }
-    LMVReplaceBackground(state, host, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity));
-    LMVReplaceObservedWallpaper(state, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity) && state.layer.contents != nil);
+    // 0.0.62: the home-screen layer stays a frame holder only; the system
+    // wallpaper window shows the video in place of the original wallpaper.
+    LMVRestoreBackground(state);
+    state.wallpaperEligible = activity.draw && snapshot.screenOn &&
+        snapshot.foreground != LMVForegroundApp && LMVDesktopGeometryVisible(host);
+    state.layer.hidden = YES;
     state.active = activity.decode && state.source != nil;
     [CATransaction commit];
     LMVDesktopDiagnostics(host, state, activity, snapshot);
@@ -1521,6 +1521,7 @@ static BOOL LMVDesktopNeedsFrames(void) {
     }
     return NO;
 }
+#import "LMVWallpaperWindow.h"
 static void LMVDesktopHostChanged(UIView *view) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     Class home = NSClassFromString(@"SBHomeScreenView");
@@ -1646,10 +1647,17 @@ static void LMVDesktopHostChanged(UIView *view) {
 %hook _SBWallpaperSecureWindow
 - (void)setHidden:(BOOL)hidden {
     %orig;
+    if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
+    LMVDesktopHostChanged((UIView *)self);
+}
+- (void)didAddSubview:(UIView *)subview {
+    %orig;
+    if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
     LMVDesktopHostChanged((UIView *)self);
 }
 - (void)layoutSubviews {
     %orig;
+    if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
     LMVDesktopHostChanged((UIView *)self);
 }
 %end
@@ -1751,7 +1759,7 @@ static void LMVReleaseAllPlayers(void) {
     for (UIView *host in LMVDesktopHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
         LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
-        state.layer.hidden = !activity.draw; state.active = NO;
+        state.layer.hidden = YES; state.active = NO;
         if (!LMVDesktopOriginalInScope(host, snapshot, activity)) LMVRestoreBackground(state);
         if (activity.releaseSource) LMVReleaseDesktopSource(state);
     }
@@ -1777,6 +1785,7 @@ static void LMVRefresh(BOOL reload) {
     }
     LMVUpdateLockScreens();
     LMVUpdateDesktops();
+    LMVUpdateWallpaperWindows();
     LMVSyncDisplayLink();
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
@@ -1846,6 +1855,7 @@ static void LMVSyncDisplayLink(void) {
         if (discover) LMVUpdateDesktop(host, desktopSnapshot);
         if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
+    if (discover) LMVUpdateWallpaperWindows();
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
     }
@@ -1904,6 +1914,11 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
 static void LMVScreenNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!LMVInitialized || !LMVLaunchReady) return;
+        uint64_t lockState = 1, complete = 0, blank = 0;
+        if (LMVLockToken >= 0 && notify_get_state(LMVLockToken, &lockState) == NOTIFY_STATUS_OK && lockState == 0) LMVEasterUnlockedSinceLock = YES;
+        if (LMVLockCompleteToken >= 0 && notify_get_state(LMVLockCompleteToken, &complete) == NOTIFY_STATUS_OK && complete) LMVEasterUnlockedSinceLock = NO;
+        if (LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK && blank) LMVEasterUnlockedSinceLock = NO;
+        [LMVEaster refresh];
         if (!LMVPlaybackAllowed()) LMVSuspend();
         else LMVPrepareAssets();
         LMVRequestSafeUpdate();
@@ -1918,6 +1933,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVActionPresenters = [NSHashTable weakObjectsHashTable];
         LMVLockHosts = [NSHashTable weakObjectsHashTable];
         LMVDesktopHosts = [NSHashTable weakObjectsHashTable];
+        LMVWallpaperWindows = [NSHashTable weakObjectsHashTable];
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVDiskQueue=dispatch_queue_create("com.minis.lockmessagevideo.last-frame",DISPATCH_QUEUE_SERIAL);
         LMVDiskPending=[NSMutableSet new]; LMVDiskAttempted=[NSMutableSet new]; LMVDiskWriting=[NSMutableSet new];
@@ -1928,6 +1944,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVInitialized = YES;
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         notify_register_check("com.apple.springboard.lockstate", &LMVLockToken);
+        notify_register_check("com.apple.springboard.lockcomplete", &LMVLockCompleteToken);
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             // Always leave the notification/system launch stack before policy.
             dispatch_async(dispatch_get_main_queue(), ^{ LMVMarkLaunchReady(); });
@@ -2009,7 +2026,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         }
         dispatch_async(dispatch_get_main_queue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); }); });
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) {
+        for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate", @"com.apple.springboard.lockcomplete"]) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVScreenNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         }
         dispatch_async(dispatch_get_main_queue(), ^{

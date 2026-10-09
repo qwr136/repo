@@ -30,7 +30,7 @@ assert '[self removeFromParentViewController]' in prompt
 assert 'cornerRadius = 20' in overlay and 'bounds.size.height * .65' in overlay
 assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
-assert 'blankKnown=%d lockKnown=%d' in overlay and 'blank || locked' in overlay
+assert 'blankKnown=%d lockKnown=%d' in overlay and 'pulledDown' in overlay
 assert 'state.active' not in original and 'LMVOpacity' not in original and 'state.source' not in original
 assert 'LMVBackgroundOnlyView(view)' in original and 'Passcode' in original and '_SBWallpaperSecureWindow' in original
 assert 'LMVAcquireOriginal(branch.layer, branch.superview.layer, LMVOriginalSuppressDrawing' in original
