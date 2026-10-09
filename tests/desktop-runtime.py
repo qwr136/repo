@@ -87,7 +87,7 @@ static NSString *kCAGravityResizeAspectFill=@"aspectFill";
 @property(nonatomic,weak) UIView *host;
 @property(nonatomic,copy) NSString *path, *revision;
 @property(nonatomic,strong) LMVSharedSource *source;
-@property(nonatomic) BOOL active;
+@property(nonatomic) BOOL active, wallpaperEligible;
 @property(nonatomic) LMVDesktopGateClock desktopClock;
 @end
 @implementation LMVVideoState @end
@@ -116,6 +116,7 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
 // Wallpaper discovery/leases run with actual QuartzCore in original-background.m;
 // this harness isolates desktop playback and lifetime from UIKit wall/scene enumeration.
 static void LMVReplaceObservedWallpaper(LMVVideoState *state, UIView *host, NSString *target, BOOL inScope) {}
+static void LMVUpdateWallpaperWindows(void) {}
 static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity) { return activity.draw; }
 static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) { return NO; }
