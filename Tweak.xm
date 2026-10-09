@@ -895,7 +895,8 @@ static void LMVUpdate(UIView *cell) {
         // A material with text/content is a container: put our surface below its
         // children, never above the whole material. Only pure drawing anchors
         // permit a sibling overlay and backing-branch suppression.
-        BOOL material = LMVOriginalPureView(anchor, NO, 0);
+        BOOL material = LMVOriginalPureView(anchor, NO, 0) ||
+            (([target isEqualToString:@"Clear"] || [target isEqualToString:@"Options"]) && LMVActionBackgroundMaterial(anchor));
         UIView *host = material ? anchor.superview : anchor;
         // Host identity is part of ownership. Never retain an overlay under a
         // reused parent when UIKit swaps the notification content host.
@@ -1031,7 +1032,8 @@ static void LMVUpdateLockScreen(UIView *host) {
     if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
     BOOL originalInScope = active || (!LMVPlaybackAllowed() && (state.originals.count || state.wallpaperOriginals.count) && host.window);
     LMVReplaceBackground(state, host, host, @"LockScreen", originalInScope);
-    LMVReplaceObservedWallpaper(state, host, @"LockScreen", originalInScope);
+    // Fail-open: the original wallpaper is removed only once a real video frame is attached.
+    LMVReplaceObservedWallpaper(state, host, @"LockScreen", originalInScope && state.layer.contents != nil);
     if (active && [LMVReadyAssets containsObject:path]) {
         if (!state.source) state.source = LMVSourceForPath(path);
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
@@ -1474,7 +1476,7 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
     }
     LMVReplaceBackground(state, host, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity));
-    LMVReplaceObservedWallpaper(state, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity));
+    LMVReplaceObservedWallpaper(state, host, @"Desktop", LMVDesktopOriginalInScope(host, snapshot, activity) && state.layer.contents != nil);
     state.active = activity.decode && state.source != nil;
     [CATransaction commit];
     LMVDesktopDiagnostics(host, state, activity, snapshot);

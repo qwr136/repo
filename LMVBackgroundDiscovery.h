@@ -5,6 +5,34 @@ static CGFloat LMVOriginalVisibilityAlpha(UIView *view) {
     return lease && !lease.retired && lease.method == LMVOriginalSuppressDrawing &&
         view.layer.opacity == 0.0f ? lease.baselineOpacity : view.alpha;
 }
+// 0.0.61: a background-only subtree draws no text, controls, icons, clock, Dock,
+// notification or widget content. Suppressing its backing opacity (restorable
+// lease) removes only the original background, so every target can be replaced
+// the same way Message already is. Remote/scene wallpaper content is allowed:
+// layer opacity also hides remotely hosted pixels and is fully restored on release.
+static BOOL LMVBackgroundOnlyBranch(UIView *view, NSUInteger depth, NSUInteger *budget) {
+    if (!view || !*budget || depth > 10) return NO;
+    --*budget;
+    if ([view isKindOfClass:UILabel.class] || [view isKindOfClass:UITextView.class] ||
+        [view isKindOfClass:UITextField.class] || [view isKindOfClass:UIControl.class] ||
+        [view isKindOfClass:UIScrollView.class] || view.subviews.count > 24 || view.layer.sublayers.count > 32) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    for (NSString *word in @[@"Passcode", @"Authentication", @"Biometric", @"Clock", @"DateView", @"Time",
+                             @"Label", @"Text", @"Icon", @"Dock", @"Notification", @"Complication", @"Widget", @"Button"])
+        if ([name containsString:word]) return NO;
+    for (CALayer *layer in view.layer.sublayers) if ([layer.name hasPrefix:@"com.minis.lockmessagevideo"]) return NO;
+    for (UIView *child in view.subviews) if (!LMVBackgroundOnlyBranch(child, depth + 1, budget)) return NO;
+    return YES;
+}
+static BOOL LMVBackgroundOnlyView(UIView *view) {
+    NSUInteger budget = 128;
+    return LMVBackgroundOnlyBranch(view, 0, &budget);
+}
+static BOOL LMVActionBackgroundMaterial(UIView *view) {
+    NSString *name = NSStringFromClass(view.class);
+    return ([name containsString:@"MaterialView"] || [name containsString:@"Backdrop"] || [name containsString:@"VisualEffect"]) &&
+        view.bounds.size.width > 20 && view.bounds.size.height > 20 && LMVBackgroundOnlyView(view);
+}
 static BOOL LMVOriginalPureBranch(UIView *view, BOOL wallpaper, NSUInteger depth, NSUInteger *remaining) {
     if (!*remaining) return NO;
     --*remaining;
@@ -109,10 +137,16 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
         id delegate = lease.layer.delegate;
         BOOL safe = lease.method == LMVOriginalDetach ?
             (!delegate && !lease.layer.sublayers.count && !lease.layer.mask) :
-            ([delegate isKindOfClass:UIView.class] && LMVOriginalPureView(delegate, wallpaper, 0));
+            ([delegate isKindOfClass:UIView.class] && (LMVOriginalPureView(delegate, wallpaper, 0) ||
+                (!wallpaper && LMVActionBackgroundMaterial(delegate))));
         if (safe && [lease maintain]) [live addObject:lease]; else [lease releaseOwner:state];
     }
     NSMutableArray *candidates = [NSMutableArray new];
+    // Clear/Options: the confirmed action material itself is the original background.
+    // The plugin overlay is its sibling (above it), so suppressing it never hides video.
+    BOOL action = [target isEqualToString:@"Clear"] || [target isEqualToString:@"Options"];
+    if (action && anchor.superview == scope && !LMVOriginalPureView(anchor, NO, 0) && LMVActionBackgroundMaterial(anchor))
+        [candidates addObject:@{@"layer":anchor.layer, @"method":@(LMVOriginalSuppressDrawing)}];
     // A second consumer cannot discover a leaf already detached by the first.
     // Search the weak lease registry only at initial binding, never per frame.
     if (!state.originals.count) for (LMVOriginalLease *shared in [LMVOriginalLeases() objectEnumerator]) {

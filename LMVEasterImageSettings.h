@@ -25,17 +25,15 @@
     });
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 1; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 4; }
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row == 1 ? 100 : (index.row == 3 ? 80 : 44); }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 3; }
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row == 0 ? 100 : (index.row == 2 ? 80 : 44); }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    // Rows: 0 preview, 1 import, 2 size. The enable switch lives only on the Settings root page.
     if (index.row == 0) {
-        cell.textLabel.text = @"启用小彩蛋"; UISwitch *toggle = [UISwitch new]; toggle.on = [LMVEasterRead(@"EasterEggEnabled") boolValue];
-        [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
-    } else if (index.row == 1) {
         cell.textLabel.text = @"图片预览"; cell.imageView.image = self.preview ?: [UIImage systemImageNamed:@"photo"];
         cell.imageView.contentMode = UIViewContentModeScaleAspectFit; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (index.row == 2) {
+    } else if (index.row == 1) {
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入图片 / GIF"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.userInteractionEnabled = !self.busy;
     } else {
         cell.textLabel.text = @"悬浮图标大小"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", LMVEasterSize()]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -45,14 +43,13 @@
     }
     return cell;
 }
-- (void)toggle:(UISwitch *)toggle { LMVEasterSet(@"EasterEggEnabled", @(toggle.on)); }
 - (void)sizeChanged:(UISlider *)slider {
     CGFloat size = MAX(32, MIN(128, round(slider.value))); LMVEasterSet(@"EasterEggSize", @(size));
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:3 inSection:0]];
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:2 inSection:0]];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", size];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
-    [tableView deselectRowAtIndexPath:index animated:YES]; if (index.row != 2 || self.busy || self.presentedViewController) return;
+    [tableView deselectRowAtIndexPath:index animated:YES]; if (index.row != 1 || self.busy || self.presentedViewController) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary]; config.filter = PHPickerFilter.imagesFilter; config.selectionLimit = 1; config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config]; picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];

@@ -41,8 +41,8 @@ assert 'requireGestureRecognizerToFail:pan' in overlay
 assert 'UIGestureRecognizerStateEnded' in overlay and 'EasterEggX' in overlay
 assert 'safeAreaInsets' in overlay and 'LMVEasterCenterArea(safeRect, LMVEasterSize())' in overlay
 assert 'self.normalized.x' in overlay and 'self.normalized.y' in overlay
-assert '- (BOOL)canBecomeKeyWindow { return NO; }' in overlay
-assert 'makeKey' not in overlay and 'becomeFirstResponder' not in overlay
+assert '- (BOOL)canBecomeKeyWindow { return self.panel != nil && !self.hidden; }' in overlay
+assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
 assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay

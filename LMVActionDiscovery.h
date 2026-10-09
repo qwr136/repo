@@ -5,7 +5,7 @@ static UIView *LMVActionMaterial(UIView *view, NSUInteger depth, NSUInteger *bud
     NSString *name = NSStringFromClass(view.class);
     if (([name containsString:@"MaterialView"] || [name containsString:@"Backdrop"] ||
         [name containsString:@"VisualEffect"]) && view.bounds.size.width > 20 && view.bounds.size.height > 20 &&
-        LMVOriginalPureView(view, NO, 0)) return view;
+        (LMVOriginalPureView(view, NO, 0) || LMVActionBackgroundMaterial(view))) return view;
     if ([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIImageView.class] ||
         [view isKindOfClass:UIScrollView.class] || LMVMessageCell(view)) return nil;
     UIView *largest = nil;

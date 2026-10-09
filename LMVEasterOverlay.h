@@ -14,7 +14,10 @@
 @property(nonatomic, weak) UIView *panel;
 @end
 @implementation LMVEasterWindow
-- (BOOL)canBecomeKeyWindow { return NO; }
+// Key status only while the contained panel is open, so its prompt text field can
+// become first responder and show the keyboard. The manager hands key back to the
+// previous SpringBoard key window when editing ends or the panel closes.
+- (BOOL)canBecomeKeyWindow { return self.panel != nil && !self.hidden; }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     if (self.hidden || self.alpha < 0.01) return nil;
     // Only the actual bubble/panel rectangles accept touches. Navigation,
@@ -36,6 +39,8 @@
 @property(nonatomic, strong) NSTimer *timer;
 @property(nonatomic, copy) NSString *imageKey, *windowReason;
 @property(nonatomic, strong) NSTimer *visibilityTimer;
+@property(nonatomic, weak) UIWindow *foreignKey, *hostWindow;
+@property(nonatomic) CGFloat keyboardTop;
 @property(nonatomic) NSUInteger generation, frame;
 @property(nonatomic) BOOL pending, ready;
 @property(nonatomic) CGPoint normalized;
@@ -43,6 +48,7 @@
 - (void)closePanel;
 - (void)reportWindow:(NSString *)reason;
 - (void)layout;
+- (void)restoreKey;
 @end
 @implementation LMVEasterRoot
 - (void)viewDidLoad { [super viewDidLoad]; self.view.backgroundColor = UIColor.clearColor; }
@@ -101,6 +107,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         for (NSString *name in @[UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeHiddenNotification, UIWindowDidBecomeKeyNotification, UISceneDidActivateNotification, UISceneWillDeactivateNotification, UIApplicationDidBecomeActiveNotification, UIApplicationDidReceiveMemoryWarningNotification]) {
             [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(changed:) name:name object:nil];
         }
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillHideNotification object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(editingEnded:) name:UITextFieldTextDidEndEditingNotification object:nil];
     }
     return self;
 }
@@ -110,6 +119,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)changed:(NSNotification *)notification {
     if (notification.object == self.window) return;
+    // Remember SpringBoard's own key window so text editing can hand key back.
+    if ([notification.name isEqualToString:UIWindowDidBecomeKeyNotification] && [notification.object isKindOfClass:UIWindow.class])
+        self.foreignKey = notification.object;
     if ([notification.name isEqualToString:UIApplicationDidReceiveMemoryWarningNotification]) {
         self.generation++; self.decoded = nil; self.imageKey = nil; self.bubble.image = nil; [self.timer invalidate]; self.timer = nil;
     }
@@ -121,8 +133,35 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     LMVEasterWindowDiagnostic(reason);
 }
 - (void)hide {
-    self.window.hidden = YES; [self.timer invalidate]; self.timer = nil;
     [self closePanel];
+    self.window.hidden = YES; [self.timer invalidate]; self.timer = nil;
+}
+- (void)keyboard:(NSNotification *)notification {
+    CGRect frame = [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    UIView *root = self.window.rootViewController.viewIfLoaded;
+    CGFloat top = 0;
+    if (root && ![notification.name isEqualToString:UIKeyboardWillHideNotification] && !CGRectIsEmpty(frame)) {
+        CGRect local = [root convertRect:frame fromCoordinateSpace:(self.window.screen ?: UIScreen.mainScreen).coordinateSpace];
+        if (CGRectGetMinY(local) < CGRectGetMaxY(root.bounds) - 1) top = CGRectGetMinY(local);
+    }
+    if (self.keyboardTop == top) return;
+    self.keyboardTop = top;
+    if (!self.panel) return;
+    NSTimeInterval duration = [notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [UIView animateWithDuration:duration delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{ [self layout]; } completion:nil];
+}
+- (void)editingEnded:(NSNotification *)notification {
+    UIView *field = notification.object;
+    if ([field isKindOfClass:UIView.class] && field.window == self.window) [self restoreKey];
+}
+// Hand key status back without touching any other window state.
+- (void)restoreKey {
+    if (!self.window.isKeyWindow) return;
+    UIWindow *previous = self.foreignKey;
+    if (!previous || previous == self.window || previous.hidden || previous.windowScene != self.window.windowScene || !previous.canBecomeKeyWindow) previous = self.hostWindow;
+    if (previous && previous != self.window && !previous.hidden && previous.canBecomeKeyWindow) [previous makeKeyWindow];
+    else [self.window resignKeyWindow];
+    LMVEasterWindowDiagnostic([NSString stringWithFormat:@"key-restored to=%@", previous ? NSStringFromClass(previous.class) : @"none"]);
 }
 - (void)refresh {
     if (!NSThread.isMainThread || !self.ready || self.pending) return;
@@ -152,14 +191,32 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
         if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState!=UISceneActivationStateUnattached)
             [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
-    UIWindow *host = nil;
+    UIWindow *host = nil, *cover = nil;
+    Class coverClass = NSClassFromString(@"SBCoverSheetWindow");
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01 || window.screen != UIScreen.mainScreen) continue;
-        if (LMVEasterKnownWindow(window, trusted) && window.windowLevel < UIWindowLevelAlert - 1 && (!host || window.windowLevel > host.windowLevel)) host = window;
+        // Unlocked Notification Center: the CoverSheet window itself may sit at or
+        // above the generic alert ceiling, so it is accepted as a host explicitly.
+        BOOL isCover = coverClass && [window isKindOfClass:coverClass];
+        if (isCover && (!cover || window.windowLevel > cover.windowLevel)) cover = window;
+        if (LMVEasterKnownWindow(window, trusted) && (isCover || window.windowLevel < UIWindowLevelAlert - 1) && (!host || window.windowLevel > host.windowLevel)) host = window;
     }
     if (!host || !host.windowScene) { [self hide]; [self reportWindow:@"no-trusted-main-scene"]; return; }
     // SpringBoard-owned scene above ordinary app surfaces, bounded below alerts.
     CGFloat level = MAX((CGFloat)1200, MIN(host.windowLevel + 1, UIWindowLevelAlert - 1));
+    if (cover) {
+        // While CoverSheet is presented (unlocked pull-down), stay above it and above
+        // every visible non-alert surface it shows (e.g. the wallpaper window), but
+        // below any visible window at/above the alert level that is not CoverSheet.
+        CGFloat ceiling = MAX(UIWindowLevelAlert - 1, cover.windowLevel + 1), base = MAX(host.windowLevel, cover.windowLevel);
+        for (UIWindow *window in windows) {
+            if (window == self.window || window == cover || window.hidden || window.alpha < 0.01 || window.screen != UIScreen.mainScreen) continue;
+            if (window.windowLevel >= UIWindowLevelAlert && window.windowLevel > cover.windowLevel) ceiling = MIN(ceiling, window.windowLevel - 1);
+            else if (window.windowLevel < ceiling) base = MAX(base, window.windowLevel);
+        }
+        level = MAX((CGFloat)1200, MIN(base + 1, ceiling));
+    }
+    self.hostWindow = host;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
         if (!LMVEasterKnownWindow(window,trusted) && LMVEasterBlockingWindow(window,level)) {
@@ -196,7 +253,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         }); return;
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
-    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
+    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld cover=%@",NSStringFromClass(host.class),level,(long)host.windowScene.activationState,cover ? [NSString stringWithFormat:@"%.0f",cover.windowLevel] : @"none"]]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {
@@ -215,7 +272,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (self.panel) {
         CGRect bounds = UIEdgeInsetsInsetRect(self.window.rootViewController.view.bounds, self.window.rootViewController.view.safeAreaInsets);
         CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height * .65));
-        self.panel.view.frame = CGRectMake(CGRectGetMidX(bounds) - width / 2, CGRectGetMidY(bounds) - height / 2, width, height);
+        CGFloat y = CGRectGetMidY(bounds) - height / 2;
+        if (self.keyboardTop > 0) {
+            // Keep the panel (and its contained prompt) above the keyboard.
+            CGFloat limit = self.keyboardTop - 8;
+            if (y + height > limit) { y = MAX(CGRectGetMinY(bounds), limit - height); height = MAX(0, MIN(height, limit - y)); }
+        }
+        self.panel.view.frame = CGRectMake(CGRectGetMidX(bounds) - width / 2, y, width, height);
         self.panel.view.layer.cornerRadius = 20;
         self.panel.view.layer.cornerCurve = kCACornerCurveContinuous;
         self.panel.view.clipsToBounds = YES;
@@ -249,9 +312,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
     UIViewController *root = self.window.rootViewController; [root addChildViewController:self.panel]; [root.view addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
     self.panel.view.layer.cornerRadius = 20; self.panel.view.layer.cornerCurve = kCACornerCurveContinuous; self.panel.view.clipsToBounds = YES; self.window.panel = self.panel.view; [self layout];
+    // Own key while the panel is open so contained rename/switch prompts get a keyboard.
+    if (!self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
 }
 - (void)closePanel {
     if (!self.panel) return;
+    [self.window endEditing:YES]; [self restoreKey];
     [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview]; [self.panel removeFromParentViewController]; self.panel = nil; self.window.panel = nil;
 }
 @end

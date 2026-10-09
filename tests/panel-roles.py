@@ -11,7 +11,7 @@ for forbidden in ['imageControls','EasterEggEnabled','EasterEggImage','imagesFil
     assert forbidden not in video,forbidden
 for forbidden in ['LMVEasterTargets','VideoOpacity','videosFilter','LMVMaterialPicker']:
     assert forbidden not in image,forbidden
-assert 'return 1;' in image and 'return 4;' in image
+assert 'return 1;' in image and 'return 3;' in image and '启用小彩蛋' not in image
 assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
 assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
 assert 'opacityTracking' in video and '!panel.opacityTracking' in video
@@ -29,10 +29,10 @@ assert 'if (picker.pushed) { [picker renameContained:row]; done(YES); return; }'
 assert '[self removeFromParentViewController]' in prompt
 assert 'cornerRadius = 20' in overlay and 'bounds.size.height * .65' in overlay
 assert 'while (modal.presentedViewController)' not in overlay
-assert 'canBecomeKeyWindow { return NO; }' in overlay and 'makeKey' not in overlay
+assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
 assert 'blankKnown=%d lockKnown=%d' in overlay and 'blank || locked' in overlay
 assert 'state.active' not in original and 'LMVOpacity' not in original and 'state.source' not in original
-assert 'branches.count == 1' in original and 'Remote' in original and 'Scene' in original
-assert 'LMVAcquireOriginal(confirmed.layer, confirmed.superview.layer' in original
+assert 'LMVBackgroundOnlyView(view)' in original and 'Passcode' in original and '_SBWallpaperSecureWindow' in original
+assert 'LMVAcquireOriginal(branch.layer, branch.superview.layer, LMVOriginalSuppressDrawing' in original
 assert 'LMVAcquireOriginal(window.layer' not in original and 'layer.contents =' not in original
 print('PASS: image/video roles, live sliders, bounded contained navigation/Photos lifecycle, main modal compatibility, original-video import, prompts, geometry, security and observed-wallpaper contracts (not UIKit execution)')
