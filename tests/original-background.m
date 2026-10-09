@@ -271,15 +271,20 @@ int main(void) { @autoreleasepool {
     assert(state.wallpaperOriginals.count==1 && diagnostics==observedLogs && clock.alpha==1);
     // Scope loss restores even when zero-opacity video/failure never restored it.
     LMVReplaceObservedWallpaper(state,consumer,@"Desktop",NO); assert(local.layer.opacity==1 && !state.wallpaperOriginals.count);
-    // Two visible local branches are ambiguous: no suppression.
+    // 0.0.61: every full background-only branch of the wallpaper window is wallpaper;
+    // all are replaced (restorable), the clock label sibling is never touched.
     LocalWallpaperView *secondLocal=[LocalWallpaperView new]; [wallRoot addSubview:secondLocal];
     LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",YES);
-    assert(!state.wallpaperOriginals.count && local.alpha==1 && secondLocal.alpha==1);
+    assert(state.wallpaperOriginals.count==2 && local.layer.opacity==0 && secondLocal.layer.opacity==0 && clock.alpha==1 && clock.layer.opacity==1);
+    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",NO);
+    assert(!state.wallpaperOriginals.count && local.layer.opacity==1 && secondLocal.layer.opacity==1);
     secondLocal.hidden=YES; local.hidden=YES;
+    // Hosted Remote/Scene wallpaper is replaced too via layer opacity, then restored.
     WallpaperSceneView *remoteScene=[WallpaperSceneView new]; [wallRoot addSubview:remoteScene];
     LocalWallpaperView *remoteLeaf=[LocalWallpaperView new]; [remoteScene addSubview:remoteLeaf];
     LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",YES);
-    assert(!state.wallpaperOriginals.count && remoteScene.alpha==1 && remoteLeaf.alpha==1 && wallWindow.alpha==1);
+    assert(state.wallpaperOriginals.count==1 && remoteScene.layer.opacity==0 && remoteLeaf.layer.opacity==1 && wallWindow.alpha==1 && clock.layer.opacity==1);
     assert([state.wallpaperDiagnostic containsString:@"WallpaperSceneView"]);
-    puts("PASS: actual QuartzCore lease/discovery; all five target detach/restore; 100 layouts; last-owner restore; baseline/system updates; missing-frame/alpha0 stay replaced; content/secure/remote/thumb guarded; NOT iOS device validation");
+    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",NO); assert(remoteScene.layer.opacity==1);
+    puts("PASS: actual QuartzCore lease/discovery; all five target detach/restore; 100 layouts; last-owner restore; baseline/system updates; missing-frame/alpha0 stay replaced; content guarded; all wallpaper branches replaced/restored; NOT iOS device validation");
 } return 0; }
