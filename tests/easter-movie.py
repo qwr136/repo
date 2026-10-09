@@ -58,13 +58,14 @@ int main(void) { @autoreleasepool {
     assert([[@"not a movie" dataUsingEncoding:NSUTF8StringEncoding] writeToURL:bad atomically:YES]);
     NSURL *good=[NSURL fileURLWithPath:[temporary stringByAppendingPathComponent:@"original.mov"]]; makeMovie(good);
     NSData *before=[NSData dataWithContentsOfURL:good]; assert(before.length);
-    dispatch_sync(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
+    dispatch_semaphore_t imported=dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
         @autoreleasepool {
             NSError *error=nil; assert(!LMVEasterImport(bad,YES,&error) && error);
             NSString *library=[testRoot stringByAppendingPathComponent:@"library"];
             assert([fm contentsOfDirectoryAtPath:library error:nil].count==0);
             assert(LMVReadMaterialNames().count==0);
-            error=nil; NSString *relative=LMVEasterImport(good,YES,&error); assert(relative && !error);
+            error=nil; NSString *relative=LMVEasterImport(good,YES,&error); if (!relative || error) NSLog(@"original importer fixture error=%@",error); assert(relative && !error);
             assert([relative hasPrefix:@"library/"]);
             assert([[NSData dataWithContentsOfFile:[testRoot stringByAppendingPathComponent:relative]] isEqual:before]);
             assert([[NSData dataWithContentsOfURL:good] isEqual:before]);
@@ -73,7 +74,9 @@ int main(void) { @autoreleasepool {
             error=nil; assert(!LMVEasterImport(bad,NO,&error) && error);
             assert([fm contentsOfDirectoryAtPath:LMVEasterFolder error:nil].count==0);
         }
+        dispatch_semaphore_signal(imported);
     });
+    assert(dispatch_semaphore_wait(imported,dispatch_time(DISPATCH_TIME_NOW,15*NSEC_PER_SEC))==0);
     [fm removeItemAtPath:temporary error:nil];
     puts("PASS: actual importer rejects bad video without file/catalog publication, validates a real H264 original byte-for-byte without compression, image/video isolation; macOS not iOS device");
 } return 0; }

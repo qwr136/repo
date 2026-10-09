@@ -27,29 +27,32 @@ jobs:
 
       - name: Source and import-plan regression tests
         run: |
-          python3 tests/shared-render-regression.py
-          python3 tests/easter-regression.py
-          python3 tests/easter-movie.py
-          python3 tests/easter-window.py
-          python3 tests/frame-disk-regression.py
-          clang -fobjc-arc -framework Foundation -framework CoreGraphics -framework ImageIO -framework CoreMedia tests/frame-disk.m -o "$RUNNER_TEMP/lmv-frame-disk"
-          "$RUNNER_TEMP/lmv-frame-disk"
-          python3 tests/settings-import-regression.py
-          python3 tests/preferences-routing.py
-          python3 tests/desktop-runtime.py
-          python3 tests/desktop-dock-geometry.py
-          python3 tests/startup-reentry.py
-          python3 tests/original-background-regression.py
-          clang -fobjc-arc -framework Foundation -framework QuartzCore -framework CoreGraphics tests/original-background.m -o "$RUNNER_TEMP/lmv-original-background"
-          "$RUNNER_TEMP/lmv-original-background"
-          clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
-          "$RUNNER_TEMP/lmv-material-catalog"
-          cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"
-          "$RUNNER_TEMP/lmv-lock-consumer"
-          cc tests/desktop-consumer.c -o "$RUNNER_TEMP/lmv-desktop-consumer"
-          "$RUNNER_TEMP/lmv-desktop-consumer"
-          cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
-          "$RUNNER_TEMP/lmv-import-plan"
+          failures=0
+          check() { "$@" || failures=$((failures + 1)); }
+          check python3 tests/shared-render-regression.py
+          check python3 tests/easter-regression.py
+          check python3 tests/easter-movie.py
+          check python3 tests/easter-window.py
+          check python3 tests/frame-disk-regression.py
+          check clang -fobjc-arc -framework Foundation -framework CoreGraphics -framework ImageIO -framework CoreMedia tests/frame-disk.m -o "$RUNNER_TEMP/lmv-frame-disk"
+          check "$RUNNER_TEMP/lmv-frame-disk"
+          check python3 tests/settings-import-regression.py
+          check python3 tests/preferences-routing.py
+          check python3 tests/desktop-runtime.py
+          check python3 tests/desktop-dock-geometry.py
+          check python3 tests/startup-reentry.py
+          check python3 tests/original-background-regression.py
+          check clang -fobjc-arc -framework Foundation -framework QuartzCore -framework CoreGraphics tests/original-background.m -o "$RUNNER_TEMP/lmv-original-background"
+          check "$RUNNER_TEMP/lmv-original-background"
+          check clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
+          check "$RUNNER_TEMP/lmv-material-catalog"
+          check cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"
+          check "$RUNNER_TEMP/lmv-lock-consumer"
+          check cc tests/desktop-consumer.c -o "$RUNNER_TEMP/lmv-desktop-consumer"
+          check "$RUNNER_TEMP/lmv-desktop-consumer"
+          check cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
+          check "$RUNNER_TEMP/lmv-import-plan"
+          test "$failures" -eq 0
 
       - name: Setup Theos and iOS SDK
         run: |
