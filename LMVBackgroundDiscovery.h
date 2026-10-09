@@ -14,7 +14,7 @@ static BOOL LMVBackgroundOnlyBranch(UIView *view, NSUInteger depth, NSUInteger *
     if (!view || !*budget || depth > 10) return NO;
     --*budget;
     if ([view isKindOfClass:UILabel.class] || [view isKindOfClass:UITextView.class] ||
-        [view isKindOfClass:UITextField.class] || [view isKindOfClass:UIControl.class] ||
+        [view isKindOfClass:UIControl.class] ||
         [view isKindOfClass:UIScrollView.class] || view.subviews.count > 24 || view.layer.sublayers.count > 32) return NO;
     NSString *name = NSStringFromClass(view.class);
     for (NSString *word in @[@"Passcode", @"Authentication", @"Biometric", @"Clock", @"DateView", @"Time",
