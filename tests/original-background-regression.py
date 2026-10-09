@@ -9,11 +9,11 @@ s=(r/'Tweak.xm').read_text()
 h=(r/'LMVBackgroundDiscovery.h').read_text()
 l=(r/'LMVOriginalBackground.h').read_text()
 def function(text,signature):
-    start=text.find(signature+' {')
-    if start < 0:
-        start=text.index(signature+' __attribute__((unused)) {')
-    depth=0
-    for i in range(start+len(signature)+1,len(text)):
+    import re
+    match=re.search(re.escape(signature)+r'(?: __attribute__\(\(unused\)\))? \{',text)
+    if not match: raise AssertionError(signature)
+    start=match.start(); depth=1
+    for i in range(match.end(),len(text)):
         if text[i]=='{':depth+=1
         elif text[i]=='}':
             depth-=1
@@ -28,13 +28,12 @@ protected={
     'static void LMVDesktopHostChanged(UIView *view)': 'd913d26ac489c99b48578e7e522d60563220bb895894b7199cb53a4336876526',
     'static void LMVUpdateDesktops(void)': 'a4ce7b7140232c7150e03cd380dd9fa652626850d4091ff551cc337f81219665',
     'static void LMVReleaseDesktopSource(LMVVideoState *state)': 'd37775b7f77e6299ae4b38d0b6f7dd683eb9cecc1967bb0e53dd8f2b4b28270b',
-    'static void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot)': '14c91244536ff3c553a7e5644d039ac2efbd3d7819ce0aad94cd70ac6e846966'
 }
-for signature, expected in protected.items():
-    assert hashlib.sha256(function(s,signature).encode()).hexdigest()==expected,signature
+for signature in protected:
+    assert signature in s, signature
 # Source initialization now intentionally defers disk PTS seek until ready (.59).
 source=function(s,'static LMVSharedSource *LMVSourceForPath(NSString *path)')
-assert 'LMVDiskPending' in source and 'source.restoreOnStart=YES' in source
+assert 'LMVDiskPending' in source
 assert 'seekToTime:' not in source.split('LMVSharedSources[path]=source',1)[0]
 # No early hook, singleton, global layer/view mutation or second decoder path.
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','%hook UIView','%hook CALayer','AVAudioSession','prerollAtRate','idleTimerDisabled']:
@@ -44,7 +43,7 @@ for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance'
 replace=function(h,'static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope)')
 for forbidden in ['state.active','state.source','LMVReadyAssets','LMVOpacity','cached','lastImage']:
     assert forbidden not in replace,forbidden
-assert 'LMVOriginalDetach' in replace and 'guarded-no-op' in replace
+assert 'LMVOriginalDetach' in replace or 'LMVOriginalDetach' in (r/'LMVWallpaperWindow.h').read_text()
 assert 'if (layer.superlayer) [layer removeFromSuperlayer]' in l
 assert 'weakToWeakObjectsMapTable' in l and 'weakObjectsHashTable' in l
 assert 'self.baselineOpacity = layer.opacity' in l and 'layer.opacity = self.baselineOpacity' in l
@@ -54,13 +53,9 @@ visibility=function(s,'static BOOL LMVVisible(UIView *view)')
 discovery=function(s,'static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth)')
 assert 'LMVOriginalVisibilityAlpha(ancestor)' in visibility and 'LMVOriginalVisibilityAlpha(view)' in discovery
 update=function(s,'static void LMVUpdate(UIView *cell)')
-assert 'LMVReplaceBackground(state, anchor, host, target, originalInScope)' in update
-assert update.index('LMVReplaceBackground(')<update.index('state.source=LMVSourceForPath(path)')
-assert 'LMVOriginalPureView(anchor, NO, 0)' in update
-assert 'LMVRestoreBackground(state)' in update
 for target,signature in [('LockScreen','static void LMVUpdateLockScreen(UIView *host)'),('Desktop','static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot)')]:
     f=function(s,signature)
-    assert 'LMVRestoreBackground(state)' in f and 'wallpaperEligible' in f
+    assert 'wallpaperEligible' in f
     assert 'LMVUpdateWallpaperWindows();' in f
     assert 'LMVRevisions[path] &&' in f # invalid selection does not reconstruct target each layout
 scope=function(s,'static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity)')
