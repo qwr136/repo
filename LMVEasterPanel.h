@@ -13,8 +13,8 @@
 @property(nonatomic, copy) void (^close)(void);
 - (void)loadNames;
 @end
-static NSArray *LMVEasterTargets(void) { return @[@"Message", @"LockScreen", @"Desktop", @"Options", @"Clear"]; }
-static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"锁屏背景", @"桌面背景", @"选项背景", @"清除背景"]; }
+static NSArray *LMVEasterTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear"]; }
+static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"锁屏背景", @"选项背景", @"清除背景"]; }
 static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterPanel *panel = (__bridge LMVEasterPanel *)observer;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -51,11 +51,11 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         });
     });
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 7; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return section == 6 ? 1 : 2; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterTargets().count + 2; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return section == LMVEasterTargets().count + 1 ? 1 : 2; }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row == 1 ? 60 : 44; }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section < 5 ? LMVEasterTitles()[section] : (section == 5 ? @"视频透明度" : @"独立原片导入");
+    return section < LMVEasterTargets().count ? LMVEasterTitles()[section] : (section == LMVEasterTargets().count ? @"消息、选项、清除视频透明度" : @"独立原片导入");
 }
 - (CGFloat)opacity {
     id value = LMVEasterRead(@"VideoOpacity");
@@ -64,16 +64,16 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    if (index.section == 6) {
+    if (index.section == LMVEasterTargets().count + 1) {
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入视频（原片）";
         cell.imageView.image = [UIImage systemImageNamed:@"square.and.arrow.down"];
         cell.userInteractionEnabled = !self.busy; return cell;
     }
-    if (index.section == 5) {
+    if (index.section == LMVEasterTargets().count) {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         if (index.row == 0) {
             cell.textLabel.text = @"启用视频透明度";
-            UISwitch *toggle = [UISwitch new]; toggle.tag = 5;
+            UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterTargets().count;
             id enabled = LMVEasterRead(@"VideoOpacityEnabled");
             toggle.on = enabled ? [enabled boolValue] : YES;
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -107,7 +107,9 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     return cell;
 }
 - (void)toggle:(UISwitch *)toggle {
-    NSString *key = toggle.tag == 5 ? @"VideoOpacityEnabled" : [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
+    NSInteger targetCount = LMVEasterTargets().count;
+    if (toggle.tag < 0 || toggle.tag > targetCount) return;
+    NSString *key = toggle.tag == targetCount ? @"VideoOpacityEnabled" : [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     LMVEasterSet(key, @(toggle.on));
 }
 - (void)opacityChanged:(UISlider *)slider {
@@ -118,10 +120,10 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES];
     if (self.presentedViewController || self.busy) return;
-    if (index.section == 6) { [self importVideo]; return; }
-    if (index.section >= 5 || index.row != 1) return;
+    if (index.section == LMVEasterTargets().count + 1) { [self importVideo]; return; }
+    if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;
     NSString *key = [LMVEasterTargets()[index.section] stringByAppendingString:@"Video"];
-    LMVMaterialPicker *picker = [LMVMaterialPicker new]; picker.pushed = YES;
+    LMVMaterialPicker *picker = [LMVMaterialPicker new]; picker.pushed = YES; picker.showsThumbnails = NO;
     id current = LMVEasterRead(key);
     NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov"};
     picker.selected = [current isKindOfClass:NSString.class] ? current : legacy[LMVEasterTargets()[index.section]] ?: @"";

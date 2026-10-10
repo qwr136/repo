@@ -19,9 +19,6 @@ static NSHashTable<UIView *> *LMVCells;
 static NSHashTable<UIView *> *LMVActionPresenters;
 static NSHashTable<UIView *> *LMVLockHosts;
 static char LMVLockStateKey;
-static NSHashTable<UIView *> *LMVDesktopHosts;
-static char LMVDesktopStateKey;
-static NSTimer *LMVDesktopVisibilityTimer;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
 // Stable semantic names prevent nil hosts when private MaterialView subclasses change.
 static NSDictionary<NSString *, NSString *> *LMVMaterialSources;
@@ -51,12 +48,6 @@ static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershi
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVUpdateLockScreens(void);
-static void LMVUpdateDesktops(void);
-static void LMVUpdateWallpaperWindows(void);
-static void LMVWallpaperPublish(LMVSharedSource *source, CGImageRef image);
-static void LMVNotificationWallpaperPublish(LMVSharedSource *source, CGImageRef image);
-static void LMVUpdateNotificationWallpapers(void);
-static void LMVUpdateNotificationWallpaperGeometry(void);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
@@ -147,7 +138,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.72 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.73 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -209,7 +200,6 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
                     LMVDiagnostic([NSString stringWithFormat:@"cold-preview=%d errorcode=%ld",image!=NULL,(long)error.code]);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
                     LMVUpdateLockScreens();
-                    LMVUpdateDesktops();
                 }
                 if (image) CGImageRelease(image);
             });
@@ -220,8 +210,9 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 // Wallpaper decoders are target-owned; message-family cards keep their file key.
 static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
     if (!path.length) return nil;
-    if ([target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"])
+    if ([target isEqualToString:@"LockScreen"])
         return [NSString stringWithFormat:@"wallpaper/%@|%@",target,path];
+    if (target && ![@[@"Message",@"Options",@"Clear"] containsObject:target]) return nil;
     return path;
 }
 // Only immutable images/PTS are retained across wallpaper decoder retirement.
@@ -330,7 +321,7 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
                     if (image && !LMVFrameCache[key].rendered) LMVCacheFrame(path,revision,image,time,YES);
                     if (!LMVFrameCache[key].image && LMVAssets[path]) LMVPreparePreview(path,revision,LMVAssets[path]);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
-                    LMVUpdateLockScreens(); LMVUpdateDesktops();
+                    LMVUpdateLockScreens();
                 }
                 if (image) CGImageRelease(image);
             });
@@ -350,15 +341,13 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 @property(nonatomic) CFTimeInterval lastVisible;
 @property(nonatomic) CFTimeInterval visibilityLossSince;
 @property(nonatomic) CFTimeInterval detachedSince;
-@property(nonatomic) LMVDesktopGateClock desktopClock;
-@property(nonatomic, strong) CAShapeLayer *desktopDockMask;
-@property(nonatomic) CGRect desktopDockRect;
-@property(nonatomic, copy) NSString *desktopDockReason;
 @property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals, *wallpaperOriginals;
 @property(nonatomic, copy) NSString *wallpaperDiagnostic;
 @property(nonatomic, weak) UIView *originalAnchor, *originalScope;
 @property(nonatomic, copy) NSString *originalDiagnostic;
-@property(nonatomic) BOOL wallpaperEligible;
+@property(nonatomic, weak) UIView *displayHost;
+@property(nonatomic, copy) NSString *displayDiagnostic;
+@property(nonatomic) CFTimeInterval displayDiagnosticAt;
 @end
 @implementation LMVVideoState
 - (void)dealloc {
@@ -369,9 +358,7 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 }
 @end
 #import "LMVBackgroundDiscovery.h"
-#import "LMVObservedWallpaper.h"
-#import "LMVWallpaperWindow.h"
-#import "LMVNotificationWallpaper.h"
+#import "LMVLockBackground.h"
 
 static BOOL LMVPlaybackAllowed(void) {
     if (!LMVInitialized || !LMVLaunchReady) return NO;
@@ -566,14 +553,11 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                     }
                     for (UIView *host in LMVLockHosts.allObjects) {
                         LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-                        if (state.source == source && state.active) state.layer.contents = (__bridge id)image;
+                        if (state.source == source && state.active) {
+                            state.layer.contents = (__bridge id)image;
+                            LMVLayoutLockOverlay(host,state);
+                        }
                     }
-                    for (UIView *host in LMVDesktopHosts.allObjects) {
-                        LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-                        if (state.source == source && state.active) state.layer.contents = (__bridge id)image;
-                    }
-                    LMVWallpaperPublish(source, image);
-                    LMVNotificationWallpaperPublish(source, image);
                     [CATransaction commit];
                     if (source.published==1) LMVDiagnostic([NSString stringWithFormat:@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image)]);
                 } else if (image) {
@@ -632,10 +616,6 @@ static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
         if (state.source == source && state.active && host.window) return YES;
     }
-    for (UIView *host in LMVDesktopHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-        if (state.source == source && state.active && host.window) return YES;
-    }
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) if (state.source==source && state.active && state.overlay.superview) return YES;
@@ -666,7 +646,7 @@ static void LMVRetireSource(LMVSharedSource *source) {
 static void LMVInvalidateSourcesForPath(NSString *path) {
     for (LMVSharedSource *source in LMVSharedSources.allValues)
         if ([source.path isEqualToString:path]) LMVRetireSource(source);
-    for (NSString *target in @[@"LockScreen",@"Desktop"]) {
+    for (NSString *target in @[@"LockScreen"]) {
         NSString *prefix=[LMVSourceRegistryKey(path,target) stringByAppendingString:@"|"];
         for (NSString *key in LMVWallpaperFrameCache.allKeys)
             if ([key hasPrefix:prefix]) [LMVWallpaperFrameCache removeObjectForKey:key];
@@ -732,7 +712,6 @@ static void LMVPrepareAssets(void) {
                 LMVPreparePreview(path,revision,playbackAsset);
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
                     LMVUpdateLockScreens();
-                    LMVUpdateDesktops();
             });
             });
         }];
@@ -745,7 +724,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.72 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.73 diagnostics-enabled");
         LMVReportWallpaperTrace();
         LMVStartWallpaperTraceReports();
     }
@@ -757,7 +736,7 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]) {
+    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen"]) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
@@ -1060,665 +1039,55 @@ static void LMVUpdate(UIView *cell) {
     %orig;
 }
 %end
-// CoverSheet owns its video layer; replacement is scoped to confirmed local wallpaper drawing.
+// CoverSheet video is an opaque overlay, not a wallpaper-source replacement.
 static BOOL LMVLockHostVisible(UIView *host) {
-    Class cover = NSClassFromString(@"CSCoverSheetView");
-    Class windowClass = NSClassFromString(@"SBCoverSheetWindow");
-    return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host) || LMVNotificationWallpaperVisible(), LMVPlaybackAllowed());
-}
-static __attribute__((unused)) BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
-    if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return LMVOriginalPureView(view, YES, 0);
-    if (depth >= 4) return NO;
-    // A mixed page/container can own clock or notifications as well: placing
-    // above that whole branch would cover content. Only follow one-child wrappers.
-    return view.subviews.count == 1 && LMVBranchHasWallpaper(view.subviews.firstObject, depth + 1);
+    return LMVLockOverlayVisible(host) && LMVPlaybackAllowed();
 }
 static void LMVUpdateLockScreen(UIView *host) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || !host) return;
-    LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-    NSString *path = LMVPaths[@"LockScreen"];
-    BOOL enabled = LMVEnabled[@"LockScreen"].boolValue && path.length;
-    if (state && (!enabled || ![state.path isEqualToString:path] || (LMVRevisions[path] && ![state.revision isEqualToString:LMVRevisions[path]]))) {
-        LMVRestoreBackground(state);
+    LMVVideoState *state=objc_getAssociatedObject(host,&LMVLockStateKey);
+    NSString *path=LMVPaths[@"LockScreen"];
+    NSString *revision=path.length?LMVRevisions[path]:nil;
+    BOOL enabled=LMVEnabled[@"LockScreen"].boolValue && path.length;
+    if (state && (!enabled || ![state.path isEqual:path] ||
+        (revision && ![state.revision isEqual:revision]))) {
         LMVReleasePlayer(state);
         [state.layer removeFromSuperlayer];
-        objc_setAssociatedObject(host, &LMVLockStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        state = nil;
+        objc_setAssociatedObject(host,&LMVLockStateKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        state=nil;
     }
-    if (!enabled) { LMVUpdateWallpaperWindows(); return; }
+    if (!enabled) return;
     if (!state) {
-        state = [LMVVideoState new];
-        state.path = path;
-        state.revision = LMVRevisions[path];
-        state.layer = [CALayer layer];
-        state.layer.name = @"com.minis.lockmessagevideo.lockscreen";
-        state.layer.contentsGravity = kCAGravityResizeAspectFill;
-        state.layer.masksToBounds = YES;
-        state.host = host;
-        objc_setAssociatedObject(host, &LMVLockStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        state=[LMVVideoState new];state.host=host;state.path=path;state.revision=revision;
+        state.layer=[CALayer layer];state.layer.name=@"com.minis.lockmessagevideo.lock-overlay";
+        objc_setAssociatedObject(host,&LMVLockStateKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    [CATransaction begin]; [CATransaction setDisableActions:YES];
-    // Frame holder only. LMVWallpaperWindow.h renders the sole visible layer.
-    state.layer.frame = host.bounds; state.layer.hidden = YES;
-    state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
-    LMVFrameSnapshot *cached = LMVCachedWallpaperFrame(path, state.revision, @"LockScreen");
-    if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
-    BOOL active = LMVLockHostVisible(host);
-    if (state.source && LMVSharedSources[LMVSourceRegistryKey(path,@"LockScreen")] != state.source) LMVReleasePlayer(state);
-    BOOL originalInScope = active || (!LMVPlaybackAllowed() && (state.originals.count || state.wallpaperOriginals.count) && host.window);
-    // Direct wallpaper replacement owns the original branch and restores it on scope loss.
-    LMVRestoreBackground(state);
-    state.wallpaperEligible = originalInScope;
+    [CATransaction begin];[CATransaction setDisableActions:YES];
+    LMVFrameSnapshot *cached=LMVCachedWallpaperFrame(path,state.revision,@"LockScreen");
+    if (!state.layer.contents && cached.image) state.layer.contents=(__bridge id)cached.image;
+    BOOL active=LMVLockHostVisible(host);
+    if (state.source && LMVSharedSources[LMVSourceRegistryKey(path,@"LockScreen")]!=state.source)
+        LMVReleasePlayer(state);
     if (active && [LMVReadyAssets containsObject:path]) {
-        if (!state.source) state.source = LMVSourceForTarget(path,@"LockScreen");
-        if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
+        if (!state.source) state.source=LMVSourceForTarget(path,@"LockScreen");
+        if (state.source.lastImage) state.layer.contents=(__bridge id)state.source.lastImage;
     }
-    state.active = active && state.source != nil;
-    LMVUpdateWallpaperWindows();
+    state.active=active && state.source!=nil;
+    LMVLayoutLockOverlay(host,state);
     [CATransaction commit];
-    if (!state.active && !LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
+    if (state.active) LMVStartSource(state.source);
+    else if (!LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
 }
 static void LMVUpdateLockScreens(void) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
+    LMVDiscoverLockHosts();
     for (UIView *host in LMVLockHosts.allObjects) LMVUpdateLockScreen(host);
 }
 static BOOL LMVLockScreenNeedsFrames(void) {
-    if (!LMVEnabled[@"LockScreen"].boolValue || !LMVPaths[@"LockScreen"]) return NO;
+    if (!LMVEnabled[@"LockScreen"].boolValue || !LMVPaths[@"LockScreen"].length) return NO;
     for (UIView *host in LMVLockHosts.allObjects) if (LMVLockHostVisible(host)) return YES;
     return NO;
 }
-// Desktop owns a separate layer/state; frame retention is independent of decoding.
-static BOOL LMVDesktopGeometryVisible(UIView *host) {
-    if (!host.window || host.window.hidden || CGRectIsEmpty(host.bounds)) return NO;
-    for (UIView *view = host; view; view = view.superview)
-        if (view.hidden || view.alpha < 0.01) return NO;
-    return CGRectIntersectsRect([host convertRect:host.bounds toView:host.window], host.window.bounds);
-}
-static BOOL LMVDesktopMethod(id object, SEL selector, const char *returnType) {
-    if (![object respondsToSelector:selector]) return NO;
-    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
-    return signature && signature.numberOfArguments == 2 && strcmp(signature.methodReturnType, returnType) == 0;
-}
-static LMVWindowRole LMVDesktopRole(id object) {
-    for (Class cls = object_getClass(object); cls; cls = class_getSuperclass(cls)) {
-        LMVWindowRole role = LMVDesktopWindowRole(class_getName(cls));
-        if (role != LMVWindowOther) return role;
-        if (strcmp(class_getName(cls), "SBFloatingDockController") == 0) return LMVWindowFloatingDock;
-    }
-    return LMVWindowOther;
-}
-static BOOL LMVDesktopHomeController(id object) {
-    for (Class cls = object_getClass(object); cls; cls = class_getSuperclass(cls))
-        if (!strcmp(class_getName(cls), "SBHomeScreenViewController") || !strcmp(class_getName(cls), "SBIconController")) return YES;
-    return NO;
-}
-static LMVDesktopRect LMVDesktopPolicyRect(CGRect rect) {
-    return (LMVDesktopRect){rect.origin.x, rect.origin.y, rect.size.width, rect.size.height};
-}
-static BOOL LMVDesktopCoverFullyObscures(UIView *host) {
-    for (UIView *cover in LMVLockHosts.allObjects) {
-        if (!LMVVisible(cover) || cover.window.screen != host.window.screen) continue;
-        // Compare model with model and presentation with presentation. A full-size
-        // window alone says nothing about its sliding CoverSheet content.
-        // CSCoverSheetView is a full-screen transparent shell during pulls.
-        // Its guarded slideableContentView/contentView carries the actual offset.
-        UIView *content = nil;
-        for (NSString *name in @[@"slideableContentView", @"contentView"]) {
-            SEL getter = NSSelectorFromString(name);
-            if (!LMVDesktopMethod(cover, getter, @encode(id))) continue;
-            id candidate = ((id (*)(id, SEL))objc_msgSend)(cover, getter);
-            if ([candidate isKindOfClass:UIView.class] && candidate != cover &&
-                [candidate isDescendantOfView:cover] && LMVVisible(candidate)) { content = candidate; break; }
-        }
-        if (!content) continue; // No proven content extent: do not infer from UIWindow.bounds.
-        CALayer *shown = content.layer.presentationLayer ?: content.layer;
-        CALayer *home = host.layer.presentationLayer ?: host.layer;
-        // Window coordinate spaces must be stable before claiming full occlusion.
-        if (cover.window.layer.animationKeys.count || host.window.layer.animationKeys.count) continue;
-        CALayer *coverRoot = cover.window.layer.presentationLayer ?: cover.window.layer;
-        CALayer *homeRoot = host.window.layer.presentationLayer ?: host.window.layer;
-        CGRect modelRect = [content convertRect:content.bounds toCoordinateSpace:cover.window.screen.coordinateSpace];
-        CGRect shownLocal = [shown convertRect:shown.bounds toLayer:coverRoot];
-        CGRect shownRect = [cover.window convertRect:shownLocal toCoordinateSpace:cover.window.screen.coordinateSpace];
-        CGRect homeRect = [host convertRect:host.bounds toCoordinateSpace:host.window.screen.coordinateSpace];
-        CGRect homeLocal = [home convertRect:home.bounds toLayer:homeRoot];
-        CGRect shownHome = [host.window convertRect:homeLocal toCoordinateSpace:host.window.screen.coordinateSpace];
-        BOOL opaque = cover.alpha >= 0.99 && cover.window.alpha >= 0.99 && shown.opacity >= 0.99;
-        if (LMVDesktopFullyCovered(LMVDesktopPolicyRect(modelRect), LMVDesktopPolicyRect(shownRect), LMVDesktopPolicyRect(homeRect), opaque) &&
-            LMVDesktopRectCovers(LMVDesktopPolicyRect(shownRect), LMVDesktopPolicyRect(shownHome))) return YES;
-    }
-    return NO;
-}
-@interface LMVDesktopSnapshot : NSObject
-@property(nonatomic, copy) NSArray<UIWindow *> *windows;
-@property(nonatomic) BOOL screenOn, lockKnown, locked, notificationTransition;
-@property(nonatomic) LMVForeground foreground;
-@property(nonatomic, copy) NSString *foregroundClass;
-@property(nonatomic) CFTimeInterval now;
-@end
-@implementation LMVDesktopSnapshot @end
-static LMVDesktopSnapshot *LMVDesktopCapture(void) {
-    LMVDesktopSnapshot *snapshot = [LMVDesktopSnapshot new];
-    snapshot.now = CACurrentMediaTime(); snapshot.screenOn = LMVPlaybackAllowed(); snapshot.locked = YES;
-    if (!LMVInitialized || !LMVLaunchReady) return snapshot;
-    NSMutableArray *windows = [NSMutableArray new];
-    UIApplication *app = UIApplication.sharedApplication;
-    for (UIScene *scene in app.connectedScenes) {
-        if ([scene isKindOfClass:UIWindowScene.class]) [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
-    }
-    snapshot.windows = windows;
-    Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
-    for (UIWindow *window in windows) if (coverWindow && [window isKindOfClass:coverWindow] &&
-        !window.hidden && window.alpha >= 0.01) snapshot.notificationTransition = YES;
-    // Read SpringBoard's published state; this never creates a system manager.
-    // Unknown state stays fail-closed until the publisher supplies lock state.
-    uint64_t lockState = 1;
-    snapshot.lockKnown = LMVLockToken >= 0 && notify_get_state(LMVLockToken, &lockState) == NOTIFY_STATUS_OK;
-    if (snapshot.lockKnown) snapshot.locked = lockState != 0;
-    // Guard both selector and object-return ABI. Prefer an actual application ID;
-    // an accessibility proxy/controller without one is only a transition hint.
-    id foreground = nil, identifier = nil;
-    BOOL frontKnown = NO;
-    SEL bundle = NSSelectorFromString(@"bundleIdentifier");
-    for (NSString *name in @[@"_accessibilityFrontMostApplication", @"_frontmostApplication"]) {
-        SEL front = NSSelectorFromString(name);
-        if (!LMVDesktopMethod(app, front, @encode(id))) continue;
-        frontKnown = YES;
-        id candidate = ((id (*)(id, SEL))objc_msgSend)(app, front);
-        id candidateID = LMVDesktopMethod(candidate, bundle, @encode(id)) ? ((id (*)(id, SEL))objc_msgSend)(candidate, bundle) : nil;
-        if ([candidateID isKindOfClass:NSString.class] && [candidateID length]) {
-            foreground = candidate; identifier = candidateID; break;
-        }
-        if (!foreground) foreground = candidate;
-    }
-    snapshot.foregroundClass = foreground ? NSStringFromClass([foreground class]) : @"nil";
-    LMVWindowRole role = LMVDesktopRole(foreground), windowRole = LMVWindowOther;
-    if ([foreground isKindOfClass:UIView.class]) windowRole = LMVDesktopRole(((UIView *)foreground).window);
-    else if ([foreground isKindOfClass:UIViewController.class]) windowRole = LMVDesktopRole(((UIViewController *)foreground).viewIfLoaded.window);
-    if (windowRole != LMVWindowOther) role = windowRole;
-    if (!foreground && frontKnown) for (UIWindow *window in snapshot.windows)
-        if (window.isKeyWindow && !window.hidden && window.alpha >= 0.01) role = LMVDesktopRole(window);
-    snapshot.foreground = LMVDesktopResolveForeground(identifier != nil, [identifier isEqual:@"com.apple.springboard"],
-        frontKnown && !foreground, role, NO);
-    if (!identifier && role != LMVWindowFloatingDock && LMVDesktopHomeController(foreground)) snapshot.foreground = LMVForegroundHome;
-    // Preserve 0.53's nil-frontmost home behavior when the guarded API exists.
-    // For an unknown object, only an actual visible key HomeScreenWindow is a
-    // return signal; a real bundle ID above always wins.
-    if (!identifier && frontKnown && !foreground && role != LMVWindowFloatingDock) snapshot.foreground = LMVForegroundHome;
-    return snapshot;
-}
-static LMVDesktopActivity LMVDesktopHostActivity(UIView *host, LMVVideoState *state, LMVDesktopSnapshot *snapshot) {
-    Class home = NSClassFromString(@"SBHomeScreenView"), homeWindow = NSClassFromString(@"SBHomeScreenWindow");
-    BOOL homeHost = home && object_getClass(host) == home;
-    BOOL inHomeWindow = homeWindow && [host.window isKindOfClass:homeWindow];
-    BOOL visible = LMVDesktopGeometryVisible(host);
-    BOOL covered = inHomeWindow && LMVDesktopCoverFullyObscures(host);
-    BOOL context = snapshot.foreground == LMVForegroundOverlay;
-    UIViewController *controller = host.window.rootViewController;
-    for (NSUInteger depth = 0; controller && depth < 8; depth++, controller = controller.presentedViewController)
-        if ([NSStringFromClass(controller.class) containsString:@"ContextMenu"]) context = YES;
-    BOOL dockBelow = NO;
-    if (inHomeWindow) for (UIWindow *window in snapshot.windows) {
-        if (LMVDesktopRole(window) != LMVWindowFloatingDock) continue;
-        dockBelow |= LMVDesktopDockBelow(window.screen == host.window.screen,
-            !window.hidden && window.alpha >= 0.01, window.windowLevel, host.window.windowLevel,
-            YES); // Window is a level signal only; concrete content is measured below.
-    }
-    LMVForeground foreground = snapshot.foreground;
-    // Preserve normal 0.53 foreground behavior. During NC, an unknown UI proxy
-    // must not pause partially exposed home; an actual app bundle still wins.
-    if (snapshot.notificationTransition && foreground == LMVForegroundUnknown) foreground = LMVForegroundHome;
-    LMVDesktopDecision decision = LMVDesktopDecide(homeHost, inHomeWindow, host.window != nil, visible,
-        snapshot.screenOn, snapshot.lockKnown, snapshot.locked, foreground, covered, context);
-    LMVDesktopGateClock clock = state ? state.desktopClock : (LMVDesktopGateClock){0,0};
-    LMVDesktopActivity activity = LMVDesktopGate(decision, foreground, host.window.isKeyWindow,
-        visible, covered, context, dockBelow, state.active, snapshot.now, &clock);
-    if (state) state.desktopClock = clock;
-    return activity;
-}
-// Read-only, bounded discovery. A full-screen Dock window is only an owner/level
-// signal, never the exclusion geometry. No icon or generic backdrop is a region.
-static BOOL LMVDesktopDockContainer(UIView *view) {
-    for (Class cls = object_getClass(view); cls; cls = class_getSuperclass(cls)) {
-        const char *name = class_getName(cls);
-        if (!strcmp(name, "SBFloatingDockView") || !strcmp(name, "SBFloatingDockPlatterView")) return YES;
-    }
-    // Only already-loaded concrete Dock content controllers; no view getter or
-    // private singleton can create a system object here.
-    UIResponder *next = view.nextResponder;
-    if (![next isKindOfClass:UIViewController.class] || ((UIViewController *)next).viewIfLoaded != view) return NO;
-    for (Class cls = object_getClass(next); cls; cls = class_getSuperclass(cls)) {
-        const char *name = class_getName(cls);
-        if (!strcmp(name, "SBFloatingDockViewController") || !strcmp(name, "SBFloatingDockIconListViewController")) return YES;
-    }
-    return NO;
-}
-static BOOL LMVDesktopDockVisible(UIView *view, UIWindow *window) {
-    NSUInteger depth = 0;
-    for (UIView *node = view; node && depth++ < 24; node = node.superview) {
-        CALayer *shown = node.layer.presentationLayer ?: node.layer;
-        if (node.hidden || node.alpha < 0.01 || shown.hidden || shown.opacity < 0.01) return NO;
-        if (node == window) return YES;
-    }
-    return NO;
-}
-static BOOL LMVDesktopStableWindow(UIWindow *window) {
-    CALayer *shown = window.layer.presentationLayer;
-    // Public screen-coordinate conversion is safe only while the window bridge
-    // itself is stable. Descendant animations use one coherent presentation tree.
-    return !shown || (CGRectEqualToRect(shown.bounds, window.layer.bounds) &&
-        CGPointEqualToPoint(shown.position, window.layer.position) &&
-        CATransform3DEqualToTransform(shown.transform, window.layer.transform));
-}
-static BOOL LMVDesktopDockPoint(CGPoint point, CALayer *dockLayer, UIWindow *dockWindow,
-    UIView *host, BOOL presentation, CGPoint *result) {
-    CALayer *dockRoot = presentation ? dockWindow.layer.presentationLayer : dockWindow.layer;
-    CALayer *homeRoot = presentation ? host.window.layer.presentationLayer : host.window.layer;
-    CALayer *homeLayer = presentation ? host.layer.presentationLayer : host.layer;
-    if (!dockRoot || !homeRoot || !homeLayer) return NO;
-    CGPoint inWindow = [dockLayer convertPoint:point toLayer:dockRoot];
-    CGPoint inScreen = [dockWindow convertPoint:inWindow toCoordinateSpace:dockWindow.screen.coordinateSpace];
-    CGPoint inHome = [host.window.screen.coordinateSpace convertPoint:inScreen toCoordinateSpace:host.window];
-    *result = [homeLayer convertPoint:inHome fromLayer:homeRoot];
-    return isfinite(result->x) && isfinite(result->y);
-}
-typedef struct { NSUInteger moves, closes; } LMVDockPathCount;
-static void LMVDesktopDockCountPath(void *info, const CGPathElement *element) {
-    LMVDockPathCount *count = (LMVDockPathCount *)info;
-    if (element->type == kCGPathElementMoveToPoint) count->moves++;
-    if (element->type == kCGPathElementCloseSubpath) count->closes++;
-}
-static CGPathRef LMVDesktopDockPath(UIView *node, UIWindow *window, UIView *host, CGRect *region) {
-    if (!LMVDesktopDockVisible(node, window) || !LMVDesktopStableWindow(window) || !LMVDesktopStableWindow(host.window)) return NULL;
-    CALayer *shown = node.layer.presentationLayer;
-    BOOL presentation = shown != nil;
-    if (!shown) shown = node.layer;
-    // Do not mix a descendant's model tree with the host's presentation tree.
-    if (presentation != (host.layer.presentationLayer != nil)) return NULL;
-    CGRect bounds = shown.bounds;
-    if (!isfinite(bounds.origin.x) || !isfinite(bounds.origin.y) || !isfinite(bounds.size.width) || !isfinite(bounds.size.height) || CGRectIsEmpty(bounds)) return NULL;
-    CGPoint origin, right, bottom, opposite;
-    if (!LMVDesktopDockPoint(bounds.origin, shown, window, host, presentation, &origin) ||
-        !LMVDesktopDockPoint(CGPointMake(CGRectGetMaxX(bounds), CGRectGetMinY(bounds)), shown, window, host, presentation, &right) ||
-        !LMVDesktopDockPoint(CGPointMake(CGRectGetMinX(bounds), CGRectGetMaxY(bounds)), shown, window, host, presentation, &bottom) ||
-        !LMVDesktopDockPoint(CGPointMake(CGRectGetMaxX(bounds), CGRectGetMaxY(bounds)), shown, window, host, presentation, &opposite)) return NULL;
-    // Rotated/sheared/perspective content is ambiguous: leave the video visible.
-    if (fabs(right.y-origin.y) > 0.5 || fabs(bottom.x-origin.x) > 0.5 || right.x <= origin.x || bottom.y <= origin.y ||
-        fabs(opposite.x-right.x) > 0.5 || fabs(opposite.y-bottom.y) > 0.5) return NULL;
-    CGFloat sx = (right.x-origin.x)/bounds.size.width, sy = (bottom.y-origin.y)/bounds.size.height;
-    CGRect rect = CGRectMake(origin.x, origin.y, right.x-origin.x, bottom.y-origin.y);
-    if (!LMVDesktopDockRegionSafe(LMVDesktopPolicyRect(rect), LMVDesktopPolicyRect(host.bounds))) return NULL;
-    CGAffineTransform mapping = CGAffineTransformMake(sx,0,0,sy,origin.x-bounds.origin.x*sx,origin.y-bounds.origin.y*sy);
-    CGPathRef path = NULL;
-    CALayer *mask = shown.mask;
-    if ([mask isKindOfClass:CAShapeLayer.class] && ((CAShapeLayer *)mask).path &&
-        CGRectEqualToRect(mask.frame, bounds) && CGRectEqualToRect(mask.bounds, bounds) &&
-        CATransform3DIsIdentity(mask.transform)) {
-        CGPathRef actual = ((CAShapeLayer *)mask).path;
-        LMVDockPathCount count = {0,0}; CGPathApply(actual, &count, LMVDesktopDockCountPath);
-        // Require a single complete outline, never icon holes or an arbitrary mask.
-        if (count.moves == 1 && count.closes == 1 && CGRectEqualToRect(CGPathGetPathBoundingBox(actual), bounds))
-            path = CGPathCreateCopyByTransformingPath(actual, &mapping);
-    } else if (!mask && [shown.cornerCurve isEqualToString:kCACornerCurveCircular] && isfinite(shown.cornerRadius) && shown.cornerRadius > 0 &&
-        shown.maskedCorners == (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner)) {
-        CGFloat margin = shown.shadowOpacity > 0 && isfinite(shown.shadowRadius) ? MIN(6.0, MAX(0.0, shown.shadowRadius)) : 0;
-        CGRect expanded = CGRectInset(rect, -margin, -margin);
-        if (!LMVDesktopDockRegionSafe(LMVDesktopPolicyRect(expanded), LMVDesktopPolicyRect(host.bounds))) return NULL;
-        CGFloat rx = MIN(shown.cornerRadius*sx+margin, expanded.size.width/2);
-        CGFloat ry = MIN(shown.cornerRadius*sy+margin, expanded.size.height/2);
-        path = CGPathCreateWithRoundedRect(expanded, rx, ry, NULL);
-        rect = expanded;
-    }
-    if (!path) return NULL; // No measured corner/mask: no invented Dock rectangle.
-    *region = CGRectIntersection(rect, host.bounds);
-    return path;
-}
-static __attribute__((unused)) void LMVDesktopApplyDockMask(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
-    CGRect region = CGRectZero;
-    CGPathRef hole = NULL;
-    NSString *reason = @"dock-not-below-home";
-    if (activity.dockFallback) {
-        reason = @"no-safe-dock-region";
-        NSUInteger windows = 0, visited = 0;
-        for (UIWindow *window in snapshot.windows) {
-            if (++windows > 16 || visited >= 96) break;
-            if (LMVDesktopRole(window) != LMVWindowFloatingDock ||
-                !LMVDesktopDockBelow(window.screen == host.window.screen, !window.hidden && window.alpha >= 0.01,
-                    window.windowLevel, host.window.windowLevel, YES)) continue;
-            NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:window];
-            while (pending.count && visited++ < 96) {
-                UIView *node = pending.firstObject; [pending removeObjectAtIndex:0];
-                if (node != window && LMVDesktopDockContainer(node)) {
-                    CGRect measured;
-                    CGPathRef candidate = LMVDesktopDockPath(node, window, host, &measured);
-                    if (candidate) {
-                        // Prefer the smallest reliable concrete outline (platter
-                        // over wrapper), retaining just one mask/path per host.
-                        if (!hole || measured.size.width*measured.size.height < region.size.width*region.size.height) {
-                            if (hole) CGPathRelease(hole);
-                            hole = candidate; region = measured;
-                        } else CGPathRelease(candidate);
-                    }
-                }
-                for (UIView *child in node.subviews) { if (pending.count >= 96) break; [pending addObject:child]; }
-            }
-        }
-        if (hole) reason = @"scoped-dock-region";
-    }
-    if (hole) {
-        CGMutablePathRef full = CGPathCreateMutable();
-        CGPathAddRect(full, NULL, state.layer.bounds);
-        CGAffineTransform local = CGAffineTransformMakeTranslation(state.layer.bounds.origin.x-host.bounds.origin.x, state.layer.bounds.origin.y-host.bounds.origin.y);
-        CGPathAddPath(full, &local, hole);
-        if (!state.desktopDockMask) {
-            state.desktopDockMask = [CAShapeLayer layer];
-            state.desktopDockMask.name = @"com.minis.lockmessagevideo.desktop.dock-mask";
-            state.desktopDockMask.fillRule = kCAFillRuleEvenOdd;
-        }
-        // Geometry can change without allocating another layer. An identical
-        // layout does not rewrite the path or append a second mask.
-        if (!CGRectEqualToRect(state.desktopDockMask.frame, state.layer.bounds) ||
-            !state.desktopDockMask.path || !CGPathEqualToPath(state.desktopDockMask.path, full)) {
-            state.desktopDockMask.frame = state.layer.bounds; state.desktopDockMask.path = full;
-        }
-        state.layer.mask = state.desktopDockMask;
-        CGPathRelease(full); CGPathRelease(hole);
-    } else state.layer.mask = nil;
-    state.desktopDockRect = region; state.desktopDockReason = reason;
-}
-
-// Opt-in bounded structural diagnostics; never log labels, app identifiers or message text.
-static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {
-    if (!LMVDiagnosticsEnabled.load()) return;
-    static CFTimeInterval last = 0;
-    static NSUInteger samples = 0;
-    CFTimeInterval now = CACurrentMediaTime();
-    if (now - last < 2.0 || samples >= 30) return;
-    last = now; samples++;
-    LMVDiagnostic([NSString stringWithFormat:@"desktop draw=%d decode=%d release=%d dockFallback=%d mask=%d maskrect=%@ sourcecount=%lu foreground=%d object=%@ parent=%@ reason=%@", activity.draw, activity.decode, activity.releaseSource, activity.dockFallback, state.layer.mask != nil, NSStringFromCGRect(state.desktopDockRect), (unsigned long)LMVSharedSources.count, snapshot.foreground, snapshot.foregroundClass, NSStringFromClass(host.superview.class), activity.dockFallback ? (state.desktopDockReason ?: @"no-safe-dock-region") : (activity.decode ? @"home-playing" : @"paused-retained-frame")]);
-    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:host];
-    NSUInteger count = 0;
-    for (UIWindow *window in snapshot.windows) {
-        if (count++ >= 16) break;
-        LMVDiagnostic([NSString stringWithFormat:@"desktop-window class=%@ level=%.1f hidden=%d alpha=%.3f key=%d", NSStringFromClass(window.class), window.windowLevel, window.hidden, window.alpha, window.isKeyWindow]);
-        if (pending.count < 16) [pending addObject:window];
-        if (LMVDesktopRole(window) == LMVWindowFloatingDock) {
-            // Prioritize Dock children: the old shared BFS budget never reached
-            // these descendants. Bound both traversal and enqueued nodes.
-            NSMutableArray<UIView *> *dockNodes = [NSMutableArray arrayWithObject:window];
-            for (NSUInteger visitedDock = 0; dockNodes.count && visitedDock < 12; visitedDock++) {
-                UIView *node = dockNodes.firstObject; [dockNodes removeObjectAtIndex:0];
-                CALayer *shown = node.layer.presentationLayer ?: node.layer;
-                LMVDiagnostic([NSString stringWithFormat:@"desktop-dock-child class=%@ parent=%@ hidden=%d alpha=%.3f opacity=%.3f z=%.2f frame=%@", NSStringFromClass(node.class), NSStringFromClass(node.superview.class), node.hidden, node.alpha, shown.opacity, node.layer.zPosition, NSStringFromCGRect(node.frame)]);
-                NSUInteger layers = 0;
-                for (CALayer *layer in node.layer.sublayers) {
-                    if (layers++ >= 4) break;
-                    LMVDiagnostic([NSString stringWithFormat:@"desktop-dock-layer class=%@ hidden=%d opacity=%.3f z=%.2f frame=%@", NSStringFromClass(layer.class), layer.hidden, layer.opacity, layer.zPosition, NSStringFromCGRect(layer.frame)]);
-                }
-                for (UIView *child in node.subviews) { if (dockNodes.count >= 12) break; [dockNodes addObject:child]; }
-            }
-        }
-    }
-    // Shallow bounded inspection of backdrop parents, including independent Dock hosts.
-    NSUInteger visited = 0;
-    while (pending.count && visited++ < 32) {
-        UIView *view = pending.firstObject; [pending removeObjectAtIndex:0];
-        if ([NSStringFromClass(view.class) containsString:@"Backdrop"])
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-backdrop class=%@ parent=%@ hidden=%d alpha=%.3f parentHidden=%d parentAlpha=%.3f", NSStringFromClass(view.class), NSStringFromClass(view.superview.class), view.hidden, view.alpha, view.superview.hidden, view.superview.alpha]);
-        if (pending.count < 32) [pending addObjectsFromArray:view.subviews];
-    }
-}
-static void LMVReleaseDesktopSource(LMVVideoState *state) {
-    LMVSharedSource *source = state.source;
-    LMVReleasePlayer(state);
-    if (!source || LMVSourceHasConsumer(source)) return;
-    // Preserve cached last frame/time while fully releasing the unused decoder.
-    // Clear inactive references so other consumers reacquire the current registry entry.
-    for (UIView *host in LMVLockHosts.allObjects) {
-        LMVVideoState *other = objc_getAssociatedObject(host, &LMVLockStateKey);
-        if (other.source == source && !other.active) other.source = nil;
-    }
-    for (UIView *cell in LMVCells.allObjects) {
-        NSDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
-        for (LMVVideoState *other in states.allValues)
-            if (other.source == source && !other.active) other.source = nil;
-    }
-    for (UIView *host in LMVDesktopHosts.allObjects) {
-        LMVVideoState *other = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-        if (other.source == source && !other.active) other.source = nil;
-    }
-    LMVRetireSource(source);
-    LMVDiagnostic(@"desktop=decoder-released");
-}
-// A concrete application/locked/screen-off home is outside this replacement
-// scope even if the retained plugin frame remains attached behind other windows.
-static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity) {
-    return activity.draw && snapshot.screenOn && snapshot.lockKnown && !snapshot.locked &&
-        snapshot.foreground != LMVForegroundApp && LMVDesktopGeometryVisible(host);
-}
-static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
-    if (!NSThread.isMainThread) return;
-    Class home = NSClassFromString(@"SBHomeScreenView");
-    if (!home || object_getClass(host) != home) return;
-    LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-    NSString *path = LMVPaths[@"Desktop"];
-    BOOL enabled = LMVEnabled[@"Desktop"].boolValue && path.length;
-    if (state && (!enabled || ![state.path isEqualToString:path] || (LMVRevisions[path] && ![state.revision isEqualToString:LMVRevisions[path]]))) {
-        LMVRestoreBackground(state);
-        LMVReleaseDesktopSource(state); [state.layer removeFromSuperlayer];
-        objc_setAssociatedObject(host, &LMVDesktopStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); state = nil;
-    }
-    if (!enabled) return;
-    // Same 0.53 home renderer/source; only drawing and pausing are separated.
-    // One immutable foreground/window snapshot drives this update and the tick.
-    LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
-    if (!activity.draw) {
-        LMVRestoreBackground(state);
-        if (state) { state.wallpaperEligible = NO; state.layer.hidden = YES; LMVReleaseDesktopSource(state); }
-        LMVUpdateWallpaperWindows();
-        return;
-    }
-    if (!state) {
-        state = [LMVVideoState new]; state.host = host; state.path = path; state.revision = LMVRevisions[path];
-        state.desktopClock = (LMVDesktopGateClock){snapshot.now, 0};
-        state.layer = [CALayer layer]; state.layer.name = @"com.minis.lockmessagevideo.desktop";
-        state.layer.contentsGravity = kCAGravityResizeAspectFill; state.layer.masksToBounds = YES;
-        objc_setAssociatedObject(host, &LMVDesktopStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        LMVDiagnostic(@"desktop=guarded-home-host");
-    }
-    [CATransaction begin]; [CATransaction setDisableActions:YES];
-    // Frame holder only. Icons and Dock remain in their own higher windows.
-    state.layer.frame = host.bounds; state.layer.hidden = YES;
-    state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
-    LMVFrameSnapshot *cached = LMVCachedWallpaperFrame(path, state.revision, @"Desktop");
-    if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
-    if (activity.decode && [LMVReadyAssets containsObject:path]) {
-        if (!state.source || LMVSharedSources[LMVSourceRegistryKey(path,@"Desktop")] != state.source) state.source = LMVSourceForTarget(path,@"Desktop");
-        if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
-    }
-    BOOL directScope = LMVDesktopOriginalInScope(host, snapshot, activity);
-    LMVRestoreBackground(state);
-    state.wallpaperEligible = directScope;
-    state.active = activity.decode && state.source != nil;
-    LMVUpdateWallpaperWindows();
-    [CATransaction commit];
-    LMVDesktopDiagnostics(host, state, activity, snapshot);
-    if (state.active) LMVStartSource(state.source);
-    else if (activity.releaseSource) LMVReleaseDesktopSource(state);
-    else if (!LMVSourceHasConsumer(state.source)) {
-        LMVStopSource(state.source);
-        // A live paused AVPlayer already owns its exact position. Cold rebuilds
-        // still restore the cached timestamp in LMVSourceForPath as before.
-        state.source.restoreOnStart = NO;
-    }
-}
-static void LMVUpdateDesktops(void) {
-    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
-    BOOL enabled = LMVEnabled[@"Desktop"].boolValue && LMVPaths[@"Desktop"].length;
-    if (!enabled) {
-        // Retirement needs no system snapshot; LMVUpdateDesktop returns before
-        // evaluating activity when the feature is disabled.
-        for (UIView *host in LMVDesktopHosts.allObjects) LMVUpdateDesktop(host, nil);
-        [LMVDesktopVisibilityTimer invalidate]; LMVDesktopVisibilityTimer = nil; return;
-    }
-    LMVDesktopSnapshot *snapshot = LMVDesktopCapture();
-    for (UIView *host in LMVDesktopHosts.allObjects) LMVUpdateDesktop(host, snapshot);
-    if (!LMVDesktopVisibilityTimer) {
-        // No decoding here. Watch visibility even while the display link is stopped,
-        // including app return / Notification Center dismissal without home relayout.
-        LMVDesktopVisibilityTimer = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(NSTimer *timer) {
-            LMVRequestSafeUpdate();
-        }];
-        [NSRunLoop.mainRunLoop addTimer:LMVDesktopVisibilityTimer forMode:NSRunLoopCommonModes];
-    }
-    static BOOL reportedMissing = NO;
-    if (!LMVDesktopHosts.count && !reportedMissing) {
-        reportedMissing = YES; LMVDiagnostic(@"desktop=no-safe-home-host; guarded-no-op");
-    }
-}
-static BOOL LMVDesktopNeedsFrames(void) {
-    if (!LMVEnabled[@"Desktop"].boolValue || !LMVPaths[@"Desktop"]) return NO;
-    for (UIView *host in LMVDesktopHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-        if (state.active) return YES;
-    }
-    return NO;
-}
-static void LMVDesktopHostChanged(UIView *view) {
-    if (!LMVInitialized || !NSThread.isMainThread) return;
-    Class home = NSClassFromString(@"SBHomeScreenView");
-    if (home && object_getClass(view) == home) [LMVDesktopHosts addObject:view];
-    LMVRequestSafeUpdate();
-}
-%group LMVDesktopViewHooks
-%hook SBHomeScreenView
-- (void)layoutSubviews {
-    %orig;
-    LMVDesktopHostChanged((UIView *)self);
-}
-- (void)didMoveToWindow {
-    %orig;
-    LMVDesktopHostChanged((UIView *)self);
-}
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVDesktopHostChanged((UIView *)self);
-}
-- (void)setAlpha:(CGFloat)alpha {
-    %orig;
-    LMVDesktopHostChanged((UIView *)self);
-}
-%end
-%end
-%group LMVDesktopWindowHooks
-%hook SBHomeScreenWindow
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVDesktopHostChanged((UIView *)self);
-}
-- (void)layoutSubviews {
-    %orig;
-    LMVDesktopHostChanged((UIView *)self);
-}
-%end
-%end
-%group LMVDesktopControllerHooks
-%hook SBHomeScreenViewController
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)viewDidDisappear:(BOOL)animated {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-%end
-%end
-%group LMVDesktopCoverProgressHooks
-%hook CSCoverSheetViewController
-- (void)overlayController:(id)controller didChangePresentationProgress:(double)oldProgress newPresentationProgress:(double)newProgress fromLeading:(BOOL)leading {
-    %orig;
-    // Concrete CoverSheet transition callback; never use its full-screen window
-    // bounds as cover evidence. Re-evaluate actual content geometry after orig.
-    LMVRequestSafeUpdate();
-}
-%end
-%end
-%group LMVDesktopDockObserverHooks
-%hook SBFloatingDockWindow
-- (void)setWindowLevel:(UIWindowLevel)level {
-    %orig;
-    // Observe the original level; only our desktop layer may be partially masked.
-    LMVRequestSafeUpdate();
-}
-- (void)layoutSubviews {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setAlpha:(CGFloat)alpha {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-%end
-%end
-%group LMVDesktopDockContentHooks
-%hook SBFloatingDockView
-- (void)layoutSubviews {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)didMoveToWindow {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setAlpha:(CGFloat)alpha {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-%end
-%end
-%group LMVDesktopDockPlatterHooks
-%hook SBFloatingDockPlatterView
-- (void)layoutSubviews {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)didMoveToWindow {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setAlpha:(CGFloat)alpha {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-%end
-%end
-%group LMVWallpaperWindowHooks
-%hook _SBWallpaperSecureWindow
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
-    LMVDesktopHostChanged((UIView *)self);
-}
-- (void)layoutSubviews {
-    %orig;
-    if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
-    LMVDesktopHostChanged((UIView *)self);
-}
-%end
-%end
-
 static void LMVLockHostChanged(UIView *view) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     [LMVLockHosts addObject:view];
@@ -1751,21 +1120,9 @@ static void LMVCoverSheetVisibilityChanged(UIView *view) {
     // Cells/lock hosts already own retained frames; no policy runs in a setter.
     LMVRequestSafeUpdate();
 }
-%group LMVNotificationPanelHooks
-%hook SBCoverSheetPanelBackgroundContainerView
-- (void)layoutSubviews {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)didMoveToWindow {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-- (void)setFrame:(CGRect)frame {
+%group LMVLockProgressHooks
+%hook CSCoverSheetViewController
+- (void)overlayController:(id)controller didChangePresentationProgress:(double)oldProgress newPresentationProgress:(double)newProgress fromLeading:(BOOL)leading {
     %orig;
     LMVRequestSafeUpdate();
 }
@@ -1830,15 +1187,7 @@ static void LMVReleaseAllPlayers(void) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) state.active=NO;
     }
-    BOOL desktopEnabled = LMVEnabled[@"Desktop"].boolValue && LMVPaths[@"Desktop"].length;
-    LMVDesktopSnapshot *snapshot = desktopEnabled ? LMVDesktopCapture() : nil;
-    for (UIView *host in LMVDesktopHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-        LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
-        state.layer.hidden = YES; state.active = NO;
-        if (!LMVDesktopOriginalInScope(host, snapshot, activity)) LMVRestoreBackground(state);
-        if (activity.releaseSource) LMVReleaseDesktopSource(state);
-    }
+
 }
 #import "LMVWallpaperDiagnostics.h"
 static void LMVRefresh(BOOL reload) {
@@ -1861,9 +1210,6 @@ static void LMVRefresh(BOOL reload) {
         LMVUpdate(cell);
     }
     LMVUpdateLockScreens();
-    LMVUpdateDesktops();
-    LMVUpdateWallpaperWindows();
-    LMVUpdateNotificationWallpapers();
     LMVReportWallpaperTrace();
     LMVCaptureWallpaperDiagnostics();
     LMVSyncDisplayLink();
@@ -1878,7 +1224,7 @@ static void LMVSuspend(void) {
 }
 static void LMVSyncDisplayLink(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
-    BOOL needed=LMVLockScreenNeedsFrames() || LMVDesktopNeedsFrames();
+    BOOL needed=LMVLockScreenNeedsFrames();
     if (LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0) {
         for (UIView *cell in LMVCells.allObjects) {
             if (!LMVVisible(cell)) continue;
@@ -1892,8 +1238,7 @@ static void LMVSyncDisplayLink(void) {
     static NSInteger lastNeeded=-1;
     if (lastNeeded!=(NSInteger)needed) { lastNeeded=needed; LMVDiagnostic([NSString stringWithFormat:@"displaylink-needed=%d cells=%lu alpha-enabled=%d alpha=%.3f",needed,(unsigned long)LMVCells.count,LMVOpacityEnabled,LMVOpacity]); }
     if (!needed) {
-        // Desktop update owns retirement. Stopping frame scheduling is a pause,
-        // never evidence that NC/menu/unknown transitions require decoder teardown.
+        // Stopping frame scheduling pauses sources and retains exact displayed frames.
         for (LMVSharedSource *source in LMVSharedSources.allValues) LMVStopSource(source); [LMVLink invalidate]; LMVLink=nil; return; }
     if (LMVLink) return;
     LMVDisplayLinkTarget *target=[LMVDisplayLinkTarget new];
@@ -1921,24 +1266,17 @@ static void LMVSyncDisplayLink(void) {
         if (changed || (discover && cellVisible)) LMVUpdate(cell);
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
-    // Update only plugin-owned clip geometry on every interactive tracking tick.
-    LMVUpdateNotificationWallpaperGeometry();
     // Only the actual visible CoverSheet host consumes lockscreen frames.
     for (UIView *host in LMVLockHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
         BOOL active = LMVLockHostVisible(host);
         if (discover || active != state.active) LMVUpdateLockScreen(host);
+        // Update can retire/recreate state on material changes. Never reattach
+        // the old local frame holder or miss a newly created consumer.
+        state=objc_getAssociatedObject(host,&LMVLockStateKey);
+        LMVLayoutLockOverlay(host,state);
         if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
-    BOOL desktopEnabled = LMVEnabled[@"Desktop"].boolValue && LMVPaths[@"Desktop"].length;
-    LMVDesktopSnapshot *desktopSnapshot = discover && desktopEnabled ? LMVDesktopCapture() : nil;
-    for (UIView *host in LMVDesktopHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-        if (discover) LMVUpdateDesktop(host, desktopSnapshot);
-        if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
-    }
-    if (discover) { LMVUpdateWallpaperWindows(); LMVUpdateNotificationWallpapers(); }
-    LMVUpdateNotificationWallpaperGeometry();
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
     }
@@ -2010,9 +1348,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVCells = [NSHashTable weakObjectsHashTable];
         LMVActionPresenters = [NSHashTable weakObjectsHashTable];
         LMVLockHosts = [NSHashTable weakObjectsHashTable];
-        LMVDesktopHosts = [NSHashTable weakObjectsHashTable];
-        LMVWallpaperWindows = [NSHashTable weakObjectsHashTable];
-        LMVNCWallpaperWindows = [NSHashTable weakObjectsHashTable];
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVDiskQueue=dispatch_queue_create("com.minis.lockmessagevideo.last-frame",DISPATCH_QUEUE_SERIAL);
         LMVDiskPending=[NSMutableSet new]; LMVDiskAttempted=[NSMutableSet new]; LMVDiskWriting=[NSMutableSet new];
@@ -2050,32 +1385,11 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         %init;
         Class lockHost = NSClassFromString(@"CSCoverSheetView");
         Class lockWindow = NSClassFromString(@"SBCoverSheetWindow");
-        Class notificationPanel = NSClassFromString(@"SBCoverSheetPanelBackgroundContainerView");
-        if (notificationPanel && [notificationPanel isSubclassOfClass:UIView.class] &&
-            class_getInstanceMethod(notificationPanel,@selector(layoutSubviews)) &&
-            class_getInstanceMethod(notificationPanel,@selector(didMoveToWindow)) &&
-            class_getInstanceMethod(notificationPanel,@selector(setFrame:))) {
-            %init(LMVNotificationPanelHooks);
-        }
         if (lockWindow && [lockWindow isSubclassOfClass:UIWindow.class]) {
             %init(LMVCoverWindowHooks);
         }
         if (lockHost && lockWindow && [lockHost isSubclassOfClass:UIView.class] && [lockWindow isSubclassOfClass:UIWindow.class]) {
             %init(LMVLockScreenHooks);
-        }
-        Class homeView = NSClassFromString(@"SBHomeScreenView");
-        Class homeWindow = NSClassFromString(@"SBHomeScreenWindow");
-        Class wallpaperWindow = NSClassFromString(@"_SBWallpaperSecureWindow");
-        if (homeView && homeWindow && [homeView isSubclassOfClass:UIView.class] && [homeWindow isSubclassOfClass:UIWindow.class] &&
-            class_getInstanceMethod(homeView, @selector(layoutSubviews)) && class_getInstanceMethod(homeView, @selector(didMoveToWindow))) {
-            %init(LMVDesktopViewHooks);
-            %init(LMVDesktopWindowHooks);
-        }
-        Class desktopController = NSClassFromString(@"SBHomeScreenViewController");
-        if (desktopController && [desktopController isSubclassOfClass:UIViewController.class] &&
-            class_getInstanceMethod(desktopController, @selector(viewDidAppear:)) &&
-            class_getInstanceMethod(desktopController, @selector(viewDidDisappear:))) {
-            %init(LMVDesktopControllerHooks);
         }
         Class coverController = NSClassFromString(@"CSCoverSheetViewController");
         SEL progress = NSSelectorFromString(@"overlayController:didChangePresentationProgress:newPresentationProgress:fromLeading:");
@@ -2087,38 +1401,17 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             !strcmp([progressSignature getArgumentTypeAtIndex:3], @encode(double)) &&
             !strcmp([progressSignature getArgumentTypeAtIndex:4], @encode(double)) &&
             !strcmp([progressSignature getArgumentTypeAtIndex:5], @encode(BOOL))) {
-            %init(LMVDesktopCoverProgressHooks);
+            %init(LMVLockProgressHooks);
         }
-        Class dockWindow = NSClassFromString(@"SBFloatingDockWindow");
-        if (dockWindow && [dockWindow isSubclassOfClass:UIWindow.class] &&
-            class_getInstanceMethod(dockWindow, @selector(setWindowLevel:)) &&
-            class_getInstanceMethod(dockWindow, @selector(layoutSubviews)) &&
-            class_getInstanceMethod(dockWindow, @selector(setHidden:)) && class_getInstanceMethod(dockWindow, @selector(setAlpha:))) {
-            %init(LMVDesktopDockObserverHooks);
-        }
-        Class dockContent = NSClassFromString(@"SBFloatingDockView");
-        if (dockContent && [dockContent isSubclassOfClass:UIView.class] &&
-            class_getInstanceMethod(dockContent, @selector(layoutSubviews)) && class_getInstanceMethod(dockContent, @selector(didMoveToWindow)) &&
-            class_getInstanceMethod(dockContent, @selector(setHidden:)) && class_getInstanceMethod(dockContent, @selector(setAlpha:))) {
-            %init(LMVDesktopDockContentHooks);
-        }
-        Class dockPlatter = NSClassFromString(@"SBFloatingDockPlatterView");
-        if (dockPlatter && [dockPlatter isSubclassOfClass:UIView.class] &&
-            class_getInstanceMethod(dockPlatter, @selector(layoutSubviews)) && class_getInstanceMethod(dockPlatter, @selector(didMoveToWindow)) &&
-            class_getInstanceMethod(dockPlatter, @selector(setHidden:)) && class_getInstanceMethod(dockPlatter, @selector(setAlpha:))) {
-            %init(LMVDesktopDockPlatterHooks);
-        }
-        if (wallpaperWindow && [wallpaperWindow isSubclassOfClass:UIWindow.class] && class_getInstanceMethod(wallpaperWindow, @selector(layoutSubviews))) {
-            %init(LMVWallpaperWindowHooks);
-        }
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {
             [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
                 dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); });
             }];
         }
         dispatch_async(dispatch_get_main_queue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); }); });
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, CFSTR("com.minis.lockmessagevideo/videoChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        for (NSString *name in @[@"com.minis.lockmessagevideo/videoChanged", @"com.minis.lockmessagevideo/preferencesChanged"]) {
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        }
         for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVScreenNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         }

@@ -19,18 +19,11 @@ def function(text,signature):
             depth-=1
             if not depth:return text[start:i+1]
     raise AssertionError(signature)
-# SHA-256 of production 14f9e36 (.57), not the new implementation.
-protected={
-    'static void LMVRequestSafeUpdate(void)': 'e189230d92bf65841b1aba65a314a41468e3db8a64879abb3eda7ec4be504aca',
-    'static void LMVMarkLaunchReady(void)': 'd9c06fbd04d4da4e89a25321f39d9eb7e08d02e16d7416b489cda88bd9ea5e4c',
-    'static BOOL LMVAlreadyLaunched(UIApplication *app)': '5db967fa36dc6b884575898a29c30e5d2f85d9999c1146fa2b1cf0f4c9be1f5e',
-    'static LMVDesktopSnapshot *LMVDesktopCapture(void)': '864623a1dcbebfc9d699746898fb81ca71349f5c84ed1876ac8ca036f8b3bc56',
-    'static void LMVDesktopHostChanged(UIView *view)': 'd913d26ac489c99b48578e7e522d60563220bb895894b7199cb53a4336876526',
-    'static void LMVUpdateDesktops(void)': 'a4ce7b7140232c7150e03cd380dd9fa652626850d4091ff551cc337f81219665',
-    'static void LMVReleaseDesktopSource(LMVVideoState *state)': 'd37775b7f77e6299ae4b38d0b6f7dd683eb9cecc1967bb0e53dd8f2b4b28270b',
-}
-for signature in protected:
-    assert signature in s, signature
+# Retained rendering and source lifetimes remain present; Desktop feature is removed.
+for signature in ['static void LMVRequestSafeUpdate(void)','static void LMVMarkLaunchReady(void)',
+                  'static BOOL LMVAlreadyLaunched(UIApplication *app)']:
+    assert signature in s
+assert 'LMVDesktop' not in s
 # Source initialization now intentionally defers disk PTS seek until ready (.59).
 source=function(s,'static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
 assert 'LMVDiskPending' in source
@@ -44,7 +37,7 @@ for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance'
 replace=function(h,'static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope)')
 for forbidden in ['state.active','state.source','LMVReadyAssets','LMVOpacity','cached','lastImage']:
     assert forbidden not in replace,forbidden
-assert 'LMVOriginalDetach' in replace or 'LMVOriginalDetach' in (r/'LMVWallpaperWindow.h').read_text()
+assert 'LMVOriginalDetach' in replace
 assert 'if (layer.superlayer) [layer removeFromSuperlayer]' in l
 assert 'weakToWeakObjectsMapTable' in l and 'weakObjectsHashTable' in l
 assert 'self.baselineOpacity = layer.opacity' in l and 'layer.opacity = self.baselineOpacity' in l
@@ -54,13 +47,10 @@ visibility=function(s,'static BOOL LMVVisible(UIView *view)')
 discovery=function(s,'static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth)')
 assert 'LMVOriginalVisibilityAlpha(ancestor)' in visibility and 'LMVOriginalVisibilityAlpha(view)' in discovery
 update=function(s,'static void LMVUpdate(UIView *cell)')
-for target,signature in [('LockScreen','static void LMVUpdateLockScreen(UIView *host)'),('Desktop','static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot)')]:
-    f=function(s,signature)
-    assert 'wallpaperEligible' in f
-    assert 'LMVUpdateWallpaperWindows();' in f
-    assert 'LMVRevisions[path] &&' in f # invalid selection does not reconstruct target each layout
-scope=function(s,'static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot, LMVDesktopActivity activity)')
-assert 'snapshot.foreground != LMVForegroundApp' in scope and 'snapshot.screenOn' in scope and '!snapshot.locked' in scope
+lock=function(s,'static void LMVUpdateLockScreen(UIView *host)')
+assert 'LMVLayoutLockOverlay(host,state)' in lock
+assert 'LMVReplaceBackground' not in lock and 'LMVRestoreBackground' not in lock
+assert 'LMVReleasePlayer(state)' in lock and '[state.layer removeFromSuperlayer]' in lock
 reuse=s.split('- (void)prepareForReuse {',1)[1].split('%end',1)[0]
 assert 'LMVPause(state)' in reuse
 assert 'LMVRestoreBackground(state)' in function(s,'static void LMVPause(LMVVideoState *state)')
@@ -76,4 +66,4 @@ for forbidden in ['LMVReplaceBackground','LMVRestoreBackground','LMVUpdate(', 'L
     assert forbidden not in publish
 assert 'state.layer.contents=(__bridge id)image' in publish
 assert 'LMVOriginalPureView' in h and 'Thumbnail' in h and 'Secure' in h and 'Scene' in h
-print('PASS: five-target integration, enabled+selected cold/error/alpha0 policy, weak leases, scoped discovery, actual-frame swap, protected baseline hashes (native execution separately; not device test)')
+print('PASS: message/action integration and lock overlay, enabled+selected cold/error/alpha0 policy, weak leases, scoped discovery, actual-frame swap (native execution separately; not device test)')

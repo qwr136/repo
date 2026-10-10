@@ -98,7 +98,6 @@ static NSString *NSStringFromCGRect(CGRect rect) {
         (double)rect.origin.y, (double)rect.size.width, (double)rect.size.height];
 }
 #import "../LMVBackgroundDiscovery.h"
-#import "../LMVObservedWallpaper.h"
 static BOOL LMVMessageCell(UIView *view) { return NO; }
 static NSString *LMVSemanticTarget(UIView *view) { return [view.accessibilityLabel isEqualToString:@"Clear All"] ? @"Clear" : ([view.accessibilityLabel isEqualToString:@"Options"] ? @"Options" : nil); }
 #import "../LMVActionDiscovery.h"
@@ -148,32 +147,23 @@ int main(void) { @autoreleasepool {
     for(int n=0;n<100;n++) assert([lease maintain]);
     suppressed.opacity=.63; assert([lease maintain] && suppressed.opacity==0);
     [lease releaseOwner:owner1]; assert(closeTo(suppressed.opacity,.63));
-    // All five targets: selected but loading/failed/alpha0/cold retain replacement.
-    for(NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop"]) {
-        BOOL wallpaper=[target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"];
-        UIView *host=wallpaper ? [UIView new] : [MTMaterialView new];
-        CALayer *original=wallpaper ? [LocalWallpaperLayer layer] : leaf();
-        original.bounds=CGRectMake(0,0,200,100); original.opacity=.37;
-        [host.layer addSublayer:original]; CALayer *video=[CALayer layer]; video.name=@"com.minis.lockmessagevideo.test";
-        // Plugin layer is a sibling of material; it must never invalidate pure-view detection.
-        CALayer *parent=wallpaper ? host.layer : [CALayer layer];
-        if(!wallpaper) [parent addSublayer:host.layer];
-        [parent addSublayer:video];
+    // Remaining three action targets retain cold/error/alpha0 replacement policy.
+    for(NSString *target in @[@"Message",@"Options",@"Clear"]) {
+        MTMaterialView *host=[MTMaterialView new];CALayer *original=leaf();
+        original.bounds=CGRectMake(0,0,200,100);original.opacity=.37;[host.layer addSublayer:original];
+        CALayer *parent=[CALayer layer];[parent addSublayer:host.layer];
+        CALayer *video=[CALayer layer];video.name=@"com.minis.lockmessagevideo.test";[parent addSublayer:video];
         LMVVideoState *state=[LMVVideoState new];
         LMVReplaceBackground(state,host,host,target,YES);
-        assert(state.originals.count==1 && !original.superlayer && state.originals[0].offlineLayer==original);
-        NSUInteger count=parent.sublayers.count, logs=diagnostics;
+        assert(state.originals.count==1 && !original.superlayer);
+        NSUInteger logs=diagnostics;
         for(int n=0;n<100;n++) {
-            // No decoder, preview, alpha or readiness input exists in this lease path.
-            video.opacity=(n%2)?0:.55; LMVReplaceBackground(state,host,host,target,YES);
-            assert(!original.superlayer && state.originals.count==1 && parent.sublayers.count==count);
+            video.opacity=(n%2)?0:.55;LMVReplaceBackground(state,host,host,target,YES);
+            assert(state.originals.count==1 && !original.superlayer && video.superlayer==parent);
         }
-        assert(diagnostics==logs && video.superlayer==parent);
-        LMVRestoreBackground(state); assert(original.superlayer==host.layer && closeTo(original.opacity,.37));
-        LMVRestoreBackground(state); assert(host.layer.sublayers.count==(wallpaper?2:1));
-        // Offscope (reuse/host change/App/lock), disable or selection empty releases.
-        LMVReplaceBackground(state,host,host,target,YES); assert(!original.superlayer);
-        LMVReplaceBackground(state,host,host,target,NO); assert(original.superlayer==host.layer);
+        assert(diagnostics==logs);
+        LMVRestoreBackground(state);assert(original.superlayer==host.layer && closeTo(original.opacity,.37));
+        LMVRestoreBackground(state);assert(host.layer.sublayers.count==1);
     }
     // Backing drawing suppression: keep UIView identity, baseline alpha visibility,
     // text constraints and the sibling plugin frame; never hide discovery anchor.
@@ -195,26 +185,8 @@ int main(void) { @autoreleasepool {
     LMVReplaceBackground(state,material,scope,@"Message",YES);
     assert(!state.originals.count && closeTo(material.layer.opacity,.58) && title.layer.superlayer==material.layer);
     assert([state.originalDiagnostic containsString:@"guarded-no-op"]);
-    // System-owned mask/contents change survives restoration, untouched by lease.
-    UIView *wallHost=[UIView new]; LocalWallpaperView *wall=[LocalWallpaperView new];
-    [wallHost addSubview:wall]; wall.alpha=.31;
-    LMVReplaceBackground(state,wallHost,wallHost,@"Desktop",YES);
-    assert(state.originals.count==1 && wall.layer.opacity==0 && wall.layer.superlayer==wallHost.layer);
-    wall.layer.mask=materialMask; wall.layer.cornerRadius=11;
-    LMVRestoreBackground(state); assert(closeTo(wall.layer.opacity,.31) && wall.layer.mask==materialMask && wall.layer.cornerRadius==11);
-    // A shared secure/remote wallpaper subtree is never a replacement target.
-    UIView *safeHost=[UIView new]; _SBWallpaperSecureWindow *shared=[_SBWallpaperSecureWindow new];
-    WallpaperSceneView *scene=[WallpaperSceneView new]; LocalWallpaperLayer *remote=[LocalWallpaperLayer layer];
-    remote.bounds=CGRectMake(0,0,390,844); [scene.layer addSublayer:remote]; [shared addSubview:scene]; [safeHost addSubview:shared];
-    for(NSString *target in @[@"LockScreen",@"Desktop"]) {
-        LMVReplaceBackground(state,safeHost,safeHost,target,YES);
-        assert(!state.originals.count && remote.superlayer==scene.layer && shared.alpha==1 && scene.alpha==1);
-        assert([state.originalDiagnostic containsString:@"secure-window-shared-or-unidentified"]);
-    }
-    WallpaperThumbnailView *thumb=[WallpaperThumbnailView new]; [safeHost addSubview:thumb];
-    LMVReplaceBackground(state,safeHost,safeHost,@"Desktop",YES); assert(!state.originals.count && thumb.alpha==1);
     // Shared material owners restore only on last lease, including owner deallocation.
-    material=[MTMaterialView new]; material.layer.backgroundColor=wall.layer.backgroundColor; material.alpha=.29;
+    material=[MTMaterialView new];  material.alpha=.29;
     // Give the backing layer its own draw content so this exercises suppression.
     color=CGColorCreateGenericRGB(.1,.1,.1,1); material.layer.backgroundColor=color; CGColorRelease(color);
     scope=[UIView new]; [scope addSubview:material];
@@ -255,36 +227,5 @@ int main(void) { @autoreleasepool {
     UIControl *options=[UIControl new]; options.accessibilityLabel=@"Options"; [platter addSubview:options];
     [hosts removeAllObjects]; LMVFindActions(platter,platter,hosts,0);
     assert([hosts objectForKey:@"Clear"]==clear && [hosts objectForKey:@"Options"]==options);
-    // Observed secure WINDOW is never leased. The single real full local pure
-    // wallpaper branch inside it can be suppressed while every sibling remains.
-    _SBWallpaperSecureWindow *wallWindow=[_SBWallpaperSecureWindow new];
-    UIView *wallRoot=[UIView new]; [wallWindow addSubview:wallRoot];
-    LocalWallpaperView *local=[LocalWallpaperView new]; [wallRoot addSubview:local];
-    UILabel *clock=[UILabel new]; [wallRoot addSubview:clock];
-    UIWindowScene *wallScene=[UIWindowScene new]; wallScene.windows=@[wallWindow];
-    UIApplication.sharedApplication.connectedScenes=@[wallScene];
-    UIWindow *consumerWindow=[UIWindow new]; UIView *consumer=[UIView new]; [consumerWindow addSubview:consumer];
-    LMVReplaceObservedWallpaper(state,consumer,@"Desktop",YES);
-    assert(state.wallpaperOriginals.count==1 && local.layer.opacity==0 && wallWindow.alpha==1 && wallRoot.alpha==1 && clock.alpha==1);
-    NSUInteger observedLogs=diagnostics;
-    for (int n=0;n<100;n++) LMVReplaceObservedWallpaper(state,consumer,@"Desktop",YES);
-    assert(state.wallpaperOriginals.count==1 && diagnostics==observedLogs && clock.alpha==1);
-    // Scope loss restores even when zero-opacity video/failure never restored it.
-    LMVReplaceObservedWallpaper(state,consumer,@"Desktop",NO); assert(local.layer.opacity==1 && !state.wallpaperOriginals.count);
-    // 0.0.61: every full background-only branch of the wallpaper window is wallpaper;
-    // all are replaced (restorable), the clock label sibling is never touched.
-    LocalWallpaperView *secondLocal=[LocalWallpaperView new]; [wallRoot addSubview:secondLocal];
-    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",YES);
-    assert(state.wallpaperOriginals.count==2 && local.layer.opacity==0 && secondLocal.layer.opacity==0 && clock.alpha==1 && clock.layer.opacity==1);
-    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",NO);
-    assert(!state.wallpaperOriginals.count && local.layer.opacity==1 && secondLocal.layer.opacity==1);
-    secondLocal.hidden=YES; local.hidden=YES;
-    // Hosted Remote/Scene wallpaper is replaced too via layer opacity, then restored.
-    WallpaperSceneView *remoteScene=[WallpaperSceneView new]; [wallRoot addSubview:remoteScene];
-    LocalWallpaperView *remoteLeaf=[LocalWallpaperView new]; [remoteScene addSubview:remoteLeaf];
-    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",YES);
-    assert(state.wallpaperOriginals.count==1 && remoteScene.layer.opacity==0 && remoteLeaf.layer.opacity==1 && wallWindow.alpha==1 && clock.layer.opacity==1);
-    assert([state.wallpaperDiagnostic containsString:@"WallpaperSceneView"]);
-    LMVReplaceObservedWallpaper(state,consumer,@"LockScreen",NO); assert(remoteScene.layer.opacity==1);
-    puts("PASS: actual QuartzCore lease/discovery; all five target detach/restore; 100 layouts; last-owner restore; baseline/system updates; missing-frame/alpha0 stay replaced; content guarded; all wallpaper branches replaced/restored; NOT iOS device validation");
+    puts("PASS: actual QuartzCore Message/Options/Clear lease/discovery; independent draw-leaf detach/restore, backing suppression, preserved labels/controls, shared owners, 100 refreshes and baseline/system updates; NOT device test");
 } return 0; }

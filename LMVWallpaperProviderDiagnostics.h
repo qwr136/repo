@@ -27,8 +27,6 @@ static NSString *LMVWallpaperObservedTarget(Class cls) {
     // Exact observed ancestry, not a variant-number convention or name substring.
     for (NSUInteger n = 0; cls && n < 16; n++, cls = class_getSuperclass(cls)) {
         const char *name = class_getName(cls);
-        if (!strcmp(name, "SBHomeScreenView") || !strcmp(name, "SBHomeScreenWindow") ||
-            !strcmp(name, "SBHomeScreenViewController") || !strcmp(name, "PBUIPosterHomeViewController")) return @"Desktop";
         if (!strcmp(name, "CSCoverSheetView") || !strcmp(name, "SBCoverSheetWindow") ||
             !strcmp(name, "CSCoverSheetViewController") || !strcmp(name, "PBUIPosterLockViewController")) return @"LockScreen";
     }

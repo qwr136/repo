@@ -131,7 +131,7 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
         state.originalAnchor = anchor; state.originalScope = scope;
     }
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    BOOL wallpaper = [target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"];
+    BOOL wallpaper = [target isEqualToString:@"LockScreen"];
     NSMutableArray *live = [NSMutableArray new];
     for (LMVOriginalLease *lease in state.originals) {
         id delegate = lease.layer.delegate;

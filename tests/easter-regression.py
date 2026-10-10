@@ -12,11 +12,15 @@ tweak = (root / 'Tweak.xm').read_text()
 
 image = (root / 'LMVEasterImageSettings.h').read_text()
 assert 'EasterEggEnabled' in prefs and 'EasterEggImage' in media + image + overlay
-assert 'EasterEggPreview' in prefs and 'iconImage' in prefs
+assert 'EasterEggImageSettings' in prefs and 'reloadEasterPreview' not in prefs
 assert '@selector(openEaster:)' in prefs and '- (void)openEaster:' in prefs
 assert 'LMVMaterialPicker *picker = [LMVMaterialPicker new]' in panel
 assert '@["Message"' not in panel
-assert '@[@"Message", @"LockScreen", @"Desktop", @"Options", @"Clear"]' in panel
+for ui in (prefs, panel):
+    assert 'Desktop' not in ui and '桌面' not in ui
+    assert '@[@"Message", @"LockScreen", @"Options", @"Clear"]' in ui
+    assert '消息、选项、清除视频透明度' in ui
+assert '@[@"消息背景", @"锁屏背景", @"选项背景", @"清除背景"]' in panel
 assert 'stringByAppendingString:@"BackgroundEnabled"' in panel
 assert 'stringByAppendingString:@"Video"' in panel
 assert 'CFNotificationCenterAddObserver' in panel and 'preferencesChanged' in panel
@@ -46,7 +50,8 @@ assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
 assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay
-assert 'notify_get_state(LMVLockToken' in overlay and 'blank || locked' in overlay
+assert 'LMVEasterScreenAllowsOverlay(blankKnown,blank)' in overlay and 'blank || locked' not in overlay
+assert 'notify_get_state(LMVBlankToken' in overlay
 assert 'sharedInstance' not in overlay and 'SBLock' not in overlay and 'SBWall' not in overlay
 assert 'UIWindowDidBecomeVisibleNotification' in overlay and 'UISceneDidActivateNotification' in overlay
 assert 'generation != manager.generation' in overlay

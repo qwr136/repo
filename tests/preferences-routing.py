@@ -17,7 +17,14 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'switchDesktop:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert actions == {'switchMessage:', 'switchLockScreen:', 'switchOptions:', 'switchClear:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 7
+assert 'Desktop' not in source and '桌面' not in source
+assert '@[@"Message", @"LockScreen", @"Options", @"Clear"]' in source
+assert '@[@"消息", @"锁屏", @"选项", @"清除"]' in source
+assert 'for (NSString *target in LMVTargets())' in source
+assert 'if (![LMVTargets() containsObject:target]) return;' in source
+assert 'if (self.presentedViewController || ![LMVTargets() containsObject:target]) return;' in source
 assert 'clearOriginals' not in source and '清空原素材' not in source
 for action in actions:
     assert re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier', source), action
@@ -29,7 +36,7 @@ end = source.index('\n- (id)enabled:', start)
 method = source[start:end]
 assert 'invoke(self, action, row);' in method
 assert method.index('invoke(self, action, row);') < method.index('[super tableView:')
-print('PASS: entry/principal class, version, programmatic-only rows, eight action selectors and stale route cleanup')
+print('PASS: entry/principal class, version, programmatic-only rows, seven action selectors and stale route cleanup')
 if platform.system() != 'Darwin':
     print('Foundation runtime routing test requires macOS; runs in GitHub Actions')
     raise SystemExit(0)
@@ -85,21 +92,25 @@ int main(void) { @autoreleasepool {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
     }
-    assert(controller.calls == 8 && controller.lastRow == row && controller.superSelections == 0 && table.deselections == 8);
+    NSInteger expectedCalls = selectors.count;
+    assert(controller.calls == expectedCalls && controller.lastRow == row && controller.superSelections == 0 && table.deselections == expectedCalls);
     row.properties[@"enabled"] = @NO;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     [row.properties removeObjectForKey:@"enabled"];
     row.target = [NSObject new];
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
-    row.target = controller; row.buttonAction = NSSelectorFromString(@"staleControllerAction:");
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
+    row.target = controller;
+    for (NSString *selector in @[@"staleControllerAction:", @"switchDesktop:"]) {
+        row.buttonAction = NSSelectorFromString(selector);
+        [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
+    }
     row.buttonAction = @selector(description);
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     row.buttonAction = NULL;
-    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == 8 && controller.superSelections == 0);
+    [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all eight actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, all seven actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:

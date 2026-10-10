@@ -32,10 +32,6 @@ static void LMVWallpaperDiagnosticLayers(CALayer *layer, NSUInteger depth, NSUIn
 static void LMVWallpaperDiagnosticViews(UIView *view, NSUInteger depth, NSUInteger *budget, NSUInteger *layerBudget) {
     if (!view || !*budget || depth > 10) return;
     --*budget;
-    if ([LMVWallpaperOfflineViews containsObject:view]) {
-        LMVDiagnostic([NSString stringWithFormat:@"wallpaper-view depth=%lu class=%@ state=owned-offline layerGetter=skipped", (unsigned long)depth, NSStringFromClass(view.class)]);
-        return;
-    }
     UIResponder *responder = view.nextResponder;
     for (NSUInteger n = 0; responder && n < 12 && ![responder isKindOfClass:UIViewController.class]; n++)
         responder = responder.nextResponder;
@@ -114,17 +110,11 @@ static void LMVCaptureWallpaperDiagnostics(void) {
         LMVWallpaperDiagnosticViews(window, 0, &views, &layers);
         if (wall && layers) LMVWallpaperDiagnosticLayers(window.layer, 0, &layers);
     }
-    for (NSString *target in @[@"LockScreen", @"Desktop"]) {
-        NSHashTable *hosts = [target isEqualToString:@"LockScreen"] ? LMVLockHosts : LMVDesktopHosts;
-        NSUInteger consumerBudget = 8;
-        for (UIView *host in hosts.allObjects) {
-            if (!consumerBudget--) break;
-            LMVVideoState *video = objc_getAssociatedObject(host, [target isEqualToString:@"LockScreen"] ? &LMVLockStateKey : &LMVDesktopStateKey);
-            LMVDiagnostic([NSString stringWithFormat:@"wallpaper-consumer target=%@ host=%@ enabled=%d selected=%d assetready=%d active=%d frame=%d attached=%d originals=%lu observed=%lu",
-                target, NSStringFromClass(host.class), LMVEnabled[target].boolValue, LMVPaths[target] != nil,
-                [LMVReadyAssets containsObject:LMVPaths[target] ?: @""], video.active, video.layer.contents != nil,
-                video.layer.superlayer != nil, (unsigned long)video.originals.count, (unsigned long)video.wallpaperOriginals.count]);
-        }
+    for (UIView *host in LMVLockHosts.allObjects) {
+        LMVVideoState *video=objc_getAssociatedObject(host,&LMVLockStateKey);
+        LMVDiagnostic([NSString stringWithFormat:@"wallpaper-consumer target=LockScreen host=%@ enabled=%d selected=%d active=%d frame=%d attached=%d mode=opaque-overlay",
+            NSStringFromClass(host.class),LMVEnabled[@"LockScreen"].boolValue,LMVPaths[@"LockScreen"]!=nil,
+            video.active,video.layer.contents!=nil,video.layer.superlayer!=nil]);
     }
     LMVDiagnostic([NSString stringWithFormat:@"wallpaper-snapshot end=%lu", (unsigned long)snapshots]);
 }

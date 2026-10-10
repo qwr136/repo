@@ -78,6 +78,11 @@ static BOOL LMVEasterVisibleDrawing(UIView *view, UIWindow *window, NSUInteger d
     for (UIView *child in view.subviews) if (LMVEasterVisibleDrawing(child,window,depth+1,budget,security)) substantive=YES;
     return substantive;
 }
+// Locked and unlocked states intentionally share the same global visibility
+// policy; only actual screen blanking blocks the bubble at this stage.
+static BOOL LMVEasterScreenAllowsOverlay(BOOL known, uint64_t blank) {
+    return known && blank==0;
+}
 static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
     if (window.hidden || window.alpha<0.01 || window.screen!=UIScreen.mainScreen) return NO;
     UIViewController *controller=window.rootViewController;
@@ -180,12 +185,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.visibilityTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [weakSelf refresh]; }];
         [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     }
-    // No private singleton construction; published lock/blank state fails closed.
-    uint64_t blank = 1, locked = 1;
+    // Global bubble is permitted on real LockScreen and unlocked Notification
+    // Center; the old lockstate gate incorrectly hid it in both places.
+    uint64_t blank = 1;
     BOOL blankKnown = LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK;
-    BOOL lockKnown = LMVLockToken >= 0 && notify_get_state(LMVLockToken, &locked) == NOTIFY_STATUS_OK;
-    if (!blankKnown || !lockKnown || blank || locked) {
-        [self hide]; [self reportWindow:[NSString stringWithFormat:@"lock-or-screen-gate blankKnown=%d lockKnown=%d blank=%llu locked=%llu", blankKnown, lockKnown, (unsigned long long)blank, (unsigned long long)locked]]; return;
+    if (!LMVEasterScreenAllowsOverlay(blankKnown,blank)) {
+        [self hide]; [self reportWindow:[NSString stringWithFormat:@"screen-blank blank=%llu", (unsigned long long)blank]]; return;
     }
     NSArray *trusted = @[@"SBHomeScreenWindow", @"SBCoverSheetWindow", @"SBControlCenterWindow", @"CCUIOverlayWindow"];
     NSMutableArray<UIWindow *> *windows = [NSMutableArray new];
@@ -201,6 +206,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         BOOL isCover = coverClass && [window isKindOfClass:coverClass];
         if (isCover && (!cover || window.windowLevel > cover.windowLevel)) cover = window;
         if (LMVEasterKnownWindow(window, trusted) && (isCover || window.windowLevel < UIWindowLevelAlert - 1) && (!host || window.windowLevel > host.windowLevel)) host = window;
+    }
+    // Global display also covers normal apps: SpringBoard's trusted Home/Cover
+    // window may be hidden behind the app while its already existing scene is valid.
+    if (!host) for (UIWindow *window in windows) {
+        if (window==self.window || window.screen!=UIScreen.mainScreen || !window.windowScene ||
+            !LMVEasterKnownWindow(window,trusted)) continue;
+        if (!host || (window.isKeyWindow && !host.isKeyWindow)) host=window;
     }
     if (!host || !host.windowScene) { [self hide]; [self reportWindow:@"no-trusted-main-scene"]; return; }
     // SpringBoard-owned scene above ordinary app surfaces, bounded below alerts.
@@ -220,7 +232,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.hostWindow = host;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
-        if (!LMVEasterKnownWindow(window,trusted) && LMVEasterBlockingWindow(window,level)) {
+        // Inspect trusted CoverSheet for actual visible authentication UI too;
+        // being locked by itself is not a security dialog or a hide condition.
+        BOOL trustedWindow=LMVEasterKnownWindow(window,trusted);
+        BOOL security=NO;NSUInteger securityBudget=64;
+        if (trustedWindow) LMVEasterVisibleDrawing(window.rootViewController.viewIfLoaded,window,0,&securityBudget,&security);
+        if (security || (!trustedWindow && LMVEasterBlockingWindow(window,level))) {
             [self hide]; [self reportWindow:[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(window.class),window.windowLevel]]; return;
         }
     }

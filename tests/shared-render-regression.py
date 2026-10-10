@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.72')==1
+assert (root/'control').read_text().count('Version: 0.0.73')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.72'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.73'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -26,10 +26,10 @@ assert 'AVPlayer' not in state and 'AVAssetReader' not in state
 assert 'LMVSharedSources[registryKey]=source' in s
 assert 'return LMVSourceForTarget(path,nil);' in s
 assert 'LMVSourceForTarget(path,@"LockScreen")' in s
-assert 'LMVSourceForTarget(path,@"Desktop")' in s
-assert s.index('static NSString *LMVSourceRegistryKey') < s.index('#import "LMVWallpaperWindow.h"')
+assert 'LMVDesktop' not in s and 'Desktop' not in s
+assert s.index('static NSString *LMVSourceRegistryKey') < s.index('#import "LMVLockBackground.h"')
 consumer=s.split('static BOOL LMVSourceHasConsumer',1)[1].split('static void LMVReleasePlayer',1)[0]
-assert consumer.count('state.active && host.window')==2
+assert consumer.count('state.active && host.window')==1
 assert 'state.overlay.superview' in consumer
 assert 'state.layer.superlayer' not in consumer
 assert 'LMVSharedSources[source.path]' not in s
@@ -80,4 +80,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.72 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.73 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')

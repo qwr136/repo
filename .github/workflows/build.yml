@@ -34,9 +34,8 @@ jobs:
           check python3 tests/preview-diagnostics.py
           check python3 tests/wallpaper-diagnostics.py
           check python3 tests/wallpaper-call-trace.py
-          check python3 tests/wallpaper-variants.py
           check python3 tests/wallpaper-sources.py
-          check python3 tests/notification-wallpaper.py
+          check python3 tests/lock-overlay.py
           check python3 tests/easter-regression.py
           check python3 tests/panel-roles.py
           check python3 tests/easter-movie.py
@@ -48,8 +47,6 @@ jobs:
           check "$RUNNER_TEMP/lmv-frame-disk"
           check python3 tests/settings-import-regression.py
           check python3 tests/preferences-routing.py
-          check python3 tests/desktop-runtime.py
-          check python3 tests/desktop-dock-geometry.py
           check python3 tests/startup-reentry.py
           check python3 tests/original-background-regression.py
           check clang -fobjc-arc -framework Foundation -framework QuartzCore -framework CoreGraphics tests/original-background.m -o "$RUNNER_TEMP/lmv-original-background"
@@ -58,8 +55,6 @@ jobs:
           check "$RUNNER_TEMP/lmv-material-catalog"
           check cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"
           check "$RUNNER_TEMP/lmv-lock-consumer"
-          check cc tests/desktop-consumer.c -o "$RUNNER_TEMP/lmv-desktop-consumer"
-          check "$RUNNER_TEMP/lmv-desktop-consumer"
           check cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
           check "$RUNNER_TEMP/lmv-import-plan"
           test "$failures" -eq 0

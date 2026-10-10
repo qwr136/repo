@@ -8,20 +8,25 @@
 #import "LMVMaterialPrompt.h"
 
 @interface LMVMaterialCell : UITableViewCell
+@property(nonatomic) BOOL showsThumbnail;
 @end
 @implementation LMVMaterialCell
 - (void)layoutSubviews {
     [super layoutSubviews];
-    self.imageView.frame = CGRectMake(16, 10, 56, 56);
-    CGFloat width = MAX(0, self.contentView.bounds.size.width - 102);
-    self.textLabel.frame = CGRectMake(86, 10, width, self.detailTextLabel.text.length ? 38 : 56);
-    self.detailTextLabel.frame = CGRectMake(86, 48, width, 18);
+    CGFloat leading=self.showsThumbnail?86:16;
+    self.imageView.hidden=!self.showsThumbnail;
+    if (self.showsThumbnail) self.imageView.frame = CGRectMake(16, 10, 56, 56);
+    CGFloat width = MAX(0, self.contentView.bounds.size.width-leading-16);
+    CGFloat titleHeight=self.detailTextLabel.text.length?(self.showsThumbnail?38:24):(self.showsThumbnail?56:40);
+    self.textLabel.frame = CGRectMake(leading, 10, width, titleHeight);
+    self.detailTextLabel.frame = CGRectMake(leading, self.showsThumbnail?48:34, width, 18);
 }
 @end
 
 @interface LMVMaterialPicker : UITableViewController
 @property(nonatomic, copy) NSString *selected;
 @property(nonatomic) BOOL pushed;
+@property(nonatomic) BOOL showsThumbnails;
 @property(nonatomic, strong) LMVMaterialPrompt *prompt;
 @property(nonatomic, copy) void (^apply)(NSString *relative, NSString *name);
 @property(nonatomic, copy) NSArray<NSDictionary *> *materials;
@@ -40,6 +45,7 @@
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) {
         _materials = @[];
+        _showsThumbnails = YES;
         _thumbnails = [NSCache new];
         _thumbnails.countLimit = 60;
         _thumbnails.totalCostLimit = 6 * 1024 * 1024;
@@ -55,7 +61,7 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"选择素材";
-    self.tableView.rowHeight = 76;
+    self.tableView.rowHeight = self.showsThumbnails?76:60;
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
     [self reloadLibrary];
 }
@@ -74,6 +80,7 @@
 - (void)dealloc { [_thumbnailQueue cancelAllOperations]; }
 // Rows skipped while the queue was full are requested once scrolling settles.
 - (void)requestVisibleThumbnails {
+    if (!self.showsThumbnails) return;
     for (NSIndexPath *index in self.tableView.indexPathsForVisibleRows)
         if (index.row < self.materials.count) [self requestThumbnail:self.materials[index.row]];
 }
@@ -132,6 +139,7 @@
         index == NSNotFound ? -1L : (long)index + 1, (unsigned long)self.generation], row[@"path"] ?: @"", nil);
 }
 - (void)requestThumbnail:(NSDictionary *)row {
+    if (!self.showsThumbnails) return;
     NSString *key = row[@"revision"];
     if (!key.length) { [self tracePreview:@"request-invalid" row:row]; return; }
     [self tracePreview:@"request" row:row];
@@ -185,13 +193,14 @@
     cell.textLabel.numberOfLines = 2;
     cell.detailTextLabel.text = current ? @"使用中" : nil;
     cell.accessoryType = current ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-    cell.imageView.image = none ? [UIImage systemImageNamed:@"nosign"] : [self.thumbnails objectForKey:row[@"revision"]] ?: [UIImage systemImageNamed:@"film"];
+    ((LMVMaterialCell *)cell).showsThumbnail=self.showsThumbnails;
+    cell.imageView.image = self.showsThumbnails ? (none ? [UIImage systemImageNamed:@"nosign"] : [self.thumbnails objectForKey:row[@"revision"]] ?: [UIImage systemImageNamed:@"film"]) : nil;
     cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
     cell.imageView.clipsToBounds = YES;
     cell.imageView.layer.cornerRadius = 6;
     cell.imageView.bounds = CGRectMake(0, 0, 56, 56);
     cell.accessibilityLabel = [NSString stringWithFormat:@"%@%@", cell.textLabel.text, current ? @"，使用中" : @""];
-    if (!none) {
+    if (!none && self.showsThumbnails) {
         [self tracePreview:[self.thumbnails objectForKey:row[@"revision"]] ? @"display-poster" : @"display-placeholder" row:row];
         [self requestThumbnail:row];
     }

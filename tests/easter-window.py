@@ -73,6 +73,9 @@ static const CGFloat UIWindowLevelAlert = 2000;
 main=r'''
 static void solid(UIView *view) { UIColor *color=[UIColor new];color.CGColor=CGColorCreateGenericRGB(.2,.3,.4,1);view.backgroundColor=color; }
 int main(void) { @autoreleasepool {
+    assert(LMVEasterScreenAllowsOverlay(YES,0)); // locked and NC stay visible
+    assert(!LMVEasterScreenAllowsOverlay(YES,1)); // actual screen off
+    assert(!LMVEasterScreenAllowsOverlay(NO,0)); // unknown screen state
     for (UIWindow *window in @[[MyrtleWindow new],[SSScreenshotsWindow new],[SBRecordingIndicatorWindow new]]) {
         window.windowLevel=1500;assert(!LMVEasterBlockingWindow(window,1200));
         UIView *indicator=[UIView new];indicator.bounds=CGRectMake(0,0,60,20);solid(indicator);

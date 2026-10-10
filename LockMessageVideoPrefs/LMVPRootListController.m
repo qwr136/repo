@@ -13,8 +13,8 @@
 #import "../LMVEasterImageSettings.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear", @"Desktop"]; }
-static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"锁屏", @"选项", @"清除", @"桌面"]; }
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear"]; }
+static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"锁屏", @"选项", @"清除"]; }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
@@ -37,15 +37,15 @@ static void LMVNotify(void) {
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
     [eggEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:eggEnabled];
-    PSSpecifier *eggImage = [PSSpecifier preferenceSpecifierNamed:@"图片预览 / 导入图片或 GIF" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *eggImage = [PSSpecifier preferenceSpecifierNamed:@"导入图片 / GIF 与图标大小" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     eggImage.buttonAction = @selector(openEaster:);
-    [eggImage setProperty:@"EasterEggPreview" forKey:@"id"];
+    [eggImage setProperty:@"EasterEggImageSettings" forKey:@"id"];
     [_specifiers addObject:eggImage];
-    NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材", @"切换桌面背景素材"];
-    SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:), @selector(switchDesktop:)};
+    NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材"];
+    SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
-        PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:([LMVTargets()[i] isEqualToString:@"Desktop"] ? @"启用桌面背景视频" : [@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]]) target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+        PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
         [enabled setProperty:[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
         [enabled setProperty:@NO forKey:@"default"];
         [_specifiers addObject:enabled];
@@ -53,14 +53,13 @@ static void LMVNotify(void) {
         choose.buttonAction = actions[i];
         [_specifiers addObject:choose];
     }
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面与锁屏独立选择；下拉通知中心或长按菜单时保留桌面最后画面，完全遮挡时暂停解码，返回桌面恢复。打开应用、锁屏或熄屏时暂停；不支持安全桌面宿主时保留静态壁纸"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
     [import setProperty:@"ImportVideo" forKey:@"id"];
     [_specifiers addObject:import];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"所有视频重新压缩至 ≤5 MiB；临时原素材仅在导入期间存在，无法压缩则提示失败"]];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"视频透明度"]];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"消息、选项、清除视频透明度"]];
     PSSpecifier *opacityEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用视频透明度" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [opacityEnabled setProperty:@"VideoOpacityEnabled" forKey:@"key"];
     [opacityEnabled setProperty:@YES forKey:@"default"];
@@ -115,32 +114,11 @@ static void LMVNotify(void) {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
     return value ?: [specifier propertyForKey:@"default"] ?: @NO;
 }
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    [self reloadEasterPreview];
-}
-- (void)reloadEasterPreview {
-    id selected = LMVEasterRead(@"EasterEggImage");
-    NSString *path = LMVEasterImagePath(selected);
-    __weak typeof(self) weakSelf = self;
-    dispatch_async(LMVMaterialQueue(), ^{
-        UIImage *preview = path ? LMVEasterPreviewImage(LMVEasterDecode([NSURL fileURLWithPath:path], NULL)) : nil;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LMVPRootListController *controller = weakSelf;
-            if (!controller || ![(selected ?: @"") isEqual:(LMVEasterRead(@"EasterEggImage") ?: @"")]) return;
-            for (PSSpecifier *row in controller->_specifiers) {
-                if (![[row propertyForKey:@"id"] isEqualToString:@"EasterEggPreview"]) continue;
-                [row setProperty:preview ?: [UIImage systemImageNamed:@"photo"] forKey:@"iconImage"];
-                [controller reloadSpecifier:row animated:NO];
-            }
-        });
-    });
-}
 - (void)openEaster:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;
     LMVEasterImageSettings *panel = [LMVEasterImageSettings new];
-    __weak typeof(self) weakSelf = self; __weak LMVEasterImageSettings *weakPanel = panel;
-    panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:^{ [weakSelf reloadEasterPreview]; }]; };
+    __weak LMVEasterImageSettings *weakPanel = panel;
+    panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:nil]; };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
@@ -219,16 +197,17 @@ static void LMVNotify(void) {
     [self presentViewController:menu animated:YES completion:nil];
 }
 - (void)selectFile:(NSString *)file name:(NSString *)name target:(NSString *)target {
+    if (![LMVTargets() containsObject:target]) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)switchTarget:(NSString *)target {
-    if (self.presentedViewController) return;
+    if (self.presentedViewController || ![LMVTargets() containsObject:target]) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
     NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov"};
@@ -242,7 +221,6 @@ static void LMVNotify(void) {
 - (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
 - (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
-- (void)switchDesktop:(PSSpecifier *)specifier { [self switchTarget:@"Desktop"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
