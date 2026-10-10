@@ -42,7 +42,7 @@ static BOOL LMVEasterSafeDirectory(NSString *path, NSError **error) {
     }
     return YES;
 }
-static NSString *LMVEasterImagePath(id relative) {
+static __attribute__((unused)) NSString *LMVEasterImagePath(id relative) {
     if (![relative isKindOfClass:NSString.class]) return nil;
     NSArray *parts = [relative pathComponents];
     if (parts.count != 2 || ![parts[0] isEqualToString:@"\u5c0f\u5f69\u86cb"] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
