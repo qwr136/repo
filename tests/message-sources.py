@@ -125,7 +125,13 @@ int main(int argc, const char **argv) { @autoreleasepool {
     // Real AVPlayer with a seek counter executes production warm resume. Cold
     // disk restore remains an explicit one-time seek; ordinary stop/start must
     // keep the retained item's time and avoid a new buffering/seek transition.
-    AVPlayerItem *warmItem=message.player.currentItem;[message.player replaceCurrentItemWithPlayerItem:nil];
+    [message.player pause];[message.player replaceCurrentItemWithPlayerItem:nil];
+    // AVFoundation detaches items asynchronously. Use a new item with the same
+    // immutable asset, not an item that was already owned by the factory player.
+    AVPlayerItem *warmItem=[AVPlayerItem playerItemWithAsset:message.asset];
+    [message.output setDelegate:nil queue:NULL];
+    message.output=[[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
+    [warmItem addOutput:message.output];
     TrackedPlayer *warm=[TrackedPlayer playerWithPlayerItem:warmItem];message.player=warm;
     assert(waitUntil(^BOOL{return warmItem.status==AVPlayerItemStatusReadyToPlay;},10));
     message.restoreOnStart=NO;message.restoringTime=NO;message.lastTime=CMTimeMake(1,4);
