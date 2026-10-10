@@ -52,6 +52,7 @@ jobs:
           check python3 tests/preferences-routing.py
           check python3 tests/startup-reentry.py
           check python3 tests/card-local-updates.py
+          check python3 tests/card-transition.py
           check python3 tests/original-background-regression.py
           check clang -fobjc-arc -framework Foundation -framework QuartzCore -framework CoreGraphics tests/original-background.m -o "$RUNNER_TEMP/lmv-original-background"
           check "$RUNNER_TEMP/lmv-original-background"

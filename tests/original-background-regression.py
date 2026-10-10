@@ -46,12 +46,16 @@ assert 'before.superlayer' in l and 'after.superlayer' in l
 assert 'layer.contents =' not in l and 'layer.mask =' not in l
 visibility=function(s,'static BOOL LMVVisible(UIView *view)')
 discovery=function(s,'static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth)')
-assert 'LMVOriginalVisibilityAlpha(ancestor)' in visibility and 'LMVOriginalVisibilityAlpha(view)' in discovery
+assert 'LMVOriginalVisibilityAlpha(ancestor)' in visibility
+candidate=function(s,'static UIView *LMVMessageMaterialCandidate(UIView *view, NSUInteger depth, BOOL visibleOnly)')
+assert 'objc_getAssociatedObject(view, &LMVOwnershipKey)' in candidate
+assert 'visibleOnly && (view.hidden || LMVOriginalVisibilityAlpha(view) < 0.01)' in candidate
+assert 'LMVMessageMaterialCandidate(view,depth,YES)' in discovery and 'LMVMessageMaterialCandidate(view,depth,NO)' in discovery
 update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LockScreen' not in s and 'LMVLockBackground.h' not in s
 update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LMVReplaceBackground(state, anchor, host, target, originalInScope)' in update
-assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in update
+assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in function(s,'static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *host)')
 reuse=s.split('- (void)prepareForReuse {',1)[1].split('%end',1)[0]
 assert 'LMVPause(state)' in reuse
 assert 'LMVRestoreBackground(state)' in function(s,'static void LMVPause(LMVVideoState *state)')

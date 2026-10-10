@@ -128,7 +128,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.82 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.83 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -681,7 +681,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.82 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.83 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -757,15 +757,23 @@ static BOOL LMVIsClassOrSubclass(UIView *view, NSString *name) {
     Class cls = NSClassFromString(name);
     return cls && [view isKindOfClass:cls];
 }
-static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
-    if (depth > 12 || LMVActionBranch(view) || view.hidden || LMVOriginalVisibilityAlpha(view) < 0.01) return nil;
+static UIView *LMVMessageMaterialCandidate(UIView *view, NSUInteger depth, BOOL visibleOnly) {
+    if (depth > 12 || LMVActionBranch(view) || objc_getAssociatedObject(view, &LMVOwnershipKey)) return nil;
+    if (visibleOnly && (view.hidden || LMVOriginalVisibilityAlpha(view) < 0.01)) return nil;
     if ([NSStringFromClass(view.class) containsString:@"MaterialView"] && view.bounds.size.width > 20 && view.bounds.size.height > 20) return view;
     for (UIView *child in view.subviews) {
         if (LMVIsClassOrSubclass(child, @"NCNotificationListCell")) continue;
-        UIView *material = LMVMessageMaterial(child, depth + 1);
+        UIView *material = LMVMessageMaterialCandidate(child, depth + 1, visibleOnly);
         if (material) return material;
     }
     return nil;
+}
+static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth) {
+    // Visible replacement first; structural fallback seeds an alpha-zero or
+    // hidden incoming card before its animation begins. Never enter our surface
+    // or another notification card when searching this card's model ownership.
+    UIView *visible=LMVMessageMaterialCandidate(view,depth,YES);
+    return visible ?: LMVMessageMaterialCandidate(view,depth,NO);
 }
 static BOOL LMVMessageCell(UIView *cell) {
     return LMVIsClassOrSubclass(cell, @"NCNotificationListCell");
@@ -822,6 +830,28 @@ static void LMVRetryDiscovery(UIView *cell) {
         });
     }
 }
+static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *host) {
+    // Synchronise only plugin geometry during the system's layout transaction.
+    // No discovery, decoding, global refresh or changes to UIKit's card geometry.
+    if (!state.layer || !anchor || !host || state.overlay.superview != host) return;
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host];
+    if (!CGAffineTransformIsIdentity(state.overlay.transform)) state.overlay.transform=CGAffineTransformIdentity;
+    if (!CGRectEqualToRect(state.overlay.frame,desiredFrame)) state.overlay.frame=desiredFrame;
+    state.overlay.autoresizingMask=UIViewAutoresizingNone;
+    CGFloat radius=anchor.layer.cornerRadius;
+    if (radius<=0) radius=MIN(20.0,MIN(anchor.bounds.size.width,anchor.bounds.size.height)*0.5);
+    if (state.overlay.layer.cornerRadius!=radius) state.overlay.layer.cornerRadius=radius;
+    state.overlay.layer.cornerCurve=kCACornerCurveContinuous;
+    state.overlay.layer.maskedCorners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner|kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
+    state.overlay.layer.mask=nil;
+    if (!CGRectEqualToRect(state.layer.frame,state.overlay.bounds)) state.layer.frame=state.overlay.bounds;
+    if (state.layer.hidden) state.layer.hidden=NO;
+    CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0;
+    if (state.overlay.alpha!=desiredOpacity) state.overlay.alpha=desiredOpacity;
+    [CATransaction commit];
+}
+
 static void LMVUpdate(UIView *cell) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -865,6 +895,11 @@ static void LMVUpdate(UIView *cell) {
         }
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host) missing = YES;
     }
+    UIView *messageHost=[hosts objectForKey:@"Message"];
+    if (messageEligible && messageHost && (messageHost.hidden || LMVOriginalVisibilityAlpha(messageHost)<0.01)) {
+        UIView *incoming=LMVMessageMaterialCandidate(cell,0,YES);
+        if (incoming && incoming!=messageHost) [hosts setObject:incoming forKey:@"Message"];
+    }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
     BOOL actionsSelected=(LMVEnabled[@"Options"].boolValue && LMVPaths[@"Options"]) ||
         (LMVEnabled[@"Clear"].boolValue && LMVPaths[@"Clear"]);
@@ -875,10 +910,12 @@ static void LMVUpdate(UIView *cell) {
     if ((missing || refreshActions) && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if(actionsSelected) LMVActionHosts(cell, hosts, 0);
-        if (messageEligible && ![hosts objectForKey:@"Message"]) {
-            UIView *material = LMVMessageMaterial(cell, 0);
-            if (material) [hosts setObject:material forKey:@"Message"];
-        }
+    }
+    // Expansion can replace the message material just after the last action
+    // search. A missing message binding must not wait for that 100ms throttle.
+    if (messageEligible && LMVEnabled[@"Message"].boolValue && LMVPaths[@"Message"] && ![hosts objectForKey:@"Message"]) {
+        UIView *material = LMVMessageMaterial(cell, 0);
+        if (material) [hosts setObject:material forKey:@"Message"];
     }
     if (LMVDiagnosticsEnabled.load()) {
     static char discoveryDiagnosticKey;
@@ -954,27 +991,18 @@ static void LMVUpdate(UIView *cell) {
             else [host insertSubview:state.overlay atIndex:0];
             state.anchor = anchor;
         }
-        // Model geometry into the model host, never presentation-to-model coordinates.
-        // Only the plugin-owned surface participates in clipping; parent size is unchanged.
-        CALayer *clip=anchor.layer;
-        CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host];
-        if (!CGAffineTransformIsIdentity(state.overlay.transform)) state.overlay.transform = CGAffineTransformIdentity;
-        if (!CGRectEqualToRect(state.overlay.frame,desiredFrame)) state.overlay.frame = desiredFrame;
-        state.overlay.autoresizingMask = UIViewAutoresizingNone;
-        CGFloat radius=clip.cornerRadius;
-        if (radius<=0) radius=MIN(20.0, MIN(anchor.bounds.size.width,anchor.bounds.size.height)*0.5);
-        if (state.overlay.layer.cornerRadius!=radius) state.overlay.layer.cornerRadius = radius;
-        state.overlay.layer.cornerCurve = kCACornerCurveContinuous;
-        state.overlay.layer.maskedCorners = kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner|kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
-        state.overlay.layer.mask = nil;
-        if (!CGRectEqualToRect(state.layer.frame,state.overlay.bounds)) state.layer.frame = state.overlay.bounds;
-        if (state.layer.hidden) state.layer.hidden = NO;
-        CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0;
-        if (state.overlay.alpha!=desiredOpacity) state.overlay.alpha = desiredOpacity;
+        LMVLayoutCardSurface(state,anchor,host);
         [CATransaction commit];
         // Lease depends on enabled + selected + target scope, never decoder,
         // first frame, alpha or active consumption. Cold absence stays transparent.
         BOOL originalInScope = cell.window && anchorVisible;
+        if ([target isEqualToString:@"Message"]) {
+            // A stack animation changes alpha/hidden before presentation ends.
+            // Keep only this attached card's model-owned background replaced;
+            // visibility still gates frame consumption, never its lease.
+            originalInScope = LMVNotificationCenterSurface(cell) && anchor.superview &&
+                [anchor isDescendantOfView:cell] && (host == anchor || host == anchor.superview);
+        }
         // Screen blank pauses frames but does not change an attached target lease.
         if (!playbackAllowed && state.originals.count && cell.window &&
             state.originalAnchor == anchor && state.originalScope == host) originalInScope = YES;
@@ -989,17 +1017,49 @@ static void LMVUpdate(UIView *cell) {
     }
     LMVSyncDisplayLink();
 }
+static BOOL LMVPrimeMessageCard(UIView *cell) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVPreferencesDirty ||
+        !LMVMessageCell(cell) || !LMVEnabled[@"Message"].boolValue || !LMVPaths[@"Message"]) return NO;
+    static BOOL priming=NO;
+    if (priming) return NO;
+    NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+    NSMapTable *hosts=objc_getAssociatedObject(cell,&LMVHostsKey);
+    LMVVideoState *state=states[@"Message"];
+    UIView *anchor=[hosts objectForKey:@"Message"];
+    BOOL attached=anchor && anchor.superview && [anchor isDescendantOfView:cell];
+    BOOL needsBinding=!attached || !state.layer || state.anchor!=anchor || !state.host ||
+        !(state.host==anchor || state.host==anchor.superview) || state.overlay.superview!=state.host ||
+        ![state.path isEqualToString:LMVPaths[@"Message"]];
+    // UIKit may write the material's opacity at the start/end of the stack
+    // animation. Revalidate through the guarded replacement path before commit.
+    for (LMVOriginalLease *lease in state.originals) {
+        if (lease.retired || (lease.method==LMVOriginalSuppressDrawing && lease.layer.opacity!=0.0f) ||
+            (lease.method==LMVOriginalDetach && lease.layer.superlayer)) { needsBinding=YES; break; }
+    }
+    if (anchor && (anchor.hidden || LMVOriginalVisibilityAlpha(anchor)<0.01)) {
+        UIView *incoming=LMVMessageMaterialCandidate(cell,0,YES);
+        if (incoming && incoming!=anchor) needsBinding=YES;
+    }
+    priming=YES;
+    @try {
+        if (needsBinding) LMVUpdate(cell);
+        else LMVLayoutCardSurface(state,anchor,state.host);
+    } @finally { priming=NO; }
+    return needsBinding;
+}
 %hook NCNotificationListCell
 - (void)layoutSubviews {
     %orig;
     if (!LMVInitialized) return;
     [LMVCells addObject:(UIView *)self];
+    LMVPrimeMessageCard((UIView *)self);
     LMVRequestCardUpdate((UIView *)self,NO);
 }
 - (void)didMoveToWindow {
     %orig;
     if (!LMVInitialized) return;
     [LMVCells addObject:(UIView *)self];
+    LMVPrimeMessageCard((UIView *)self);
     LMVRequestCardUpdate((UIView *)self,NO);
 }
 - (void)prepareForReuse {

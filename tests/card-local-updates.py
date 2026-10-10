@@ -3,7 +3,8 @@ import platform,subprocess,tempfile
 r=Path(__file__).resolve().parents[1];s=(r/'Tweak.xm').read_text()
 queue=(r/'LMVCardUpdates.h').read_text();maintenance=(r/'LMVCardMaintenance.h').read_text()
 assert 'LMVRefresh(' not in queue and 'LMVRequestCardUpdate((UIView *)self,NO)' in s
-assert 'messageEligible && ![hosts objectForKey:@"Message"]' in s
+assert 'LMVPaths[@"Message"] && ![hosts objectForKey:@"Message"]' in s
+assert 'LMVPrimeMessageCard((UIView *)self)' in s
 assert 'LMVCardNeedsUpdate(cell,now)' in s and 'lastDiscovery=0' not in s
 assert 'LMVDiagnosticsEnabled.load()' in s
 if platform.system()!='Darwin':
