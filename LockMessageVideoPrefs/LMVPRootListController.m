@@ -70,7 +70,7 @@ static void LMVNotify(void) {
     controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
     [_specifiers addObject:controlCenterLight];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
-    [_specifiers.lastObject setProperty:@"保留相册提供的当前原片，不重新编码、缩放或降低帧率，音轨保留；支持 MOV、MP4、M4V，单个视频不超过 512 MiB，验证可播放后加入素材库。" forKey:@"footerText"];
+    [(PSSpecifier *)_specifiers.lastObject setProperty:@"保留相册提供的当前原片，不重新编码、缩放或降低帧率，音轨保留；支持 MOV、MP4、M4V，单个视频不超过 512 MiB，验证可播放后加入素材库。" forKey:@"footerText"];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
     [import setProperty:@"ImportVideo" forKey:@"id"];
