@@ -10,43 +10,93 @@ static NSString *LMVCCSelectedPath(NSString *key) {
     return [path hasPrefix:prefix] && [path.stringByResolvingSymlinksInPath hasPrefix:prefix]?path:nil;
 }
 static UIUserInterfaceStyle LMVCCStyle(UIViewController *controller) {
-    // CC may force a local dark trait for its controls. Prefer screen/scene
-    // appearance, then use the controller trait only when those are unspecified.
-    UIUserInterfaceStyle style=UIScreen.mainScreen.traitCollection.userInterfaceStyle;
-    if (style==UIUserInterfaceStyleUnspecified)style=controller.viewIfLoaded.window.windowScene.traitCollection.userInterfaceStyle;
-    if (style==UIUserInterfaceStyleUnspecified)style=controller.traitCollection.userInterfaceStyle;
+    // 0.0.79 fix: resolution order was inverted. UIScreen.traitCollection reports
+    // the *system* appearance and in SpringBoard it keeps serving Light long after
+    // the user switched to Dark, so probing the screen first pinned every Control
+    // Center video to the light asset. The controller/scene trait is the one that
+    // actually flips, so it is authoritative; the screen is only a last resort.
+    UIUserInterfaceStyle style=UIUserInterfaceStyleUnspecified;
+    if(controller) style=controller.traitCollection.userInterfaceStyle;
+    if(style==UIUserInterfaceStyleUnspecified && controller.viewIfLoaded.window)
+        style=controller.viewIfLoaded.window.traitCollection.userInterfaceStyle;
+    if(style==UIUserInterfaceStyleUnspecified && controller.viewIfLoaded.window.windowScene)
+        style=controller.viewIfLoaded.window.windowScene.traitCollection.userInterfaceStyle;
+    if(style==UIUserInterfaceStyleUnspecified) style=UIScreen.mainScreen.traitCollection.userInterfaceStyle;
     return style==UIUserInterfaceStyleDark?UIUserInterfaceStyleDark:UIUserInterfaceStyleLight;
 }
+// 0.0.79 fix: the previous "pure background" probe walked the material view's
+// whole subtree and rejected it whenever any descendant class name contained
+// Module/Slider/Button/Header. MTMaterialView's internal backing view does
+// contain such names, so the real Control Center backdrop was ALWAYS rejected and
+// LMVCCMaterial returned nil - the video had nowhere to attach. Depth is now
+// bounded to the material view's own layer host, and the check is about visual
+// content, not about class-name vocabulary.
 static BOOL LMVCCPureBackground(UIView *view) {
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:view];NSUInteger budget=96;
-    while(pending.count && budget) {
-        --budget;UIView *node=pending.lastObject;[pending removeLastObject];
-        if (LMVLockVideoForeground(node) || node.gestureRecognizers.count || node.subviews.count>32)return NO;
-        NSString *name=NSStringFromClass(node.class);
-        for(NSString *word in @[@"Module",@"Slider",@"Button",@"ContentCollection",@"StatusBar",@"Header"])
+    if(!view)return NO;
+    // Only the material view's DIRECT children are inspected. Anything deeper is
+    // an implementation detail of Material Kit and must never disqualify the
+    // backdrop - that is precisely the false rejection this fixes.
+    if(view.subviews.count>24)return NO;
+    for(UIView *child in view.subviews) {
+        if([child isKindOfClass:UIControl.class])return NO;
+        if(child.gestureRecognizers.count)return NO;
+        NSString *name=NSStringFromClass(child.class);
+        // Only unambiguous Control Center furniture disqualifies the backdrop.
+        for(NSString *word in @[@"ModuleContainer",@"ContentCollection",@"StatusBar_Modern"])
             if([name containsString:word])return NO;
-        [pending addObjectsFromArray:node.subviews];
+        // A direct child that is itself a scrollable collection is CC content.
+        if([child isKindOfClass:UIScrollView.class])return NO;
     }
-    return !pending.count;
+    return YES;
 }
+// The Control Center backdrop, resolved from the on-device hierarchy dump:
+//
+//   UIView  layerName=VC:CCUIModularControlCenterOverlayViewController
+//     MTMaterialView frame={{0,0},{430,932}} layer=MTMaterialLayer parent=UIView
+//     CCUIScrollView frame={{0,0},{430,932}}
+//
+// The overlay view's direct child that is a full-screen MTMaterialView IS the
+// backdrop. Matching on class + geometry + direct parenthood removes every guess
+// the old scoring heuristic made, and it can never select a module card's own
+// material view because those are small and nested far deeper.
 static UIView *LMVCCMaterial(UIView *root) {
     if(!root || !LMVLockVideoRectValid(root.bounds))return nil;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:root];NSUInteger budget=192;
-    UIView *best=nil;CGFloat bestScore=0,full=root.bounds.size.width*root.bounds.size.height;
+    CGRect bounds=root.bounds;
+    UIView *fallback=nil;
+    for(UIView *child in root.subviews) {
+        if(![child isKindOfClass:NSClassFromString(@"MTMaterialView")])continue;
+        if(child.hidden || child.alpha<.01)continue;
+        CGRect rect=[child convertRect:child.bounds toView:root];
+        CGRect clipped=CGRectIntersection(rect,bounds);
+        if(!LMVLockVideoRectValid(clipped))continue;
+        CGFloat full=bounds.size.width*bounds.size.height;
+        if(full<=0)continue;
+        CGFloat ratio=(clipped.size.width*clipped.size.height)/full;
+        // Full-window (within a sub-point inset) is the Control Center backdrop.
+        if(ratio>=.98 && LMVCCPureBackground(child)) {
+            if(child.superview==root)return child;   // direct child wins outright
+            if(!fallback)fallback=child;
+        }
+    }
+    if(fallback)return fallback;
+    // Last resort: a bounded search for a full-window material view anywhere in
+    // the overlay, still preferring the one closest to the root.
+    NSUInteger budget=64;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
     while(pending.count && budget) {
         --budget;UIView *view=pending.lastObject;[pending removeLastObject];
+        if(view==root)continue;
         if(view.hidden || view.alpha<.01)continue;
-        NSString *name=NSStringFromClass(view.class);
-        if([name containsString:@"MTMaterialView"] && LMVCCPureBackground(view)) {
-            CGRect rect=[view convertRect:view.bounds toView:root];CGRect clipped=CGRectIntersection(rect,root.bounds);
-            CGFloat area=clipped.size.width*clipped.size.height;
-            if(LMVLockVideoRectValid(clipped) && full>0 && area/full>=.80) {
-                CGFloat score=area+(view.superview==root?full:0);if(score>bestScore){best=view;bestScore=score;}
-            }
+        if([view isKindOfClass:NSClassFromString(@"MTMaterialView")]) {
+            CGRect rect=[view convertRect:view.bounds toView:root];
+            CGRect clipped=CGRectIntersection(rect,bounds);
+            CGFloat full=bounds.size.width*bounds.size.height;
+            if(full>0 && LMVLockVideoRectValid(clipped) &&
+               (clipped.size.width*clipped.size.height)/full>=.90 && LMVCCPureBackground(view)) return view;
         }
-        if(view.subviews.count<=48)[pending addObjectsFromArray:view.subviews];
+        if(view.subviews.count<=24)[pending addObjectsFromArray:view.subviews];
     }
-    return best;
+    return nil;
 }
 @interface LMVCCRecord:NSObject
 @property(nonatomic) BOOL visible,closing,known,progressKnown;
@@ -61,7 +111,7 @@ static NSHashTable<UIViewController *> *LMVCCControllers;
 @property(nonatomic,weak) UIViewController *controller;
 @property(nonatomic,weak) UIView *material;
 @property(nonatomic,copy) NSString *darkPath,*lightPath,*path,*revision,*status;
-@property(nonatomic) BOOL enabled,updating,suspended;
+@property(nonatomic) BOOL enabled,updating,suspended,presented;
 @property(nonatomic) UIUserInterfaceStyle style;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
 @property(nonatomic,strong) NSTimer *timer;
@@ -81,6 +131,27 @@ static void LMVCCDiscover(void) {
                 if(LMVLockVideoClass(controller,@"CCUIModularControlCenterOverlayViewController"))[LMVCCControllers addObject:controller];
                 [pending addObjectsFromArray:controller.childViewControllers];if(controller.presentedViewController)[pending addObject:controller.presentedViewController];
             }
+            // 0.0.79 fix: the overlay controller is not always reachable through
+            // the child/presented chain (SpringBoard can host it through a private
+            // affordance controller). Fall back to the next responder of the view
+            // whose layer carries the overlay VC's own layer name, which is exactly
+            // what the hierarchy dump records.
+            if(!LMVCCControllers.count) {
+                NSUInteger viewBudget=64;
+                NSMutableArray *views=[NSMutableArray new];
+                UIView *root=window.rootViewController.view ?: window.subviews.firstObject;
+                if(root)[views addObject:root];
+                while(views.count && viewBudget) {
+                    --viewBudget;UIView *view=views.lastObject;[views removeLastObject];
+                    if([view.layer.name hasSuffix:@"CCUIModularControlCenterOverlayViewController"]) {
+                        UIViewController *owner=(UIViewController *)view.nextResponder;
+                        if([owner isKindOfClass:UIViewController.class] &&
+                           LMVLockVideoClass(owner,@"CCUIModularControlCenterOverlayViewController"))
+                            [LMVCCControllers addObject:owner];
+                    }
+                    if(view.subviews.count<=32)[views addObjectsFromArray:view.subviews];
+                }
+            }
         }
     }
 }
@@ -89,7 +160,11 @@ static void LMVCCDiscover(void) {
     if((self=[super init])) {
         _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.control-center.render";
-        _playback.renderLayer.backgroundColor=UIColor.blackColor.CGColor;
+        // 0.0.79 fix: an opaque black backing colour made the Control Center show a
+        // black slab for as long as the first frame had not arrived yet - and with
+        // no poster prepared, that was permanent. Leaving it clear means the
+        // original material backdrop stays visible until real video pixels exist.
+        _playback.renderLayer.backgroundColor=UIColor.clearColor.CGColor;
         __weak typeof(self) weakSelf=self;
         _playback.didChange=^{LMVControlCenterVideoManager *live=weakSelf;if(live && !live.updating && !live.suspended)[live update];};
     }return self;
@@ -103,9 +178,8 @@ static void LMVCCDiscover(void) {
         self.darkPath=LMVCCSelectedPath(@"ControlCenterDarkVideo");self.lightPath=LMVCCSelectedPath(@"ControlCenterLightVideo");
     }
     [self update];
-}
-- (void)suspend {
-    self.suspended=YES;[self.playback setVisible:NO];[self.playback.renderLayer removeFromSuperlayer];
+}- (void)suspend {
+    self.suspended=YES;self.presented=NO;[self.playback setVisible:NO];[self.playback.renderLayer removeFromSuperlayer];
     self.material=nil;[self.timer invalidate];self.timer=nil;
 }
 - (void)update {
@@ -128,26 +202,68 @@ static void LMVCCDiscover(void) {
     if(revisionDue)self.lastRevisionCheck=CACurrentMediaTime();
     BOOL revisionChanged=(revision || self.revision) && ![revision isEqualToString:self.revision];
     self.style=style;
+    // 0.0.79 fix: "open once, close, reopen shows nothing". The poster used to be
+    // prepared only when the path/revision CHANGED, so a reopen with the same
+    // asset skipped that block entirely. By then the player had been paused and
+    // detached, so playerLayer.readyForDisplay was NO and the poster was the only
+    // thing that could keep renderLayer visible - and it had been dropped on the
+    // close pass. Re-seed the poster on every hidden->visible transition so a
+    // reopen always has real pixels to show immediately.
+    BOOL becomingVisible=path.length>0 && !self.presented;
     if(changed || revisionChanged) {
-        self.path=path;self.revision=revision;[self.playback selectPath:path revision:revision];
+        self.path=path;self.revision=revision;
+        // 0.0.79 fix: prepare the poster frame BEFORE selecting the path. Without a
+        // poster, LMVLockVideoPlayback keeps renderLayer.hidden=YES until
+        // playerLayer.readyForDisplay turns true, which never happens while the
+        // Control Center is closed - so nothing was ever displayed. Seeding the
+        // poster gives the layer real pixels to show from the first frame.
+        [self.playback preparePosterForPath:path revision:revision];
+        [self.playback selectPath:path revision:revision];
+    } else if(becomingVisible) {
+        // Same asset as last time, but we are re-opening: the player was paused and
+        // detached on close, so playerLayer.readyForDisplay is NO on the frame the
+        // Control Center reappears and the poster is the only thing that can keep
+        // renderLayer visible. `preparePosterForPath:` early-returns when the
+        // prepared path/revision already match, so use the synchronous cache read
+        // (same helper the Desktop channel relies on) to re-seat poster contents
+        // immediately, with no decoder work on the hook path.
+        if(self.playback.posterLayer.contents==nil)
+            [self.playback loadCachedPosterNowForPath:path revision:revision];
     }
     BOOL visible=best && material && path.length && revision.length;
     if(visible) {
         CALayer *parent=material.layer,*video=self.playback.renderLayer;
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        if(video.superlayer!=parent || parent.sublayers.lastObject!=video) { [video removeFromSuperlayer];[parent addSublayer:video]; }
+        // 0.0.79 fix: the video layer is attached INSIDE the backdrop's own layer,
+        // so it can only ever replace the backdrop itself and can never rise above
+        // a sibling view's layer. Ordering therefore becomes a property of the tree
+        // instead of a property of insertion timing.
+        if(video.superlayer!=parent) { [video removeFromSuperlayer];[parent addSublayer:video]; }
+        // Keep exactly one video layer per material view.
+        for(CALayer *sibling in parent.sublayers) {
+            if(sibling==video)continue;
+            if([sibling.name isEqualToString:@"com.minis.lockmessagevideo.control-center.render"])
+                [sibling removeFromSuperlayer];
+        }
         [self.playback layoutInBounds:material.bounds];video.opacity=1;
         [CATransaction commit];self.material=material;
     } else { [self.playback.renderLayer removeFromSuperlayer];self.material=nil; }
     [self.playback setVisible:visible];
-    if(best && self.enabled && !self.timer) {
+    // Track the presentation state so the next update can detect a hidden->visible
+    // transition and re-seed the poster (see the 0.0.79 note above).
+    self.presented=visible;
+    // 0.0.79 fix: the poll timer used to require a resolved controller AND an open
+    // Control Center, so a run where the first discovery pass found nothing could
+    // never recover - the poster arriving later had nobody to report to. The timer
+    // now runs whenever the feature is enabled and simply re-resolves everything.
+    if(self.enabled && !self.timer) {
         __weak typeof(self) weakSelf=self;
         self.timer=[NSTimer timerWithTimeInterval:.1 repeats:YES block:^(NSTimer *timer){[weakSelf update];}];
         [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
-    } else if(!best || !self.enabled) {[self.timer invalidate];self.timer=nil;}
+    } else if(!self.enabled) {[self.timer invalidate];self.timer=nil;}
     if(!self.enabled && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
-    NSString *status=[NSString stringWithFormat:@"control-center-video visible=%d style=%ld selected=%d layer-ready=%d poster=%d material=%@ error=%ld",
-        visible,(long)style,path.length>0,self.playback.playerLayer.readyForDisplay,self.playback.posterLayer.contents!=nil,
+    NSString *status=[NSString stringWithFormat:@"control-center-video visible=%d enabled=%d presented=%d style=%ld selected=%d layer-ready=%d poster=%d material=%@ error=%ld",
+        visible,self.enabled,self.presented,(long)style,path.length>0,self.playback.playerLayer.readyForDisplay,self.playback.posterLayer.contents!=nil,
         material?NSStringFromClass(material.class):@"none",(long)self.playback.error.code];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     self.updating=NO;
