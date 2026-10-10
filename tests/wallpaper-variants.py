@@ -52,7 +52,10 @@ extra=r'''
 @property(nonatomic) CGImageRef image;
 @end
 @implementation LMVFrameSnapshot @end
-static NSMutableDictionary *LMVPaths,*LMVRevisions,*LMVEnabled,*LMVSharedSources,*testFrames;
+static NSMutableDictionary<NSString *, NSString *> *LMVPaths,*LMVRevisions;
+static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
+static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
+static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *testFrames;
 static NSHashTable *LMVLockHosts,*LMVDesktopHosts;
 static char LMVLockStateKey,LMVDesktopStateKey;
 static BOOL LMVInitialized=YES,LMVLaunchReady=YES,LMVOpacityEnabled=YES;
