@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.80')==1
+assert (root/'control').read_text().count('Version: 0.0.81')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.80'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.81'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -16,8 +16,9 @@ assert 'fallback=shared-reader' in s
 assert 'source.frameBusy=NO; LMVFrameBusy=NO;' in s
 assert '@finally { if (workBuffer) CVPixelBufferRelease(workBuffer); }' in s
 assert 'state.layer.contents=(__bridge id)image' in s
-assert 'state.overlay.frame = [anchor convertRect:anchor.bounds toView:host]' in s
-assert 'state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0' in s
+assert 'CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host]' in s
+assert 'if (!CGRectEqualToRect(state.overlay.frame,desiredFrame))' in s
+assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in s
 for forbidden in ['[AVPlayerLayer','AVAudioSession','prerollAtRate','idleTimerDisabled','CFPreferencesSetAppValue']:
     assert forbidden not in s, forbidden
 # Unique-path source creation is unchanged; no player/reader on LMVVideoState.
@@ -64,7 +65,8 @@ assert 'if (!rendered && old.image) return;' in s
 assert 'LMVPreparePreview(path,revision,playbackAsset)' in s
 assert 'cold-no-frame-0.75s' in s and 'source.restoreOnStart' in s
 refresh=s.split('static void LMVRefresh(BOOL reload) {',1)[1].split('// Tracking mode',1)[0]
-assert 'removeAllObjects' not in refresh
+assert 'LMVSharedSources removeAllObjects' not in refresh and 'LMVFrameCache removeAllObjects' not in refresh
+assert 'LMVDirtyCards removeAllObjects' in refresh  # A full pass subsumes only local work lists.
 # Both Photos paths use the same always-reencode importer with a temporary-only source.
 imp=(root/'LockMessageVideoPrefs/LMVImport.h').read_text()
 for name in ['LMVPRootListController.m','LMVPVideoPickerController.m']:
@@ -83,4 +85,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.80 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.81 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')

@@ -123,6 +123,53 @@ static BOOL LMVEasterNCWindowExposed(UIWindow *window) {
     CGRect overlap=CGRectIntersection(rect,window.bounds);
     return !CGRectIsNull(overlap) && !CGRectIsEmpty(overlap) && overlap.size.height>1 && overlap.size.width>1;
 }
+static BOOL LMVEasterWindowExposed(UIWindow *window) {
+    if (!window || window.screen!=UIScreen.mainScreen || window.hidden || window.alpha<.01) return NO;
+    UIView *root=window.rootViewController.viewIfLoaded;
+    if (!root || root.hidden || root.alpha<.01) return NO;
+    CGRect rect=[root convertRect:root.bounds toView:window];
+    CGRect exposed=CGRectIntersection(rect,window.bounds);
+    return !CGRectIsNull(exposed) && !CGRectIsEmpty(exposed) && exposed.size.width>1 && exposed.size.height>1;
+}
+static BOOL LMVEasterCCWindowExposed(UIWindow *window) {
+    if (!LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) || !LMVEasterWindowExposed(window)) return NO;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:window.rootViewController.viewIfLoaded];NSUInteger budget=128;
+    while(pending.count && budget) {
+        --budget;UIView *view=pending.lastObject;[pending removeLastObject];
+        if(view.hidden || view.alpha<.01)continue;
+        if([view.layer.name hasSuffix:@"CCUIModularControlCenterOverlayViewController"]) {
+            CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
+            return !CGRectIsNull(rect) && !CGRectIsEmpty(rect);
+        }
+        if(view.subviews.count<48)[pending addObjectsFromArray:view.subviews];
+    }
+    return NO;
+}
+static BOOL LMVEasterObjectGetter(id object,SEL selector) {
+    if(!object || ![object respondsToSelector:selector])return NO;
+    NSMethodSignature *signature=[object methodSignatureForSelector:selector];
+    return signature && signature.numberOfArguments==2 && !strcmp(signature.methodReturnType,@encode(id));
+}
+// Home=1, application=-1, unknown=0. Only use existing published state.
+static NSInteger LMVEasterForeground(void) {
+    UIApplication *app=UIApplication.sharedApplication;BOOL known=NO,unknown=NO;
+    for(NSString *name in @[@"_frontmostApplication",@"_accessibilityFrontMostApplication"]) {
+        SEL selector=NSSelectorFromString(name);if(!LMVEasterObjectGetter(app,selector))continue;
+        known=YES;id object=((id(*)(id,SEL))objc_msgSend)(app,selector);if(!object)continue;
+        SEL bundle=NSSelectorFromString(@"bundleIdentifier");
+        id identifier=LMVEasterObjectGetter(object,bundle)?((id(*)(id,SEL))objc_msgSend)(object,bundle):nil;
+        if([identifier isKindOfClass:NSString.class] && [identifier length])return [identifier isEqualToString:@"com.apple.springboard"]?1:-1;
+        unknown=YES;
+    }
+    return known && !unknown?1:0;
+}
+static BOOL LMVEasterScopePolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,uint64_t locked,
+                               BOOL nc,BOOL cc,BOOL home,BOOL *authenticated) {
+    BOOL ncAllowed=LMVEasterNCPolicy(blankKnown,blank,lockKnown,locked,nc,authenticated);
+    if(!blankKnown || blank || !lockKnown)return NO;
+    if(nc)return ncAllowed;
+    return !locked && (cc || home);
+}
 static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
     if (window.hidden || window.alpha<0.01 || window.screen!=UIScreen.mainScreen) return NO;
     UIViewController *controller=window.rootViewController;
@@ -238,17 +285,24 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
         if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState!=UISceneActivationStateUnattached)
             [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
-    UIWindow *host=nil;
+    UIWindow *ncHost=nil,*ccHost=nil,*homeHost=nil;
+    NSInteger foreground=LMVEasterForeground();
     for (UIWindow *window in windows) {
-        if (window==self.window || !window.windowScene || !LMVEasterNCWindowExposed(window)) continue;
-        if (!host || window.windowLevel>host.windowLevel) host=window;
+        if(window==self.window || !window.windowScene)continue;
+        if(LMVEasterNCWindowExposed(window) && (!ncHost || window.windowLevel>ncHost.windowLevel))ncHost=window;
+        if(LMVEasterCCWindowExposed(window) && (!ccHost || window.windowLevel>ccHost.windowLevel))ccHost=window;
+        BOOL keyHome=window.isKeyWindow || (self.window.isKeyWindow && self.foreignKey==window);
+        if(LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window) &&
+           (foreground==1 || (foreground==0 && keyHome)))homeHost=window;
     }
+    UIWindow *host=ccHost ?: ncHost ?: homeHost;
     BOOL authenticated=self.authenticatedSession;
-    BOOL allows=LMVEasterNCPolicy(blankKnown,blank,lockKnown,locked,host!=nil,&authenticated);
+    BOOL allows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;
-    if (!allows) { [self hide]; [self reportWindow:@"notification-center-only:not-visible-or-locked"]; return; }
-    NSArray *trusted=@[@"SBCoverSheetWindow"];
-    CGFloat level=MAX((CGFloat)1200,MIN(host.windowLevel+1,UIWindowLevelAlert - 1));
+    if(!allows || !host){[self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
+    if(self.hostWindow && self.hostWindow!=host)[self closePanel];
+    NSArray *trusted=@[@"SBCoverSheetWindow",@"SBControlCenterWindow",@"SBHomeScreenWindow"];
+    CGFloat level=MIN(host.windowLevel+1,UIWindowLevelAlert - 1);
     self.hostWindow = host;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
@@ -291,7 +345,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         }); return;
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
-    [self reportWindow:[NSString stringWithFormat:@"notification-center-only host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
+    [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {

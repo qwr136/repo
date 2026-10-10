@@ -11,7 +11,7 @@ on:
       - 'depictions/**'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-deb-${{ github.ref }}
@@ -51,7 +51,7 @@ jobs:
           check python3 tests/settings-import-regression.py
           check python3 tests/preferences-routing.py
           check python3 tests/startup-reentry.py
-          check python3 tests/card-update-cadence.py
+          check python3 tests/card-local-updates.py
           check python3 tests/original-background-regression.py
           check clang -fobjc-arc -framework Foundation -framework QuartzCore -framework CoreGraphics tests/original-background.m -o "$RUNNER_TEMP/lmv-original-background"
           check "$RUNNER_TEMP/lmv-original-background"
@@ -99,55 +99,3 @@ jobs:
           name: deb-packages
           path: packages/*.deb
           if-no-files-found: error
-
-      # Publish a downloadable Release so the deb can be fetched straight from the
-      # run page without digging through the artifact zip.
-      - name: Publish deb release
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -e
-          DEB=$(ls packages/*.deb | head -n1)
-          VERSION=$(dpkg-deb -f "$DEB" Version)
-          PACKAGE=$(dpkg-deb -f "$DEB" Package)
-          ARCH=$(dpkg-deb -f "$DEB" Architecture)
-          SHA=$(shasum -a 256 "$DEB" | cut -d' ' -f1)
-          TAG="${PACKAGE}-${VERSION}"
-
-          {
-            echo "自动构建产物"
-            echo
-            echo "- 包名: ${PACKAGE}"
-            echo "- 版本: ${VERSION}"
-            echo "- 架构: ${ARCH}"
-            echo "- SHA-256: ${SHA}"
-            echo
-            echo "## 本次改动 (0.0.80)"
-            echo "1. 通知中心卡片更新节流: 消息 / 选项 / 清除 三条通道的可见卡片完整更新 (宿主发现 + 几何重排) 统一为每个卡片 100ms 一次, 并改为按卡片独立计时."
-            echo "2. 消除更新突发: 旧版用一个全局 0.20s 发现窗口, 窗口一到所有可见卡片会在同一帧集中重排, 与下滑动画抢主线程; 现在改为分散的 100ms 每卡片节流."
-            echo "3. 可见性仍逐帧观测: 可见性判定与暂停/恢复没有降频, 视频响应保持即时."
-            echo
-            echo "## 0.0.79 既有修复"
-            echo "1. 挂载位置: 视频层改为挂在控制中心背景材质视图自身的 layer 内, 不再追加为兄弟层."
-            echo "2. 完全不显示: 补上海报帧准备 (缺失导致 renderLayer 恒为 hidden); 背景色由纯黑改为透明."
-            echo "3. 深浅不切换: 外观判定改为以控制器/场景 trait 为准, 不再被滞后的屏幕 trait 抢先命中."
-            echo "4. 背景误判: 全屏材质视图内的嵌套 layer host 不再被误判为非纯背景."
-            echo "5. 控制器发现: 补上按 layer 名回溯 nextResponder 的兜底路径."
-            echo
-            echo "## 安装"
-            echo '```'
-            echo "dpkg -i $(basename "$DEB")"
-            echo '```'
-            echo "或直接把下载到的 deb 拖进 Sileo / Zebra."
-          } > "$RUNNER_TEMP/notes.md"
-
-          gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" "$DEB" \
-            --title "${PACKAGE} ${VERSION}" \
-            --notes-file "$RUNNER_TEMP/notes.md"
-
-          echo "### 下载" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- [$(basename "$DEB")](https://github.com/${{ github.repository }}/releases/download/${TAG}/$(basename "$DEB"))" >> "$GITHUB_STEP_SUMMARY"
-          echo "- SHA-256: \`${SHA}\`" >> "$GITHUB_STEP_SUMMARY"

@@ -41,11 +41,7 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
-static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey, LMVCardUpdateKey;
-// 0.0.80: the single cadence for updating a visible Notification Center card.
-// Cards still observe visibility and readiness every display-link tick (cheap,
-// no layout); only the full discovery/geometry update is throttled to this rate.
-static const CFTimeInterval LMVCardUpdateInterval = 0.1;
+static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey, LMVMaintenanceKey;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
@@ -81,6 +77,8 @@ static void LMVRequestSafeUpdate(void) {
         if (LMVPreferencesDirty) LMVRequestSafeUpdate();
     });
 }
+#import "LMVCardUpdates.h"
+
 static void LMVMarkLaunchReady(void) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     LMVLaunchReady = YES;
@@ -129,7 +127,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.80 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.81 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -674,7 +672,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.80 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.81 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -789,18 +787,29 @@ static void LMVPause(LMVVideoState *state) {
     LMVReleasePlayer(state);
 }
 
+static BOOL LMVCardHostsReady(UIView *cell) {
+    NSMapTable *hosts=objc_getAssociatedObject(cell,&LMVHostsKey);
+    for(NSString *target in LMVTargets()) {
+        if(!LMVEnabled[target].boolValue || !LMVPaths[target])continue;
+        if([target isEqualToString:@"Message"] && !LMVMessageCell(cell))continue;
+        UIView *anchor=[hosts objectForKey:target];
+        if(!anchor || !anchor.superview || !([anchor isDescendantOfView:cell] || anchor==cell))return NO;
+    }
+    return YES;
+}
 static void LMVRetryDiscovery(UIView *cell) {
-    if (objc_getAssociatedObject(cell, &LMVRetryKey)) return;
-    objc_setAssociatedObject(cell, &LMVRetryKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (LMVCardHostsReady(cell) || objc_getAssociatedObject(cell, &LMVRetryKey)) return;
+    NSObject *token=[NSObject new];
+    objc_setAssociatedObject(cell, &LMVRetryKey, token, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak UIView *weakCell = cell;
     for (NSUInteger attempt = 1; attempt <= 4; attempt++) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(attempt * 0.06 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             UIView *owner = weakCell;
-            if (!owner) return;
-            if (owner.window && LMVPlaybackAllowed()) {
-                objc_setAssociatedObject(owner, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                LMVUpdate(owner);
+            if (!owner || objc_getAssociatedObject(owner,&LMVRetryKey)!=token) return;
+            if (LMVCardHostsReady(owner)) {
+                objc_setAssociatedObject(owner,&LMVRetryKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);return;
             }
+            if (owner.window && LMVPlaybackAllowed()) LMVUpdate(owner);
         });
     }
 }
@@ -813,6 +822,7 @@ static void LMVUpdate(UIView *cell) {
     // Display cached content even before the playback/screen visibility gate opens.
     BOOL visible = LMVVisible(cell);
     CFTimeInterval now = CACurrentMediaTime();
+    objc_setAssociatedObject(cell,&LMVMaintenanceKey,@(now),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (!cell.window) {
         for (LMVVideoState *state in states.allValues) {
             if (!state.detachedSince) state.detachedSince = now;
@@ -835,7 +845,7 @@ static void LMVUpdate(UIView *cell) {
     for (NSString *target in LMVTargets()) {
         UIView *host = [hosts objectForKey:target];
         if ([target isEqualToString:@"Message"] && !messageEligible) host = nil;
-        if (host && !([host isDescendantOfView:cell] || host == cell)) {
+        if (host && (!host.superview || !([host isDescendantOfView:cell] || host == cell))) {
             [hosts removeObjectForKey:target]; host = nil;
             // An invalid boundary is not a transient detach: remove only our
             // owned overlay immediately, before discovery binds a new host.
@@ -847,26 +857,27 @@ static void LMVUpdate(UIView *cell) {
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
-    // 0.0.80: one shared 100 ms cadence for every refresh of a visible card. The
-    // action-host re-resolve and the full discovery previously used the same 0.1 s
-    // window but were two independent reads of it; they are now one decision.
-    BOOL refreshActions = (!last || now - last.doubleValue >= LMVCardUpdateInterval);
+    BOOL actionsSelected=(LMVEnabled[@"Options"].boolValue && LMVPaths[@"Options"]) ||
+        (LMVEnabled[@"Clear"].boolValue && LMVPaths[@"Clear"]);
+    BOOL refreshActions = actionsSelected && (!last || now - last.doubleValue >= 0.1);
     if (refreshActions) {
         [hosts removeObjectForKey:@"Options"]; [hosts removeObjectForKey:@"Clear"];
     }
-    if ((missing || refreshActions) && (!last || now - last.doubleValue >= LMVCardUpdateInterval)) {
+    if ((missing || refreshActions) && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        LMVActionHosts(cell, hosts, 0);
-        if (messageEligible) {
+        if(actionsSelected) LMVActionHosts(cell, hosts, 0);
+        if (messageEligible && ![hosts objectForKey:@"Message"]) {
             UIView *material = LMVMessageMaterial(cell, 0);
             if (material) [hosts setObject:material forKey:@"Message"];
         }
     }
+    if (LMVDiagnosticsEnabled.load()) {
     static char discoveryDiagnosticKey;
     NSMutableString *discovery=[NSMutableString stringWithFormat:@"discovery visible=%d",visible];
     for (NSString *target in LMVTargets()) [discovery appendFormat:@" %@ enabled=%d selected=%d assetready=%d host=%d",target,LMVEnabled[target].boolValue,LMVPaths[target]!=nil,LMVReadyAssets && [LMVReadyAssets containsObject:LMVPaths[target] ?: @""],[hosts objectForKey:target]!=nil];
     NSString *previous=objc_getAssociatedObject(cell,&discoveryDiagnosticKey);
     if (![previous isEqualToString:discovery]) { objc_setAssociatedObject(cell,&discoveryDiagnosticKey,[discovery copy],OBJC_ASSOCIATION_RETAIN_NONATOMIC); LMVDiagnostic(discovery); }
+    }
     for (NSString *target in LMVTargets()) {
         UIView *anchor = [hosts objectForKey:target];
         BOOL reportGeometry=NO;
@@ -937,18 +948,20 @@ static void LMVUpdate(UIView *cell) {
         // Model geometry into the model host, never presentation-to-model coordinates.
         // Only the plugin-owned surface participates in clipping; parent size is unchanged.
         CALayer *clip=anchor.layer;
-        state.overlay.transform = CGAffineTransformIdentity;
-        state.overlay.frame = [anchor convertRect:anchor.bounds toView:host];
+        CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host];
+        if (!CGAffineTransformIsIdentity(state.overlay.transform)) state.overlay.transform = CGAffineTransformIdentity;
+        if (!CGRectEqualToRect(state.overlay.frame,desiredFrame)) state.overlay.frame = desiredFrame;
         state.overlay.autoresizingMask = UIViewAutoresizingNone;
         CGFloat radius=clip.cornerRadius;
         if (radius<=0) radius=MIN(20.0, MIN(anchor.bounds.size.width,anchor.bounds.size.height)*0.5);
-        state.overlay.layer.cornerRadius = radius;
+        if (state.overlay.layer.cornerRadius!=radius) state.overlay.layer.cornerRadius = radius;
         state.overlay.layer.cornerCurve = kCACornerCurveContinuous;
         state.overlay.layer.maskedCorners = kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner|kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
         state.overlay.layer.mask = nil;
-        state.layer.frame = state.overlay.bounds;
-        state.layer.hidden = NO;
-        state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0;
+        if (!CGRectEqualToRect(state.layer.frame,state.overlay.bounds)) state.layer.frame = state.overlay.bounds;
+        if (state.layer.hidden) state.layer.hidden = NO;
+        CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0;
+        if (state.overlay.alpha!=desiredOpacity) state.overlay.alpha = desiredOpacity;
         [CATransaction commit];
         // Lease depends on enabled + selected + target scope, never decoder,
         // first frame, alpha or active consumption. Cold absence stays transparent.
@@ -972,15 +985,16 @@ static void LMVUpdate(UIView *cell) {
     %orig;
     if (!LMVInitialized) return;
     [LMVCells addObject:(UIView *)self];
-    LMVRequestSafeUpdate();
+    LMVRequestCardUpdate((UIView *)self,NO);
 }
 - (void)didMoveToWindow {
     %orig;
     if (!LMVInitialized) return;
     [LMVCells addObject:(UIView *)self];
-    LMVRequestSafeUpdate();
+    LMVRequestCardUpdate((UIView *)self,NO);
 }
 - (void)prepareForReuse {
+    LMVForgetCardUpdate((UIView *)self);
     objc_setAssociatedObject(self, &LMVRetryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSDictionary *states = objc_getAssociatedObject(self, &LMVStatesKey);
     for (LMVVideoState *state in states.allValues) { LMVPause(state); [state.overlay removeFromSuperview]; objc_setAssociatedObject(state.overlay, &LMVOwnershipKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); state.anchor = nil; state.host = nil; }
@@ -1035,13 +1049,13 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
     %orig;
     if (!LMVInitialized || !NSThread.isMainThread) return;
     [LMVActionPresenters addObject:(UIView *)self];
-    LMVRequestSafeUpdate();
+    LMVRequestCardUpdate((UIView *)self,YES);
 }
 - (void)didMoveToWindow {
     %orig;
     if (!LMVInitialized || !NSThread.isMainThread) return;
     [LMVActionPresenters addObject:(UIView *)self];
-    LMVRequestSafeUpdate();
+    LMVRequestCardUpdate((UIView *)self,YES);
 }
 %end
 static void LMVReleaseAllPlayers(void) {
@@ -1061,6 +1075,7 @@ static void LMVRefresh(BOOL reload) {
         // Unrelated imports must not tear down a working selected shared source.
         LMVLoadPreferences();
     }
+    [LMVDirtyCards removeAllObjects];[LMVDirtyPresenters removeAllObjects];
     LMVLockVideoRefresh(reload);
     LMVDesktopVideoRefresh(reload);
     LMVCCRefresh(reload);
@@ -1113,17 +1128,15 @@ static void LMVSyncDisplayLink(void) {
     LMVLink.preferredFramesPerSecond=30;
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
+#import "LMVCardMaintenance.h"
+
 @implementation LMVDisplayLinkTarget
 - (void)tick:(CADisplayLink *)link {
     if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
     // Visibility is separate from frame conversion; never rediscover/layout every card per frame.
-    // 0.0.80: a visible card's full update (discovery + geometry + reorder) is now
-    // rate-limited to one pass per LMVCardUpdateInterval, tracked per cell. The
-    // previous version keyed this off a single global discovery window, so every
-    // visible card was re-laid-out together on the first frame after the window
-    // elapsed - a burst of layout work that collided with the pull-down animation.
     NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
     NSUInteger consumers=0;
+    CFTimeInterval now=CACurrentMediaTime();
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         BOOL cellVisible=LMVVisible(cell), changed=NO;
@@ -1132,13 +1145,7 @@ static void LMVSyncDisplayLink(void) {
             if (active!=state.active) changed=YES;
             state.active=active;
         }
-        BOOL due=NO;
-        if (cellVisible) {
-            NSNumber *lastUpdate=objc_getAssociatedObject(cell,&LMVCardUpdateKey);
-            due=!lastUpdate || link.timestamp-lastUpdate.doubleValue>=LMVCardUpdateInterval;
-            if (due) objc_setAssociatedObject(cell,&LMVCardUpdateKey,@(link.timestamp),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        if (changed || due) LMVUpdate(cell);
+        if (changed || (cellVisible && LMVCardNeedsUpdate(cell,now))) LMVUpdate(cell);
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
@@ -1178,11 +1185,13 @@ static void LMVSyncDisplayLink(void) {
         if (!valid || (CMTIME_IS_NUMERIC(current) && fabs(CMTimeGetSeconds(time)-CMTimeGetSeconds(current))>0.5)) time=current;
         if (!source.readerMode && CMTIME_IS_NUMERIC(time) && ![source.output hasNewPixelBufferForItemTime:time] && CMTIME_IS_NUMERIC(current) && [source.output hasNewPixelBufferForItemTime:current]) time=current;
         LMVPublishFrame(source,time);
+        if (LMVDiagnosticsEnabled.load()) {
         NSString *phase=[NSString stringWithFormat:@"owner=%@ mode=%@ requested=%d playerstatus=%ld itemstatus=%ld ready=%d timestatus=%ld rate=%.2f item=%d outputawake=%d mappedvalid=%d timevalid=%d",source.ownerTarget,source.readerMode?@"shared-reader":@"shared-output",source.playing,(long)source.player.status,(long)item.status,item.status==AVPlayerItemStatusReadyToPlay,(long)source.player.timeControlStatus,source.player.rate,item!=nil,source.outputAwake,mappedTimeValid,CMTIME_IS_NUMERIC(time)];
         BOOL transition=![source.diagnosticState isEqualToString:phase];
         if (transition || (now-source.lastDiagnosticAt>=2 && now-source.startedAt<30)) {
             source.diagnosticState=phase; source.lastDiagnosticAt=now;
             LMVDiagnostic([NSString stringWithFormat:@"source=%lu %@ newframes=%lu buffers=%lu conversion=%lu conversionerrors=%lu published=%lu discard=%lu errorcode=%ld",(unsigned long)source.identifier,phase,(unsigned long)source.newFrames,(unsigned long)source.buffers,(unsigned long)source.conversions,(unsigned long)source.conversionErrors,(unsigned long)source.published,(unsigned long)source.drops,(long)item.error.code]);
+        }
         }
     }
     nextSource++;

@@ -51,7 +51,7 @@ update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LockScreen' not in s and 'LMVLockBackground.h' not in s
 update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LMVReplaceBackground(state, anchor, host, target, originalInScope)' in update
-assert 'state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0' in update
+assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in update
 reuse=s.split('- (void)prepareForReuse {',1)[1].split('%end',1)[0]
 assert 'LMVPause(state)' in reuse
 assert 'LMVRestoreBackground(state)' in function(s,'static void LMVPause(LMVVideoState *state)')

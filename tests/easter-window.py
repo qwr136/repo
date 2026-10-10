@@ -4,7 +4,7 @@ from pathlib import Path
 import platform, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
 s=(r/'LMVEasterOverlay.h').read_text()
-helpers=s[s.index('static BOOL LMVEasterSecurityName('):s.index('static void LMVEasterDarwin(')]
+helpers=s[s.index('static BOOL LMVEasterKnownWindow('):s.index('static void LMVEasterDarwin(')]
 if platform.system()!='Darwin':
     assert 'window.windowLevel >= UIWindowLevelAlert && substantive' in helpers and 'area/full>=0.30' in helpers
     print('PASS: content-based floating window contracts; native predicates run in macOS CI')
@@ -55,6 +55,7 @@ static const CGFloat UIWindowLevelAlert = 2000;
 @end
 @implementation UIViewController @end
 @interface UIWindow : UIView
+@property BOOL isKeyWindow;
 @property CGFloat windowLevel;
 @property(strong) UIScreen *screen;
 @property(strong) UIViewController *rootViewController;
@@ -76,6 +77,23 @@ static const CGFloat UIWindowLevelAlert = 2000;
 @implementation AuthenticationView @end
 '''
 preamble+=r"""
+@interface UIApplication:NSObject
+@property(strong) id frontmost;
++ (instancetype)sharedApplication;
+- (id)_frontmostApplication;
+@end
+@implementation UIApplication
++ (instancetype)sharedApplication {static UIApplication *app;static dispatch_once_t once;dispatch_once(&once,^{app=[self new];});return app;}
+- (id)_frontmostApplication {return self.frontmost;}
+@end
+@interface TestApplication:NSObject
+@property(copy) NSString *bundleIdentifier;
+@end
+@implementation TestApplication @end
+@interface SBHomeScreenWindow:UIWindow @end
+@implementation SBHomeScreenWindow @end
+@interface SBControlCenterWindow:UIWindow @end
+@implementation SBControlCenterWindow @end
 @interface SBCoverSheetWindow:UIWindow @end
 @implementation SBCoverSheetWindow @end
 @interface CSCoverSheetView:UIView
@@ -87,6 +105,23 @@ main=r'''
 static void solid(UIView *view) { UIColor *color=[UIColor new];color.CGColor=CGColorCreateGenericRGB(.2,.3,.4,1);view.backgroundColor=color; }
 int main(void) { @autoreleasepool {
     BOOL authenticated=NO;
+    assert(LMVEasterScopePolicy(YES,0,YES,0,NO,NO,YES,&authenticated)); // desktop
+    assert(LMVEasterScopePolicy(YES,0,YES,0,NO,YES,NO,&authenticated)); // CC
+    assert(!LMVEasterScopePolicy(YES,0,YES,0,NO,NO,NO,&authenticated)); // app
+    assert(!LMVEasterScopePolicy(YES,0,YES,1,NO,YES,YES,&authenticated)); // true lock
+    assert(!LMVEasterScopePolicy(YES,1,YES,0,NO,YES,YES,&authenticated)); // blank
+    TestApplication *foreground=[TestApplication new];foreground.bundleIdentifier=@"com.apple.mobilesafari";
+    UIApplication.sharedApplication.frontmost=foreground;assert(LMVEasterForeground()==-1);
+    foreground.bundleIdentifier=@"com.apple.springboard";assert(LMVEasterForeground()==1);
+    UIApplication.sharedApplication.frontmost=nil;assert(LMVEasterForeground()==1);
+    SBControlCenterWindow *ccWindow=[SBControlCenterWindow new];UIView *ccRoot=ccWindow.rootViewController.viewIfLoaded;
+    [ccWindow.layer addSublayer:ccRoot.layer];ccRoot.superview=ccWindow;ccRoot.layer.frame=ccWindow.bounds;
+    UIView *ccOverlay=[UIView new];ccOverlay.window=ccWindow;ccOverlay.superview=ccRoot;ccOverlay.layer.frame=ccRoot.bounds;ccOverlay.layer.name=@"VC:CCUIModularControlCenterOverlayViewController";
+    [ccRoot.layer addSublayer:ccOverlay.layer];ccRoot.subviews=@[ccOverlay];
+    assert(LMVEasterCCWindowExposed(ccWindow));ccOverlay.hidden=YES;assert(!LMVEasterCCWindowExposed(ccWindow));ccOverlay.hidden=NO;
+    ccWindow.hidden=YES;assert(!LMVEasterCCWindowExposed(ccWindow));ccWindow.hidden=NO;
+    ccOverlay.layer.name=nil;assert(!LMVEasterCCWindowExposed(ccWindow));
+    authenticated=NO;
     assert(!LMVEasterNCPolicy(YES,0,YES,1,YES,&authenticated)); // real lock
     assert(!LMVEasterNCPolicy(YES,0,YES,0,YES,&authenticated)); // Face ID on lock screen is still outside NC
     assert(!LMVEasterNCPolicy(YES,0,YES,0,NO,&authenticated)); // desktop learns unlock, still hidden

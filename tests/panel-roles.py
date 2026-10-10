@@ -81,7 +81,7 @@ assert 'LMVEasterSet(' not in callback and 'CFPreferencesSetAppValue' not in cal
 assert 'cornerRadius = 20' in overlay and 'bounds.size.height * .65' in overlay
 assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
-assert 'blankKnown' in overlay and 'notification-center-only:not-visible-or-locked' in overlay
+assert 'blankKnown' in overlay and 'home-nc-cc:not-visible-or-locked' in overlay
 assert 'LMVEasterNCPolicy' in overlay and 'recordScreenBlank' in overlay
 assert '@[@"Message", @"Options", @"Clear"]' in original  # Main renderer remains limited to the original three roles.
 assert 'LMVLayoutLockOverlay' not in original

@@ -76,7 +76,7 @@ assert 'count > 60' in media and 'kCGImageSourceThumbnailMaxPixelSize:@160' in m
 assert '8 * 1024 * 1024' in media and '20 * 1024 * 1024' in media
 assert 'totalDuration>60.0' in media and 'LMVEasterPreviewImage' not in media
 assert 'LMVEasterVisibleDrawing' in overlay and 'area/full>=0.30' in overlay
-assert 'MAX((CGFloat)1200' in overlay and 'UISceneActivationStateUnattached' in overlay
+assert 'MIN(host.windowLevel+1,UIWindowLevelAlert - 1)' in overlay and 'UISceneActivationStateUnattached' in overlay
 assert 'requireGestureRecognizerToFail:pan' in overlay
 assert 'UIGestureRecognizerStateEnded' in overlay and 'EasterEggX' in overlay
 assert 'safeAreaInsets' in overlay and 'LMVEasterCenterArea(safeRect, LMVEasterSize())' in overlay
@@ -86,7 +86,8 @@ assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
 assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay
-assert 'LMVEasterNCPolicy(blankKnown,blank,lockKnown,locked,host!=nil,&authenticated)' in overlay
+assert 'LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated)' in overlay
+assert 'LMVEasterCCWindowExposed(window)' in overlay and 'foreground==1' in overlay
 assert 'LMVEasterNCWindowExposed(window)' in overlay and 'authenticatedSession' in overlay
 assert '@["SBHomeScreenWindow"' not in overlay
 assert 'notify_get_state(LMVBlankToken' in overlay
