@@ -54,7 +54,8 @@ static void turn(void){NSArray *batch=turns.copy;[turns removeAllObjects];for(di
 static BOOL LMVInitialized,LMVLaunchReady,LMVPreferencesDirty,LMVSafeUpdateApplying;
 static char LMVStatesKey,LMVHostsKey,LMVDiscoveryKey,LMVRetryKey,LMVMaintenanceKey;
 static NSHashTable *LMVCells;
-static NSDictionary *LMVEnabled,*LMVPaths,*LMVRevisions;
+static NSDictionary<NSString *,NSNumber *> *LMVEnabled;
+static NSDictionary<NSString *,NSString *> *LMVPaths,*LMVRevisions;
 static NSUInteger updated,retried,globalRequests;
 static NSMutableArray *updatedOwners;
 static NSArray *LMVTargets(void){return @[@"Message",@"Options",@"Clear"];}
@@ -105,6 +106,6 @@ int main(void){@autoreleasepool{
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as tmp:
- source=Path(tmp)/'cards.m';binary=Path(tmp)/'cards';source.write_text(pre+ready+retry+queue+maintenance+main)
+ source=Path(tmp)/'cards.m';binary=Path(tmp)/'cards';source.write_text('\n'.join([pre,ready,retry,queue,maintenance,main]))
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','CoreGraphics',str(source),'-o',str(binary)],check=True)
  subprocess.run([str(binary)],check=True,timeout=30)
