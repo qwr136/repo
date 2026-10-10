@@ -36,6 +36,7 @@ jobs:
           check python3 tests/wallpaper-call-trace.py
           check python3 tests/wallpaper-variants.py
           check python3 tests/wallpaper-sources.py
+          check python3 tests/notification-wallpaper.py
           check python3 tests/easter-regression.py
           check python3 tests/panel-roles.py
           check python3 tests/easter-movie.py

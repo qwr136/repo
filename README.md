@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.69
+
+- 针对通知中心整屏背景必须下拉到底才出现的问题，接管已观测的 SBCoverSheetPanelBackgroundContainerView 中 SBWallpaperEffectView/PBUIWallpaperView 背景副本；视频挂到同一个滑动容器内，保留系统位置、变换及前景内容。
+- 任何实际露出的背景条带即可激活已有 LockScreen 独立解码源；不再只依赖 CSCoverSheetView 完整显示，不创建第三套播放器，不改通知卡片视频或桌面源。
+- 采用 0.0.68 的稳定租约维护，原壁纸副本从父层移除；取消下拉时视频随原滑动容器移出屏幕，禁用、隐藏窗口或系统换宿主时恢复原副本。
+- wallpaper-structure.log 中新增 wallpaper-notification 状态，记录 exposed、帧就绪、detach 数量与 panelFrame。真实 QuartzCore 测试覆盖首个露出条带、100 个下拉位置、租约身份、前景保留、Lock-only 帧发布和恢复。真机转场仍需验证。
+
 ## 0.0.68
 
 - 修复 0.0.67 锁屏、桌面视频与原壁纸反复切换：已移除的分支按保存的原父层、scope、宿主和视图身份续租，不再用脱层后的 superview 或坐标转换重新判定候选。

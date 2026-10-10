@@ -54,6 +54,8 @@ static void LMVUpdateLockScreens(void);
 static void LMVUpdateDesktops(void);
 static void LMVUpdateWallpaperWindows(void);
 static void LMVWallpaperPublish(LMVSharedSource *source, CGImageRef image);
+static void LMVNotificationWallpaperPublish(LMVSharedSource *source, CGImageRef image);
+static void LMVUpdateNotificationWallpapers(void);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
@@ -144,7 +146,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.68 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.69 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -368,6 +370,7 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 #import "LMVBackgroundDiscovery.h"
 #import "LMVObservedWallpaper.h"
 #import "LMVWallpaperWindow.h"
+#import "LMVNotificationWallpaper.h"
 
 static BOOL LMVPlaybackAllowed(void) {
     if (!LMVInitialized || !LMVLaunchReady) return NO;
@@ -569,6 +572,7 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                         if (state.source == source && state.active) state.layer.contents = (__bridge id)image;
                     }
                     LMVWallpaperPublish(source, image);
+                    LMVNotificationWallpaperPublish(source, image);
                     [CATransaction commit];
                     if (source.published==1) LMVDiagnostic([NSString stringWithFormat:@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image)]);
                 } else if (image) {
@@ -740,7 +744,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.68 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.69 diagnostics-enabled");
         LMVReportWallpaperTrace();
         LMVStartWallpaperTraceReports();
     }
@@ -1059,7 +1063,7 @@ static void LMVUpdate(UIView *cell) {
 static BOOL LMVLockHostVisible(UIView *host) {
     Class cover = NSClassFromString(@"CSCoverSheetView");
     Class windowClass = NSClassFromString(@"SBCoverSheetWindow");
-    return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host), LMVPlaybackAllowed());
+    return LMVLockConsumerAllowed(cover && [host isKindOfClass:cover], windowClass && [host.window isKindOfClass:windowClass], LMVVisible(host) || LMVNotificationWallpaperVisible(), LMVPlaybackAllowed());
 }
 static __attribute__((unused)) BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) {
     if ([NSStringFromClass(view.class) containsString:@"Wallpaper"]) return LMVOriginalPureView(view, YES, 0);
@@ -1746,6 +1750,26 @@ static void LMVCoverSheetVisibilityChanged(UIView *view) {
     // Cells/lock hosts already own retained frames; no policy runs in a setter.
     LMVRequestSafeUpdate();
 }
+%group LMVNotificationPanelHooks
+%hook SBCoverSheetPanelBackgroundContainerView
+- (void)layoutSubviews {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)didMoveToWindow {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+- (void)setFrame:(CGRect)frame {
+    %orig;
+    LMVRequestSafeUpdate();
+}
+%end
+%end
 %group LMVCoverWindowHooks
 %hook SBCoverSheetWindow
 - (void)setHidden:(BOOL)hidden {
@@ -1838,6 +1862,7 @@ static void LMVRefresh(BOOL reload) {
     LMVUpdateLockScreens();
     LMVUpdateDesktops();
     LMVUpdateWallpaperWindows();
+    LMVUpdateNotificationWallpapers();
     LMVReportWallpaperTrace();
     LMVCaptureWallpaperDiagnostics();
     LMVSyncDisplayLink();
@@ -1909,7 +1934,7 @@ static void LMVSyncDisplayLink(void) {
         if (discover) LMVUpdateDesktop(host, desktopSnapshot);
         if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
-    if (discover) LMVUpdateWallpaperWindows();
+    if (discover) { LMVUpdateWallpaperWindows(); LMVUpdateNotificationWallpapers(); }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
     }
@@ -1983,6 +2008,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVLockHosts = [NSHashTable weakObjectsHashTable];
         LMVDesktopHosts = [NSHashTable weakObjectsHashTable];
         LMVWallpaperWindows = [NSHashTable weakObjectsHashTable];
+        LMVNCWallpaperWindows = [NSHashTable weakObjectsHashTable];
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVDiskQueue=dispatch_queue_create("com.minis.lockmessagevideo.last-frame",DISPATCH_QUEUE_SERIAL);
         LMVDiskPending=[NSMutableSet new]; LMVDiskAttempted=[NSMutableSet new]; LMVDiskWriting=[NSMutableSet new];
@@ -2020,6 +2046,13 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         %init;
         Class lockHost = NSClassFromString(@"CSCoverSheetView");
         Class lockWindow = NSClassFromString(@"SBCoverSheetWindow");
+        Class notificationPanel = NSClassFromString(@"SBCoverSheetPanelBackgroundContainerView");
+        if (notificationPanel && [notificationPanel isSubclassOfClass:UIView.class] &&
+            class_getInstanceMethod(notificationPanel,@selector(layoutSubviews)) &&
+            class_getInstanceMethod(notificationPanel,@selector(didMoveToWindow)) &&
+            class_getInstanceMethod(notificationPanel,@selector(setFrame:))) {
+            %init(LMVNotificationPanelHooks);
+        }
         if (lockWindow && [lockWindow isSubclassOfClass:UIWindow.class]) {
             %init(LMVCoverWindowHooks);
         }
