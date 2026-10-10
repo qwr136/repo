@@ -149,7 +149,15 @@ static void LMVLockVideoSuspend(void);
 @property(nonatomic,strong) CADisplayLink *link;
 @property(nonatomic,copy) NSString *path,*revision,*diagnostic;
 @property(nonatomic) BOOL enabled,updating,screenAllowed;
-@property(nonatomic) CFTimeInterval lastRevisionCheck;
+@property(nonatomic) CFTimeInterval lastRevisionCheck,lastTickTime,pendingHideUntil;
+// 0.0.79 fix: cache the last applied geometry so the 30 Hz display link can skip
+// the expensive presentation-layer coordinate math and subview reordering when
+// nothing actually moved. Pulling down Notification Center animates the Cover
+// Sheet every frame; recomputing the clip path + re-inserting the host on every
+// tick competed with that animation on the main thread and showed up as a hitch.
+@property(nonatomic) CGRect lastClip;
+@property(nonatomic,weak) UIView *lastContainer;
+@property(nonatomic) BOOL geometryValid;
 - (void)refresh:(BOOL)reload;
 - (void)update;
 - (void)suspend;
@@ -201,16 +209,30 @@ static BOOL LMVLockVideoScreenAllowed(void) {
 - (void)suspend {
     [self.playback setVisible:NO];self.host.hidden=YES;
     [self.link invalidate];self.link=nil;
+    self.geometryValid=NO;self.lastContainer=nil;self.lastTickTime=0;self.pendingHideUntil=0;
 }
 - (void)tick:(CADisplayLink *)link {
-    self.screenAllowed=LMVLockVideoScreenAllowed();
-    if (CACurrentMediaTime()-self.lastRevisionCheck>=1) {
-        self.lastRevisionCheck=CACurrentMediaTime();NSString *revision=LMVLockVideoRevision(self.path);
+    // 0.0.79 fix: the display link runs at 30 Hz, but the full `update` does a
+    // controller scan plus presentation-layer coordinate conversions. The heavy
+    // part (subview reordering + clip path rebuild) is now gated on geometry
+    // actually changing, so most ticks are cheap. A light rate cap still bounds how
+    // often the controller scan runs while the sheet animates, without making the
+    // clip edge visibly steppy.
+    BOOL allowed=LMVLockVideoScreenAllowed();
+    if (allowed!=self.screenAllowed) {self.screenAllowed=allowed;[self update];self.lastTickTime=CACurrentMediaTime();return;}
+    CFTimeInterval now=CACurrentMediaTime();
+    if (self.lastRevisionCheck>0 && now-self.lastRevisionCheck>=1) {
+        self.lastRevisionCheck=now;NSString *revision=LMVLockVideoRevision(self.path);
         if ((revision || self.revision) && ![revision isEqualToString:self.revision]) {
             self.revision=revision;[self.playback selectPath:self.path revision:revision];
         }
     }
-    [self update];
+    // ~15 Hz controller scan; the per-tick geometry short-circuit keeps the visual
+    // update responsive while avoiding the expensive scan on every frame.
+    if (now-self.lastTickTime>=1.0/15.0 || !self.host.superview) {
+        self.lastTickTime=now;
+        [self update];
+    }
 }
 - (void)update {
     if (self.updating) return;self.updating=YES;
@@ -228,26 +250,59 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     }
     UIView *anchor=nil;UIView *container=content?LMVLockVideoContainer(best.viewIfLoaded,content,self.host,&anchor):nil;
     BOOL visible=best && content && container && anchor;
+    // 0.0.79 fix: "pulling down Notification Center makes the video hitch". While the
+    // Cover Sheet geometry animates, the exposed rect can flicker through an empty
+    // value for a frame or two even though the container is still valid. Pausing the
+    // player on that flicker and resuming on the next tick makes AVPlayer re-buffer,
+    // and the poster<->player flip is what reads as a stall. Such a transient
+    // "container still valid but clip momentarily empty" case is debounced; a real
+    // teardown (no controller/content/container, disabled, screen off) stops at once.
+    BOOL transientEmpty=NO;
     if (visible) {
-        NSArray *children=container.subviews;
-        NSUInteger back=[children indexOfObjectIdenticalTo:anchor],own=[children indexOfObjectIdenticalTo:self.host];
-        if (self.host.superview!=container || own!=back+1) {
-            [self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:anchor];
-        }
         self.content=content;self.controller=best;
         CGRect clip=LMVLockVideoClip(content,container,content.window);
         visible=!CGRectIsEmpty(clip);
-        [CATransaction begin];[CATransaction setDisableActions:YES];
-        self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        [self.playback layoutInBounds:self.host.bounds];self.host.clipLayer.frame=self.host.bounds;
-        if (!self.host.clipLayer.path || !CGRectEqualToRect(CGPathGetBoundingBox(self.host.clipLayer.path),clip)) {
-            CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
+        transientEmpty=!visible;
+        // 0.0.79 fix: only touch the view/layer tree when the geometry actually
+        // changed. During a Notification Center pull-down the parent animates, but
+        // the clip can settle for many consecutive ticks; skipping identical work
+        // keeps the main thread free for the system animation.
+        BOOL geometryChanged=!self.geometryValid || self.lastContainer!=container ||
+            !CGRectEqualToRect(self.lastClip,clip);
+        if (geometryChanged) {
+            NSArray *children=container.subviews;
+            NSUInteger back=[children indexOfObjectIdenticalTo:anchor],own=[children indexOfObjectIdenticalTo:self.host];
+            if (self.host.superview!=container || own!=back+1) {
+                [self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:anchor];
+            }
+            [CATransaction begin];[CATransaction setDisableActions:YES];
+            self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+            [self.playback layoutInBounds:self.host.bounds];self.host.clipLayer.frame=self.host.bounds;
+            if (!self.host.clipLayer.path || !CGRectEqualToRect(CGPathGetBoundingBox(self.host.clipLayer.path),clip)) {
+                CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
+            }
+            self.host.hidden=!visible;[CATransaction commit];
+            self.lastClip=clip;self.lastContainer=container;self.geometryValid=YES;
+        } else if (self.host.hidden!=!visible) {
+            self.host.hidden=!visible;
         }
-        self.host.hidden=!visible;[CATransaction commit];
     } else {
-        self.host.hidden=YES;[self.host removeFromSuperview];self.content=nil;self.controller=nil;
+        if (!self.host.hidden || self.host.superview) {self.host.hidden=YES;[self.host removeFromSuperview];}
+        self.content=nil;self.controller=nil;self.geometryValid=NO;self.lastContainer=nil;
     }
-    [self.playback setVisible:visible];
+    CFTimeInterval now=CACurrentMediaTime();
+    if (visible) {
+        self.pendingHideUntil=0;
+        [self.playback setVisible:YES];
+    } else if (transientEmpty && self.playback.wantsPlayback) {
+        // Container is still valid; hold the pause briefly in case the sheet settles
+        // back into view on the very next tick.
+        if (self.pendingHideUntil==0) self.pendingHideUntil=now+0.3;
+        if (now>=self.pendingHideUntil) {self.pendingHideUntil=0;[self.playback setVisible:NO];}
+    } else {
+        self.pendingHideUntil=0;
+        [self.playback setVisible:NO];
+    }
     // One lightweight geometry monitor only while the CoverSheet is exposed.
     // No message frame decoder, extra UIWindow, original opacity lease or source-cache write.
     if (best && content && self.screenAllowed) {

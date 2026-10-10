@@ -215,12 +215,23 @@ int main(void){@autoreleasepool{
  for(int n=0;n<=100;n++) {
   CGFloat exposed=844*n/100.0;sliding.frame=CGRectMake(0,-844+exposed,390,844);
   [manager update];CGRect clip=LMVLockVideoClip(sliding,cover,window);
-  if(n==0){assert(CGRectIsEmpty(clip) && !manager.host.superview && !manager.playback.wantsPlayback);}
+  if(n==0){
+   // 0.0.79: a fully retracted sheet is transient - the container is still valid,
+   // so the pause is debounced instead of applied instantly. Playback must still be
+   // requested right now; it only stops once the confirm window has elapsed.
+   assert(CGRectIsEmpty(clip) && !manager.host.superview && manager.playback.wantsPlayback);
+  }
   else {assert(fabs(clip.size.height-exposed)<.001 && fabs(clip.origin.y)<.001);assert(manager.host.superview==cover && manager.playback.wantsPlayback);
    assert(CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,exposed/2),NO));
    if(exposed<843)assert(!CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,exposed+1),NO));}
   assertSystemTree(cover,original);
  }
+ // 0.0.79: after the debounce window elapses with the sheet still retracted, the
+ // pause lands. This proves the transient hold is bounded and not a leak.
+ sliding.frame=CGRectMake(0,-844,390,844);[manager update];assert(manager.playback.wantsPlayback);
+ [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.35]];
+ [manager update];assert(!manager.playback.wantsPlayback);
+ sliding.frame=CGRectMake(0,0,390,844);[manager update];assert(manager.playback.wantsPlayback);
  // Unknown content and hidden window fail closed, no full-root/window fallback.
  cover.slideableContentView=nil;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);cover.slideableContentView=sliding;
  window.hidden=YES;[manager update];assert(!manager.playback.wantsPlayback);window.hidden=NO;[manager update];assert(manager.playback.wantsPlayback);
