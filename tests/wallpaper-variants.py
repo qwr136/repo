@@ -155,5 +155,5 @@ int main(void) {@autoreleasepool {
 '''
 with tempfile.TemporaryDirectory() as tmp:
  src=Path(tmp)/'variants.mm';out=Path(tmp)/'variants';src.write_text(pre+extra)
- subprocess.run(['clang++','-std=c++11','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','QuartzCore',str(src),'-o',str(out)],check=True)
+ subprocess.run(['clang++','-std=c++11','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(out)],check=True)
  subprocess.run([str(out)],check=True,timeout=30)
