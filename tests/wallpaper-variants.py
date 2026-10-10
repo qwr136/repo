@@ -14,6 +14,9 @@ if platform.system()!='Darwin':
 # Reuse the existing real QuartzCore view doubles (no UIKit on macOS).
 pre=(r/'tests/original-background.m').read_text().split('@interface LMVVideoState : NSObject',1)[0]
 pre=pre.replace('@class UIWindow;','@class UIWindow, UIViewController;')
+pre=pre.replace('- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return rect; }',
+'''- (UIView *)superview { return self.layer.superlayer ? _superview : nil; }
+- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return self.superview ? rect : CGRectNull; }''')
 pre=pre.replace('@property(nonatomic,strong) UIScreen *screen;','@property(nonatomic,strong) UIScreen *screen;\n@property(nonatomic,strong) UIViewController *rootViewController;')
 # Import is resolved from this repository, not the temporary generated file.
 pre=pre.replace('#import "../LMVOriginalBackground.h"','#import "LMVOriginalBackground.h"')
@@ -116,7 +119,16 @@ int main(void) {@autoreleasepool {
  assert(window.layer.sublayers.count==1 && window.layer.sublayers.firstObject==wrapper.layer);
  // Repeated partial-cover layout cannot globally choose Lock content for Home.
  lock.viewIfLoaded.layer.position=CGPointMake(195,-100);home.viewIfLoaded.layer.opacity=.8;
- for(int n=0;n<20;n++) LMVUpdateWallpaperWindows();
+ NSArray *lockLeases=l.leases.copy,*homeLeases=h.leases.copy;
+ assert(((UIView *)lock.viewIfLoaded.subviews.firstObject).superview==nil);
+ assert(CGRectIsNull([lock.viewIfLoaded.subviews.firstObject convertRect:lock.viewIfLoaded.bounds toView:lock.viewIfLoaded]));
+ for(int n=0;n<500;n++) {
+  LMVUpdateWallpaperWindows();
+  assert([l.leases isEqualToArray:lockLeases] && [h.leases isEqualToArray:homeLeases]);
+  assert(l.layer.superlayer==lockOriginal && h.layer.superlayer==homeOriginal);
+  for(LMVOriginalLease *lease in l.leases) assert(!lease.layer.superlayer && !lease.retired);
+  for(LMVOriginalLease *lease in h.leases) assert(!lease.layer.superlayer && !lease.retired);
+ }
  assert(h.layer.contents==(__bridge id)homeImage && h.layer.superlayer==homeOriginal);
  assert(homeOriginal.opacity==.8f && lockOriginal.position.y==-100);
  lockSource.lastImage=newImage;LMVWallpaperPublish(lockSource,newImage);
@@ -145,11 +157,19 @@ int main(void) {@autoreleasepool {
  UIView *previous=home.viewIfLoaded;UIViewController *replacement=variant(window,wrapper,NO);root.childViewControllers=@[lock,replacement];
  LMVUpdateWallpaperWindows();
  assert([previous.layer.sublayers isEqualToArray:homeChildren]);assert(h.host==replacement.viewIfLoaded && h.layer.superlayer==replacement.viewIfLoaded.layer);
+ // True deletion from subviews abandons the removed branch rather than restoring it.
+ LMVWallpaperSurface *updated=[objc_getAssociatedObject(window,&LMVWallpaperSurfaceKey) objectForKey:@"Desktop"];
+ UIView *removed=replacement.viewIfLoaded.subviews.firstObject;CALayer *removedLayer=removed.layer;
+ [replacement.viewIfLoaded.subviews removeObjectIdenticalTo:removed];
+ LMVUpdateWallpaperWindows();assert(updated.leases.count==1 && !removedLayer.superlayer);
+ // A system move belongs to its new parent, and cannot be stolen back or restored.
+ UIView *moved=replacement.viewIfLoaded.subviews.firstObject,*other=[UIView new];[wrapper addSubview:other];[other addSubview:moved];
+ LMVUpdateWallpaperWindows();assert(updated.leases.count==0 && moved.layer.superlayer==other.layer);
  // Missing/unknown controller never causes global root layer fallback.
  root.childViewControllers=@[];LMVUpdateWallpaperWindows();assert(![objc_getAssociatedObject(window,&LMVWallpaperSurfaceKey) count]);
  assert(window.layer.sublayers.count==1);
  CGImageRelease(lockImage);CGImageRelease(homeImage);CGImageRelease(newImage);
- puts("PASS: actual variant module with real QuartzCore: independent Lock/Home backgrounds, no root-window video, wrapper identity/transform retained, partial cover isolation, same-file independent source pause, cold replacement, independent disable/restore, reinsert and root replacement; not device portal proof");
+ puts("PASS: actual variant module with real QuartzCore: 500 detached-UIKit feedback updates with stable lease identity; real deletion/reparenting honored; independent Lock/Home backgrounds, no root-window video, wrapper identity/transform retained, partial cover isolation, same-file independent source pause, cold replacement, independent disable/restore, reinsert and root replacement; not device portal proof");
  (void)lockState;
 }return 0;}
 '''

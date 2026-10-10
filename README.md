@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.68
+
+- 修复 0.0.67 锁屏、桌面视频与原壁纸反复切换：已移除的分支按保存的原父层、scope、宿主和视图身份续租，不再用脱层后的 superview 或坐标转换重新判定候选。
+- 保留锁屏/桌面独立播放器、解码器、播放时间和各自壁纸容器。关闭或换素材仍恢复有效的原背景；系统真实删除或换父层时放弃旧归属，不复活/抢回系统对象。
+- 新回归测试模拟真机“移除 layer 后 superview=nil、坐标转换失效”，连续更新 500 次验证租约和视频层不闪回；同时验证真实删除、换父层、关闭、换素材、换控制器和独立解码。
+- 这是层生命周期修复，不拦截系统静态壁纸文件读取；真机 portal/转场结果仍需测试。
+
 ## 0.0.67
 
 - 修复下拉通知中心时锁屏视频串到桌面：不再在壁纸窗口根层切换 Lock/Home；按实际 PBUIPosterLockViewController 与 PBUIPosterHomeViewController 分别替换背景绘制分支，保留系统变换、转场和镜像宿主。
