@@ -15,7 +15,7 @@ if platform.system()!='Darwin':
 pre=(r/'tests/original-background.m').read_text().split('@interface LMVVideoState : NSObject',1)[0]
 pre=pre.replace('@class UIWindow;','@class UIWindow, UIViewController;')
 pre=pre.replace('- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return rect; }',
-'''- (UIView *)superview { return self.layer.superlayer ? _superview : nil; }
+'''- (UIView *)superview { return _layer.superlayer ? _superview : nil; }
 - (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return self.superview ? rect : CGRectNull; }''')
 pre=pre.replace('@property(nonatomic,strong) UIScreen *screen;','@property(nonatomic,strong) UIScreen *screen;\n@property(nonatomic,strong) UIViewController *rootViewController;')
 # Import is resolved from this repository, not the temporary generated file.

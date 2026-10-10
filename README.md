@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.71
+
+- 针对 SpringBoard-2026-10-10-101258.ips（iOS16.5、arm64e）：二进制 UUID 7B7465E3-19CA-33CC-952D-C86DFFF9096C 与 0.0.70 完全匹配；插件偏移 0x2cb20 的调用点在背景安全检查的 layer getter 返回值 retain，调用方来自通知中心壁纸更新。
+- 已接管的背景不再重新进入效果视图检查或调用其 layer getter，维护和恢复使用保存的图层/视图身份；诊断也跳过 owned-offline 视图的 layer 读取。此修复移除已定位的重复访问路径，不能单凭报告确认原 getter 返回失效的全部原因。
+- 修正 surface dealloc 清理，不向 strong ARC C 函数传递正在析构的 self；保留原图层归属校验与逆序恢复。
+- 新测试令已脱层 SBWallpaperEffectView 的 layer getter 抛异常，要求 100 次下拉刷新/显示隔离/关闭恢复零访问，并验证 live-lease surface 析构正确恢复且不复活对象。独立解码和显示范围修复保持。
+
 ## 0.0.70
 
 - 修正 0.0.69 下拉/收回通知中心时锁屏视频覆盖露出桌面的问题：不再把背景容器 bounds 当作通知中心露出范围，改用已有 CoverSheet 内容视图及动画中的真实可见矩形。

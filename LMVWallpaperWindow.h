@@ -5,6 +5,7 @@
 static char LMVWallpaperSurfaceKey;
 static NSHashTable<UIWindow *> *LMVWallpaperWindows;
 static BOOL LMVWallpaperUpdating;
+static NSHashTable<UIView *> *LMVWallpaperOfflineViews;
 // Display ownership persists across wallpaper-source refreshes during an NC pull.
 static BOOL LMVLockWallpaperReplicaOwnsDisplay;
 @interface LMVWallpaperSurface : NSObject
@@ -17,7 +18,27 @@ static BOOL LMVLockWallpaperReplicaOwnsDisplay;
 @end
 static void LMVWallpaperRetireSurface(LMVWallpaperSurface *surface);
 @implementation LMVWallpaperSurface
-- (void)dealloc { LMVWallpaperRetireSurface(self); }
+- (void)dealloc {
+    // Never pass a deallocating self to a C helper with strong ARC parameters.
+    // Validate saved membership without consulting the detached UIView.layer.
+    [_layer removeFromSuperlayer];
+    UIView *host=_host;
+    for (LMVOriginalLease *lease in _leases.reverseObjectEnumerator) {
+        UIView *view=[_originalViews objectForKey:lease.layer];
+        BOOL original=host && view && !lease.retired && lease.parent==host.layer &&
+            lease.scope==host.layer && lease.anchor==host.layer &&
+            [host.subviews indexOfObjectIdenticalTo:view]!=NSNotFound &&
+            (!lease.layer.superlayer || lease.layer.superlayer==lease.parent);
+        if (!original) {
+            lease.retired=YES;
+            if ([LMVOriginalLeases() objectForKey:lease.layer]==lease)
+                [LMVOriginalLeases() removeObjectForKey:lease.layer];
+            lease.offlineLayer=nil;
+        }
+        [LMVWallpaperOfflineViews removeObject:view];
+        [lease releaseOwner:self];
+    }
+}
 @end
 static NSString *LMVWallpaperVariantTarget(UIViewController *controller) {
     Class lock=NSClassFromString(@"PBUIPosterLockViewController");
@@ -71,14 +92,14 @@ static id LMVWallpaperFrameForTarget(NSString *target, NSString *path, NSString 
 static BOOL LMVWallpaperLeaseBelongs(LMVOriginalLease *lease, LMVWallpaperSurface *surface) {
     UIView *host=surface.host;
     UIView *view=[surface.originalViews objectForKey:lease.layer];
-    return host && view && view.layer==lease.layer && !lease.retired &&
+    return host && view && lease.layer && !lease.retired &&
         lease.method==LMVOriginalDetach && lease.parent==host.layer &&
         lease.scope==host.layer && lease.anchor==host.layer &&
         [host.subviews indexOfObjectIdenticalTo:view]!=NSNotFound &&
-        (!view.superview || view.superview==host) &&
         (!lease.layer.superlayer || lease.layer.superlayer==lease.parent);
 }
 static void LMVWallpaperReleaseLease(LMVOriginalLease *lease, LMVWallpaperSurface *surface) {
+    [LMVWallpaperOfflineViews removeObject:[surface.originalViews objectForKey:lease.layer]];
     if (LMVWallpaperLeaseBelongs(lease,surface)) [lease releaseOwner:surface];
     else {
         // The system deleted/reparented this view: do not resurrect it in the
@@ -160,15 +181,22 @@ static BOOL LMVWallpaperUpdateVariant(UIView *host, NSString *target, LMVWallpap
     NSMutableArray<UIView *> *branches=[NSMutableArray new];
     for (UIView *branch in host.subviews) {
         BOOL owned=NO;
-        for (LMVOriginalLease *lease in live) if (lease.layer==branch.layer) { owned=YES; break; }
-        if (owned || LMVWallpaperDrawingBranch(branch,host)) [branches addObject:branch];
+        // A saved view identity can be found without sending layer to an offline
+        // UIKit view. Getter side effects on detached system views are unsafe.
+        for (LMVOriginalLease *lease in live)
+            if ([surface.originalViews objectForKey:lease.layer]==branch) { owned=YES; break; }
+        if (!owned && LMVWallpaperDrawingBranch(branch,host)) [branches addObject:branch];
     }
     for (UIView *branch in branches) {
         BOOL held=NO;
         for (LMVOriginalLease *lease in live) if (lease.layer==branch.layer) { held=YES; break; }
         if (held) continue;
         LMVOriginalLease *lease=LMVAcquireOriginal(branch.layer,parent,LMVOriginalDetach,surface);
-        if (lease) { lease.anchor=host.layer; [surface.originalViews setObject:branch forKey:lease.layer]; [live addObject:lease]; }
+        if (lease) {
+            lease.anchor=host.layer; [surface.originalViews setObject:branch forKey:lease.layer]; [live addObject:lease];
+            if (!LMVWallpaperOfflineViews) LMVWallpaperOfflineViews=[NSHashTable weakObjectsHashTable];
+            [LMVWallpaperOfflineViews addObject:branch];
+        }
     }
     surface.leases=live;
     if (!live.count) {

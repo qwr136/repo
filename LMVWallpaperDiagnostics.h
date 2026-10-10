@@ -32,6 +32,10 @@ static void LMVWallpaperDiagnosticLayers(CALayer *layer, NSUInteger depth, NSUIn
 static void LMVWallpaperDiagnosticViews(UIView *view, NSUInteger depth, NSUInteger *budget, NSUInteger *layerBudget) {
     if (!view || !*budget || depth > 10) return;
     --*budget;
+    if ([LMVWallpaperOfflineViews containsObject:view]) {
+        LMVDiagnostic([NSString stringWithFormat:@"wallpaper-view depth=%lu class=%@ state=owned-offline layerGetter=skipped", (unsigned long)depth, NSStringFromClass(view.class)]);
+        return;
+    }
     UIResponder *responder = view.nextResponder;
     for (NSUInteger n = 0; responder && n < 12 && ![responder isKindOfClass:UIViewController.class]; n++)
         responder = responder.nextResponder;

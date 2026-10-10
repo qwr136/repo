@@ -28,7 +28,7 @@ pre=pre.replace('@class UIWindow;','@class UIWindow, UIViewController;')
 pre=pre.replace('#import "../LMVOriginalBackground.h"','#import "LMVOriginalBackground.h"')
 pre=pre.replace('@property(nonatomic,strong) UIScreen *screen;','@property(nonatomic,strong) UIScreen *screen;\n@property(nonatomic,strong) UIViewController *rootViewController;')
 pre=pre.replace('@property(nonatomic) CGRect bounds;','@property(nonatomic) CGRect bounds,frame;')
-pre=pre.replace('- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return rect; }', '''- (UIView *)superview { return self.layer.superlayer ? _superview : nil; }
+pre=pre.replace('- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return rect; }', '''- (UIView *)superview { return _layer.superlayer ? _superview : nil; }
 - (CGRect)frame { return self.layer.frame; }
 - (void)setFrame:(CGRect)frame { self.layer.frame=frame; }
 - (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return self.superview ? [self.layer convertRect:rect toLayer:view.layer] : CGRectNull; }''')
@@ -43,8 +43,22 @@ new=r'''
 @implementation CSCoverSheetView @end
 @interface SBCoverSheetPanelBackgroundContainerView:UIView @end
 @implementation SBCoverSheetPanelBackgroundContainerView @end
-@interface SBWallpaperEffectView:UIView @end
-@implementation SBWallpaperEffectView @end
+static NSUInteger offlineLayerReads;
+static BOOL protectOfflineGetter;
+@interface SBWallpaperEffectView:UIView
+- (CALayer *)rawLayer;
+@end
+@implementation SBWallpaperEffectView
+- (CALayer *)rawLayer { return [super layer]; }
+- (CALayer *)layer {
+    CALayer *layer=[super layer];
+    if (protectOfflineGetter && layer && !layer.superlayer && self.window) {
+        offlineLayerReads++;
+        [NSException raise:@"OfflineLayerGetter" format:@"detached effect layer getter called"];
+    }
+    return layer;
+}
+@end
 @interface PBUIWallpaperView:UIView @end
 @implementation PBUIWallpaperView @end
 #import "LMVNotificationWallpaper.h"
@@ -73,7 +87,7 @@ int main(void) {@autoreleasepool {
  SBWallpaperEffectView *effect=[SBWallpaperEffectView new];[panel addSubview:effect];geometry(effect,panel.bounds);
  effect.alpha=0;PBUIWallpaperView *wall=[PBUIWallpaperView new];[effect addSubview:wall];geometry(wall,panel.bounds);
  UILabel *foreground=[UILabel new];[panel addSubview:foreground];geometry(foreground,CGRectMake(0,10,120,40));
- NSArray *original=panel.layer.sublayers.copy;CALayer *contentLayer=foreground.layer;
+ NSArray *original=panel.layer.sublayers.copy;CALayer *contentLayer=foreground.layer;CALayer *effectLayer=[effect rawLayer];
  UIWindowScene *scene=[UIWindowScene new];scene.windows=@[window];UIApplication.sharedApplication.connectedScenes=@[scene];
  assert(!LMVNotificationWallpaperVisible());
  // First exposed strip already has the video; no progress=1 or full-screen gate.
@@ -82,7 +96,8 @@ int main(void) {@autoreleasepool {
  LMVUpdateNotificationWallpapers();
  NSArray *surfaces=objc_getAssociatedObject(window,&LMVNCWallpaperKey);assert(surfaces.count==1);
  LMVWallpaperSurface *surface=surfaces.firstObject;
- assert(surface.layer.superlayer==panel.layer && surface.leases.count==1 && !effect.layer.superlayer);
+ assert(surface.layer.superlayer==panel.layer && surface.leases.count==1 && !effectLayer.superlayer);
+ protectOfflineGetter=YES;
  assert(surface.layer.contents==(__bridge id)first && foreground.layer==contentLayer && contentLayer.superlayer==panel.layer);
  assert(visibleAt(surface,CGPointMake(100,10)) && !visibleAt(surface,CGPointMake(100,30)));
  // Partial pull must not draw lock pixels behind still-exposed desktop icons.
@@ -104,7 +119,7 @@ int main(void) {@autoreleasepool {
   assert(visibleAt(surface,CGPointMake(100,boundary-1)));
   assert(!visibleAt(surface,CGPointMake(100,boundary+2)));
   assert(!homeVideo.layer.hidden && lockVideo.layer.hidden);
-  assert(surface.layer.superlayer==panel.layer && surface.leases.firstObject==lease && !effect.layer.superlayer);
+  assert(surface.layer.superlayer==panel.layer && surface.leases.firstObject==lease && !effectLayer.superlayer);
   assert(surface.layer.frame.size.height==844 && !foreground.hidden && foreground.layer.opacity==1);
  }
  // A scaled background parent must not scale the screen-space clip or leak Lock.
@@ -128,7 +143,18 @@ int main(void) {@autoreleasepool {
  // Enable again with effect alpha still zero: own video is a sibling and remains visible.
  LMVEnabled[@"LockScreen"]=@YES;geometry(content,CGRectMake(0,-422,390,844));geometry(panel,window.bounds);LMVUpdateNotificationWallpapers();
  surface=[objc_getAssociatedObject(window,&LMVNCWallpaperKey) firstObject];assert(surface.layer.contents && surface.layer.opacity>0 && effect.alpha==0);
- window.hidden=YES;LMVUpdateNotificationWallpapers();assert(effect.layer.superlayer==panel.layer && !surface.layer.superlayer && !lockVideo.layer.hidden && !homeVideo.layer.hidden);
+ window.hidden=YES;LMVUpdateNotificationWallpapers();assert(effectLayer.superlayer==panel.layer && !surface.layer.superlayer && !lockVideo.layer.hidden && !homeVideo.layer.hidden);
+ // A deallocation with live leases must restore once without retaining self.
+ window.hidden=NO;LMVEnabled[@"LockScreen"]=@YES;LMVUpdateNotificationWallpapers();
+ __weak LMVWallpaperSurface *weakSurface;
+ @autoreleasepool {
+     NSArray *owned=objc_getAssociatedObject(window,&LMVNCWallpaperKey);
+     surface=owned.firstObject;weakSurface=surface;
+     objc_setAssociatedObject(window,&LMVNCWallpaperKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+     surface=nil;
+ }
+ assert(!weakSurface && effectLayer.superlayer==panel.layer);
+ assert(offlineLayerReads==0);
  CGImageRelease(first);CGImageRelease(second);
  puts("PASS: actual NC background module: independently moving panel/content, zero Lock overdraw outside exposed strip, first strip ready, 100 partial-pull/cancel positions and stable lease, Home layer untouched, no duplicate Poster Lock drawing, foreground preserved, Lock-only frames, cancellation offscreen, disable/hidden restore; not device portal proof");
 }return 0;}

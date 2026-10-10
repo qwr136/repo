@@ -6,10 +6,18 @@
 static char LMVNCWallpaperKey;
 static NSHashTable<UIWindow *> *LMVNCWallpaperWindows;
 static BOOL LMVNCWallpaperUpdating;
-static UIView *LMVNCWallpaperFindEffect(UIView *panel) {
+static UIView *LMVNCWallpaperFindEffect(UIView *panel, LMVWallpaperSurface *surface) {
     Class effect=NSClassFromString(@"SBWallpaperEffectView");
-    for (UIView *child in panel.subviews)
-        if (effect && [child isKindOfClass:effect] && LMVBackgroundOnlyView(child)) return child;
+    for (UIView *child in panel.subviews) {
+        if (!effect || ![child isKindOfClass:effect]) continue;
+        BOOL owned=NO;
+        for (LMVOriginalLease *lease in surface.leases)
+            if ([surface.originalViews objectForKey:lease.layer]==child) { owned=YES; break; }
+        // Offline views are maintained only through saved layer ownership. Never
+        // walk their backing layer/material implementation after detach.
+        if (owned) continue;
+        if (child.superview==panel && LMVBackgroundOnlyView(child)) return child;
+    }
     return nil;
 }
 static void LMVNCWallpaperFindPanels(UIView *view, NSMutableArray<UIView *> *panels,
@@ -152,7 +160,8 @@ static void LMVNCWallpaperUpdatePanel(UIView *panel, LMVWallpaperSurface *surfac
         if (LMVWallpaperLeaseBelongs(lease,surface) && [lease maintain]) [live addObject:lease];
         else LMVWallpaperReleaseLease(lease,surface);
     }
-    UIView *effect=LMVNCWallpaperFindEffect(panel);
+    surface.leases=live;
+    UIView *effect=LMVNCWallpaperFindEffect(panel,surface);
     if (effect) {
         BOOL held=NO;for (LMVOriginalLease *lease in live) if (lease.layer==effect.layer) {held=YES;break;}
         // A fresh unowned effect must belong to this exact panel, cover its
@@ -169,7 +178,11 @@ static void LMVNCWallpaperUpdatePanel(UIView *panel, LMVWallpaperSurface *surfac
             CGRect overlap=CGRectIntersection(rect,panel.bounds);CGFloat full=panel.bounds.size.width*panel.bounds.size.height;
             if (confirmed && full>0 && !CGRectIsNull(overlap) && overlap.size.width*overlap.size.height/full>=.85) {
                 LMVOriginalLease *lease=LMVAcquireOriginal(effect.layer,panel.layer,LMVOriginalDetach,surface);
-                if (lease) {lease.anchor=panel.layer;[surface.originalViews setObject:effect forKey:lease.layer];[live addObject:lease];}
+                if (lease) {
+                    lease.anchor=panel.layer;[surface.originalViews setObject:effect forKey:lease.layer];[live addObject:lease];
+                    if (!LMVWallpaperOfflineViews) LMVWallpaperOfflineViews=[NSHashTable weakObjectsHashTable];
+                    [LMVWallpaperOfflineViews addObject:effect];
+                }
             }
         }
     }
