@@ -13,8 +13,8 @@ static UIView *LMVNCWallpaperFindEffect(UIView *panel, LMVWallpaperSurface *surf
         BOOL owned=NO;
         for (LMVOriginalLease *lease in surface.leases)
             if ([surface.originalViews objectForKey:lease.layer]==child) { owned=YES; break; }
-        // Offline views are maintained only through saved layer ownership. Never
-        // walk their backing layer/material implementation after detach.
+        // Leased background drawing is maintained through saved layer ownership.
+        // Its UIView backing layer stays attached; no offline UIKit subtree.
         if (owned) continue;
         if (child.superview==panel && LMVBackgroundOnlyView(child)) return child;
     }
@@ -177,11 +177,9 @@ static void LMVNCWallpaperUpdatePanel(UIView *panel, LMVWallpaperSurface *surfac
             CGRect rect=[effect convertRect:effect.bounds toView:panel];
             CGRect overlap=CGRectIntersection(rect,panel.bounds);CGFloat full=panel.bounds.size.width*panel.bounds.size.height;
             if (confirmed && full>0 && !CGRectIsNull(overlap) && overlap.size.width*overlap.size.height/full>=.85) {
-                LMVOriginalLease *lease=LMVAcquireOriginal(effect.layer,panel.layer,LMVOriginalDetach,surface);
+                LMVOriginalLease *lease=LMVAcquireOriginal(effect.layer,panel.layer,LMVOriginalSuppressDrawing,surface);
                 if (lease) {
                     lease.anchor=panel.layer;[surface.originalViews setObject:effect forKey:lease.layer];[live addObject:lease];
-                    if (!LMVWallpaperOfflineViews) LMVWallpaperOfflineViews=[NSHashTable weakObjectsHashTable];
-                    [LMVWallpaperOfflineViews addObject:effect];
                 }
             }
         }

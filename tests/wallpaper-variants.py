@@ -7,6 +7,7 @@ assert 'PBUIPosterLockViewController' in h and 'PBUIPosterHomeViewController' in
 assert 'viewIfLoaded' in h and 'CALayer *parent=host.layer' in h
 assert 'LMVWallpaperTargetConsumes(surface.target,source)' in h
 assert 'surface.layer.contents=nil' in h and 'LMVWallpaperUpdating' in h
+assert 'LMVOriginalDetach' not in h and 'LMVOriginalSuppressDrawing' in h
 assert 'state.layer.hidden = !activity.draw; state.active = NO;' not in s
 if platform.system()!='Darwin':
  print('PASS: independent variant roots/frames; real QuartzCore replacement test on macOS CI')
@@ -20,6 +21,8 @@ pre=pre.replace('- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { retu
 pre=pre.replace('@property(nonatomic,strong) UIScreen *screen;','@property(nonatomic,strong) UIScreen *screen;\n@property(nonatomic,strong) UIViewController *rootViewController;')
 # Import is resolved from this repository, not the temporary generated file.
 pre=pre.replace('#import "../LMVOriginalBackground.h"','#import "LMVOriginalBackground.h"')
+pre=pre.replace('@implementation UIView\n', '@implementation UIView\n- (NSMutableArray *)subviews {\n    for (UIView *child in _subviews) assert(child.layer.superlayer==_layer);\n    return _subviews;\n}\n')
+
 extra=r'''
 @interface UIViewController:NSObject
 @property(nonatomic,strong) UIView *viewIfLoaded;
@@ -120,14 +123,18 @@ int main(void) {@autoreleasepool {
  // Repeated partial-cover layout cannot globally choose Lock content for Home.
  lock.viewIfLoaded.layer.position=CGPointMake(195,-100);home.viewIfLoaded.layer.opacity=.8;
  NSArray *lockLeases=l.leases.copy,*homeLeases=h.leases.copy;
- assert(((UIView *)lock.viewIfLoaded.subviews.firstObject).superview==nil);
- assert(CGRectIsNull([lock.viewIfLoaded.subviews.firstObject convertRect:lock.viewIfLoaded.bounds toView:lock.viewIfLoaded]));
+ assert(((UIView *)lock.viewIfLoaded.subviews.firstObject).superview==lock.viewIfLoaded);
+ assert(!CGRectIsNull([lock.viewIfLoaded.subviews.firstObject convertRect:lock.viewIfLoaded.bounds toView:lock.viewIfLoaded]));
  for(int n=0;n<500;n++) {
   LMVUpdateWallpaperWindows();
   assert([l.leases isEqualToArray:lockLeases] && [h.leases isEqualToArray:homeLeases]);
   assert(l.layer.superlayer==lockOriginal && h.layer.superlayer==homeOriginal);
-  for(LMVOriginalLease *lease in l.leases) assert(!lease.layer.superlayer && !lease.retired);
-  for(LMVOriginalLease *lease in h.leases) assert(!lease.layer.superlayer && !lease.retired);
+  for(LMVOriginalLease *lease in l.leases) assert(lease.layer.superlayer==lockOriginal && lease.layer.opacity==0 && !lease.retired);
+  for(LMVOriginalLease *lease in h.leases) assert(lease.layer.superlayer==homeOriginal && lease.layer.opacity==0 && !lease.retired);
+  // Mirror UIKit's subviews/content-scroll heuristics: every child view keeps its
+  // backing layer and delegate in the parent's layer hierarchy.
+  for (UIView *v in lock.viewIfLoaded.subviews) assert(v.layer.superlayer==lockOriginal && v.layer.delegate==v);
+  for (UIView *v in home.viewIfLoaded.subviews) assert(v.layer.superlayer==homeOriginal && v.layer.delegate==v);
  }
  assert(h.layer.contents==(__bridge id)homeImage && h.layer.superlayer==homeOriginal);
  assert(homeOriginal.opacity==.8f && lockOriginal.position.y==-100);
@@ -150,26 +157,31 @@ int main(void) {@autoreleasepool {
  LMVEnabled[@"LockScreen"]=@NO;LMVUpdateWallpaperWindows();
  assert(![objc_getAssociatedObject(window,&LMVWallpaperSurfaceKey) objectForKey:@"LockScreen"]);
  assert([lockOriginal.sublayers isEqualToArray:lockChildren]);assert(h.layer.superlayer==homeOriginal && h.leases.count==2);
- // Reinserted original during layout is removed again only in original scope.
- [homeOriginal addSublayer:homeChildren.firstObject];LMVUpdateWallpaperWindows();
- assert(((CALayer *)homeChildren.firstObject).superlayer==nil && h.leases.count==2);
+ // System updates original drawing: reassert suppression without moving it.
+ NSArray *orderBefore=homeOriginal.sublayers.copy;
+ ((CALayer *)homeChildren.firstObject).opacity=.8;LMVUpdateWallpaperWindows();
+ assert([homeOriginal.sublayers isEqualToArray:orderBefore]);
+ assert(((CALayer *)homeChildren.firstObject).superlayer==homeOriginal && ((CALayer *)homeChildren.firstObject).opacity==0 && h.leases.count==2);
  // Replace Home controller root: old layers restore, new host gets own leases.
  UIView *previous=home.viewIfLoaded;UIViewController *replacement=variant(window,wrapper,NO);root.childViewControllers=@[lock,replacement];
  LMVUpdateWallpaperWindows();
  assert([previous.layer.sublayers isEqualToArray:homeChildren]);assert(h.host==replacement.viewIfLoaded && h.layer.superlayer==replacement.viewIfLoaded.layer);
+ assert(((CALayer *)homeChildren.firstObject).opacity==.8f);
  // True deletion from subviews abandons the removed branch rather than restoring it.
  LMVWallpaperSurface *updated=[objc_getAssociatedObject(window,&LMVWallpaperSurfaceKey) objectForKey:@"Desktop"];
  UIView *removed=replacement.viewIfLoaded.subviews.firstObject;CALayer *removedLayer=removed.layer;
- [replacement.viewIfLoaded.subviews removeObjectIdenticalTo:removed];
- LMVUpdateWallpaperWindows();assert(updated.leases.count==1 && !removedLayer.superlayer);
+ [replacement.viewIfLoaded.subviews removeObjectIdenticalTo:removed];[removedLayer removeFromSuperlayer];
+ LMVUpdateWallpaperWindows();assert(updated.leases.count==1 && !removedLayer.superlayer && removedLayer.opacity==1);
  // A system move belongs to its new parent, and cannot be stolen back or restored.
- UIView *moved=replacement.viewIfLoaded.subviews.firstObject,*other=[UIView new];[wrapper addSubview:other];[other addSubview:moved];
+ UIView *moved=replacement.viewIfLoaded.subviews.firstObject,*other=[UIView new];
+ [replacement.viewIfLoaded.subviews removeObjectIdenticalTo:moved];[moved.layer removeFromSuperlayer];
+ [wrapper addSubview:other];[other addSubview:moved];
  LMVUpdateWallpaperWindows();assert(updated.leases.count==0 && moved.layer.superlayer==other.layer);
  // Missing/unknown controller never causes global root layer fallback.
  root.childViewControllers=@[];LMVUpdateWallpaperWindows();assert(![objc_getAssociatedObject(window,&LMVWallpaperSurfaceKey) count]);
  assert(window.layer.sublayers.count==1);
  CGImageRelease(lockImage);CGImageRelease(homeImage);CGImageRelease(newImage);
- puts("PASS: actual variant module with real QuartzCore: 500 detached-UIKit feedback updates with stable lease identity; real deletion/reparenting honored; independent Lock/Home backgrounds, no root-window video, wrapper identity/transform retained, partial cover isolation, same-file independent source pause, cold replacement, independent disable/restore, reinsert and root replacement; not device portal proof");
+ puts("PASS: actual variant module with real QuartzCore: 500 UIKit backing-hierarchy consistency updates with stable suppression identity; real deletion/reparenting honored; independent Lock/Home backgrounds, no root-window video, wrapper identity/transform retained, partial cover isolation, same-file independent source pause, cold replacement, independent disable/restore, reinsert and root replacement; not device portal proof");
  (void)lockState;
 }return 0;}
 '''

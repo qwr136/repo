@@ -3,7 +3,9 @@ import platform,subprocess,tempfile
 r=Path(__file__).resolve().parents[1]
 h=(r/'LMVNotificationWallpaper.h').read_text();s=(r/'Tweak.xm').read_text()
 assert 'SBWallpaperEffectView' in h and 'SBCoverSheetPanelBackgroundContainerView' in h
-assert 'PBUIWallpaperView' in h and 'LMVOriginalDetach' in h
+assert 'PBUIWallpaperView' in h and 'LMVOriginalSuppressDrawing' in h
+assert 'LMVOriginalDetach' not in h
+assert 'LMVOriginalDetach' not in (r/'LMVWallpaperWindow.h').read_text()
 assert 'LMVNCExposedRect(window)' in h and 'surface.layer.mask=mask' in h
 assert 'slideableContentView' in h and 'home-overdraw=blocked' in h
 assert 'insertSublayer:surface.layer atIndex:0' in h
@@ -26,6 +28,8 @@ extra=extra[:extra.index('int main(void)')]
 pre=(r/'tests/original-background.m').read_text().split('@interface LMVVideoState : NSObject',1)[0]
 pre=pre.replace('@class UIWindow;','@class UIWindow, UIViewController;')
 pre=pre.replace('#import "../LMVOriginalBackground.h"','#import "LMVOriginalBackground.h"')
+pre=pre.replace('@implementation UIView\n', '@implementation UIView\n- (NSMutableArray *)subviews {\n    for (UIView *child in _subviews) assert(child.layer.superlayer==_layer);\n    return _subviews;\n}\n')
+
 pre=pre.replace('@property(nonatomic,strong) UIScreen *screen;','@property(nonatomic,strong) UIScreen *screen;\n@property(nonatomic,strong) UIViewController *rootViewController;')
 pre=pre.replace('@property(nonatomic) CGRect bounds;','@property(nonatomic) CGRect bounds,frame;')
 pre=pre.replace('- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view { return rect; }', '''- (UIView *)superview { return _layer.superlayer ? _superview : nil; }
@@ -96,7 +100,7 @@ int main(void) {@autoreleasepool {
  LMVUpdateNotificationWallpapers();
  NSArray *surfaces=objc_getAssociatedObject(window,&LMVNCWallpaperKey);assert(surfaces.count==1);
  LMVWallpaperSurface *surface=surfaces.firstObject;
- assert(surface.layer.superlayer==panel.layer && surface.leases.count==1 && !effectLayer.superlayer);
+ assert(surface.layer.superlayer==panel.layer && surface.leases.count==1 && effectLayer.superlayer==panel.layer);
  protectOfflineGetter=YES;
  assert(surface.layer.contents==(__bridge id)first && foreground.layer==contentLayer && contentLayer.superlayer==panel.layer);
  assert(visibleAt(surface,CGPointMake(100,10)) && !visibleAt(surface,CGPointMake(100,30)));
@@ -119,7 +123,7 @@ int main(void) {@autoreleasepool {
   assert(visibleAt(surface,CGPointMake(100,boundary-1)));
   assert(!visibleAt(surface,CGPointMake(100,boundary+2)));
   assert(!homeVideo.layer.hidden && lockVideo.layer.hidden);
-  assert(surface.layer.superlayer==panel.layer && surface.leases.firstObject==lease && !effectLayer.superlayer);
+  assert(surface.layer.superlayer==panel.layer && surface.leases.firstObject==lease && effectLayer.superlayer==panel.layer);
   assert(surface.layer.frame.size.height==844 && !foreground.hidden && foreground.layer.opacity==1);
  }
  // A scaled background parent must not scale the screen-space clip or leak Lock.
@@ -155,8 +159,9 @@ int main(void) {@autoreleasepool {
  }
  assert(!weakSurface && effectLayer.superlayer==panel.layer);
  assert(offlineLayerReads==0);
+ for(UIView *v in panel.subviews) assert(v.layer.superlayer==panel.layer && v.layer.delegate==v);
  CGImageRelease(first);CGImageRelease(second);
- puts("PASS: actual NC background module: independently moving panel/content, zero Lock overdraw outside exposed strip, first strip ready, 100 partial-pull/cancel positions and stable lease, Home layer untouched, no duplicate Poster Lock drawing, foreground preserved, Lock-only frames, cancellation offscreen, disable/hidden restore; not device portal proof");
+ puts("PASS: actual NC background module: independently moving panel/content, zero Lock overdraw outside exposed strip, first strip ready, 100 partial-pull/cancel positions and stable attached-backing suppression lease, Home layer untouched, no duplicate Poster Lock drawing, foreground preserved, Lock-only frames, cancellation offscreen, disable/hidden restore; not device portal proof");
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as tmp:

@@ -5,6 +5,7 @@
 static char LMVWallpaperSurfaceKey;
 static NSHashTable<UIWindow *> *LMVWallpaperWindows;
 static BOOL LMVWallpaperUpdating;
+// Compatibility for read-only old diagnostic checks; .72 never puts backing views offline.
 static NSHashTable<UIView *> *LMVWallpaperOfflineViews;
 // Display ownership persists across wallpaper-source refreshes during an NC pull.
 static BOOL LMVLockWallpaperReplicaOwnsDisplay;
@@ -19,26 +20,12 @@ static BOOL LMVLockWallpaperReplicaOwnsDisplay;
 static void LMVWallpaperRetireSurface(LMVWallpaperSurface *surface);
 @implementation LMVWallpaperSurface
 - (void)dealloc {
-    // Never pass a deallocating self to a C helper with strong ARC parameters.
-    // Validate saved membership without consulting the detached UIView.layer.
+    // Original UIView backing layers remain attached. Releasing suppression only
+    // restores drawing opacity and never edits UIKit's subview/backing tree.
     [_layer removeFromSuperlayer];
-    UIView *host=_host;
-    for (LMVOriginalLease *lease in _leases.reverseObjectEnumerator) {
-        UIView *view=[_originalViews objectForKey:lease.layer];
-        BOOL original=host && view && !lease.retired && lease.parent==host.layer &&
-            lease.scope==host.layer && lease.anchor==host.layer &&
-            [host.subviews indexOfObjectIdenticalTo:view]!=NSNotFound &&
-            (!lease.layer.superlayer || lease.layer.superlayer==lease.parent);
-        if (!original) {
-            lease.retired=YES;
-            if ([LMVOriginalLeases() objectForKey:lease.layer]==lease)
-                [LMVOriginalLeases() removeObjectForKey:lease.layer];
-            lease.offlineLayer=nil;
-        }
-        [LMVWallpaperOfflineViews removeObject:view];
-        [lease releaseOwner:self];
-    }
+    for (LMVOriginalLease *lease in _leases.reverseObjectEnumerator) [lease releaseOwner:self];
 }
+
 @end
 static NSString *LMVWallpaperVariantTarget(UIViewController *controller) {
     Class lock=NSClassFromString(@"PBUIPosterLockViewController");
@@ -93,25 +80,15 @@ static BOOL LMVWallpaperLeaseBelongs(LMVOriginalLease *lease, LMVWallpaperSurfac
     UIView *host=surface.host;
     UIView *view=[surface.originalViews objectForKey:lease.layer];
     return host && view && lease.layer && !lease.retired &&
-        lease.method==LMVOriginalDetach && lease.parent==host.layer &&
+        lease.method==LMVOriginalSuppressDrawing && lease.parent==host.layer &&
         lease.scope==host.layer && lease.anchor==host.layer &&
         [host.subviews indexOfObjectIdenticalTo:view]!=NSNotFound &&
-        (!lease.layer.superlayer || lease.layer.superlayer==lease.parent);
+        lease.layer.superlayer==lease.parent;
 }
 static void LMVWallpaperReleaseLease(LMVOriginalLease *lease, LMVWallpaperSurface *surface) {
-    [LMVWallpaperOfflineViews removeObject:[surface.originalViews objectForKey:lease.layer]];
-    if (LMVWallpaperLeaseBelongs(lease,surface)) [lease releaseOwner:surface];
-    else {
-        // The system deleted/reparented this view: do not resurrect it in the
-        // old parent. Our wallpaper leases are exclusive; respect other owners.
-        [lease.owners removeObject:surface];
-        if (!lease.owners.allObjects.count) {
-            lease.retired=YES;
-            if ([LMVOriginalLeases() objectForKey:lease.layer]==lease)
-                [LMVOriginalLeases() removeObjectForKey:lease.layer];
-            lease.offlineLayer=nil;
-        }
-    }
+    // Suppression never moves the original backing layer. On deletion/reparenting
+    // restore its own drawing value only; leave its new parent/order untouched.
+    [lease releaseOwner:surface];
 }
 static void LMVWallpaperRetireSurface(LMVWallpaperSurface *surface) {
     if (!surface) return;
@@ -162,14 +139,15 @@ static BOOL LMVWallpaperUpdateVariant(UIView *host, NSString *target, LMVWallpap
     }
     surface.target=target;
     CALayer *parent=host.layer;
-    // Retain Lock/Home roots: system transitions and portals keep their original
-    // source layer identities. Only their confirmed wallpaper drawing children
-    // detach, so replacing Lock cannot change the exposed Home wallpaper.
+    // Keep ALL UIKit backing layers attached: system subviews/inset heuristics
+    // reconstruct hierarchy through sublayers and delegate relationships.
+    // Only original background drawing is suppressed; Lock/Home roots and
+    // transition containers retain identity, parent, siblings and transform.
     if (!surface.originalViews) surface.originalViews=[NSMapTable weakToWeakObjectsMapTable];
     NSMutableArray<LMVOriginalLease *> *live=[NSMutableArray new];
     NSMutableArray<LMVOriginalLease *> *removed=[NSMutableArray new];
-    // Maintain confirmed ownership BEFORE discovering new candidates. A successful
-    // detach is not a missing background and must never trigger restoration.
+    // Maintain leases before new discovery. Drawing suppression is not evidence
+    // of removal; original layer topology must remain valid on every update.
     for (LMVOriginalLease *lease in surface.leases) {
         if (LMVWallpaperLeaseBelongs(lease,surface) && [lease maintain]) [live addObject:lease];
         else [removed addObject:lease];
@@ -191,11 +169,9 @@ static BOOL LMVWallpaperUpdateVariant(UIView *host, NSString *target, LMVWallpap
         BOOL held=NO;
         for (LMVOriginalLease *lease in live) if (lease.layer==branch.layer) { held=YES; break; }
         if (held) continue;
-        LMVOriginalLease *lease=LMVAcquireOriginal(branch.layer,parent,LMVOriginalDetach,surface);
+        LMVOriginalLease *lease=LMVAcquireOriginal(branch.layer,parent,LMVOriginalSuppressDrawing,surface);
         if (lease) {
             lease.anchor=host.layer; [surface.originalViews setObject:branch forKey:lease.layer]; [live addObject:lease];
-            if (!LMVWallpaperOfflineViews) LMVWallpaperOfflineViews=[NSHashTable weakObjectsHashTable];
-            [LMVWallpaperOfflineViews addObject:branch];
         }
     }
     surface.leases=live;
@@ -219,7 +195,7 @@ static BOOL LMVWallpaperUpdateVariant(UIView *host, NSString *target, LMVWallpap
         id contents=LMVWallpaperFrameForTarget(target,path,revision);
         if (contents) surface.layer.contents=contents;
     }
-    NSString *message=[NSString stringWithFormat:@"wallpaper-variant target=%@ parent=%@ branches=%lu detached=%lu frame=%@ root-preserved=1 window-root-video=0 ownership=saved-parent",target,NSStringFromClass(host.class),(unsigned long)branches.count,(unsigned long)live.count,surface.layer.contents?@"ready":@"blank"];
+    NSString *message=[NSString stringWithFormat:@"wallpaper-variant target=%@ parent=%@ branches=%lu drawing-disabled=%lu frame=%@ root-preserved=1 backing-attached=1 window-root-video=0 ownership=saved-parent",target,NSStringFromClass(host.class),(unsigned long)branches.count,(unsigned long)live.count,surface.layer.contents?@"ready":@"blank"];
     if (![surface.diagnostic isEqual:message]) { surface.diagnostic=message; LMVDiagnostic(message); }
     return YES;
 }

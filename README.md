@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.72
+
+- 针对 SpringBoard-2026-10-10-104336.ips：已加载插件 UUID 与 0.0.71 arm64e 完全匹配；这次在 UIKit 的 subviews / content-scroll-view heuristic 遍历及 CoverSheet 下拉定位过程中崩溃，故障栈没有插件帧。报告不能独立证明所有损坏来源。
+- 撤回锁屏、桌面和通知中心对 UIView backing layer 的直接 detach。系统视图、父层、子层、delegate 和原顺序保持完整，仅对已确认的原背景做可恢复绘制压制；视频在各自宿主中显示。此变更优先解决层级完整性风险，不等于拦截静态壁纸文件加载。
+- 保留独立 Lock/Home 解码源、通知中心露出范围裁剪及透明度设置。本版没有改透明度行为。
+- 原生测试令每次 subviews 遍历都检查对应 backing layer 仍在父层，覆盖 500 次刷新、100 个下拉位置、系统绘制值更新、独立关闭/更换及恢复；真机是否不再安全模式仍需确认。
+
 ## 0.0.71
 
 - 针对 SpringBoard-2026-10-10-101258.ips（iOS16.5、arm64e）：二进制 UUID 7B7465E3-19CA-33CC-952D-C86DFFF9096C 与 0.0.70 完全匹配；插件偏移 0x2cb20 的调用点在背景安全检查的 layer getter 返回值 retain，调用方来自通知中心壁纸更新。
