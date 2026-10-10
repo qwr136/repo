@@ -38,6 +38,7 @@ static dispatch_queue_t LMVDiskQueue;
 static NSMutableSet<NSString *> *LMVDiskPending, *LMVDiskAttempted, *LMVDiskWriting;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVDiskEpochs, *LMVDiskSavedTimes;
 static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset);
+static LMVSharedSource *LMVSourceForPath(NSString *path);
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
@@ -127,7 +128,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.81 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.82 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -221,7 +222,7 @@ static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
 @property(nonatomic) BOOL outputAwake;
 @property(nonatomic) BOOL restoringTime;
 @property(nonatomic) BOOL restoreOnStart;
-@property(nonatomic) CFTimeInterval startedAt;
+@property(nonatomic) CFTimeInterval startedAt, pausedAt;
 @property(nonatomic) CFTimeInterval lastRequestAt;
 @property(nonatomic) CFTimeInterval lastProgressAt;
 @property(nonatomic) CFTimeInterval lastDiagnosticAt;
@@ -300,6 +301,7 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
                     // A late disk response cannot replace a newer live published frame.
                     if (image && !LMVFrameCache[key].rendered) LMVCacheFrame(path,revision,image,time,YES);
                     if (!LMVFrameCache[key].image && LMVAssets[path]) LMVPreparePreview(path,revision,LMVAssets[path]);
+                    if (LMVAssets[path]) LMVSourceForPath(path);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
                 }
                 if (image) CGImageRelease(image);
@@ -382,6 +384,7 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
             // Wait for ready-to-play before restoring. Cached image is already local.
         }
     }
+    source.pausedAt=CACurrentMediaTime();
     LMVSharedSources[registryKey]=source;
     [output setDelegate:source queue:dispatch_get_main_queue()];
     [output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
@@ -535,12 +538,13 @@ static void LMVStartSource(LMVSharedSource *source) {
     if (!source.player.currentItem && !source.readerMode) { LMVDiagnostic([NSString stringWithFormat:@"source=%lu start=no-currentItem",(unsigned long)source.identifier]); return; }
     source.playing=YES; source.startedAt=CACurrentMediaTime(); source.lastProgressAt=source.startedAt; source.lastRequestAt=0;
     if (source.readerMode) {
-        // Reader state is queue-confined; this reset is ordered before subsequent pulls.
+        // Keep the existing reader/pending sample on ordinary hide/show. Move
+        // its host clock forward by the paused duration instead of reopening it.
+        CFTimeInterval pause=source.pausedAt>0?MAX(0.0,CACurrentMediaTime()-source.pausedAt):0;
         CMTime resume=CMTIME_IS_NUMERIC(source.lastTime) ? source.lastTime : kCMTimeZero;
         dispatch_async(LMVFrameQueue, ^{
-            [source.reader cancelReading]; source.reader=nil; source.readerOutput=nil;
-            if (source.pendingSample) { CFRelease(source.pendingSample); source.pendingSample=NULL; }
-            source.readerClock=CACurrentMediaTime(); source.readerOffset=resume; source.readerLastTarget=kCMTimeInvalid;
+            if (source.reader) source.readerClock+=pause;
+            else {source.readerClock=CACurrentMediaTime();source.readerOffset=resume;source.readerLastTarget=kCMTimeInvalid;}
         });
     } else {
         [source.output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
@@ -550,6 +554,7 @@ static void LMVStartSource(LMVSharedSource *source) {
             NSUInteger epoch=source.generation;
             [source.player seekToTime:source.lastTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
                 dispatch_async(dispatch_get_main_queue(), ^{
+                    if (source.generation!=epoch) {source.restoringTime=NO;return;}
                     source.restoringTime=NO;
                     if (finished && source.generation==epoch && source.playing && !source.readerMode && LMVSharedSources[source.registryKey]==source) {
                         source.restoreOnStart=NO; [source.player play];
@@ -562,7 +567,10 @@ static void LMVStartSource(LMVSharedSource *source) {
 static void LMVStopSource(LMVSharedSource *source) {
     if (source && source.playing) {
         [source.player pause]; source.playing=NO; source.generation++;
-        source.restoreOnStart=CMTIME_IS_NUMERIC(source.lastTime);
+        source.pausedAt=CACurrentMediaTime();
+        if (source.restoringTime) source.restoreOnStart=CMTIME_IS_NUMERIC(source.lastTime);
+        // A retained AVPlayer already keeps its current time when paused. Only
+        // a cold/new player restoring a disk checkpoint needs an exact seek.
         LMVCheckpointFrame(source.path,source.revision);
         // Do not launch asynchronous pause-seeks that can flush the next startup.
     }
@@ -659,6 +667,7 @@ static void LMVPrepareAssets(void) {
                 LMVAssets[path] = playbackAsset;
                 [LMVReadyAssets addObject:path];
                 LMVPreparePreview(path,revision,playbackAsset);
+                LMVSourceForPath(path); // prepare the paused playback chain off the swipe event
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
             });
             });
@@ -672,7 +681,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.81 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.82 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -736,7 +745,7 @@ static BOOL LMVVisible(UIView *view) {
     }
     uint64_t blank = 0;
     if (LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK && blank) return NO;
-    return CGRectIntersectsRect(LMVRectInView(view, view.window), (view.window.layer.presentationLayer ?: view.window.layer).bounds);
+    return CGRectIntersectsRect(LMVRectInView(view, view.window), LMVVideoWindowViewport(view.window));
 }
 static BOOL LMVActionBranch(UIView *view) {
     // Grouped notification actions use this presenter even when the concrete

@@ -78,6 +78,15 @@ static UIView *LMVLockVideoBackgroundAnchor(UIView *container,UIView *own) {
     }
     return anchor;
 }
+static CGRect LMVVideoWindowViewport(UIWindow *window) {
+    if (!window || !window.screen) return CGRectZero;
+    // Reachability translates the window while its bounds can stay full size.
+    // Convert the physical screen into window coordinates instead of assuming
+    // every point in window.bounds is currently on screen.
+    CGRect screen=[window convertRect:window.screen.bounds fromCoordinateSpace:window.screen.coordinateSpace];
+    CGRect visible=CGRectIntersection(screen,window.bounds);
+    return LMVLockVideoRectValid(visible)?visible:CGRectZero;
+}
 static CGRect LMVLockVideoRectInTree(UIView *content,UIWindow *window,CALayer *space,CALayer *root) {
     if (!content || !window || !space || !root || window.hidden || window.alpha<.01 || !LMVLockVideoRectValid(content.bounds)) return CGRectZero;
     for (UIView *node=content;node;node=node.superview) if (node.hidden || node.alpha<.01) return CGRectZero;
@@ -90,6 +99,7 @@ static CGRect LMVLockVideoRectInTree(UIView *content,UIWindow *window,CALayer *s
         rect=CGRectIntersection(rect,[layer convertRect:layer.bounds toLayer:root]);
     }
     rect=CGRectIntersection(rect,root.bounds);
+    rect=CGRectIntersection(rect,LMVVideoWindowViewport(window));
     return LMVLockVideoRectValid(rect) && rect.size.width>1 && rect.size.height>1?rect:CGRectZero;
 }
 static CGRect LMVLockVideoVisibleRect(UIView *content,UIWindow *window) {
@@ -218,8 +228,14 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     if (self.enabled && self.path.length && self.revision.length && self.screenAllowed) {
         for (UIViewController *candidate in LMVLockControllers.allObjects) {
             LMVLockControllerRecord *record=objc_getAssociatedObject(candidate,&LMVLockControllerRecordKey);
-            if (record.lifecycleKnown && !record.visible) continue;
             UIView *root=candidate.viewIfLoaded;UIWindow *window=root.window;
+            CGRect viewport=LMVVideoWindowViewport(window);
+            CGFloat full=window.bounds.size.width*window.bounds.size.height;
+            BOOL half=full>0 && viewport.size.width*viewport.size.height<full*.90;
+            // Reachability can deliver a disappearance callback while the same
+            // attached CoverSheet remains visible in its translated viewport.
+            // In that case require actual sliding-content exposure below.
+            if (record.lifecycleKnown && !record.visible && !half) continue;
             if (!root || !LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=UIScreen.mainScreen) continue;
             UIView *sliding=LMVLockVideoContent(root);CGRect exposed=LMVLockVideoVisibleRect(sliding,window);
             CGFloat size=exposed.size.width*exposed.size.height;

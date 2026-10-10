@@ -26,9 +26,13 @@ pre=r'''
 static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlexibleHeight=16;
 @class UIWindow;
 @interface UIScreen:NSObject
+@property CGRect bounds;
+@property(nonatomic,readonly) id coordinateSpace;
 + (instancetype)mainScreen;
 @end
 @implementation UIScreen
+- (id)coordinateSpace {return self;}
+- (instancetype)init {if((self=[super init]))_bounds=CGRectMake(0,0,390,844);return self;}
 + (instancetype)mainScreen {static UIScreen *s;static dispatch_once_t once;dispatch_once(&once,^{s=[self new];});return s;}
 @end
 @interface UIColor:NSObject
@@ -102,12 +106,15 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 - (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}
 @end
 @interface UIWindow:UIView
+@property CGPoint screenOffset;
+- (CGRect)convertRect:(CGRect)rect fromCoordinateSpace:(id)space;
 @property(nonatomic,strong) UIScreen *screen;
 @property(nonatomic,strong) UIViewController *rootViewController;
 @end
 @implementation UIWindow
 - (instancetype)init {if((self=[super init]))_screen=UIScreen.mainScreen;return self;}
 - (UIWindow *)window {return self;}
+- (CGRect)convertRect:(CGRect)rect fromCoordinateSpace:(id)space {return CGRectOffset(rect,-self.screenOffset.x,-self.screenOffset.y);}
 @end
 @interface SBCoverSheetWindow:UIWindow @end
 @implementation SBCoverSheetWindow @end
@@ -221,6 +228,14 @@ int main(void){@autoreleasepool{
    if(exposed<843)assert(!CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,exposed+1),NO));}
   assertSystemTree(cover,original);
  }
+ // Reachability translates a still full-size window: viewport is only the
+ // on-screen lower half, and our mask must never draw beyond that viewport.
+ sliding.frame=CGRectMake(0,0,390,844);window.screenOffset=CGPointMake(0,422);
+ [manager update];assert(manager.playback.wantsPlayback && manager.host.superview==cover);
+ CGRect half=LMVLockVideoClip(sliding,cover,window);assert(fabs(half.size.height-422)<.001 && fabs(half.origin.y)<.001);
+ assert(CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,211),NO));
+ assert(!CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,423),NO));
+ window.screenOffset=CGPointMake(0,0);[manager update];assert(manager.playback.wantsPlayback && fabs(LMVLockVideoClip(sliding,cover,window).size.height-844)<.001);
  // Unknown content and hidden window fail closed, no full-root/window fallback.
  cover.slideableContentView=nil;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);cover.slideableContentView=sliding;
  window.hidden=YES;[manager update];assert(!manager.playback.wantsPlayback);window.hidden=NO;[manager update];assert(manager.playback.wantsPlayback);

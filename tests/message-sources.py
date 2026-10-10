@@ -53,8 +53,19 @@ production = ('@interface LMVFrameSnapshot : NSObject' + snapshot
     + function('static NSString *LMVSourceRegistryKey(NSString *path, NSString *target)')
     + '@interface LMVSharedSource : NSObject' + source_class
     + factory + function('static LMVSharedSource *LMVSourceForPath(NSString *path)')
-    + stop + retire + invalidate)
+    + function('static void LMVStartSource(LMVSharedSource *source)') + stop + retire + invalidate)
 tests = r'''
+@interface TrackedPlayer:AVPlayer
+@property NSUInteger exactSeeks;
+@end
+@implementation TrackedPlayer
+- (void)seekToTime:(CMTime)time toleranceBefore:(CMTime)before toleranceAfter:(CMTime)after completionHandler:(void (^)(BOOL))complete {
+ self.exactSeeks++;[super seekToTime:time toleranceBefore:before toleranceAfter:after completionHandler:complete];
+}
+@end
+static BOOL waitUntil(BOOL (^condition)(void),double seconds) {
+ NSDate *end=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!condition() && end.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];return condition();
+}
 static void makeMovie(NSURL *url) {
     NSError *error=nil;
     AVAssetWriter *writer=[[AVAssetWriter alloc] initWithURL:url fileType:AVFileTypeQuickTimeMovie error:&error];
@@ -111,12 +122,34 @@ int main(int argc, const char **argv) { @autoreleasepool {
     assert(LMVSourceForTarget(path,@"Options")==message && LMVSourceForTarget(path,@"Clear")==message);
     assert(LMVSharedSources.count==1 && message.player && message.player.currentItem && message.output);
     assert(message.lastImage && CMTimeCompare(message.lastTime,shared.time)==0 && message.restoreOnStart);
+    // Real AVPlayer with a seek counter executes production warm resume. Cold
+    // disk restore remains an explicit one-time seek; ordinary stop/start must
+    // keep the retained item's time and avoid a new buffering/seek transition.
+    AVPlayerItem *warmItem=message.player.currentItem;[message.player replaceCurrentItemWithPlayerItem:nil];
+    TrackedPlayer *warm=[TrackedPlayer playerWithPlayerItem:warmItem];message.player=warm;
+    assert(waitUntil(^BOOL{return warmItem.status==AVPlayerItemStatusReadyToPlay;},10));
+    message.restoreOnStart=NO;message.restoringTime=NO;message.lastTime=CMTimeMake(1,4);
+    LMVStartSource(message);assert(waitUntil(^BOOL{return warm.rate>0 && CMTimeGetSeconds(warm.currentTime)>.05;},5));
+    LMVStopSource(message);NSUInteger seeks=warm.exactSeeks;CMTime paused=warm.currentTime;
+    assert(!message.restoreOnStart && warm.rate==0);
+    LMVStartSource(message);assert(warm.exactSeeks==seeks && !message.restoringTime && warm.rate>0);
+    assert(CMTimeCompare(warm.currentTime,paused)>=0);LMVStopSource(message);
+    // Starting a fresh cached position still asks for one safe seek.
+    message.restoreOnStart=YES;message.lastTime=CMTimeMake(1,4);LMVStartSource(message);
+    assert(waitUntil(^BOOL{return !message.restoringTime && warm.exactSeeks==seeks+1;},5));LMVStopSource(message);
+    checkpoints=0;message.playing=NO;
     message.reader=[[AVAssetReader alloc] initWithAsset:asset error:nil];
     AVAssetTrack *track=[asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
     message.readerOutput=[AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:track outputSettings:nil];
     [message.reader addOutput:message.readerOutput];assert([message.reader startReading]);
     message.pendingSample=[message.readerOutput copyNextSampleBuffer];assert(message.pendingSample);
-    message.generation=11;message.playing=YES;
+    AVAssetReader *keptReader=message.reader;AVAssetReaderTrackOutput *keptOutput=message.readerOutput;CMSampleBufferRef keptSample=message.pendingSample;
+    message.readerMode=YES;message.readerClock=CACurrentMediaTime();message.readerOffset=kCMTimeZero;
+    message.playing=YES;LMVStopSource(message);CFTimeInterval clock=message.readerClock;
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
+    LMVStartSource(message);dispatch_sync(LMVFrameQueue,^{});
+    assert(message.reader==keptReader && message.readerOutput==keptOutput && message.pendingSample==keptSample && message.readerClock>clock);
+    checkpoints=0;message.generation=11;message.playing=YES;
     LMVStopSource(message);assert(!message.playing && message.generation==12 && checkpoints==1);
     LMVStopSource(message);assert(message.generation==12 && checkpoints==1);
     LMVRetireSource(message);dispatch_sync(LMVFrameQueue,^{});

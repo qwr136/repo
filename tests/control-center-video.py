@@ -8,9 +8,10 @@ assert '#import "LMVControlCenterVideo.h"' in s and 'LMVCCRefresh(reload)' in s
 assert 'ControlCenterDarkVideo' in h and 'ControlCenterLightVideo' in h
 assert 'MTMaterialView' in h and 'LMVCCHookMatches' in h
 assert 'LMVCacheFrame' not in h and 'LMVAcquireOriginal' not in h
-if platform.system()!='Darwin':
- print('PASS: CC dark/light and typed hook integration; native QuartzCore manager/IMP tests run on macOS CI')
- raise SystemExit(0)
+assert 'LMVVideoWindowViewport(window)' in h
+assert 'rootClip.size.width>=bounds.size.width*.98' in h
+assert 'clipped.size.height>=viewport.size.height*.98' in h
+assert 'if(view==root)continue' not in h
 # Use the same UIKit input doubles as existing lock tests. All behavior under
 # test below comes directly from the production CC header.
 tree=ast.parse((r/'tests/lock-video-host.py').read_text());pre=''
@@ -25,12 +26,21 @@ pre=pre.replace('@class UIWindow;', '''typedef NS_ENUM(NSInteger, UIUserInterfac
 @class UIWindow;''')
 pre=pre.replace('@interface UIScreen:NSObject\n', '@interface UIScreen:NSObject\n@property(strong) UITraitCollection *traitCollection;\n')
 pre=pre.replace('@property(nonatomic) NSUInteger autoresizingMask;', '@property(nonatomic) NSUInteger autoresizingMask;\n@property(nonatomic,strong) NSArray *gestureRecognizers;')
-pre=pre.replace('- (BOOL)isDescendantOfView:(UIView *)view;', '- (BOOL)isDescendantOfView:(UIView *)view;\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view;')
-pre=pre.replace('- (UIWindow *)window {return self.superview.window;}', '- (UIWindow *)window {return self.superview.window;}\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view {return [self.layer convertRect:rect toLayer:view.layer];}')
+pre=pre.replace('- (BOOL)isDescendantOfView:(UIView *)view;', '- (BOOL)isDescendantOfView:(UIView *)view;\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view;\n- (CGRect)convertRect:(CGRect)rect fromView:(UIView *)view;')
+pre=pre.replace('- (UIWindow *)window {return self.superview.window;}', '- (UIWindow *)window {return self.superview.window;}\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view {return [self.layer convertRect:rect toLayer:view.layer];}\n- (CGRect)convertRect:(CGRect)rect fromView:(UIView *)view {return [self.layer convertRect:rect fromLayer:view.layer];}')
 pre=pre.replace('@interface UIViewController:NSObject\n','@interface UIViewController:NSObject\n@property(strong) UITraitCollection *traitCollection;\n- (void)viewWillDisappear:(BOOL)animated;\n- (void)traitCollectionDidChange:(UITraitCollection *)previous;\n')
 pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}', '- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}\n- (void)viewWillDisappear:(BOOL)animated {self.disappearances++;}\n- (void)traitCollectionDidChange:(UITraitCollection *)previous {self.layouts++;}\n- (UIView *)view {return self.viewIfLoaded;}')
 pre=pre.replace('@interface UIWindow:UIView\n', '@class UIWindowScene;\n@interface UIWindow:UIView\n@property(strong) UITraitCollection *traitCollection;\n@property(strong) UIWindowScene *windowScene;\n')
 pre=pre.replace('@interface UIWindowScene:UIScene\n', '@interface UIWindowScene:UIScene\n@property(strong) UITraitCollection *traitCollection;\n')
+# Inherit the shared screen/window doubles when present. Keep this test runnable
+# during independent updates of the shared test input; no production API mock is
+# allowed to affect the material/manager implementation under test.
+if 'coordinateSpace' not in pre:
+ pre=pre.replace('+ (instancetype)mainScreen;', '+ (instancetype)mainScreen;\n- (CGRect)bounds;\n- (id)coordinateSpace;')
+ pre=pre.replace('@implementation UIScreen\n', '@implementation UIScreen\n- (CGRect)bounds {return CGRectMake(0,0,390,844);}\n- (id)coordinateSpace {return self;}\n')
+if 'screenOffset' not in pre:
+ pre=pre.replace('@interface UIWindow:UIView\n', '@interface UIWindow:UIView\n@property(nonatomic) CGPoint screenOffset;\n- (CGRect)convertRect:(CGRect)rect fromCoordinateSpace:(id)space;\n')
+ pre=pre.replace('@implementation UIWindow\n', '@implementation UIWindow\n- (CGRect)convertRect:(CGRect)rect fromCoordinateSpace:(id)space {return CGRectOffset(rect,-self.screenOffset.x,-self.screenOffset.y);}\n')
 # The CC discovery path walks view.nextResponder when the controller chain does not
 # expose the overlay, and the fallback reads window.rootViewController.view.
 pre=pre.replace('@property(nonatomic,weak) UIView *superview;', '@property(nonatomic,weak) UIView *superview;\n@property(nonatomic,weak) NSObject *nextResponder;')
@@ -88,6 +98,10 @@ pre=pre.replace('- (void)selectPath:(NSString *)path revision:(NSString *)revisi
 pre+=r'''
 @interface MTMaterialView:UIView @end
 @implementation MTMaterialView @end
+@interface CCUIScrollView:UIScrollView @end
+@implementation CCUIScrollView @end
+@interface ModuleSliderButtonHeaderBacking:UIView @end
+@implementation ModuleSliderButtonHeaderBacking @end
 @interface CCUIModularControlCenterOverlayViewController:UIViewController
 @property NSUInteger progressCalls;
 @property double lastProgress;
@@ -144,6 +158,43 @@ int main(void){@autoreleasepool {
  // renderLayer stays hidden and nothing is ever displayed.
  assert(manager.playback.posterPreparedPath!=nil && [manager.playback.posterPreparedPath isEqual:@"dark.mov"]);
  NSUInteger built=manager.playback.builds;for(int n=0;n<100;n++)[manager update];assert(manager.playback.builds==built);
+ TestPlayer *samePlayer=manager.playback.player;
+ // Actual Reachability geometry: unchanged full-sized window, screen shifted by
+ // 422 points, and a material whose actual height is only half the root height.
+ window.screenOffset=CGPointMake(0,422);background.frame=CGRectMake(0,0,390,422);
+ assert(CGRectEqualToRect(window.bounds,CGRectMake(0,0,390,844)));
+ assert(CGRectEqualToRect(LMVCCVisibleViewport(root),CGRectMake(0,0,390,422)));
+ assert(LMVCCMaterial(root)==background);[manager update];
+ assert(manager.playback.wantsPlayback && manager.material==background && !manager.playback.renderLayer.hidden);
+ assert(CGRectEqualToRect(background.bounds,CGRectMake(0,0,390,422)));
+ assert(CGRectEqualToRect(manager.playback.renderLayer.frame,background.bounds));
+ assert(manager.playback.renderLayer.superlayer==background.layer && manager.playback.builds==built && manager.playback.player==samePlayer);
+ LMVCCRecord *halfRecord=objc_getAssociatedObject(cc,&LMVCCRecordKey);halfRecord.visible=NO;
+ [manager update];assert(manager.playback.wantsPlayback && manager.playback.player==samePlayer);halfRecord.visible=YES;
+ // A full-root material also covers the half viewport; leaving/re-entering
+ // Reachability changes only layout, never the selected source or player.
+ background.frame=CGRectMake(0,0,390,844);[manager update];assert(LMVCCMaterial(root)==background);
+ window.screenOffset=CGPointZero;[manager update];assert(manager.playback.builds==built && manager.playback.player==samePlayer);
+ // A translated root exposes the same half independently of window translation.
+ root.frame=CGRectMake(0,422,390,844);background.frame=CGRectMake(0,0,390,422);
+ assert(CGRectEqualToRect(LMVCCVisibleViewport(root),CGRectMake(0,0,390,422)));[manager update];
+ assert(manager.playback.wantsPlayback && manager.playback.builds==built);
+ root.frame=CGRectMake(0,0,390,844);window.screenOffset=CGPointMake(0,422);
+ // Nonzero bounds origins must be preserved during root-local conversion.
+ root.bounds=CGRectMake(17,31,390,844);background.frame=CGRectMake(17,31,390,422);
+ assert(CGRectEqualToRect(LMVCCVisibleViewport(root),CGRectMake(17,31,390,422)));
+ [manager update];assert(manager.playback.wantsPlayback && manager.playback.builds==built && manager.playback.player==samePlayer);
+ root.bounds=CGRectMake(0,0,390,844);background.frame=CGRectMake(0,0,390,422);
+ // A half-height material in a fully visible root is not a background match.
+ window.screenOffset=CGPointZero;assert(LMVCCMaterial(root)==nil);
+ window.screenOffset=CGPointMake(0,422);
+ // Controller -> window -> scene -> screen style priority remains authoritative.
+ window.traitCollection=[UITraitCollection new];window.windowScene=[UIWindowScene new];window.windowScene.traitCollection=[UITraitCollection new];
+ cc.traitCollection.userInterfaceStyle=UIUserInterfaceStyleUnspecified;window.traitCollection.userInterfaceStyle=UIUserInterfaceStyleLight;
+ window.windowScene.traitCollection.userInterfaceStyle=UIUserInterfaceStyleDark;assert(LMVCCStyle(cc)==UIUserInterfaceStyleLight);
+ window.traitCollection.userInterfaceStyle=UIUserInterfaceStyleUnspecified;assert(LMVCCStyle(cc)==UIUserInterfaceStyleDark);
+ window.windowScene.traitCollection.userInterfaceStyle=UIUserInterfaceStyleUnspecified;assert(LMVCCStyle(cc)==UIUserInterfaceStyleDark);
+ cc.traitCollection.userInterfaceStyle=UIUserInterfaceStyleDark;
  // 0.0.79: the controller/scene trait is authoritative. The screen trait is
  // deliberately left on Dark while the controller flips to Light; the video must
  // follow the controller, which is the value that actually changes on device.
@@ -163,10 +214,47 @@ int main(void){@autoreleasepool {
  // The backdrop's own nested layer host and module-ish class names inside it are
  // NOT a reason to reject the material view: that false rejection is what made
  // the feature invisible.
- UIView *host=[[UIView alloc] init];[background addSubview:host];
+ UIView *host=[[UIView alloc] init];[background addSubview:host];[host addSubview:[ModuleSliderButtonHeaderBacking new]];
  assert(LMVCCMaterial(root)==background);
- // Ignore tile-sized MTMaterialView even if it appears before full background.
- MTMaterialView *tile=[[MTMaterialView alloc] initWithFrame:CGRectMake(0,0,80,80)];[root addSubview:tile];assert(LMVCCMaterial(root)==background);
+ // Direct gesture/scroll furniture is still impure; nested backing names are OK.
+ host.gestureRecognizers=@[[NSObject new]];assert(LMVCCMaterial(root)==nil);host.gestureRecognizers=nil;
+ UIScrollView *impure=[UIScrollView new];[background addSubview:impure];assert(LMVCCMaterial(root)==nil);[impure removeFromSuperview];
+ // Tile, unknown class, hidden material/root/window and narrow slivers never
+ // become backgrounds merely because the viewport is now half-height.
+ MTMaterialView *tile=[[MTMaterialView alloc] initWithFrame:CGRectMake(0,0,80,80)];
+ [background removeFromSuperview];[root addSubview:tile];assert(LMVCCMaterial(root)==nil);
+ UIView *unknown=[[UIView alloc] initWithFrame:CGRectMake(0,0,390,422)];[root addSubview:unknown];assert(LMVCCMaterial(root)==nil);[unknown removeFromSuperview];
+ [tile removeFromSuperview];[root addSubview:background];[button removeFromSuperview];[root addSubview:button];
+ background.hidden=YES;assert(LMVCCMaterial(root)==nil);background.hidden=NO;
+ background.alpha=0;assert(LMVCCMaterial(root)==nil);background.alpha=1;
+ root.hidden=YES;assert(LMVCCMaterial(root)==nil);root.hidden=NO;
+ window.hidden=YES;assert(LMVCCMaterial(root)==nil);window.hidden=NO;
+ background.frame=CGRectMake(0,0,380,422);assert(LMVCCMaterial(root)==nil);
+ background.frame=CGRectMake(0,0,390,410);assert(LMVCCMaterial(root)==nil);
+ background.frame=CGRectMake(0,0,390,422);
+ window.screenOffset=CGPointMake(0,843);assert(LMVCCMaterial(root)==nil);window.screenOffset=CGPointMake(0,422);
+ // When the observed content scroll is present, only materials before it may
+ // qualify. The fallback must not rescue a foreground material after content.
+ CCUIScrollView *scroll=[CCUIScrollView new];[root addSubview:scroll];assert(LMVCCMaterial(root)==background);
+ [background removeFromSuperview];[root addSubview:background];assert(LMVCCMaterial(root)==nil);
+ [scroll removeFromSuperview];assert(LMVCCMaterial(root)==background);
+ // Deep fallback now really visits descendants; hidden/alpha-zero ancestors
+ // and foreground branches are pruned before any material inside can qualify.
+ UIWindow *deepWindow=[UIWindow new];UIView *deepRoot=[UIView new],*outer=[UIView new],*inner=[UIView new];
+ [deepWindow addSubview:deepRoot];[deepRoot addSubview:outer];[outer addSubview:inner];
+ MTMaterialView *deep=[MTMaterialView new];[inner addSubview:deep];
+ assert(LMVCCMaterial(deepRoot)==deep);outer.hidden=YES;assert(LMVCCMaterial(deepRoot)==nil);outer.hidden=NO;
+ outer.alpha=0;assert(LMVCCMaterial(deepRoot)==nil);outer.alpha=1;
+ [deep addSubview:[UIControl new]];assert(LMVCCMaterial(deepRoot)==nil);[deep.subviews.lastObject removeFromSuperview];
+ deep.frame=CGRectMake(0,0,80,80);assert(LMVCCMaterial(deepRoot)==nil);deep.frame=CGRectMake(0,0,390,844);
+ UIScrollView *foreground=[UIScrollView new];[deepRoot addSubview:foreground];[foreground addSubview:deep];assert(LMVCCMaterial(deepRoot)==nil);
+ [inner addSubview:deep];assert(LMVCCMaterial(deepRoot)==deep);
+ // Restore full-screen geometry for ordinary close/lifecycle checks; half-screen
+ // exposure was independently verified above and can override transient callbacks.
+ window.screenOffset=CGPointZero;root.frame=CGRectMake(0,0,390,844);background.frame=CGRectMake(0,0,390,844);
+ // A controller known only through layout remains an unknown presentation.
+ LMVCCRecord *record=objc_getAssociatedObject(cc,&LMVCCRecordKey);record.known=NO;[manager update];assert(!manager.playback.wantsPlayback && !manager.playback.renderLayer.superlayer);
+ LMVCCLifecycle(cc,1);[manager update];assert(manager.playback.wantsPlayback);
  // Positive progress cancels a queued zero close; full close hides and pauses.
  LMVCCProgress(cc,0);LMVCCProgress(cc,.25);turn();[manager update];assert(manager.playback.wantsPlayback);
  LMVCCProgress(cc,0);turn();[manager update];assert(!manager.playback.wantsPlayback);
@@ -204,9 +292,20 @@ int main(void){@autoreleasepool {
  SBControlCenterController *owner=[SBControlCenterController new];[owner controlCenterViewController:cc significantPresentationProgressChange:.6];assert(owner.calls==1 && owner.lastOverlay==cc && fabs(owner.lastProgress-.6)<.00001);
  [cc traitCollectionDidChange:nil];[cc viewWillDisappear:NO];[cc viewDidDisappear:NO];assert(cc.layouts==1 && cc.disappearances==2);
  [manager update];assert(!manager.playback.wantsPlayback);[manager suspend];
- puts("PASS: actual CC production manager/typed hooks with QuartzCore: dark/light independent paths with controller-trait priority over the stale screen trait, poster prepared before selection, video layer contained by the backdrop layer so sibling order is untouched, no-selection restore, full-background material only, nested layer host not falsely rejected, same-path stability, cancelled/complete zero progress, disappear/blank/disable pause, double/BOOL argument forwarding once; AVFoundation separately real, not device compositing");
+ puts("PASS: actual CC production manager/typed hooks with QuartzCore: half-height direct backdrop in a translated full-sized window, offset bounds origins, full-root covers, root-width/visible-height coverage, tiles/unknown/hidden/foreground rejected, content-scroll ordering, real deep fallback traversal, controller/window/scene/screen styles while half-screen, same player/source through geometry changes, poster seeding and nested layer containment, cancelled/complete zero progress, close/blank/disable pause and enabled timer, double/BOOL forwarding once; UIKit inputs mocked, device compositing not tested");
 }return 0;}
 '''
+# Validate the assembled inputs on every platform, even where Apple frameworks
+# cannot run. Runtime geometry assertions above are executed only by native CI.
+assert '- (CGRect)convertRect:(CGRect)rect fromView:(UIView *)view' in pre
+assert pre.count('@implementation UIScreen')==1 and pre.count('@implementation UIWindow\n')==1
+assert 'screenOffset' in pre and 'coordinateSpace' in pre
+assert 'static CGRect LMVVideoWindowViewport' in helpers
+assert 'CGPointMake(0,422)' in main and '390,422' in main and '==deep' in main
+if platform.system()!='Darwin':
+ print('PASS: CC source integration, viewport/coverage/traversal contracts and native harness assembly')
+ print('SKIP: native CC manager/QuartzCore geometry and typed IMP execution require macOS Apple frameworks; no device compositing claim')
+ raise SystemExit(0)
 with tempfile.TemporaryDirectory() as tmp:
  source=Path(tmp)/'cc.m';binary=Path(tmp)/'cc';source.write_text(pre+helpers+preAfter+h+main)
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(source),'-o',str(binary)],check=True)

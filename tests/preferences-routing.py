@@ -48,6 +48,10 @@ import_targets = re.findall(r'@"([^"]+)"', re.search(r'for \(NSString \*target i
 assert import_targets == ['Message', 'Options', 'Clear']
 assert 'ControlCenter' not in import_callback and 'LockScreen' not in import_callback and 'Desktop' not in import_callback
 assert 'if (!selected && !legacyMessage) CFPreferencesSetAppValue' in import_callback
+for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
+    representation=(root/'LockMessageVideoPrefs'/controller).read_text()
+    assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
+    assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation
 assert '消息、选项、清除视频透明度' in source
 assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight"] containsObject:target];' in source
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source

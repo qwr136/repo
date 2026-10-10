@@ -49,52 +49,68 @@ static BOOL LMVCCPureBackground(UIView *view) {
     }
     return YES;
 }
-// The Control Center backdrop, resolved from the on-device hierarchy dump:
-//
-//   UIView  layerName=VC:CCUIModularControlCenterOverlayViewController
-//     MTMaterialView frame={{0,0},{430,932}} layer=MTMaterialLayer parent=UIView
-//     CCUIScrollView frame={{0,0},{430,932}}
-//
-// The overlay view's direct child that is a full-screen MTMaterialView IS the
-// backdrop. Matching on class + geometry + direct parenthood removes every guess
-// the old scoring heuristic made, and it can never select a module card's own
-// material view because those are small and nested far deeper.
-static UIView *LMVCCMaterial(UIView *root) {
-    if(!root || !LMVLockVideoRectValid(root.bounds))return nil;
-    CGRect bounds=root.bounds;
-    UIView *fallback=nil;
-    for(UIView *child in root.subviews) {
-        if(![child isKindOfClass:NSClassFromString(@"MTMaterialView")])continue;
-        if(child.hidden || child.alpha<.01)continue;
-        CGRect rect=[child convertRect:child.bounds toView:root];
-        CGRect clipped=CGRectIntersection(rect,bounds);
-        if(!LMVLockVideoRectValid(clipped))continue;
-        CGFloat full=bounds.size.width*bounds.size.height;
-        if(full<=0)continue;
-        CGFloat ratio=(clipped.size.width*clipped.size.height)/full;
-        // Full-window (within a sub-point inset) is the Control Center backdrop.
-        if(ratio>=.98 && LMVCCPureBackground(child)) {
-            if(child.superview==root)return child;   // direct child wins outright
-            if(!fallback)fallback=child;
-        }
+// Reachability can translate either the overlay or its window below the screen.
+// Measure the root's exposed viewport in root coordinates using public APIs;
+// window.bounds alone does not account for a translated window.
+static CGRect LMVCCVisibleViewport(UIView *root) {
+    if(!root || !LMVLockVideoRectValid(root.bounds))return CGRectZero;
+    for(UIView *node=root;node;node=node.superview)
+        if(node.hidden || node.alpha<.01)return CGRectZero;
+    CGRect viewport=root.bounds;UIWindow *window=root.window;
+    if(window) {
+        CGRect exposed=LMVVideoWindowViewport(window);
+        if(!LMVLockVideoRectValid(exposed))return CGRectZero;
+        viewport=CGRectIntersection(viewport,[root convertRect:exposed fromView:window]);
+        for(UIView *node=root.superview;node && node!=window;node=node.superview)
+            if(node.clipsToBounds)viewport=CGRectIntersection(viewport,[root convertRect:node.bounds fromView:node]);
     }
-    if(fallback)return fallback;
-    // Last resort: a bounded search for a full-window material view anywhere in
-    // the overlay, still preferring the one closest to the root.
+    return LMVLockVideoRectValid(viewport) && viewport.size.width>1 && viewport.size.height>1?viewport:CGRectZero;
+}
+// The observed overlay has a direct MTMaterialView before CCUIScrollView.
+// A Reachability backdrop can cover only the visible half of the full root:
+// require full root width, but compare height with the exposed viewport. The
+// material must still be below the content and pass the direct-child purity test.
+static UIView *LMVCCMaterial(UIView *root) {
+    CGRect viewport=LMVCCVisibleViewport(root);
+    if(!LMVLockVideoRectValid(viewport))return nil;
+    CGRect bounds=root.bounds;Class materialClass=NSClassFromString(@"MTMaterialView");
+    NSUInteger contentIndex=NSNotFound;
+    for(NSUInteger i=0;i<root.subviews.count;i++)
+        if(LMVLockVideoClass(root.subviews[i],@"CCUIScrollView")){contentIndex=i;break;}
+    for(NSUInteger i=0;i<root.subviews.count;i++) {
+        if(contentIndex!=NSNotFound && i>=contentIndex)break;
+        UIView *child=root.subviews[i];
+        if(![child isKindOfClass:materialClass] || child.hidden || child.alpha<.01)continue;
+        CGRect rect=[child convertRect:child.bounds toView:root];
+        CGRect clipped=CGRectIntersection(rect,viewport);
+        CGRect rootClip=CGRectIntersection(rect,bounds);
+        if(!LMVLockVideoRectValid(clipped) || !LMVLockVideoRectValid(rootClip))continue;
+        if(clipped.size.width>1 && clipped.size.height>1 &&
+           rootClip.size.width>=bounds.size.width*.98 &&
+           clipped.size.width>=viewport.size.width*.98 &&
+           clipped.size.height>=viewport.size.height*.98 && LMVCCPureBackground(child))return child;
+    }
+    // Seed actual children: starting at root and immediately skipping it made
+    // the old fallback unreachable. Only nested full-root backgrounds qualify;
+    // a rejected direct candidate cannot bypass the viewport/ordering checks.
     NSUInteger budget=64;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
+    NSMutableArray *pending=[NSMutableArray new];
+    for(NSUInteger i=0;i<root.subviews.count && (contentIndex==NSNotFound || i<contentIndex);i++)
+        [pending addObject:root.subviews[i]];
     while(pending.count && budget) {
         --budget;UIView *view=pending.lastObject;[pending removeLastObject];
-        if(view==root)continue;
-        if(view.hidden || view.alpha<.01)continue;
-        if([view isKindOfClass:NSClassFromString(@"MTMaterialView")]) {
+        // Prune hidden ancestors and foreground branches before adding children.
+        if(view.hidden || view.alpha<.01 || [view isKindOfClass:UIControl.class] || [view isKindOfClass:UIScrollView.class])continue;
+        if(view.superview!=root && [view isKindOfClass:materialClass]) {
             CGRect rect=[view convertRect:view.bounds toView:root];
-            CGRect clipped=CGRectIntersection(rect,bounds);
+            CGRect clipped=CGRectIntersection(rect,bounds),visible=CGRectIntersection(rect,viewport);
             CGFloat full=bounds.size.width*bounds.size.height;
-            if(full>0 && LMVLockVideoRectValid(clipped) &&
-               (clipped.size.width*clipped.size.height)/full>=.90 && LMVCCPureBackground(view)) return view;
+            if(full>0 && LMVLockVideoRectValid(clipped) && LMVLockVideoRectValid(visible) &&
+               visible.size.width>1 && visible.size.height>1 &&
+               (clipped.size.width*clipped.size.height)/full>=.90 && LMVCCPureBackground(view))return view;
         }
-        if(view.subviews.count<=24)[pending addObjectsFromArray:view.subviews];
+        // A rejected material is not a container in which to seek another backdrop.
+        if(![view isKindOfClass:materialClass] && view.subviews.count<=24)[pending addObjectsFromArray:view.subviews];
     }
     return nil;
 }
@@ -187,9 +203,13 @@ static void LMVCCDiscover(void) {
     UIViewController *best=nil;UIView *material=nil;
     if(self.enabled && LMVLockVideoScreenAllowed())for(UIViewController *candidate in LMVCCControllers.allObjects) {
         LMVCCRecord *record=objc_getAssociatedObject(candidate,&LMVCCRecordKey);
-        if(!record || !record.known || !record.visible)continue;
+        if(!record || !record.known)continue;
         UIView *root=candidate.viewIfLoaded;
         if(!root || !LMVDesktopGeometryVisible(root))continue;
+        CGRect viewport=LMVCCVisibleViewport(root);
+        CGFloat full=root.bounds.size.width*root.bounds.size.height;
+        BOOL half=full>0 && viewport.size.width*viewport.size.height<full*.90;
+        if(!record.visible && !half)continue;
         UIView *found=LMVCCMaterial(root);if(!found)continue;
         best=candidate;material=found;break;
     }

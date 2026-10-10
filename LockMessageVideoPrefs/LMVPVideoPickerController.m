@@ -25,13 +25,14 @@ static NSString * const LMVImportDomain = @"com.minis.lockmessagevideo.import";
     self.didPresentPicker = YES;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
     config.filter = [PHPickerFilter videosFilter]; config.selectionLimit = 1;
+    config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config]; picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
 - (NSError *)importError:(NSInteger)code description:(NSString *)description { return [NSError errorWithDomain:LMVImportDomain code:code userInfo:@{NSLocalizedDescriptionKey: description}]; }
 - (void)finishWithError:(NSError *)error {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:(error ? @"导入失败" : @"导入成功") message:(error ? error.localizedDescription : @"视频已保存，锁屏视图将即时刷新。") preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:(error ? @"导入失败" : @"导入成功") message:(error ? error.localizedDescription : @"原视频已验证并原样保存到素材库，保留画质、帧率与音轨。") preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self.navigationController popViewControllerAnimated:YES]; }]];
         [self presentViewController:alert animated:YES completion:nil];
     });

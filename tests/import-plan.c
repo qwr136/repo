@@ -1,27 +1,76 @@
+#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <stdio.h>
-#include "../LockMessageVideoPrefs/LMVEncodePlan.h"
-int main(void) {
-    const double durations[]={1.533,10,60,300,1800,7200};
-    const unsigned long long sizes[]={50000,1024*1024,5*1024*1024,100*1024*1024,2ULL*1024*1024*1024};
-    unsigned count=0;
-    for (unsigned d=0; d<6; d++) for (unsigned b=0; b<5; b++) {
-        long previousRate=2000000, previousWidth=4096;
-        for (long attempt=0; attempt<3; attempt++) {
-            LMVEncodePlan p=LMVMakeEncodePlan(3840,2160,durations[d],120,sizes[b],attempt,1.0);
-            assert(p.width>=2 && p.height>=2 && p.width%2==0 && p.height%2==0);
-            assert(p.width<=960 && p.height<=960 && p.fps<=30 && p.fps>0);
-            assert(p.bitrate<=previousRate && p.width<=previousWidth);
-            if (p.bitrate>1000) assert(p.bitrate*durations[d]/8.0 <= fmin(5.0*1024*1024,sizes[b])*0.821);
-            previousRate=p.bitrate; previousWidth=p.width; count++;
-        }
+#include <stdlib.h>
+#define LMV_IMPORT_IO_ONLY 1
+#include "../LockMessageVideoPrefs/LMVImport.h"
+
+static int createFile(int directory, const char *name) {
+    int fd=openat(directory,name,O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
+    assert(fd>=0); return fd;
+}
+static void compare(int a, int b) {
+    assert(lseek(a,0,SEEK_SET)==0 && lseek(b,0,SEEK_SET)==0);
+    unsigned char first[4096], second[4096];
+    for (;;) {
+        ssize_t count=read(a,first,sizeof(first)); assert(count>=0);
+        ssize_t other=read(b,second,sizeof(second)); assert(other==count);
+        if (!count) break;
+        assert(!memcmp(first,second,(size_t)count));
     }
-    LMVEncodePlan portrait=LMVMakeEncodePlan(1080,1920,60,60,100*1024*1024,0,1);
-    assert(portrait.height>portrait.width && portrait.fps==30);
-    LMVEncodePlan lowfps=LMVMakeEncodePlan(640,480,10,12,5*1024*1024,0,1);
-    assert(lowfps.fps==12 && lowfps.width<=640 && lowfps.height<=480);
-    LMVEncodePlan longvideo=LMVMakeEncodePlan(3840,2160,1800,60,100*1024*1024,0,1);
-    assert(longvideo.bitrate<32000 && longvideo.fps==15 && longvideo.width<=360);
-    puts("PASS: 90 budget/resolution/fps plans + portrait, low-FPS and long-video cases (not AVFoundation runtime)");
-    return count==90 ? 0 : 1;
+}
+int main(void) {
+    char temporary[]="/tmp/lmv-original-XXXXXX"; assert(mkdtemp(temporary));
+    int root=open(temporary,O_RDONLY|O_DIRECTORY|O_NOFOLLOW); assert(root>=0);
+    assert(mkdirat(root,"library",0700)==0);
+    int library=openat(root,"library",O_RDONLY|O_DIRECTORY|O_NOFOLLOW); assert(library>=0);
+    int source=createFile(root,"source.mp4");
+    unsigned char block[4096]; for (size_t i=0;i<sizeof(block);i++) block[i]=(unsigned char)(i*37);
+    // Exercise a source larger than the removed 5 MiB compression budget.
+    for (unsigned i=0;i<1537;i++) assert(write(source,block,sizeof(block))==sizeof(block));
+    int pending=createFile(root,".pending.mp4"); struct stat owned;
+    assert(lseek(source,0,SEEK_SET)==0);
+    assert(LMVImportCopyBytes(source,pending,&owned)==0);
+    assert(owned.st_size>5*1024*1024); compare(source,pending);
+    struct stat status;
+    assert(fstatat(library,"original.mp4",&status,AT_SYMLINK_NOFOLLOW)<0 && errno==ENOENT);
+    assert(LMVImportPublish(root,".pending.mp4",library,"original.mp4",&owned)==0);
+    assert(fstatat(root,".pending.mp4",&status,AT_SYMLINK_NOFOLLOW)<0 && errno==ENOENT);
+    int original=openat(library,"original.mp4",O_RDONLY|O_NOFOLLOW); assert(original>=0); compare(source,original);
+    assert(LMVImportFileMatches(library,"original.mp4",&owned));
+    close(pending); close(original);
+    // An occupied destination is never overwritten and retains its exact bytes.
+    int occupied=createFile(library,"occupied.mov"); assert(write(occupied,"keep",4)==4);
+    pending=createFile(root,".pending.mov"); assert(lseek(source,0,SEEK_SET)==0);
+    assert(LMVImportCopyBytes(source,pending,&owned)==0);
+    assert(LMVImportPublish(root,".pending.mov",library,"occupied.mov",&owned)==EEXIST);
+    char kept[4]; assert(lseek(occupied,0,SEEK_SET)==0 && read(occupied,kept,4)==4 && !memcmp(kept,"keep",4));
+    LMVImportUnlinkOwned(root,".pending.mov",&owned); close(pending); close(occupied);
+    // Empty, oversized, directory and linked sources cannot enter the copy path.
+    int empty=createFile(root,"empty.mov"); pending=createFile(root,".rejected");
+    assert(LMVImportCopyBytes(empty,pending,&owned)==EINVAL);
+    assert(ftruncate(empty,(off_t)LMVMaxImportBytes+1)==0); assert(lseek(empty,0,SEEK_SET)==0);
+    assert(LMVImportCopyBytes(empty,pending,&owned)==EFBIG);
+    assert(fstat(pending,&status)==0 && status.st_size==0);
+    assert(LMVImportCopyBytes(library,pending,&owned)==EINVAL);
+    assert(symlinkat("source.mp4",root,"linked.mov")==0);
+    assert(openat(root,"linked.mov",O_RDONLY|O_NOFOLLOW)<0 && errno==ELOOP);
+    assert(symlinkat("library",root,"linked-library")==0);
+    assert(openat(root,"linked-library",O_RDONLY|O_DIRECTORY|O_NOFOLLOW)<0);
+    close(empty); close(pending);
+    // Replacement by a link fails publication; cleanup cannot unlink the link or target.
+    pending=createFile(root,".replaced"); assert(lseek(source,0,SEEK_SET)==0);
+    assert(LMVImportCopyBytes(source,pending,&owned)==0);
+    assert(unlinkat(root,".replaced",0)==0);
+    assert(symlinkat("source.mp4",root,".replaced")==0);
+    assert(LMVImportPublish(root,".replaced",library,"replaced.mov",&owned)==ESTALE);
+    LMVImportUnlinkOwned(root,".replaced",&owned);
+    assert(fstatat(root,".replaced",&status,AT_SYMLINK_NOFOLLOW)==0 && S_ISLNK(status.st_mode));
+    close(pending); close(source);
+    const char *files[]={"source.mp4","empty.mov","linked.mov","linked-library",".rejected",".replaced"};
+    for (size_t i=0;i<sizeof(files)/sizeof(files[0]);i++) assert(unlinkat(root,files[i],0)==0);
+    assert(unlinkat(library,"original.mp4",0)==0 && unlinkat(library,"occupied.mov",0)==0);
+    close(library); assert(unlinkat(root,"library",AT_REMOVEDIR)==0); close(root); assert(rmdir(temporary)==0);
+    puts("PASS: actual bounded copy/publish functions preserve >5 MiB bytes/source, reject empty/>512 MiB/nonregular/symlink, publish complete inode atomically, preserve occupied destinations and cleanup ownership (no AVFoundation)");
+    return 0;
 }

@@ -70,11 +70,11 @@ static void LMVNotify(void) {
     controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
     [_specifiers addObject:controlCenterLight];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
+    [_specifiers.lastObject setProperty:@"保留相册提供的当前原片，不重新编码、缩放或降低帧率，音轨保留；支持 MOV、MP4、M4V，单个视频不超过 512 MiB，验证可播放后加入素材库。" forKey:@"footerText"];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
     [import setProperty:@"ImportVideo" forKey:@"id"];
     [_specifiers addObject:import];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"所有视频重新压缩至 ≤5 MiB；临时原素材仅在导入期间存在，无法压缩则提示失败"]];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"消息、选项、清除视频透明度"]];
     PSSpecifier *opacityEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用视频透明度" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [opacityEnabled setProperty:@"VideoOpacityEnabled" forKey:@"key"];
@@ -246,6 +246,7 @@ static void LMVNotify(void) {
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
     config.filter = [PHPickerFilter videosFilter];
     config.selectionLimit = 1;
+    config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
@@ -274,7 +275,7 @@ static void LMVNotify(void) {
                     if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)relative, kLMVPrefsID);
                 }
                 LMVNotify();
-                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已重新编码为无音轨 H.264 并验证，保存到素材库：%@\n导入临时原素材已清理。", relative] preferredStyle:UIAlertControllerStyleAlert];
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已验证原视频并按原片字节保存到素材库：%@\n保留画质、帧率与音轨，未重新编码。", relative] preferredStyle:UIAlertControllerStyleAlert];
                 [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
                 [self presentViewController:alert animated:YES completion:nil];
             }
