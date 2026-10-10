@@ -1,0 +1,26 @@
+* text=auto eol=lf
+
+# Objective-C / Logos 源码
+*.m      text diff=objc
+*.h      text diff=objc
+*.xm     text diff=objc
+*.x      text diff=objc
+
+# 构建脚本
+Makefile   text eol=lf
+*.mk       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+
+# 二进制资源不参与 diff
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.icns   binary
+*.deb    binary
+*.dylib  binary
+*.tbd    text
+
+# 语言统计
+*.xm linguist-language=Objective-C
