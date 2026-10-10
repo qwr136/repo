@@ -29,7 +29,7 @@ pre=pre.replace('- (BOOL)isDescendantOfView:(UIView *)view;', '- (BOOL)isDescend
 pre=pre.replace('- (UIWindow *)window {return self.superview.window;}', '- (UIWindow *)window {return self.superview.window;}\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view {return [self.layer convertRect:rect toLayer:view.layer];}')
 pre=pre.replace('@interface UIViewController:NSObject\n','@interface UIViewController:NSObject\n@property(strong) UITraitCollection *traitCollection;\n- (void)viewWillDisappear:(BOOL)animated;\n- (void)traitCollectionDidChange:(UITraitCollection *)previous;\n')
 pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}', '- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}\n- (void)viewWillDisappear:(BOOL)animated {self.disappearances++;}\n- (void)traitCollectionDidChange:(UITraitCollection *)previous {self.layouts++;}')
-pre=pre.replace('@interface UIWindow:UIView\n', '@interface UIWindow:UIView\n@property(strong) id windowScene;\n')
+pre=pre.replace('@interface UIWindow:UIView\n', '@class UIWindowScene;\n@interface UIWindow:UIView\n@property(strong) UIWindowScene *windowScene;\n')
 pre=pre.replace('@interface UIWindowScene:UIScene\n', '@interface UIWindowScene:UIScene\n@property(strong) UITraitCollection *traitCollection;\n')
 pre=pre.replace('static int LMVBlankToken=1;','static int LMVBlankToken=1;')
 pre=pre.replace('@property NSUInteger builds,clears;', '@property NSUInteger builds,clears;\n@property BOOL persistentPosterEnabled;')
