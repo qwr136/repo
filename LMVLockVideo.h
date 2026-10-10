@@ -157,8 +157,10 @@ static void LMVLockVideoSuspend(void);
 static LMVLockVideoManager *LMVLockVideo;
 
 static NSString *LMVLockVideoSelectedPath(void) {
-    id relative=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("LockScreenVideo"),kLMVPrefsID);
-    if (![relative isKindOfClass:NSString.class] || ![relative length] || [relative hasPrefix:@"/"] ||
+    id stored=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("LockScreenVideo"),kLMVPrefsID);
+    if (![stored isKindOfClass:NSString.class]) return nil;
+    NSString *relative=(NSString *)stored;
+    if (!relative.length || [relative hasPrefix:@"/"] ||
         [relative.pathComponents containsObject:@".."] || [relative.pathComponents containsObject:@"."]) return nil;
     NSString *path=[[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
     if (![path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]]) return nil;

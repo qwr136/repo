@@ -41,7 +41,7 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 + (instancetype)blackColor {UIColor *c=[self new];c.CGColor=CGColorCreateGenericRGB(0,0,0,1);return c;}
 - (void)dealloc {if(_CGColor)CGColorRelease(_CGColor);}
 @end
-@interface UIView:NSObject
+@interface UIView:NSObject <CALayerDelegate>
 @property(nonatomic,strong) CALayer *layer;
 @property(nonatomic,strong) NSMutableArray<UIView *> *subviews;
 @property(nonatomic,weak) UIView *superview;
@@ -134,17 +134,19 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 @implementation UIApplication
 + (instancetype)sharedApplication {static UIApplication *app;static dispatch_once_t once;dispatch_once(&once,^{app=[self new];});return app;}
 @end
-@interface CADisplayLink:NSObject
+@interface TestDisplayLink:NSObject
 @property(nonatomic) NSInteger preferredFramesPerSecond;
 + (instancetype)displayLinkWithTarget:(id)target selector:(SEL)selector;
 - (void)addToRunLoop:(NSRunLoop *)loop forMode:(NSString *)mode;
 - (void)invalidate;
 @end
-@implementation CADisplayLink
+@implementation TestDisplayLink
 + (instancetype)displayLinkWithTarget:(id)target selector:(SEL)selector {return [self new];}
 - (void)addToRunLoop:(NSRunLoop *)loop forMode:(NSString *)mode {}
 - (void)invalidate {}
 @end
+#define CADisplayLink TestDisplayLink
+#define LMVLockVideoLog(message) LMVDiagnostic(message)
 '''
 pre+=r'''
 @interface TestPlayer:NSObject
