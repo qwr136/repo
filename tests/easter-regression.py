@@ -18,9 +18,11 @@ assert 'LMVMaterialPicker *picker = [LMVMaterialPicker new]' in panel
 assert '@["Message"' not in panel
 for ui in (prefs, panel):
     assert 'Desktop' not in ui and '桌面' not in ui
-    assert '@[@"Message", @"LockScreen", @"Options", @"Clear"]' in ui
+    assert 'LockScreen' not in ui
+    assert '@[@"Message", @"Options", @"Clear"]' in ui
     assert '消息、选项、清除视频透明度' in ui
-assert '@[@"消息背景", @"锁屏背景", @"选项背景", @"清除背景"]' in panel
+assert '@[@"消息背景", @"选项背景", @"清除背景"]' in panel
+assert '@"锁屏背景"' not in panel
 assert 'stringByAppendingString:@"BackgroundEnabled"' in panel
 assert 'stringByAppendingString:@"Video"' in panel
 assert 'CFNotificationCenterAddObserver' in panel and 'preferencesChanged' in panel
@@ -36,9 +38,17 @@ movie = media[media.index('static NSString *LMVEasterImport('):]
 assert movie.index('copyItemAtURL:source') < movie.index('tracksWithMediaType:AVMediaTypeVideo') < movie.index('[fm moveItemAtPath:staging')
 assert 'if (!error) [fm moveItemAtPath:staging' in movie
 assert 'copyNextSampleBuffer' in media and 'dispatch_sync(LMVMaterialQueue()' in media
+assert movie.index('[fm moveItemAtPath:staging') < movie.index('error = LMVWriteMaterialNames(names)') < movie.index('else result =')
+assert 'if (error) [fm removeItemAtPath:destination error:nil];' in movie
+assert 'BOOL success = relative && !error;' in panel and 'if (success) LMVEasterNotify();' in panel
+import_callback = panel[panel.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
+assert 'LMVEasterSet(' not in import_callback and 'CFPreferencesSetAppValue' not in import_callback
+assert 'self.busy = YES;' in import_callback and 'panel.busy = NO;' in import_callback
+assert 'prompt.promptTitle = success ? @"导入成功" : @"导入失败";' in import_callback
+assert 'prompt.message = success ? @"已保存到素材库"' in import_callback
 assert 'count > 60' in media and 'kCGImageSourceThumbnailMaxPixelSize:@160' in media
 assert '8 * 1024 * 1024' in media and '20 * 1024 * 1024' in media
-assert 'totalDuration>60.0' in media and 'animatedImageWithImages:' in media
+assert 'totalDuration>60.0' in media and 'LMVEasterPreviewImage' not in media
 assert 'LMVEasterVisibleDrawing' in overlay and 'area/full>=0.30' in overlay
 assert 'MAX((CGFloat)1200' in overlay and 'UISceneActivationStateUnattached' in overlay
 assert 'requireGestureRecognizerToFail:pan' in overlay
@@ -50,7 +60,9 @@ assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
 assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay
-assert 'LMVEasterScreenAllowsOverlay(blankKnown,blank)' in overlay and 'blank || locked' not in overlay
+assert 'LMVEasterNCPolicy(blankKnown,blank,lockKnown,locked,host!=nil,&authenticated)' in overlay
+assert 'LMVEasterNCWindowExposed(window)' in overlay and 'authenticatedSession' in overlay
+assert '@["SBHomeScreenWindow"' not in overlay
 assert 'notify_get_state(LMVBlankToken' in overlay
 assert 'sharedInstance' not in overlay and 'SBLock' not in overlay and 'SBWall' not in overlay
 assert 'UIWindowDidBecomeVisibleNotification' in overlay and 'UISceneDidActivateNotification' in overlay

@@ -47,10 +47,10 @@ visibility=function(s,'static BOOL LMVVisible(UIView *view)')
 discovery=function(s,'static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth)')
 assert 'LMVOriginalVisibilityAlpha(ancestor)' in visibility and 'LMVOriginalVisibilityAlpha(view)' in discovery
 update=function(s,'static void LMVUpdate(UIView *cell)')
-lock=function(s,'static void LMVUpdateLockScreen(UIView *host)')
-assert 'LMVLayoutLockOverlay(host,state)' in lock
-assert 'LMVReplaceBackground' not in lock and 'LMVRestoreBackground' not in lock
-assert 'LMVReleasePlayer(state)' in lock and '[state.layer removeFromSuperlayer]' in lock
+assert 'LockScreen' not in s and 'LMVLockBackground.h' not in s
+update=function(s,'static void LMVUpdate(UIView *cell)')
+assert 'LMVReplaceBackground(state, anchor, host, target, originalInScope)' in update
+assert 'state.overlay.alpha = LMVOpacityEnabled ? LMVOpacity : 0.0' in update
 reuse=s.split('- (void)prepareForReuse {',1)[1].split('%end',1)[0]
 assert 'LMVPause(state)' in reuse
 assert 'LMVRestoreBackground(state)' in function(s,'static void LMVPause(LMVVideoState *state)')
@@ -66,4 +66,4 @@ for forbidden in ['LMVReplaceBackground','LMVRestoreBackground','LMVUpdate(', 'L
     assert forbidden not in publish
 assert 'state.layer.contents=(__bridge id)image' in publish
 assert 'LMVOriginalPureView' in h and 'Thumbnail' in h and 'Secure' in h and 'Scene' in h
-print('PASS: message/action integration and lock overlay, enabled+selected cold/error/alpha0 policy, weak leases, scoped discovery, actual-frame swap (native execution separately; not device test)')
+print('PASS: message/action-only integration, enabled+selected cold/error/alpha0 policy, weak leases, scoped discovery, actual-frame swap (native execution separately; not device test)')

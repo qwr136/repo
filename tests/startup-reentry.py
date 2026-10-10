@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the retained launch coalescer against current LockScreen hooks."""
+"""Execute the retained launch coalescer against remaining notification visibility hooks."""
 from pathlib import Path
 import platform,subprocess,tempfile
 r=Path(__file__).resolve().parents[1];s=(r/'Tweak.xm').read_text()
@@ -14,12 +14,11 @@ def function(signature):
 scheduler=function('static void LMVRequestSafeUpdate(void)')
 mark=function('static void LMVMarkLaunchReady(void)')
 late=function('static BOOL LMVAlreadyLaunched(UIApplication *app)')
-host=function('static void LMVLockHostChanged(UIView *view)')
 cover=function('static void LMVCoverSheetVisibilityChanged(UIView *view)')
 assert scheduler.index('!LMVLaunchReady')<scheduler.index('dispatch_async')<scheduler.index('LMVRefresh(reload)')
 assert 'LMVSafeUpdateApplying' in scheduler and 'LMVSafeUpdatePending' in scheduler
-assert 'LMVDesktop' not in s
-for name in ['NCNotificationListCell','CSCoverSheetView','SBCoverSheetWindow','CoverSheet','PLActionButtonsPresentingView','CSCoverSheetViewController']:
+assert 'LMVDesktop' not in s and 'LMVUpdateLockScreen' not in s
+for name in ['NCNotificationListCell','SBCoverSheetWindow','CoverSheet','PLActionButtonsPresentingView']:
     hook=s.split('%hook '+name+'\n',1)[1].split('%end',1)[0]
     for forbidden in ['LMVUpdate(', 'LMVUpdateLockScreen(', 'LMVRefresh(', 'LMVSyncDisplayLink(', 'objc_msgSend']:
         assert forbidden not in hook,(name,forbidden)
@@ -42,8 +41,6 @@ static void enqueue(dispatch_queue_t queue,dispatch_block_t block){[queued addOb
 static void mainTurn(void){NSArray *turn=queued.copy;[queued removeAllObjects];for(dispatch_block_t block in turn)block();}
 @interface UIView:NSObject @end
 @implementation UIView @end
-@interface CSCoverSheetView:UIView @end
-@implementation CSCoverSheetView @end
 @interface UIApplication:NSObject
 @property(nonatomic) NSInteger applicationState;
 @property(nonatomic,strong) NSArray *connectedScenes;
@@ -56,27 +53,34 @@ static void mainTurn(void){NSArray *turn=queued.copy;[queued removeAllObjects];f
 static const NSInteger UIApplicationStateInactive=1;
 static const NSInteger UISceneActivationStateForegroundActive=0,UISceneActivationStateBackground=2;
 static BOOL LMVInitialized,LMVLaunchReady,LMVSafeUpdatePending,LMVSafeUpdateApplying,LMVPreferencesDirty=YES;
-static NSHashTable *LMVCells,*LMVLockHosts;
+static NSHashTable *LMVCells;
 static NSUInteger policies,depth,maxDepth,retries;
 static BOOL nest;
-static void LMVLockHostChanged(UIView *view);
+static void LMVCoverSheetVisibilityChanged(UIView *view);
 static void LMVRetryDiscovery(UIView *view){retries++;}
+@interface LMVEasterDouble:NSObject
+- (void)refresh;
+@end
+@implementation LMVEasterDouble
+- (void)refresh {}
+@end
+static LMVEasterDouble *LMVEaster;
 static void LMVRefresh(BOOL reload){
  assert(LMVLaunchReady);policies++;depth++;maxDepth=MAX(depth,maxDepth);
- if(nest){nest=NO;LMVLockHostChanged([CSCoverSheetView new]);}
+ if(nest){nest=NO;LMVCoverSheetVisibilityChanged([UIView new]);}
  depth--;
 }
 '''
 main=r'''
 int main(void){@autoreleasepool{
- queued=[NSMutableArray new];LMVCells=[NSHashTable weakObjectsHashTable];LMVLockHosts=[NSHashTable weakObjectsHashTable];
- CSCoverSheetView *host=[CSCoverSheetView new];UIView *cell=[UIView new];[LMVCells addObject:cell];
- LMVLockHostChanged(host);assert(!queued.count && !LMVLockHosts.count);
+ queued=[NSMutableArray new];LMVCells=[NSHashTable weakObjectsHashTable];
+ UIView *host=[UIView new];UIView *cell=[UIView new];[LMVCells addObject:cell];
+ LMVCoverSheetVisibilityChanged(host);assert(!queued.count);
  LMVInitialized=YES;
- for(int n=0;n<50;n++){LMVLockHostChanged(host);LMVCoverSheetVisibilityChanged(host);}
- assert(LMVLockHosts.count==1 && !queued.count && !policies);
+ for(int n=0;n<50;n++)LMVCoverSheetVisibilityChanged(host);
+ assert(!queued.count && !policies);
  LMVMarkLaunchReady();assert(LMVLaunchReady && queued.count==1 && !policies);
- for(int n=0;n<50;n++)LMVLockHostChanged(host);
+ for(int n=0;n<50;n++)LMVCoverSheetVisibilityChanged(host);
  assert(queued.count==1);nest=YES;mainTurn();assert(policies==1 && maxDepth==1 && !queued.count && retries==1);
  for(int n=0;n<50;n++)LMVCoverSheetVisibilityChanged(host);
  assert(policies==1 && queued.count==1);mainTurn();assert(policies==2 && !queued.count);
@@ -84,10 +88,10 @@ int main(void){@autoreleasepool{
  UIApplication *app=[UIApplication new];UIScene *scene=[UIScene new];app.connectedScenes=@[scene];
  app.applicationState=UIApplicationStateInactive;scene.activationState=UISceneActivationStateForegroundActive;assert(!LMVAlreadyLaunched(app));
  app.applicationState=0;assert(LMVAlreadyLaunched(app));app.applicationState=2;scene.activationState=UISceneActivationStateBackground;assert(LMVAlreadyLaunched(app));
- puts("PASS: actual lock/CoverSheet launch scheduler, 50-call coalescing, delayed policy until readiness, nonrecursive nested updates, preference reload, existing app scene evidence; no UIKit device claim");
+ puts("PASS: actual notification/CoverSheet launch scheduler, 50-call coalescing, delayed policy until readiness, nonrecursive nested updates, preference reload, existing app scene evidence; no UIKit device claim");
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as tmp:
-    src=Path(tmp)/'startup.m';out=Path(tmp)/'startup';src.write_text(pre+scheduler+mark+late+host+cover+main)
+    src=Path(tmp)/'startup.m';out=Path(tmp)/'startup';src.write_text(pre+scheduler+mark+late+cover+main)
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation',str(src),'-o',str(out)],check=True)
     subprocess.run([str(out)],check=True,timeout=30)

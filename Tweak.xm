@@ -10,15 +10,12 @@
 #import <math.h>
 #import <sys/stat.h>
 #import <atomic>
-#import "LMVConsumerPolicy.h"
 #import "LMVOriginalBackground.h"
 
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSHashTable<UIView *> *LMVCells;
 static NSHashTable<UIView *> *LMVActionPresenters;
-static NSHashTable<UIView *> *LMVLockHosts;
-static char LMVLockStateKey;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
 // Stable semantic names prevent nil hosts when private MaterialView subclasses change.
 static NSDictionary<NSString *, NSString *> *LMVMaterialSources;
@@ -47,7 +44,6 @@ static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
-static void LMVUpdateLockScreens(void);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
@@ -114,23 +110,14 @@ static void LMVDiagnostic(NSString *event) {
         @autoreleasepool {
             // Drop queued records after the switch is turned off, too.
             if (!LMVDiagnosticsEnabled.load() || epoch != LMVDiagnosticEpoch.load()) return;
-            BOOL trace = [event hasPrefix:@"wallpaper-call "] || [event hasPrefix:@"wallpaper-hook "] || [event hasPrefix:@"wallpaper-coverage "];
-            BOOL provider = [event hasPrefix:@"wallpaper-metadata "] || [event hasPrefix:@"wallpaper-inheritance "] || [event hasPrefix:@"wallpaper-field "] || [event hasPrefix:@"wallpaper-provider-method "];
-            BOOL wallpaper = [event hasPrefix:@"wallpaper-"];
-            static NSUInteger records=0, wallpaperRecords=0, traceRecords=0, providerRecords=0;
+            static NSUInteger records=0;
             static unsigned long lastEpoch=0;
-            if (lastEpoch != epoch) {
-                records=wallpaperRecords=traceRecords=providerRecords=0;
-                lastEpoch=epoch;
-            }
-            if (trace) { if (++traceRecords > 1800) return; }
-            else if (provider) { if (++providerRecords > 2400) return; }
-            else if (wallpaper) { if (++wallpaperRecords > 2400) return; }
-            else if (++records > 1200) return;
+            if (lastEpoch != epoch) { records=0; lastEpoch=epoch; }
+            if (++records > 1200) return;
             NSFileManager *fm=NSFileManager.defaultManager;
             [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-            NSString *path=[LMVDirectory stringByAppendingPathComponent:trace ? @"wallpaper-call.log" : (provider ? @"wallpaper-provider.log" : (wallpaper ? @"wallpaper-structure.log" : @"shared-render.log"))];
-            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>((trace || provider || wallpaper) ? 262144 : 65536)) {
+            NSString *path=[LMVDirectory stringByAppendingPathComponent:@"shared-render.log"];
+            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>65536) {
                 NSString *old=[path stringByAppendingString:@".1"];
                 [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
             }
@@ -138,16 +125,13 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.73 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.74 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
         }
     });
 }
-
-static void LMVCaptureWallpaperDiagnostics(void);
-#import "LMVWallpaperCallTrace.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -199,7 +183,6 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
                     if (image) LMVCacheFrame(path,revision,image,actual,NO);
                     LMVDiagnostic([NSString stringWithFormat:@"cold-preview=%d errorcode=%ld",image!=NULL,(long)error.code]);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
-                    LMVUpdateLockScreens();
                 }
                 if (image) CGImageRelease(image);
             });
@@ -207,21 +190,12 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
     });
 }
 
-// Wallpaper decoders are target-owned; message-family cards keep their file key.
+// Remaining notification/action sources share one immutable file asset and
+// one playback chain per selected path; removed background targets are rejected.
 static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
-    if (!path.length) return nil;
-    if ([target isEqualToString:@"LockScreen"])
-        return [NSString stringWithFormat:@"wallpaper/%@|%@",target,path];
-    if (target && ![@[@"Message",@"Options",@"Clear"] containsObject:target]) return nil;
+    if (!path.length || (target && ![@[@"Message",@"Options",@"Clear"] containsObject:target])) return nil;
     return path;
 }
-// Only immutable images/PTS are retained across wallpaper decoder retirement.
-static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *LMVWallpaperFrameCache;
-static LMVFrameSnapshot *LMVCachedWallpaperFrame(NSString *path, NSString *revision, NSString *target) {
-    NSString *key=LMVFrameKey(LMVSourceRegistryKey(path,target),revision);
-    return (key ? LMVWallpaperFrameCache[key] : nil) ?: LMVCachedFrame(path,revision);
-}
-
 @interface LMVSharedSource : NSObject <AVPlayerItemOutputPullDelegate>
 @property(nonatomic, strong) AVPlayer *player;
 @property(nonatomic, strong) AVPlayerItemVideoOutput *output;
@@ -321,7 +295,6 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
                     if (image && !LMVFrameCache[key].rendered) LMVCacheFrame(path,revision,image,time,YES);
                     if (!LMVFrameCache[key].image && LMVAssets[path]) LMVPreparePreview(path,revision,LMVAssets[path]);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
-                    LMVUpdateLockScreens();
                 }
                 if (image) CGImageRelease(image);
             });
@@ -341,24 +314,18 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 @property(nonatomic) CFTimeInterval lastVisible;
 @property(nonatomic) CFTimeInterval visibilityLossSince;
 @property(nonatomic) CFTimeInterval detachedSince;
-@property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals, *wallpaperOriginals;
-@property(nonatomic, copy) NSString *wallpaperDiagnostic;
+@property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals;
 @property(nonatomic, weak) UIView *originalAnchor, *originalScope;
 @property(nonatomic, copy) NSString *originalDiagnostic;
-@property(nonatomic, weak) UIView *displayHost;
-@property(nonatomic, copy) NSString *displayDiagnostic;
-@property(nonatomic) CFTimeInterval displayDiagnosticAt;
 @end
 @implementation LMVVideoState
 - (void)dealloc {
     LMVReleaseOriginals(_originals, self);
-    LMVReleaseOriginals(_wallpaperOriginals, self);
     [_overlay removeFromSuperview];
     [_layer removeFromSuperlayer];
 }
 @end
 #import "LMVBackgroundDiscovery.h"
-#import "LMVLockBackground.h"
 
 static BOOL LMVPlaybackAllowed(void) {
     if (!LMVInitialized || !LMVLaunchReady) return NO;
@@ -401,13 +368,10 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
     source.registryKey=registryKey;
     source.ownerTarget=[registryKey isEqualToString:path] ? @"MessageFamily" : target;
     source.revision=LMVRevisions[path];
-    BOOL wallpaper=![registryKey isEqualToString:path];
-    LMVFrameSnapshot *owned=wallpaper ? LMVWallpaperFrameCache[LMVFrameKey(registryKey,source.revision)] : nil;
-    LMVFrameSnapshot *snapshot=owned ?: LMVCachedFrame(path,source.revision);
+    LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);
     if (snapshot.image) {
         source.lastImage=CGImageRetain(snapshot.image);
-        // A shared poster never transfers another target's decoder position.
-        if ((!wallpaper || owned) && snapshot.rendered && CMTIME_IS_NUMERIC(snapshot.time)) {
+        if (snapshot.rendered && CMTIME_IS_NUMERIC(snapshot.time)) {
             source.lastTime=snapshot.time; source.restoreOnStart=YES;
             // Wait for ready-to-play before restoring. Cached image is already local.
         }
@@ -540,23 +504,10 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                     if (source.lastImage) CGImageRelease(source.lastImage);
                     source.lastImage=image; source.lastTime=workTime; source.published++; source.lastProgressAt=CACurrentMediaTime();
                     LMVCacheFrame(source.path,source.revision,image,workTime,YES);
-                    if (![source.registryKey isEqualToString:source.path]) {
-                        if (!LMVWallpaperFrameCache) LMVWallpaperFrameCache=[NSMutableDictionary new];
-                        LMVFrameSnapshot *owned=[LMVFrameSnapshot new];
-                        owned.image=CGImageRetain(image); owned.time=workTime; owned.rendered=YES;
-                        LMVWallpaperFrameCache[LMVFrameKey(source.registryKey,source.revision)]=owned;
-                    }
                     [CATransaction begin]; [CATransaction setDisableActions:YES];
                     for (UIView *cell in LMVCells.allObjects) {
                         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
                         for (LMVVideoState *state in states.allValues) if (state.source==source) state.layer.contents=(__bridge id)image;
-                    }
-                    for (UIView *host in LMVLockHosts.allObjects) {
-                        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-                        if (state.source == source && state.active) {
-                            state.layer.contents = (__bridge id)image;
-                            LMVLayoutLockOverlay(host,state);
-                        }
                     }
                     [CATransaction commit];
                     if (source.published==1) LMVDiagnostic([NSString stringWithFormat:@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image)]);
@@ -612,10 +563,6 @@ static void LMVStopSource(LMVSharedSource *source) {
 }
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
     if (!source) return NO;
-    for (UIView *host in LMVLockHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-        if (state.source == source && state.active && host.window) return YES;
-    }
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) if (state.source==source && state.active && state.overlay.superview) return YES;
@@ -646,11 +593,7 @@ static void LMVRetireSource(LMVSharedSource *source) {
 static void LMVInvalidateSourcesForPath(NSString *path) {
     for (LMVSharedSource *source in LMVSharedSources.allValues)
         if ([source.path isEqualToString:path]) LMVRetireSource(source);
-    for (NSString *target in @[@"LockScreen"]) {
-        NSString *prefix=[LMVSourceRegistryKey(path,target) stringByAppendingString:@"|"];
-        for (NSString *key in LMVWallpaperFrameCache.allKeys)
-            if ([key hasPrefix:prefix]) [LMVWallpaperFrameCache removeObjectForKey:key];
-    }
+
 }
 static void LMVPrepareAssets(void) {
     if (!LMVInitialized || !LMVLaunchReady) return;
@@ -711,7 +654,6 @@ static void LMVPrepareAssets(void) {
                 [LMVReadyAssets addObject:path];
                 LMVPreparePreview(path,revision,playbackAsset);
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
-                    LMVUpdateLockScreens();
             });
             });
         }];
@@ -724,9 +666,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.73 diagnostics-enabled");
-        LMVReportWallpaperTrace();
-        LMVStartWallpaperTraceReports();
+        LMVDiagnostic(@"version=0.0.74 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -736,7 +676,7 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen"]) {
+    for (NSString *target in LMVTargets()) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
@@ -957,7 +897,7 @@ static void LMVUpdate(UIView *cell) {
             [state.overlay.layer addSublayer:state.layer];
         }
         LMVFrameSnapshot *cached=LMVCachedFrame(path,state.revision);
-        if (cached.image) state.layer.contents=(__bridge id)cached.image;
+        if (cached.image && (!state.layer.contents || revisionChanged)) state.layer.contents=(__bridge id)cached.image;
         else if (revisionChanged) state.layer.contents=nil; // changed media is not its old revision
         [CATransaction commit];
         // A material with text/content is a container: put our surface below its
@@ -1039,95 +979,13 @@ static void LMVUpdate(UIView *cell) {
     %orig;
 }
 %end
-// CoverSheet video is an opaque overlay, not a wallpaper-source replacement.
-static BOOL LMVLockHostVisible(UIView *host) {
-    return LMVLockOverlayVisible(host) && LMVPlaybackAllowed();
-}
-static void LMVUpdateLockScreen(UIView *host) {
-    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || !host) return;
-    LMVVideoState *state=objc_getAssociatedObject(host,&LMVLockStateKey);
-    NSString *path=LMVPaths[@"LockScreen"];
-    NSString *revision=path.length?LMVRevisions[path]:nil;
-    BOOL enabled=LMVEnabled[@"LockScreen"].boolValue && path.length;
-    if (state && (!enabled || ![state.path isEqual:path] ||
-        (revision && ![state.revision isEqual:revision]))) {
-        LMVReleasePlayer(state);
-        [state.layer removeFromSuperlayer];
-        objc_setAssociatedObject(host,&LMVLockStateKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        state=nil;
-    }
-    if (!enabled) return;
-    if (!state) {
-        state=[LMVVideoState new];state.host=host;state.path=path;state.revision=revision;
-        state.layer=[CALayer layer];state.layer.name=@"com.minis.lockmessagevideo.lock-overlay";
-        objc_setAssociatedObject(host,&LMVLockStateKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    [CATransaction begin];[CATransaction setDisableActions:YES];
-    LMVFrameSnapshot *cached=LMVCachedWallpaperFrame(path,state.revision,@"LockScreen");
-    if (!state.layer.contents && cached.image) state.layer.contents=(__bridge id)cached.image;
-    BOOL active=LMVLockHostVisible(host);
-    if (state.source && LMVSharedSources[LMVSourceRegistryKey(path,@"LockScreen")]!=state.source)
-        LMVReleasePlayer(state);
-    if (active && [LMVReadyAssets containsObject:path]) {
-        if (!state.source) state.source=LMVSourceForTarget(path,@"LockScreen");
-        if (state.source.lastImage) state.layer.contents=(__bridge id)state.source.lastImage;
-    }
-    state.active=active && state.source!=nil;
-    LMVLayoutLockOverlay(host,state);
-    [CATransaction commit];
-    if (state.active) LMVStartSource(state.source);
-    else if (!LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
-}
-static void LMVUpdateLockScreens(void) {
-    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
-    LMVDiscoverLockHosts();
-    for (UIView *host in LMVLockHosts.allObjects) LMVUpdateLockScreen(host);
-}
-static BOOL LMVLockScreenNeedsFrames(void) {
-    if (!LMVEnabled[@"LockScreen"].boolValue || !LMVPaths[@"LockScreen"].length) return NO;
-    for (UIView *host in LMVLockHosts.allObjects) if (LMVLockHostVisible(host)) return YES;
-    return NO;
-}
-static void LMVLockHostChanged(UIView *view) {
-    if (!LMVInitialized || !NSThread.isMainThread) return;
-    [LMVLockHosts addObject:view];
-    LMVRequestSafeUpdate();
-}
-%group LMVLockScreenHooks
-%hook CSCoverSheetView
-- (void)layoutSubviews {
-    %orig;
-    LMVLockHostChanged((UIView *)self);
-}
-- (void)didMoveToWindow {
-    %orig;
-    LMVLockHostChanged((UIView *)self);
-}
-- (void)setHidden:(BOOL)hidden {
-    %orig;
-    LMVLockHostChanged((UIView *)self);
-}
-- (void)setAlpha:(CGFloat)alpha {
-    %orig;
-    LMVLockHostChanged((UIView *)self);
-}
-%end
-%end
-
 static void LMVCoverSheetVisibilityChanged(UIView *view) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     // Visibility is evaluated after UIKit finishes the current lifecycle call.
-    // Cells/lock hosts already own retained frames; no policy runs in a setter.
+    // Cards own retained frames; no playback policy runs in a system setter.
+    [LMVEaster refresh];
     LMVRequestSafeUpdate();
 }
-%group LMVLockProgressHooks
-%hook CSCoverSheetViewController
-- (void)overlayController:(id)controller didChangePresentationProgress:(double)oldProgress newPresentationProgress:(double)newProgress fromLeading:(BOOL)leading {
-    %orig;
-    LMVRequestSafeUpdate();
-}
-%end
-%end
 %group LMVCoverWindowHooks
 %hook SBCoverSheetWindow
 - (void)setHidden:(BOOL)hidden {
@@ -1179,17 +1037,12 @@ static void LMVReleaseAllPlayers(void) {
     // Keep one paused player/time and one last decoded CGImage per file, not per card.
     [LMVLink invalidate]; LMVLink=nil;
     for (LMVSharedSource *source in LMVSharedSources.allValues) LMVStopSource(source);
-    for (UIView *host in LMVLockHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-        state.active = NO;
-    }
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (LMVVideoState *state in states.allValues) state.active=NO;
     }
 
 }
-#import "LMVWallpaperDiagnostics.h"
 static void LMVRefresh(BOOL reload) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     if (reload) {
@@ -1209,9 +1062,6 @@ static void LMVRefresh(BOOL reload) {
         }
         LMVUpdate(cell);
     }
-    LMVUpdateLockScreens();
-    LMVReportWallpaperTrace();
-    LMVCaptureWallpaperDiagnostics();
     LMVSyncDisplayLink();
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
@@ -1224,7 +1074,7 @@ static void LMVSuspend(void) {
 }
 static void LMVSyncDisplayLink(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
-    BOOL needed=LMVLockScreenNeedsFrames();
+    BOOL needed=NO;
     if (LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0) {
         for (UIView *cell in LMVCells.allObjects) {
             if (!LMVVisible(cell)) continue;
@@ -1265,17 +1115,6 @@ static void LMVSyncDisplayLink(void) {
         }
         if (changed || (discover && cellVisible)) LMVUpdate(cell);
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
-    }
-    // Only the actual visible CoverSheet host consumes lockscreen frames.
-    for (UIView *host in LMVLockHosts.allObjects) {
-        LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-        BOOL active = LMVLockHostVisible(host);
-        if (discover || active != state.active) LMVUpdateLockScreen(host);
-        // Update can retire/recreate state on material changes. Never reattach
-        // the old local frame holder or miss a newly created consumer.
-        state=objc_getAssociatedObject(host,&LMVLockStateKey);
-        LMVLayoutLockOverlay(host,state);
-        if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
@@ -1347,7 +1186,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
         LMVCells = [NSHashTable weakObjectsHashTable];
         LMVActionPresenters = [NSHashTable weakObjectsHashTable];
-        LMVLockHosts = [NSHashTable weakObjectsHashTable];
         LMVFrameCache = [NSMutableDictionary new]; LMVPreviewPending = [NSMutableSet new];
         LMVDiskQueue=dispatch_queue_create("com.minis.lockmessagevideo.last-frame",DISPATCH_QUEUE_SERIAL);
         LMVDiskPending=[NSMutableSet new]; LMVDiskAttempted=[NSMutableSet new]; LMVDiskWriting=[NSMutableSet new];
@@ -1356,14 +1194,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVPaths = [NSMutableDictionary new]; LMVEnabled = [NSMutableDictionary new];
         LMVSources = [NSMutableDictionary new]; LMVAssets = [NSMutableDictionary new];  LMVReadyAssets = [NSMutableSet new]; LMVSharedSources = [NSMutableDictionary new];
         LMVInitialized = YES;
-        // Capture calls during initial wallpaper construction if diagnostics was
-        // already enabled before respring; no system manager is constructed.
-        NSNumber *traceEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
-        LMVDiagnosticsEnabled.store([traceEnabled respondsToSelector:@selector(boolValue)] && traceEnabled.boolValue);
+        NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
+        LMVDiagnosticsEnabled.store([diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue);
         if (LMVDiagnosticsEnabled.load()) LMVDiagnosticEpoch.fetch_add(1);
-        LMVInstallWallpaperTrace();
-        LMVReportWallpaperTrace();
-        LMVStartWallpaperTraceReports();
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         notify_register_check("com.apple.springboard.lockstate", &LMVLockToken);
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
@@ -1383,26 +1216,8 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             });
         }];
         %init;
-        Class lockHost = NSClassFromString(@"CSCoverSheetView");
-        Class lockWindow = NSClassFromString(@"SBCoverSheetWindow");
-        if (lockWindow && [lockWindow isSubclassOfClass:UIWindow.class]) {
-            %init(LMVCoverWindowHooks);
-        }
-        if (lockHost && lockWindow && [lockHost isSubclassOfClass:UIView.class] && [lockWindow isSubclassOfClass:UIWindow.class]) {
-            %init(LMVLockScreenHooks);
-        }
-        Class coverController = NSClassFromString(@"CSCoverSheetViewController");
-        SEL progress = NSSelectorFromString(@"overlayController:didChangePresentationProgress:newPresentationProgress:fromLeading:");
-        Method progressMethod = class_getInstanceMethod(coverController, progress);
-        NSMethodSignature *progressSignature = progressMethod ? [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(progressMethod)] : nil;
-        if (progressSignature && progressSignature.numberOfArguments == 6 &&
-            !strcmp(progressSignature.methodReturnType, @encode(void)) &&
-            !strcmp([progressSignature getArgumentTypeAtIndex:2], @encode(id)) &&
-            !strcmp([progressSignature getArgumentTypeAtIndex:3], @encode(double)) &&
-            !strcmp([progressSignature getArgumentTypeAtIndex:4], @encode(double)) &&
-            !strcmp([progressSignature getArgumentTypeAtIndex:5], @encode(BOOL))) {
-            %init(LMVLockProgressHooks);
-        }
+        Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
+        if (coverWindow && [coverWindow isSubclassOfClass:UIWindow.class]) %init(LMVCoverWindowHooks);
         for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {
             [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
                 dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); });

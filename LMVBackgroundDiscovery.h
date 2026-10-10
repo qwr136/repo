@@ -120,7 +120,6 @@ static void LMVOriginalCandidates(UIView *view, BOOL wallpaper, NSUInteger depth
 }
 static void LMVRestoreBackground(LMVVideoState *state) {
     LMVReleaseOriginals(state.originals, state);
-    LMVReleaseOriginals(state.wallpaperOriginals, state); state.wallpaperOriginals = nil;
     state.originals = nil; state.originalAnchor = nil; state.originalScope = nil;
 }
 static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope) {
@@ -131,7 +130,7 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
         state.originalAnchor = anchor; state.originalScope = scope;
     }
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    BOOL wallpaper = [target isEqualToString:@"LockScreen"];
+    const BOOL wallpaper = NO;
     NSMutableArray *live = [NSMutableArray new];
     for (LMVOriginalLease *lease in state.originals) {
         id delegate = lease.layer.delegate;

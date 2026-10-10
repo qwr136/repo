@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 r=Path(__file__).resolve().parents[1]
 video=(r/'LMVEasterPanel.h').read_text()
 image=(r/'LMVEasterImageSettings.h').read_text()
@@ -6,7 +7,7 @@ photo=(r/'LMVEasterPhotoFlow.h').read_text()
 material=(r/'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
 prompt=(r/'LockMessageVideoPrefs/LMVMaterialPrompt.h').read_text()
 overlay=(r/'LMVEasterOverlay.h').read_text()
-original=(r/'LMVLockBackground.h').read_text()
+original=(r/'Tweak.xm').read_text()
 for forbidden in ['imageControls','EasterEggEnabled','EasterEggImage','imagesFilter','loadPreview','LMVCompressMovie']:
     assert forbidden not in video,forbidden
 for forbidden in ['LMVEasterTargets','VideoOpacity','videosFilter','LMVMaterialPicker']:
@@ -16,9 +17,10 @@ assert 'loadPreview' not in image and 'UIImage *preview' not in image
 assert 'picker.showsThumbnails = NO' in video
 assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
 assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
-assert '@[@"Message", @"LockScreen", @"Options", @"Clear"]' in video
-assert '@[@"消息背景", @"锁屏背景", @"选项背景", @"清除背景"]' in video
+assert '@[@"Message", @"Options", @"Clear"]' in video
+assert '@[@"消息背景", @"选项背景", @"清除背景"]' in video
 assert 'Desktop' not in video and '桌面' not in video
+assert 'LockScreen' not in video and '锁屏' not in video
 assert 'return LMVEasterTargets().count + 2;' in video
 assert 'return section == LMVEasterTargets().count + 1 ? 1 : 2;' in video
 assert 'section < LMVEasterTargets().count ? LMVEasterTitles()[section]' in video
@@ -46,11 +48,35 @@ assert 'self.navigationController ?: self' in material
 assert 'if (self.pushed) { [self deleteContained:row]; return; }' in material
 assert 'if (picker.pushed) { [picker renameContained:row]; done(YES); return; }' in material
 assert '[self removeFromParentViewController]' in prompt
+assert '- (void)showPendingImportPrompt;' in video  # Callback-visible declaration for -Werror.
+assert '- (void)viewDidAppear:(BOOL)animated' in video and 'self.panelVisible = YES;' in video
+assert '- (void)viewWillDisappear:(BOOL)animated' in video and 'self.panelVisible = NO;' in video
+show = video[video.index('- (void)showPendingImportPrompt {'):video.index('- (void)finish {')]
+for guard in ['!self.panelVisible', '!self.isViewLoaded', '!self.view.window', 'self.view.window.hidden', 'self.view.window.alpha < 0.01', 'self.presentedViewController', 'self.prompt', 'navigation.topViewController != self', 'self.isBeingDismissed']:
+    assert guard in show, guard
+assert 'static NSMutableArray<LMVMaterialPrompt *> *LMVEasterPendingImportPrompts;' in video
+assert 'LMVEasterPendingImportPrompts.firstObject' in show and 'removeObjectAtIndex:0' in show
+assert 'self.prompt = prompt;' in show and '[host addChildViewController:prompt]' in show
+assert '[prompt didMoveToParentViewController:host]' in show
+complete = re.search(r'prompt\.complete = \^\(NSString \*text, BOOL accepted\) \{(.*?)\};', show, re.S).group(1)
+assert 'weakSelf.prompt = nil;' in complete and 'showPendingImportPrompt' in complete
+for forbidden in ['dismissViewController', 'popViewController', 'finish]', 'close']:
+    assert forbidden not in complete
+assert 'dispatch_after' not in video and 'UIAlertController' not in video
+callback = video[video.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
+assert 'if (!picked || self.busy || ![picked.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;' in callback
+assert callback.index('if (!picked') < callback.index('self.busy = YES;') < callback.index('loadFileRepresentationForTypeIdentifier:')
+assert callback.index('LMVEasterImport(url, YES, &error)') < callback.index('panel.busy = NO;') < callback.index('[panel loadNames];') < callback.index('[LMVEasterPendingImportPrompts addObject:prompt];')
+assert 'BOOL success = relative && !error;' in callback and 'if (success) LMVEasterNotify();' in callback
+assert 'prompt.promptTitle = success ? @"导入成功" : @"导入失败";' in callback
+assert 'prompt.message = success ? @"已保存到素材库" : (error.localizedDescription ?: @"无法保存视频");' in callback
+assert 'if (!panel) return;' not in callback  # Survives overlay panel teardown.
+assert 'LMVEasterSet(' not in callback and 'CFPreferencesSetAppValue' not in callback
 assert 'cornerRadius = 20' in overlay and 'bounds.size.height * .65' in overlay
 assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
-assert 'blankKnown' in overlay and 'screen-blank' in overlay
-assert 'LMVAcquireOriginal' not in original and 'LMVOriginalDetach' not in original
-assert 'video.opacity=1.0f' in original
-assert 'above-system-background' in original and 'LMVLockExposedRect' in original
+assert 'blankKnown' in overlay and 'notification-center-only:not-visible-or-locked' in overlay
+assert 'LMVEasterNCPolicy' in overlay and 'recordScreenBlank' in overlay
+assert 'LockScreen' not in original and 'LMVLayoutLockOverlay' not in original
+assert not (r/'LMVLockBackground.h').exists()
 print('PASS: image/video roles, live sliders, bounded contained navigation/Photos lifecycle, main modal compatibility, original-video import, prompts, geometry, security and observed-wallpaper contracts (not UIKit execution)')

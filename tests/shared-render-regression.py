@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.73')==1
+assert (root/'control').read_text().count('Version: 0.0.74')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.73'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.74'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -25,11 +25,12 @@ state=s.split('@interface LMVVideoState : NSObject',1)[1].split('@end',1)[0]
 assert 'AVPlayer' not in state and 'AVAssetReader' not in state
 assert 'LMVSharedSources[registryKey]=source' in s
 assert 'return LMVSourceForTarget(path,nil);' in s
-assert 'LMVSourceForTarget(path,@"LockScreen")' in s
+assert 'LockScreen' not in s and 'LMVLayoutLockOverlay' not in s
 assert 'LMVDesktop' not in s and 'Desktop' not in s
-assert s.index('static NSString *LMVSourceRegistryKey') < s.index('#import "LMVLockBackground.h"')
+assert not (root/'LMVLockBackground.h').exists()
+assert 'LMVWallpaperFrameCache' not in s
 consumer=s.split('static BOOL LMVSourceHasConsumer',1)[1].split('static void LMVReleasePlayer',1)[0]
-assert consumer.count('state.active && host.window')==1
+assert consumer.count('state.active && host.window')==0
 assert 'state.overlay.superview' in consumer
 assert 'state.layer.superlayer' not in consumer
 assert 'LMVSharedSources[source.path]' not in s
@@ -56,7 +57,7 @@ release=s.split('static void LMVReleasePlayer(LMVVideoState *state) {',1)[1].spl
 assert 'contents=nil' not in release and 'removeFromSuperlayer' not in release
 update=s.split('static void LMVUpdate(UIView *cell) {',1)[1].split('%hook NCNotificationListCell',1)[0]
 assert update.index('state.layer.contents=(__bridge id)cached.image') < update.index('state.source=LMVSourceForPath(path)') < update.index('LMVStartSource(state.source)')
-assert 'if (!cached' not in update
+assert 'cached.image && (!state.layer.contents || revisionChanged)' in update
 assert 'if (!rendered && old.image) return;' in s
 assert 'LMVPreparePreview(path,revision,playbackAsset)' in s
 assert 'cold-no-frame-0.75s' in s and 'source.restoreOnStart' in s
@@ -80,4 +81,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.73 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.74 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')

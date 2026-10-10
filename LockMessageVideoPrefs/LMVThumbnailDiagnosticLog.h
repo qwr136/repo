@@ -36,7 +36,7 @@ static void LMVThumbnailDiagnosticWrite(NSString *event) {
             NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line = [NSString stringWithFormat:@"%.3f version=0.0.73 pid=%d host=%@ %@\n", now, getpid(), springboard ? @"SpringBoard" : @"Settings", records == 1000 ? @"thumbnail budget-reached retry-after-window" : event];
+                NSString *line = [NSString stringWithFormat:@"%.3f version=0.0.74 pid=%d host=%@ %@\n", now, getpid(), springboard ? @"SpringBoard" : @"Settings", records == 1000 ? @"thumbnail budget-reached retry-after-window" : event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) {} @finally { [handle closeFile]; }
         }

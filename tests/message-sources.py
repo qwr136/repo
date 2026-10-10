@@ -37,7 +37,7 @@ preamble = r'''
 static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
 static NSMutableDictionary<NSString *, NSString *> *LMVRevisions;
-static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *LMVFrameCache, *LMVWallpaperFrameCache;
+static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *LMVFrameCache;
 static NSMutableSet *LMVDiskPending;
 static dispatch_queue_t LMVFrameQueue;
 static NSUInteger checkpoints;
@@ -96,66 +96,46 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVFrameQueue=dispatch_queue_create("test.sources",DISPATCH_QUEUE_SERIAL);
     LMVSharedSources=[NSMutableDictionary new]; LMVAssets=[NSMutableDictionary new];
     LMVRevisions=[NSMutableDictionary new]; LMVFrameCache=[NSMutableDictionary new];
-    LMVWallpaperFrameCache=[NSMutableDictionary new]; LMVDiskPending=[NSMutableSet new];
+    LMVDiskPending=[NSMutableSet new];
     AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
     assert([asset tracksWithMediaType:AVMediaTypeVideo].count==1);
     LMVAssets[path]=asset; LMVRevisions[path]=@"rev1";
     LMVFrameSnapshot *shared=[LMVFrameSnapshot new]; shared.image=poster(); shared.time=CMTimeMake(3,4); shared.rendered=YES;
     LMVFrameCache[LMVFrameKey(path,@"rev1")]=shared;
-    assert(!LMVSourceForTarget(path,@"Desktop")); // retired feature cannot create a decoder
+    assert(!LMVSourceForTarget(path,@"Desktop"));
+    assert(!LMVSourceForTarget(path,@"LockScreen"));
     assert(!LMVSourceForTarget(path,@"unknown"));
-    LMVSharedSource *lock=LMVSourceForTarget(path,@"LockScreen");
     LMVSharedSource *message=LMVSourceForPath(path);
-    assert(lock && message && message!=lock);
-    assert(lock.player!=message.player && lock.player.currentItem!=message.player.currentItem && lock.output!=message.output);
-    assert(lock.asset==message.asset);
-    assert([lock.ownerTarget isEqual:@"LockScreen"] && [message.ownerTarget isEqual:@"MessageFamily"]);
-    assert(LMVSourceForTarget(path,@"LockScreen")==lock);
-    assert(LMVSourceForTarget(path,@"Message")==message && LMVSourceForTarget(path,@"Options")==message && LMVSourceForTarget(path,@"Clear")==message);
-    // Shared poster is immutable; its PTS never starts either wallpaper decoder.
-    assert(lock.lastImage && message.lastImage && !CMTIME_IS_NUMERIC(lock.lastTime));
-    assert(CMTimeCompare(message.lastTime,shared.time)==0);
-    lock.reader=[[AVAssetReader alloc] initWithAsset:asset error:nil];
+    assert(message && [message.ownerTarget isEqual:@"MessageFamily"]);
+    assert(LMVSourceForTarget(path,@"Message")==message);
+    assert(LMVSourceForTarget(path,@"Options")==message && LMVSourceForTarget(path,@"Clear")==message);
+    assert(LMVSharedSources.count==1 && message.player && message.player.currentItem && message.output);
+    assert(message.lastImage && CMTimeCompare(message.lastTime,shared.time)==0 && message.restoreOnStart);
     message.reader=[[AVAssetReader alloc] initWithAsset:asset error:nil];
-    assert(lock.reader && message.reader && lock.reader!=message.reader);
     AVAssetTrack *track=[asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
-    lock.readerOutput=[AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:track outputSettings:nil];
     message.readerOutput=[AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:track outputSettings:nil];
-    [lock.reader addOutput:lock.readerOutput]; [message.reader addOutput:message.readerOutput];
-    assert(lock.readerOutput!=message.readerOutput && [lock.reader startReading] && [message.reader startReading]);
-    lock.pendingSample=[lock.readerOutput copyNextSampleBuffer]; message.pendingSample=[message.readerOutput copyNextSampleBuffer];
-    assert(lock.pendingSample && message.pendingSample && lock.pendingSample!=message.pendingSample);
-    lock.lastTime=CMTimeMake(1,4); message.lastTime=CMTimeMake(2,4);
-    lock.generation=11; message.generation=21; lock.playing=message.playing=YES;
-    AVPlayer *messagePlayer=message.player; AVAssetReader *messageReader=message.reader;
-    LMVStopSource(lock);
-    assert(!lock.playing && lock.generation==12 && message.playing && message.generation==21);
-    assert(CMTimeCompare(message.lastTime,CMTimeMake(2,4))==0 && message.player==messagePlayer && message.reader==messageReader && message.pendingSample);
-    assert(checkpoints==1);
-    LMVStopSource(lock); assert(lock.generation==12 && checkpoints==1); // idempotent pause
-    // Model publisher-owned snapshot: a retirement must resume this target only.
-    LMVFrameSnapshot *owned=[LMVFrameSnapshot new]; owned.image=poster(); owned.time=CMTimeMake(1,4); owned.rendered=YES;
-    LMVWallpaperFrameCache[LMVFrameKey(lock.registryKey,@"rev1")]=owned;
-    LMVRetireSource(lock); dispatch_sync(LMVFrameQueue,^{});
-    assert(!lock.player && !lock.output && !lock.reader && !lock.pendingSample);
-    assert(LMVSharedSources[message.registryKey]==message && message.playing && message.player==messagePlayer);
-    LMVSharedSource *rebuilt=LMVSourceForTarget(path,@"LockScreen");
-    assert(rebuilt!=lock && rebuilt.player!=message.player && rebuilt.lastImage==owned.image);
-    assert(CMTimeCompare(rebuilt.lastTime,owned.time)==0 && rebuilt.restoreOnStart);
-    assert(CMTimeCompare(message.lastTime,CMTimeMake(2,4))==0);
-    // One path invalidation removes card + lock keys; unrelated source survives.
+    [message.reader addOutput:message.readerOutput];assert([message.reader startReading]);
+    message.pendingSample=[message.readerOutput copyNextSampleBuffer];assert(message.pendingSample);
+    message.generation=11;message.playing=YES;
+    LMVStopSource(message);assert(!message.playing && message.generation==12 && checkpoints==1);
+    LMVStopSource(message);assert(message.generation==12 && checkpoints==1);
+    LMVRetireSource(message);dispatch_sync(LMVFrameQueue,^{});
+    assert(!message.player && !message.output && !message.reader && !message.pendingSample);
+    LMVSharedSource *rebuilt=LMVSourceForPath(path);
+    assert(rebuilt!=message && rebuilt.player && rebuilt.lastImage==shared.image);
+    assert(CMTimeCompare(rebuilt.lastTime,shared.time)==0 && rebuilt.restoreOnStart);
+    // One path invalidation removes all current material source keys; unrelated source survives.
     NSString *other=[path stringByAppendingString:@".other"];
     LMVAssets[other]=asset; LMVRevisions[other]=@"rev-other";
-    LMVSharedSource *unrelated=LMVSourceForTarget(other,@"LockScreen"); unrelated.playing=YES;
+    LMVSharedSource *unrelated=LMVSourceForTarget(other,@"Message"); unrelated.playing=YES;
     LMVInvalidateSourcesForPath(path); dispatch_sync(LMVFrameQueue,^{});
     assert(LMVSharedSources.count==1 && LMVSharedSources[unrelated.registryKey]==unrelated && unrelated.playing);
-    for (LMVSharedSource *old in @[lock,message,rebuilt])
+    for (LMVSharedSource *old in @[message,rebuilt])
         assert(!old.playing && !old.player && !old.output && !old.reader && !old.pendingSample && !old.endObserver);
-    assert(LMVWallpaperFrameCache.count==0);
     LMVInvalidateSourcesForPath(path); assert(LMVSharedSources.count==1);
     LMVInvalidateSourcesForPath(other); dispatch_sync(LMVFrameQueue,^{});
     assert(LMVSharedSources.count==0);
-    puts("PASS: actual Lock/card factory/player/item/output/reader/sample isolation, retired Desktop entry rejected; poster PTS separation; independent pause; target-owned resume; all-path invalidation; idempotent retirement (macOS AVFoundation, NOT device test)");
+    puts("PASS: actual three-target notification factory/player/item/output/reader/sample, removed Lock/Desktop rejected; poster PTS separation; independent pause; target-owned resume; all-path invalidation; idempotent retirement (macOS AVFoundation, NOT device test)");
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:

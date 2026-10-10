@@ -32,13 +32,11 @@ jobs:
           check python3 tests/shared-render-regression.py
           check python3 tests/material-thumbnail.py
           check python3 tests/preview-diagnostics.py
-          check python3 tests/wallpaper-diagnostics.py
-          check python3 tests/wallpaper-call-trace.py
-          check python3 tests/wallpaper-sources.py
-          check python3 tests/lock-overlay.py
+          check python3 tests/message-sources.py
           check python3 tests/easter-regression.py
           check python3 tests/panel-roles.py
           check python3 tests/easter-movie.py
+          check python3 tests/import-result.py
           check python3 tests/easter-window.py
           check clang tests/easter-geometry.c -lm -o "$RUNNER_TEMP/lmv-easter-geometry"
           check "$RUNNER_TEMP/lmv-easter-geometry"
@@ -53,8 +51,6 @@ jobs:
           check "$RUNNER_TEMP/lmv-original-background"
           check clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
           check "$RUNNER_TEMP/lmv-material-catalog"
-          check cc tests/lock-consumer.c -o "$RUNNER_TEMP/lmv-lock-consumer"
-          check "$RUNNER_TEMP/lmv-lock-consumer"
           check cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
           check "$RUNNER_TEMP/lmv-import-plan"
           test "$failures" -eq 0

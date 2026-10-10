@@ -42,13 +42,14 @@
 @property(nonatomic, weak) UIWindow *foreignKey, *hostWindow;
 @property(nonatomic) CGFloat keyboardTop;
 @property(nonatomic) NSUInteger generation, frame;
-@property(nonatomic) BOOL pending, ready;
+@property(nonatomic) BOOL pending, ready, authenticatedSession;
 @property(nonatomic) CGPoint normalized;
 - (void)refresh;
 - (void)closePanel;
 - (void)reportWindow:(NSString *)reason;
 - (void)layout;
 - (void)restoreKey;
+- (void)recordScreenBlank;
 @end
 @implementation LMVEasterRoot
 - (void)viewDidLoad { [super viewDidLoad]; self.view.backgroundColor = UIColor.clearColor; }
@@ -78,10 +79,49 @@ static BOOL LMVEasterVisibleDrawing(UIView *view, UIWindow *window, NSUInteger d
     for (UIView *child in view.subviews) if (LMVEasterVisibleDrawing(child,window,depth+1,budget,security)) substantive=YES;
     return substantive;
 }
-// Locked and unlocked states intentionally share the same global visibility
-// policy; only actual screen blanking blocks the bubble at this stage.
-static BOOL LMVEasterScreenAllowsOverlay(BOOL known, uint64_t blank) {
-    return known && blank==0;
+// lockstate can briefly report locked while an unlocked CoverSheet is being
+// pulled. Keep only an unlock observed during the CURRENT screen-on session;
+// a blank event invalidates it before a later real LockScreen presentation.
+static BOOL LMVEasterNCPolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,uint64_t locked,
+                             BOOL exposed,BOOL *authenticated) {
+    if (!blankKnown || blank || !lockKnown) { *authenticated=NO; return NO; }
+    // Only learn an unlocked session outside CoverSheet. Face ID can unlock
+    // while the real lock screen remains onscreen; that is not Notification Center.
+    if (!locked && !exposed) *authenticated=YES;
+    return exposed && *authenticated;
+}
+static UIView *LMVEasterFindCover(UIView *view,NSUInteger depth,NSUInteger *budget) {
+    if (!view || !*budget || depth>10) return nil;
+    --*budget;
+    Class cls=NSClassFromString(@"CSCoverSheetView");
+    if (cls && [view isKindOfClass:cls]) return view;
+    for (UIView *child in view.subviews) {
+        UIView *cover=LMVEasterFindCover(child,depth+1,budget);if(cover)return cover;
+    }
+    return nil;
+}
+static BOOL LMVEasterNCWindowExposed(UIWindow *window) {
+    Class cls=NSClassFromString(@"SBCoverSheetWindow");
+    if (!cls || ![window isKindOfClass:cls] || window.screen!=UIScreen.mainScreen ||
+        window.hidden || window.alpha<.01 || CGRectIsEmpty(window.bounds)) return NO;
+    NSUInteger budget=128;UIView *cover=LMVEasterFindCover(window,0,&budget);
+    if (!cover) return NO;
+    UIView *content=nil;
+    for (NSString *name in @[@"slideableContentView",@"contentView"]) {
+        SEL selector=NSSelectorFromString(name);
+        if (![cover respondsToSelector:selector]) continue;
+        NSMethodSignature *sig=[cover methodSignatureForSelector:selector];
+        if (!sig || sig.numberOfArguments!=2 || strcmp(sig.methodReturnType,@encode(id))) continue;
+        id candidate=((id (*)(id,SEL))objc_msgSend)(cover,selector);
+        if ([candidate isKindOfClass:UIView.class] && candidate!=cover && [candidate isDescendantOfView:cover]) {content=candidate;break;}
+    }
+    if (!content || CGRectIsEmpty(content.bounds)) return NO;
+    for (UIView *node=content;node;node=node.superview) if (node.hidden || node.alpha<.01) return NO;
+    CALayer *shown=content.layer.presentationLayer,*root=window.layer.presentationLayer;
+    CGRect rect=(shown && root)?[shown convertRect:shown.bounds toLayer:root]:[content convertRect:content.bounds toView:window];
+    if (CGRectIsNull(rect) || CGRectIsInfinite(rect)) return NO;
+    CGRect overlap=CGRectIntersection(rect,window.bounds);
+    return !CGRectIsNull(overlap) && !CGRectIsEmpty(overlap) && overlap.size.height>1 && overlap.size.width>1;
 }
 static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
     if (window.hidden || window.alpha<0.01 || window.screen!=UIScreen.mainScreen) return NO;
@@ -99,7 +139,12 @@ static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
 }
 static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterManager *manager = (__bridge LMVEasterManager *)observer;
-    dispatch_async(dispatch_get_main_queue(), ^{ [manager refresh]; });
+    uint64_t blank=0;
+    BOOL blanked=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK && blank;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (blanked) [manager recordScreenBlank];
+        [manager refresh];
+    });
 }
 @implementation LMVEasterManager
 - (instancetype)init {
@@ -137,6 +182,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.windowReason=reason;
     LMVEasterWindowDiagnostic(reason);
 }
+- (void)recordScreenBlank { self.authenticatedSession=NO; [self hide]; }
 - (void)hide {
     [self closePanel];
     self.window.hidden = YES; [self.timer invalidate]; self.timer = nil;
@@ -185,50 +231,24 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.visibilityTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [weakSelf refresh]; }];
         [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     }
-    // Global bubble is permitted on real LockScreen and unlocked Notification
-    // Center; the old lockstate gate incorrectly hid it in both places.
-    uint64_t blank = 1;
-    BOOL blankKnown = LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK;
-    if (!LMVEasterScreenAllowsOverlay(blankKnown,blank)) {
-        [self hide]; [self reportWindow:[NSString stringWithFormat:@"screen-blank blank=%llu", (unsigned long long)blank]]; return;
-    }
-    NSArray *trusted = @[@"SBHomeScreenWindow", @"SBCoverSheetWindow", @"SBControlCenterWindow", @"CCUIOverlayWindow"];
-    NSMutableArray<UIWindow *> *windows = [NSMutableArray new];
+    uint64_t blank=1,locked=1;
+    BOOL blankKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
+    BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
+    NSMutableArray<UIWindow *> *windows=[NSMutableArray new];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
         if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState!=UISceneActivationStateUnattached)
             [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
-    UIWindow *host = nil, *cover = nil;
-    Class coverClass = NSClassFromString(@"SBCoverSheetWindow");
+    UIWindow *host=nil;
     for (UIWindow *window in windows) {
-        if (window == self.window || window.hidden || window.alpha < 0.01 || window.screen != UIScreen.mainScreen) continue;
-        // Unlocked Notification Center: the CoverSheet window itself may sit at or
-        // above the generic alert ceiling, so it is accepted as a host explicitly.
-        BOOL isCover = coverClass && [window isKindOfClass:coverClass];
-        if (isCover && (!cover || window.windowLevel > cover.windowLevel)) cover = window;
-        if (LMVEasterKnownWindow(window, trusted) && (isCover || window.windowLevel < UIWindowLevelAlert - 1) && (!host || window.windowLevel > host.windowLevel)) host = window;
+        if (window==self.window || !window.windowScene || !LMVEasterNCWindowExposed(window)) continue;
+        if (!host || window.windowLevel>host.windowLevel) host=window;
     }
-    // Global display also covers normal apps: SpringBoard's trusted Home/Cover
-    // window may be hidden behind the app while its already existing scene is valid.
-    if (!host) for (UIWindow *window in windows) {
-        if (window==self.window || window.screen!=UIScreen.mainScreen || !window.windowScene ||
-            !LMVEasterKnownWindow(window,trusted)) continue;
-        if (!host || (window.isKeyWindow && !host.isKeyWindow)) host=window;
-    }
-    if (!host || !host.windowScene) { [self hide]; [self reportWindow:@"no-trusted-main-scene"]; return; }
-    // SpringBoard-owned scene above ordinary app surfaces, bounded below alerts.
-    CGFloat level = MAX((CGFloat)1200, MIN(host.windowLevel + 1, UIWindowLevelAlert - 1));
-    if (cover) {
-        // While CoverSheet is presented (unlocked pull-down), stay above it and above
-        // every visible non-alert surface it shows (e.g. the wallpaper window), but
-        // below any visible window at/above the alert level that is not CoverSheet.
-        CGFloat ceiling = MAX(UIWindowLevelAlert - 1, cover.windowLevel + 1), base = MAX(host.windowLevel, cover.windowLevel);
-        for (UIWindow *window in windows) {
-            if (window == self.window || window == cover || window.hidden || window.alpha < 0.01 || window.screen != UIScreen.mainScreen) continue;
-            if (window.windowLevel >= UIWindowLevelAlert && window.windowLevel > cover.windowLevel) ceiling = MIN(ceiling, window.windowLevel - 1);
-            else if (window.windowLevel < ceiling) base = MAX(base, window.windowLevel);
-        }
-        level = MAX((CGFloat)1200, MIN(base + 1, ceiling));
-    }
+    BOOL authenticated=self.authenticatedSession;
+    BOOL allows=LMVEasterNCPolicy(blankKnown,blank,lockKnown,locked,host!=nil,&authenticated);
+    self.authenticatedSession=authenticated;
+    if (!allows) { [self hide]; [self reportWindow:@"notification-center-only:not-visible-or-locked"]; return; }
+    NSArray *trusted=@[@"SBCoverSheetWindow"];
+    CGFloat level=MAX((CGFloat)1200,MIN(host.windowLevel+1,UIWindowLevelAlert - 1));
     self.hostWindow = host;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
@@ -271,7 +291,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         }); return;
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
-    [self reportWindow:[NSString stringWithFormat:@"host=%@ level=%.0f scene=%ld cover=%@",NSStringFromClass(host.class),level,(long)host.windowScene.activationState,cover ? [NSString stringWithFormat:@"%.0f",cover.windowLevel] : @"none"]];
+    [self reportWindow:[NSString stringWithFormat:@"notification-center-only host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {
@@ -328,14 +348,23 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
     panel.close = ^{ [weakSelf closePanel]; };
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
-    UIViewController *root = self.window.rootViewController; [root addChildViewController:self.panel]; [root.view addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
+    UIViewController *root = self.window.rootViewController;
+    [root addChildViewController:self.panel];
+    [self.panel beginAppearanceTransition:YES animated:NO];
+    [root.view addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
+    [self.panel endAppearanceTransition];
     self.panel.view.layer.cornerRadius = 20; self.panel.view.layer.cornerCurve = kCACornerCurveContinuous; self.panel.view.clipsToBounds = YES; self.window.panel = self.panel.view; [self layout];
     // Own key while the panel is open so contained rename/switch prompts get a keyboard.
     if (!self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
 }
 - (void)closePanel {
     if (!self.panel) return;
+    LMVEasterPanel *root=[self.panel.viewControllers.firstObject isKindOfClass:LMVEasterPanel.class]?(LMVEasterPanel *)self.panel.viewControllers.firstObject:nil;
+    [root prepareForClose];
     [self.window endEditing:YES]; [self restoreKey];
-    [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview]; [self.panel removeFromParentViewController]; self.panel = nil; self.window.panel = nil;
+    [self.panel beginAppearanceTransition:NO animated:NO];
+    [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview];
+    [self.panel removeFromParentViewController]; [self.panel endAppearanceTransition];
+    self.panel = nil; self.window.panel = nil;
 }
 @end

@@ -27,8 +27,8 @@ preview=function('static void LMVPreparePreview(NSString *path, NSString *revisi
 assert 'LMVDiskPending containsObject:key' in preview
 source=function('static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
 assert 'LMVDiskPending' in source and 'source.lastTime=snapshot.time' in source
-assert '(!wallpaper || owned)' in source  # shared poster must not borrow another target's PTS
-assert 'LMVWallpaperFrameCache[LMVFrameKey(source.registryKey,source.revision)]' in publish
+assert 'LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);' in source
+assert 'LMVWallpaperFrameCache' not in s and 'LockScreen' not in s
 assert 'LMVSharedSources[source.registryKey]==source' in function('static void LMVRetireSource(LMVSharedSource *source)')
 initial=source.split('LMVSharedSources[registryKey]=source',1)[0]
 assert 'seekToTime:' not in initial  # end-of-movie observer retains its existing loop seek

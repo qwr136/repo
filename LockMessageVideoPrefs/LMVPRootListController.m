@@ -13,8 +13,8 @@
 #import "../LMVEasterImageSettings.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"LockScreen", @"Options", @"Clear"]; }
-static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"锁屏", @"选项", @"清除"]; }
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
+static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除"]; }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
@@ -27,7 +27,7 @@ static void LMVNotify(void) {
 @implementation LMVPRootListController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"锁屏背景视频";
+    self.title = @"背景视频";
 }
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
@@ -41,8 +41,8 @@ static void LMVNotify(void) {
     eggImage.buttonAction = @selector(openEaster:);
     [eggImage setProperty:@"EasterEggImageSettings" forKey:@"id"];
     [_specifiers addObject:eggImage];
-    NSArray *titles = @[@"切换背景素材", @"切换锁屏素材", @"切换选项素材", @"切换清除素材"];
-    SEL actions[] = {@selector(switchMessage:), @selector(switchLockScreen:), @selector(switchOptions:), @selector(switchClear:)};
+    NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材"];
+    SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
         PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -201,7 +201,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -219,7 +219,6 @@ static void LMVNotify(void) {
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
 - (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
-- (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {

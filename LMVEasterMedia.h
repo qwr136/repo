@@ -106,14 +106,6 @@ static LMVEasterImage *LMVEasterDecode(NSURL *url, NSError **error) {
     return decoded;
 }
 
-static __attribute__((unused)) UIImage *LMVEasterPreviewImage(LMVEasterImage *decoded) {
-    if (!decoded.frames.count) return nil;
-    if (decoded.frames.count==1) return decoded.frames.firstObject;
-    double duration=0; for (NSNumber *delay in decoded.delays) duration+=delay.doubleValue;
-    return [UIImage animatedImageWithImages:decoded.frames duration:duration];
-}
-
-// Must execute inside NSItemProvider's background callback: its URL expires on return.
 static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) {
     if (NSThread.isMainThread || !source.isFileURL) {
         if (outError) *outError = LMVStorageError(64, @"导入必须在相册后台回调中执行");
