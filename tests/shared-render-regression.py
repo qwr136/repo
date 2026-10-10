@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.75')==1
+assert (root/'control').read_text().count('Version: 0.0.76')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.75'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.76'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -26,7 +26,9 @@ assert 'AVPlayer' not in state and 'AVAssetReader' not in state
 assert 'LMVSharedSources[registryKey]=source' in s
 assert 'return LMVSourceForTarget(path,nil);' in s
 assert 'LockScreen' not in s and 'LMVLayoutLockOverlay' not in s
-assert 'LMVDesktop' not in s and 'Desktop' not in s
+assert '#import "LMVDesktopVideo.h"' in s
+registry=s.split('static NSString *LMVSourceRegistryKey',1)[1].split('@interface LMVSharedSource',1)[0]
+assert 'Desktop' not in registry  # Desktop has its own player instance, never the message source cache.
 assert not (root/'LMVLockBackground.h').exists()
 assert 'LMVWallpaperFrameCache' not in s
 consumer=s.split('static BOOL LMVSourceHasConsumer',1)[1].split('static void LMVReleasePlayer',1)[0]
@@ -81,4 +83,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.75 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.76 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')

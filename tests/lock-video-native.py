@@ -78,13 +78,22 @@ int main(int argc,const char **argv) {@autoreleasepool {
  AVQueuePlayer *first=p.player;AVPlayerLooper *loop=p.looper;AVPlayerLayer *firstLayer=p.playerLayer;
  for(int n=0;n<50;n++){[p selectPath:mixed revision:rev];[p layoutInBounds:CGRectMake(0,0,390+n,844)];}
  assert(p.player==first && p.looper==loop && p.playerLayer==firstLayer && p.buildCount==1);
+ LMVLockVideoPlayback *desktop=[LMVLockVideoPlayback new];
+ [desktop selectPath:mixed revision:rev];[desktop setVisible:YES];
+ assert(until(^BOOL{return desktop.player && desktop.looper && desktop.posterLayer.contents && desktop.player.rate>0;},15));
+ assert(desktop.player!=p.player && desktop.looper!=p.looper && desktop.templateItem!=p.templateItem && desktop.playerLayer!=p.playerLayer && desktop.posterLayer!=p.posterLayer);
+ [p setVisible:NO];spin(.15);assert(desktop.player.rate>0 && p.player.rate==0);
+ [p clear];assert(desktop.player && desktop.looper && desktop.playerLayer.player==desktop.player && desktop.player.rate>0);
+ [p selectPath:mixed revision:rev];[p setVisible:YES];assert(until(^BOOL{return p.player && p.posterLayer.contents && p.player.rate>0;},15));
+ first=p.player;loop=p.looper;firstLayer=p.playerLayer;NSUInteger baselineBuilds=p.buildCount;
+ [desktop clear];assert(p.player==first && p.looper==loop && p.player.rate>0);
  AVPlayerItem *otherItem=[AVPlayerItem playerItemWithAsset:asset];AVPlayer *other=[AVPlayer playerWithPlayerItem:otherItem];
  assert(p.player.currentItem!=otherItem);[other pause];[p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));
  [p setVisible:NO];assert(p.player.rate==0 && p.renderLayer.hidden);CMTime paused=p.player.currentTime;spin(.2);
  assert(CMTIME_IS_NUMERIC(paused) && fabs(CMTimeGetSeconds(CMTimeSubtract(p.player.currentTime,paused)))<.03);
- [p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));spin(.15);assert(p.buildCount==1 && p.player==first);
+ [p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));spin(.15);assert(p.buildCount==baselineBuilds && p.player==first);
  [p selectPath:second revision:LMVLockVideoRevision(second)];assert(first.rate==0 && first.items.count==0 && firstLayer.player==nil && p.playerLayer!=firstLayer);
- assert(until(^BOOL{return !p.loading && p.player && p.posterLayer.contents;},15));assert(!p.error && p.buildCount==2);
+ assert(until(^BOOL{return !p.loading && p.player && p.posterLayer.contents;},15));assert(!p.error && p.buildCount==baselineBuilds+1);
  AVQueuePlayer *secondPlayer=p.player;AVPlayerLayer *secondLayer=p.playerLayer;[p clear];spin(.1);
  assert(!p.player && !p.looper && !p.templateItem && !p.posterLayer.contents && p.renderLayer.hidden && secondPlayer.rate==0 && !secondPlayer.items.count && !secondLayer.player);
  // Reject a stale revision instead of loading bytes from a replaced file.

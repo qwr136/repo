@@ -17,7 +17,8 @@ late=function('static BOOL LMVAlreadyLaunched(UIApplication *app)')
 cover=function('static void LMVCoverSheetVisibilityChanged(UIView *view)')
 assert scheduler.index('!LMVLaunchReady')<scheduler.index('dispatch_async')<scheduler.index('LMVRefresh(reload)')
 assert 'LMVSafeUpdateApplying' in scheduler and 'LMVSafeUpdatePending' in scheduler
-assert 'LMVDesktop' not in s and 'LMVUpdateLockScreen' not in s
+assert 'LMVDesktopVideoInstallHooks()' in s and 'LMVUpdateLockScreen' not in s
+assert 'LMVDesktopVideoRefresh(reload)' in s
 for name in ['NCNotificationListCell','SBCoverSheetWindow','CoverSheet','PLActionButtonsPresentingView']:
     hook=s.split('%hook '+name+'\n',1)[1].split('%end',1)[0]
     for forbidden in ['LMVUpdate(', 'LMVUpdateLockScreen(', 'LMVRefresh(', 'LMVSyncDisplayLink(', 'objc_msgSend']:

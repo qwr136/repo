@@ -19,11 +19,12 @@ def function(text,signature):
             depth-=1
             if not depth:return text[start:i+1]
     raise AssertionError(signature)
-# Retained rendering and source lifetimes remain present; Desktop feature is removed.
+# Retained notification rendering and source lifetimes are isolated from Desktop.
 for signature in ['static void LMVRequestSafeUpdate(void)','static void LMVMarkLaunchReady(void)',
                   'static BOOL LMVAlreadyLaunched(UIApplication *app)']:
     assert signature in s
-assert 'LMVDesktop' not in s
+assert '#import "LMVDesktopVideo.h"' in s
+assert 'LMVAcquireOriginal' not in (r/'LMVDesktopVideo.h').read_text()
 # Source initialization now intentionally defers disk PTS seek until ready (.59).
 source=function(s,'static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
 assert 'LMVDiskPending' in source

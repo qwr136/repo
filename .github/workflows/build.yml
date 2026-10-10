@@ -35,6 +35,7 @@ jobs:
           check python3 tests/message-sources.py
           check python3 tests/lock-video-native.py
           check python3 tests/lock-video-host.py
+          check python3 tests/desktop-video-host.py
           check python3 tests/easter-regression.py
           check python3 tests/panel-roles.py
           check python3 tests/easter-movie.py

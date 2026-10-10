@@ -17,10 +17,13 @@ assert 'loadPreview' not in image and 'UIImage *preview' not in image
 assert 'picker.showsThumbnails = NO' in video
 assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
 assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
-assert '@[@"Message", @"Options", @"Clear", @"LockScreen"]' in video
-assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景"]' in video
-assert 'Desktop' not in video and '桌面' not in video
-assert '@"LockScreen":@""' in video and 'LockScreenOpacity' not in video
+targets = re.findall(r'@"([^"]+)"', re.search(r'LMVEasterTargets\(void\) \{ return @\[(.*?)\]; \}', video).group(1))
+assert targets == ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop']
+assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]' in video
+for target in ('LockScreen', 'Desktop'):
+    assert video.count(f'@"{target}":@""') == 2  # Label and picker both start unselected.
+    assert target + 'Opacity' not in video
+assert len(targets) + 2 == 7  # Five video targets, shared message opacity and original import.
 assert 'return LMVEasterTargets().count + 2;' in video
 assert 'return section == LMVEasterTargets().count + 1 ? 1 : 2;' in video
 assert 'section < LMVEasterTargets().count ? LMVEasterTitles()[section]' in video

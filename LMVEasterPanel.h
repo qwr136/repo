@@ -19,8 +19,8 @@
 // Import callbacks may finish after the overlay has closed its panel.
 static NSMutableArray<LMVMaterialPrompt *> *LMVEasterPendingImportPrompts;
 static NSString * const LMVEasterImportResultReady = @"LMVEasterImportResultReady";
-static NSArray *LMVEasterTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen"]; }
-static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景"]; }
+static NSArray *LMVEasterTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
+static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]; }
 static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterPanel *panel = (__bridge LMVEasterPanel *)observer;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -146,7 +146,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     } else {
         cell.textLabel.text = @"选择素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         id selected = LMVEasterRead([target stringByAppendingString:@"Video"]);
-        NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@""};
+        NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@"", @"Desktop":@""};
         NSString *relative = [selected isKindOfClass:NSString.class] ? selected : legacy[target];
         cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
         cell.detailTextLabel.numberOfLines = 2;
@@ -172,7 +172,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     NSString *key = [LMVEasterTargets()[index.section] stringByAppendingString:@"Video"];
     LMVMaterialPicker *picker = [LMVMaterialPicker new]; picker.pushed = YES; picker.showsThumbnails = NO;
     id current = LMVEasterRead(key);
-    NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@""};
+    NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@"", @"Desktop":@""};
     picker.selected = [current isKindOfClass:NSString.class] ? current : legacy[LMVEasterTargets()[index.section]] ?: @"";
     __weak typeof(self) weakSelf = self;
     picker.apply = ^(NSString *relative, NSString *name) { LMVEasterSet(key, relative); [weakSelf.tableView reloadData]; };

@@ -36,8 +36,8 @@ static NSError *LMVDeleteMaterial(NSString *relative, BOOL *deleted) {
     if (deleted) *deleted=YES;
 
     CFPreferencesAppSynchronize(LMV_DELETE_PREFS_ID);
-    NSDictionary *defaults=@{@"Message":@"message.mov",@"Options":@"options.mov",@"Clear":@"clear.mov",@"LockScreen":@""};
-    for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen"]) {
+    NSDictionary *defaults=@{@"Message":@"message.mov",@"Options":@"options.mov",@"Clear":@"clear.mov",@"LockScreen":@"",@"Desktop":@""};
+    for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop"]) {
         NSString *key=[target stringByAppendingString:@"Video"];
         id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key,LMV_DELETE_PREFS_ID);
         NSString *selected=[value isKindOfClass:NSString.class] ? value : defaults[target];

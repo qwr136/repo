@@ -15,7 +15,7 @@
 - 默认消息素材: `/var/mobile/LockMessageVideo/message.mov`
 - 选项、清除及素材库视频也保存在该目录。
 
-消息、选项、清除背景的透明度开关关闭时完全透明；开启时滑块值按 0.0 到 1.0 作为这些视频背景的 alpha。0.0.75 新增独立锁屏视频，固定不透明，不受消息透明度控制；主屏功能保持移除。锁屏视频仅在已存在的 CoverSheet 内容范围内显示，首帧未就绪或素材失败时保留系统壁纸；关闭功能移除自有宿主。播放仅使用视频轨道，静音且不激活音频会话，不影响音乐或系统音频。
+消息、选项、清除背景的透明度开关关闭时完全透明；开启时滑块值按 0.0 到 1.0 作为这些视频背景的 alpha。0.0.76 支持独立锁屏和桌面视频，分别选择素材、默认不透明，不受消息透明度控制。锁屏视频仅在已存在的 CoverSheet 内容范围内显示，首帧未就绪或素材失败时保留系统壁纸；关闭功能移除自有宿主。播放仅使用视频轨道，静音且不激活音频会话，不影响音乐或系统音频。
 
 ## 编译
 ### 本地
@@ -26,6 +26,15 @@ make clean package FINALPACKAGE=1
 
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
+
+## 0.0.76：独立桌面视频
+
+- 基于已发布 0.0.75 保留锁屏实现，新增 DesktopBackgroundEnabled / DesktopVideo，设置和通知中心浮窗均可选择桌面素材；默认关闭、未选择，导入不自动分配锁屏或桌面。
+- 参考 VideoBackground 0.1.0-45 的桌面路径：已存在的 SBWallpaperController 发布 homescreenWallpaperView，视频 UIView 放在 SBFWallpaperView.contentView 上方；只在视频已就绪时隐藏该明确的主屏内容，关闭/离开/换宿主恢复。原 UIKit backing layer 和 sibling 顺序保持。
+- iOS 16 PaperBoard 环境可使用明确的 PBUIPosterHomeViewController 纯背景支路；桌面控制器视图作为回退，视频位于背景上方、图标和 Dock 下方。未知共享 Lock/Home 或 CoverSheet 宿主拒绝，不调用 sharedInstance 创建系统单例。
+- 锁屏与桌面分别创建视频播放器、AVPlayerLooper、AVPlayerLayer、海报和时间轴，即使选择同文件也不共享状态；素材切换和关闭独立清理，消息缓存保持原逻辑。
+- 应用前台、真正锁屏和熄屏暂停；本次已解锁后的部分通知中心下拉保留桌面背景，完全盖住时暂停并保留画面；范围未知隐藏。小彩蛋仍只在解锁后通知中心显示。
+- CI 新增真实 QuartzCore 桌面宿主/恢复/101 下拉位置/Hook 检查以及真实 AVFoundation 双实例隔离检查；编译 arm64 + arm64e rootless。真实设备壁纸镜像、Dock 和应用转场效果需验收。
 
 ## 0.0.75：独立锁屏视频测试版
 

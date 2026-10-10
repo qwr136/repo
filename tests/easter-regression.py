@@ -17,19 +17,21 @@ assert '@selector(openEaster:)' in prefs and '- (void)openEaster:' in prefs
 assert 'LMVMaterialPicker *picker = [LMVMaterialPicker new]' in panel
 assert '@["Message"' not in panel
 for ui in (prefs, panel):
-    assert 'Desktop' not in ui and '桌面' not in ui
-    assert '@[@"Message", @"Options", @"Clear", @"LockScreen"]' in ui
+    assert '@[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]' in ui
     assert '消息、选项、清除视频透明度' in ui
-    assert 'LockScreenOpacity' not in ui
-assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景"]' in panel
-assert '@"LockScreen":@""' in panel and '@"LockScreen": @""' in prefs
-assert '@selector(switchLockScreen:)' in prefs
-assert 'if ([target isEqualToString:@"LockScreen"]) continue;' in prefs
+    for target in ('LockScreen', 'Desktop'):
+        assert target + 'Opacity' not in ui
+assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]' in panel
+for target in ('LockScreen', 'Desktop'):
+    assert f'@"{target}":@""' in panel and f'@"{target}": @""' in prefs
+    assert f'@selector(switch{target}:)' in prefs
+assert 'if ([target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"]) continue;' in prefs
 assert 'return LMVEasterTargets().count + 2;' in panel
-assert '@[@"Message", @"Options", @"Clear"]' in tweak  # The message-family renderer keeps its three targets.
+assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen"]' in delete
-assert '@"LockScreen":@""' in delete
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop"]' in delete
+for target in ('LockScreen', 'Desktop'):
+    assert f'@"{target}":@""' in delete
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
 assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1
 assert 'stringByAppendingString:@"BackgroundEnabled"' in panel
