@@ -142,7 +142,7 @@ int main(void) {@autoreleasepool {
  assert([panel.layer.sublayers isEqualToArray:original] && !surface.layer.superlayer);
  // Enable again with effect alpha still zero: own video is a sibling and remains visible.
  LMVEnabled[@"LockScreen"]=@YES;geometry(content,CGRectMake(0,-422,390,844));geometry(panel,window.bounds);LMVUpdateNotificationWallpapers();
- surface=[objc_getAssociatedObject(window,&LMVNCWallpaperKey) firstObject];assert(surface.layer.contents && surface.layer.opacity>0 && effect.alpha==0);
+ surface=[objc_getAssociatedObject(window,&LMVNCWallpaperKey) firstObject];assert(surface.layer.contents && surface.layer.opacity>0 && effectLayer.opacity==0);
  window.hidden=YES;LMVUpdateNotificationWallpapers();assert(effectLayer.superlayer==panel.layer && !surface.layer.superlayer && !lockVideo.layer.hidden && !homeVideo.layer.hidden);
  // A deallocation with live leases must restore once without retaining self.
  window.hidden=NO;LMVEnabled[@"LockScreen"]=@YES;LMVUpdateNotificationWallpapers();
