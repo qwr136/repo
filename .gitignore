@@ -1,0 +1,30 @@
+# ---- Theos 编译产物 ----
+.theos/
+obj/
+packages/
+*.deb
+*.dylib
+*.bundle/
+.deps/
+subprojects/
+
+# ---- 打包中间文件 ----
+layout/DEBIAN/control.bak
+_layout/
+_build/
+
+# ---- 编辑器 / 系统垃圾 ----
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+xcuserdata/
+*.xcuserstate
+
+# ---- 本地备份 / 临时 ----
+*.bak
+*.orig
+*.log
+_backup*/
