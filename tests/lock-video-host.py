@@ -209,7 +209,7 @@ int main(void){@autoreleasepool{
  assert([cover.subviews indexOfObject:manager.host]==1 && [cover.subviews indexOfObject:dimming]==2);
  assert(!manager.host.userInteractionEnabled && manager.host.accessibilityElementsHidden && manager.host.alpha==1);
  assert(manager.playback.wantsPlayback && manager.link && !manager.host.hidden);
- assertSystemTree(cover,original);assert(background.alpha==.37 && background.layer.opacity==.37);
+ assertSystemTree(cover,original);assert(fabs(background.alpha-.37)<.000001 && fabs(background.layer.opacity-.37)<.000001);
  // Root/window stay full-screen while ONLY slideable content moves: exposure
  // must follow content instead of the permanent controller bounds.
  for(int n=0;n<=100;n++) {
