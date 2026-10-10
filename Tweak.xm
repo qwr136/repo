@@ -125,13 +125,15 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.74 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.75 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
         }
     });
 }
+
+#import "LMVLockVideo.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -666,7 +668,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.74 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.75 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1050,6 +1052,7 @@ static void LMVRefresh(BOOL reload) {
         // Unrelated imports must not tear down a working selected shared source.
         LMVLoadPreferences();
     }
+    LMVLockVideoRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
     for (UIView *cell in LMVCells.allObjects) {
         NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -1070,6 +1073,7 @@ static void LMVRefresh(BOOL reload) {
 - (void)tick:(CADisplayLink *)link;
 @end
 static void LMVSuspend(void) {
+    LMVLockVideoSuspend();
     LMVReleaseAllPlayers();
 }
 static void LMVSyncDisplayLink(void) {
@@ -1216,6 +1220,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             });
         }];
         %init;
+        LMVLockVideoInstallHooks();
         Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
         if (coverWindow && [coverWindow isSubclassOfClass:UIWindow.class]) %init(LMVCoverWindowHooks);
         for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {

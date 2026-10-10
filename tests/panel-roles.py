@@ -17,10 +17,10 @@ assert 'loadPreview' not in image and 'UIImage *preview' not in image
 assert 'picker.showsThumbnails = NO' in video
 assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
 assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
-assert '@[@"Message", @"Options", @"Clear"]' in video
-assert '@[@"消息背景", @"选项背景", @"清除背景"]' in video
+assert '@[@"Message", @"Options", @"Clear", @"LockScreen"]' in video
+assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景"]' in video
 assert 'Desktop' not in video and '桌面' not in video
-assert 'LockScreen' not in video and '锁屏' not in video
+assert '@"LockScreen":@""' in video and 'LockScreenOpacity' not in video
 assert 'return LMVEasterTargets().count + 2;' in video
 assert 'return section == LMVEasterTargets().count + 1 ? 1 : 2;' in video
 assert 'section < LMVEasterTargets().count ? LMVEasterTitles()[section]' in video
@@ -77,6 +77,7 @@ assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
 assert 'blankKnown' in overlay and 'notification-center-only:not-visible-or-locked' in overlay
 assert 'LMVEasterNCPolicy' in overlay and 'recordScreenBlank' in overlay
-assert 'LockScreen' not in original and 'LMVLayoutLockOverlay' not in original
+assert '@[@"Message", @"Options", @"Clear"]' in original  # Main renderer remains limited to the original three roles.
+assert 'LMVLayoutLockOverlay' not in original
 assert not (r/'LMVLockBackground.h').exists()
 print('PASS: image/video roles, live sliders, bounded contained navigation/Photos lifecycle, main modal compatibility, original-video import, prompts, geometry, security and observed-wallpaper contracts (not UIKit execution)')

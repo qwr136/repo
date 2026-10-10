@@ -13,8 +13,8 @@
 #import "../LMVEasterImageSettings.h"
 static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
-static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除"]; }
+static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen"]; }
+static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏"]; }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
@@ -41,8 +41,8 @@ static void LMVNotify(void) {
     eggImage.buttonAction = @selector(openEaster:);
     [eggImage setProperty:@"EasterEggImageSettings" forKey:@"id"];
     [_specifiers addObject:eggImage];
-    NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材"];
-    SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:)};
+    NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材"];
+    SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:), @selector(switchLockScreen:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
         PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -201,7 +201,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -210,7 +210,7 @@ static void LMVNotify(void) {
     if (self.presentedViewController || ![LMVTargets() containsObject:target]) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov"};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -221,6 +221,7 @@ static void LMVNotify(void) {
 - (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
 - (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
+- (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
@@ -247,6 +248,8 @@ static void LMVNotify(void) {
             if (copyError) [self showError:copyError];
             else {
                 for (NSString *target in LMVTargets()) {
+                    // LockScreen stays unselected until the user chooses a material.
+                    if ([target isEqualToString:@"LockScreen"]) continue;
                     NSString *key = [target stringByAppendingString:@"Video"];
                     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
                     BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];

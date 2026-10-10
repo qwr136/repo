@@ -18,11 +18,20 @@ assert 'LMVMaterialPicker *picker = [LMVMaterialPicker new]' in panel
 assert '@["Message"' not in panel
 for ui in (prefs, panel):
     assert 'Desktop' not in ui and '桌面' not in ui
-    assert 'LockScreen' not in ui
-    assert '@[@"Message", @"Options", @"Clear"]' in ui
+    assert '@[@"Message", @"Options", @"Clear", @"LockScreen"]' in ui
     assert '消息、选项、清除视频透明度' in ui
-assert '@[@"消息背景", @"选项背景", @"清除背景"]' in panel
-assert '@"锁屏背景"' not in panel
+    assert 'LockScreenOpacity' not in ui
+assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景"]' in panel
+assert '@"LockScreen":@""' in panel and '@"LockScreen": @""' in prefs
+assert '@selector(switchLockScreen:)' in prefs
+assert 'if ([target isEqualToString:@"LockScreen"]) continue;' in prefs
+assert 'return LMVEasterTargets().count + 2;' in panel
+assert '@[@"Message", @"Options", @"Clear"]' in tweak  # The message-family renderer keeps its three targets.
+delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen"]' in delete
+assert '@"LockScreen":@""' in delete
+assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
+assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1
 assert 'stringByAppendingString:@"BackgroundEnabled"' in panel
 assert 'stringByAppendingString:@"Video"' in panel
 assert 'CFNotificationCenterAddObserver' in panel and 'preferencesChanged' in panel

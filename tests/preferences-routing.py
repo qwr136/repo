@@ -17,14 +17,19 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 6
+assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 7
 assert 'Desktop' not in source and '桌面' not in source
-assert 'LockScreen' not in source and 'switchLockScreen:' not in source
-assert '@[@"Message", @"Options", @"Clear"]' in source
-assert '@[@"消息", @"选项", @"清除"]' in source
-assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材"]' in source
-assert '@"切换锁屏素材"' not in source and '@"锁屏背景"' not in source
+assert '@[@"Message", @"Options", @"Clear", @"LockScreen"]' in source
+assert '@[@"消息", @"选项", @"清除", @"锁屏"]' in source
+assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材"]' in source
+assert '@"LockScreen": @"锁屏背景"' in source
+assert '- (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }' in source
+assert '[enabled setProperty:@NO forKey:@"default"]' in source
+assert '[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"]' in source
+assert '@"LockScreen": @""' in source
+assert 'if ([target isEqualToString:@"LockScreen"]) continue;' in source  # Imports leave the new target unselected.
+assert '消息、选项、清除视频透明度' in source and 'LockScreenOpacity' not in source
 assert 'for (NSString *target in LMVTargets())' in source
 assert 'if (![LMVTargets() containsObject:target]) return;' in source
 assert 'if (self.presentedViewController || ![LMVTargets() containsObject:target]) return;' in source
@@ -39,7 +44,7 @@ end = source.index('\n- (id)enabled:', start)
 method = source[start:end]
 assert 'invoke(self, action, row);' in method
 assert method.index('invoke(self, action, row);') < method.index('[super tableView:')
-print('PASS: entry/principal class, version, programmatic-only rows, six action selectors and stale route cleanup')
+print('PASS: entry/principal class, version, programmatic-only rows, seven action selectors, empty/off LockScreen defaults and stale route cleanup')
 if platform.system() != 'Darwin':
     print('Foundation runtime routing test requires macOS; runs in GitHub Actions')
     raise SystemExit(0)
@@ -103,7 +108,7 @@ int main(void) { @autoreleasepool {
     row.target = [NSObject new];
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     row.target = controller;
-    for (NSString *selector in @[@"staleControllerAction:", @"switchDesktop:", @"switchLockScreen:"]) {
+    for (NSString *selector in @[@"staleControllerAction:", @"switchDesktop:"]) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     }
@@ -113,7 +118,7 @@ int main(void) { @autoreleasepool {
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all six actions, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, all seven actions including switchLockScreen:, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:
