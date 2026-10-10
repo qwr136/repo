@@ -25,9 +25,12 @@ assert '!LMVFrameCache[key].rendered' in load
 assert load.index('LMVCacheFrame(path,revision,image,time,YES)') < load.index('LMVUpdate(cell)')
 preview=function('static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset)')
 assert 'LMVDiskPending containsObject:key' in preview
-source=function('static LMVSharedSource *LMVSourceForPath(NSString *path)')
+source=function('static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
 assert 'LMVDiskPending' in source and 'source.lastTime=snapshot.time' in source
-initial=source.split('LMVSharedSources[path]=source',1)[0]
+assert '(!wallpaper || owned)' in source  # shared poster must not borrow another target's PTS
+assert 'LMVWallpaperFrameCache[LMVFrameKey(source.registryKey,source.revision)]' in publish
+assert 'LMVSharedSources[source.registryKey]==source' in function('static void LMVRetireSource(LMVSharedSource *source)')
+initial=source.split('LMVSharedSources[registryKey]=source',1)[0]
 assert 'seekToTime:' not in initial  # end-of-movie observer retains its existing loop seek
 start=function('static void LMVStartSource(LMVSharedSource *source)')
 assert start.index('AVPlayerItemStatusReadyToPlay')<start.index('seekToTime:source.lastTime')

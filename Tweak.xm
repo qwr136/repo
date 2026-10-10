@@ -144,7 +144,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.65 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.67 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -214,11 +214,27 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
     });
 }
 
+// Wallpaper decoders are target-owned; message-family cards keep their file key.
+static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
+    if (!path.length) return nil;
+    if ([target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"])
+        return [NSString stringWithFormat:@"wallpaper/%@|%@",target,path];
+    return path;
+}
+// Only immutable images/PTS are retained across wallpaper decoder retirement.
+static NSMutableDictionary<NSString *, LMVFrameSnapshot *> *LMVWallpaperFrameCache;
+static LMVFrameSnapshot *LMVCachedWallpaperFrame(NSString *path, NSString *revision, NSString *target) {
+    NSString *key=LMVFrameKey(LMVSourceRegistryKey(path,target),revision);
+    return (key ? LMVWallpaperFrameCache[key] : nil) ?: LMVCachedFrame(path,revision);
+}
+
 @interface LMVSharedSource : NSObject <AVPlayerItemOutputPullDelegate>
 @property(nonatomic, strong) AVPlayer *player;
 @property(nonatomic, strong) AVPlayerItemVideoOutput *output;
 @property(nonatomic, assign) CGImageRef lastImage;
 @property(nonatomic, copy) NSString *path;
+@property(nonatomic, copy) NSString *registryKey;
+@property(nonatomic, copy) NSString *ownerTarget;
 @property(nonatomic, copy) NSString *revision;
 // playing means requested by visible consumers, not AVPlayer's actual status.
 @property(nonatomic) BOOL playing;
@@ -237,7 +253,7 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 @property(nonatomic) CFTimeInterval lastDiagnosticAt;
 @property(nonatomic, copy) NSString *diagnosticState;
 @property(nonatomic) NSUInteger newFrames, buffers, conversions, conversionErrors, published, drops;
-// Explicit fallback remains ONE decoder per file, never one player per card.
+// One decoder per registry entry; message-family cards still share by file.
 @property(nonatomic) BOOL readerMode;
 @property(nonatomic, strong) AVAsset *asset;
 @property(nonatomic, strong) AVAssetReader *reader;
@@ -286,8 +302,12 @@ static void LMVCheckpointFrame(NSString *path, NSString *revision) {
                 if (saved && [LMVRevisions[path] isEqualToString:revision]) LMVDiskSavedTimes[key]=seconds;
                 // A new pause during the write is coalesced to the newest displayed frame.
                 LMVFrameSnapshot *latest=LMVCachedFrame(path,revision);
-                if (latest != snapshot && LMVSharedSources[path] && !LMVSharedSources[path].playing)
-                    LMVCheckpointFrame(path,revision);
+                if (latest != snapshot) {
+                    for (LMVSharedSource *source in LMVSharedSources.allValues)
+                        if ([source.path isEqualToString:path] && !source.playing) {
+                            LMVCheckpointFrame(path,revision); break;
+                        }
+                }
             });
         }
     });
@@ -371,8 +391,10 @@ static NSString *LMVFileRevision(NSString *path) {
         info.st_ctimespec.tv_nsec];
 }
 
-static LMVSharedSource *LMVSourceForPath(NSString *path) {
-    LMVSharedSource *source=LMVSharedSources[path];
+static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
+    NSString *registryKey=LMVSourceRegistryKey(path,target);
+    if (!registryKey) return nil;
+    LMVSharedSource *source=LMVSharedSources[registryKey];
     if (source || !LMVAssets[path] || [LMVDiskPending containsObject:LMVFrameKey(path,LMVRevisions[path])]) return source;
     AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:LMVAssets[path]];
     item.preferredForwardBufferDuration=1;
@@ -385,19 +407,24 @@ static LMVSharedSource *LMVSourceForPath(NSString *path) {
     source.imageTransform=[[source.asset tracksWithMediaType:AVMediaTypeVideo] firstObject].preferredTransform;
     source.lastTime=kCMTimeInvalid; source.readerOffset=kCMTimeZero; source.readerLastTarget=kCMTimeInvalid;
     static NSUInteger nextIdentifier=0; source.identifier=++nextIdentifier;
+    source.registryKey=registryKey;
+    source.ownerTarget=[registryKey isEqualToString:path] ? @"MessageFamily" : target;
     source.revision=LMVRevisions[path];
-    LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);
+    BOOL wallpaper=![registryKey isEqualToString:path];
+    LMVFrameSnapshot *owned=wallpaper ? LMVWallpaperFrameCache[LMVFrameKey(registryKey,source.revision)] : nil;
+    LMVFrameSnapshot *snapshot=owned ?: LMVCachedFrame(path,source.revision);
     if (snapshot.image) {
         source.lastImage=CGImageRetain(snapshot.image);
-        if (snapshot.rendered && CMTIME_IS_NUMERIC(snapshot.time)) {
+        // A shared poster never transfers another target's decoder position.
+        if ((!wallpaper || owned) && snapshot.rendered && CMTIME_IS_NUMERIC(snapshot.time)) {
             source.lastTime=snapshot.time; source.restoreOnStart=YES;
             // Wait for ready-to-play before restoring. Cached image is already local.
         }
     }
-    LMVSharedSources[path]=source;
+    LMVSharedSources[registryKey]=source;
     [output setDelegate:source queue:dispatch_get_main_queue()];
     [output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
-    LMVDiagnostic([NSString stringWithFormat:@"loadsource=%lu currentItem=%d tracks=%lu",(unsigned long)source.identifier,player.currentItem!=nil,(unsigned long)[source.asset tracksWithMediaType:AVMediaTypeVideo].count]);
+    LMVDiagnostic([NSString stringWithFormat:@"loadsource=%lu owner=%@ currentItem=%d tracks=%lu",(unsigned long)source.identifier,source.ownerTarget,player.currentItem!=nil,(unsigned long)[source.asset tracksWithMediaType:AVMediaTypeVideo].count]);
     __weak LMVSharedSource *weakSource=source;
     source.endObserver=[NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:item queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
         LMVSharedSource *live=weakSource;
@@ -405,13 +432,16 @@ static LMVSharedSource *LMVSourceForPath(NSString *path) {
         NSUInteger epoch=live.generation;
         [live.player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (finished && live.playing && !live.readerMode && live.generation==epoch) {
+                if (finished && live.playing && !live.readerMode && live.generation==epoch && LMVSharedSources[live.registryKey]==live) {
                     [live.output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03]; [live.player play];
                 }
             });
         }];
     }];
     return source;
+}
+static LMVSharedSource *LMVSourceForPath(NSString *path) {
+    return LMVSourceForTarget(path,nil);
 }
 // This helper runs only on the one serial frame queue. Owns exactly one held sample.
 static CVPixelBufferRef LMVReadSharedBuffer(LMVSharedSource *source, CMTime *displayTime, BOOL hasPublishedImage) {
@@ -512,13 +542,19 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                 NSString *drop=nil;
                 if (source.generation!=generation) drop=@"generation";
                 else if (![source.revision isEqualToString:LMVRevisions[source.path]]) drop=@"revision";
-                else if (LMVSharedSources[source.path]!=source) drop=@"replaced";
+                else if (LMVSharedSources[source.registryKey]!=source) drop=@"replaced";
                 else if (!source.playing) drop=@"not-requested";
                 else if (!LMVPlaybackAllowed()) drop=@"gate";
                 if (image && !drop) {
                     if (source.lastImage) CGImageRelease(source.lastImage);
                     source.lastImage=image; source.lastTime=workTime; source.published++; source.lastProgressAt=CACurrentMediaTime();
                     LMVCacheFrame(source.path,source.revision,image,workTime,YES);
+                    if (![source.registryKey isEqualToString:source.path]) {
+                        if (!LMVWallpaperFrameCache) LMVWallpaperFrameCache=[NSMutableDictionary new];
+                        LMVFrameSnapshot *owned=[LMVFrameSnapshot new];
+                        owned.image=CGImageRetain(image); owned.time=workTime; owned.rendered=YES;
+                        LMVWallpaperFrameCache[LMVFrameKey(source.registryKey,source.revision)]=owned;
+                    }
                     [CATransaction begin]; [CATransaction setDisableActions:YES];
                     for (UIView *cell in LMVCells.allObjects) {
                         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
@@ -544,7 +580,7 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
     });
 }
 static void LMVStartSource(LMVSharedSource *source) {
-    if (!source) return;
+    if (!source || LMVSharedSources[source.registryKey]!=source) return;
     if (source.playing) {
         if (!source.readerMode && source.restoreOnStart && !source.restoringTime &&
             source.player.currentItem.status==AVPlayerItemStatusReadyToPlay) source.playing=NO;
@@ -569,7 +605,7 @@ static void LMVStartSource(LMVSharedSource *source) {
             [source.player seekToTime:source.lastTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     source.restoringTime=NO;
-                    if (finished && source.generation==epoch && source.playing && !source.readerMode && LMVSharedSources[source.path]==source) {
+                    if (finished && source.generation==epoch && source.playing && !source.readerMode && LMVSharedSources[source.registryKey]==source) {
                         source.restoreOnStart=NO; [source.player play];
                     } else source.restoreOnStart=CMTIME_IS_NUMERIC(source.lastTime);
                 });
@@ -589,11 +625,11 @@ static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
     if (!source) return NO;
     for (UIView *host in LMVLockHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
-        if (state.source == source && state.active && state.layer.superlayer) return YES;
+        if (state.source == source && state.active && host.window) return YES;
     }
     for (UIView *host in LMVDesktopHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
-        if (state.source == source && state.active && state.layer.superlayer) return YES;
+        if (state.source == source && state.active && host.window) return YES;
     }
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
@@ -609,11 +645,33 @@ static void LMVReleasePlayer(LMVVideoState *state) {
     state.source=nil; state.active=NO;
     if (!LMVSourceHasConsumer(source)) LMVStopSource(source);
 }
+static void LMVRetireSource(LMVSharedSource *source) {
+    if (!source) return;
+    LMVStopSource(source); source.generation++;
+    [source.output setDelegate:nil queue:NULL];
+    [source.player replaceCurrentItemWithPlayerItem:nil]; source.player=nil; source.output=nil;
+    if (source.endObserver) { [NSNotificationCenter.defaultCenter removeObserver:source.endObserver]; source.endObserver=nil; }
+    // Ordered after any pending conversion; its publication is rejected by epoch/key.
+    dispatch_async(LMVFrameQueue, ^{
+        [source.reader cancelReading]; source.reader=nil; source.readerOutput=nil;
+        if (source.pendingSample) { CFRelease(source.pendingSample); source.pendingSample=NULL; }
+    });
+    if (LMVSharedSources[source.registryKey]==source) [LMVSharedSources removeObjectForKey:source.registryKey];
+}
+static void LMVInvalidateSourcesForPath(NSString *path) {
+    for (LMVSharedSource *source in LMVSharedSources.allValues)
+        if ([source.path isEqualToString:path]) LMVRetireSource(source);
+    for (NSString *target in @[@"LockScreen",@"Desktop"]) {
+        NSString *prefix=[LMVSourceRegistryKey(path,target) stringByAppendingString:@"|"];
+        for (NSString *key in LMVWallpaperFrameCache.allKeys)
+            if ([key hasPrefix:prefix]) [LMVWallpaperFrameCache removeObjectForKey:key];
+    }
+}
 static void LMVPrepareAssets(void) {
     if (!LMVInitialized || !LMVLaunchReady) return;
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
     for (NSString *path in LMVSources.allKeys) {
-        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; LMVStopSource(LMVSharedSources[path]); [LMVSharedSources removeObjectForKey:path]; [LMVRevisions removeObjectForKey:path]; }
+        if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; LMVInvalidateSourcesForPath(path); [LMVRevisions removeObjectForKey:path]; }
     }
     for (NSString *path in wanted) {
         NSString *revision = LMVFileRevision(path);
@@ -622,7 +680,7 @@ static void LMVPrepareAssets(void) {
         // prewarm decoder and time epoch together.
                 [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];
         [LMVReadyAssets removeObject:path];
-        LMVStopSource(LMVSharedSources[path]); [LMVSharedSources removeObjectForKey:path];
+        LMVInvalidateSourcesForPath(path);
         if (!revision) { [LMVRevisions removeObjectForKey:path]; continue; }
         LMVRevisions[path] = revision;
         // Drop old memory revisions and supersede pending loads before rebuilding.
@@ -682,7 +740,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.65 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.67 diagnostics-enabled");
         LMVReportWallpaperTrace();
         LMVStartWallpaperTraceReports();
     }
@@ -1038,20 +1096,20 @@ static void LMVUpdateLockScreen(UIView *host) {
     // Frame holder only. LMVWallpaperWindow.h renders the sole visible layer.
     state.layer.frame = host.bounds; state.layer.hidden = YES;
     state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
-    LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
+    LMVFrameSnapshot *cached = LMVCachedWallpaperFrame(path, state.revision, @"LockScreen");
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     BOOL active = LMVLockHostVisible(host);
-    if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
+    if (state.source && LMVSharedSources[LMVSourceRegistryKey(path,@"LockScreen")] != state.source) LMVReleasePlayer(state);
     BOOL originalInScope = active || (!LMVPlaybackAllowed() && (state.originals.count || state.wallpaperOriginals.count) && host.window);
     // Direct wallpaper replacement owns the original branch and restores it on scope loss.
     LMVRestoreBackground(state);
     state.wallpaperEligible = originalInScope;
-    LMVUpdateWallpaperWindows();
     if (active && [LMVReadyAssets containsObject:path]) {
-        if (!state.source) state.source = LMVSourceForPath(path);
+        if (!state.source) state.source = LMVSourceForTarget(path,@"LockScreen");
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
     }
     state.active = active && state.source != nil;
+    LMVUpdateWallpaperWindows();
     [CATransaction commit];
     if (!state.active && !LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
 }
@@ -1423,15 +1481,7 @@ static void LMVReleaseDesktopSource(LMVVideoState *state) {
         LMVVideoState *other = objc_getAssociatedObject(host, &LMVDesktopStateKey);
         if (other.source == source && !other.active) other.source = nil;
     }
-    LMVStopSource(source); source.generation++;
-    [source.output setDelegate:nil queue:NULL];
-    [source.player replaceCurrentItemWithPlayerItem:nil]; source.player = nil; source.output = nil;
-    if (source.endObserver) { [NSNotificationCenter.defaultCenter removeObserver:source.endObserver]; source.endObserver = nil; }
-    dispatch_async(LMVFrameQueue, ^{
-        [source.reader cancelReading]; source.reader = nil; source.readerOutput = nil;
-        if (source.pendingSample) { CFRelease(source.pendingSample); source.pendingSample = NULL; }
-    });
-    if (LMVSharedSources[source.path] == source) [LMVSharedSources removeObjectForKey:source.path];
+    LMVRetireSource(source);
     LMVDiagnostic(@"desktop=decoder-released");
 }
 // A concrete application/locked/screen-off home is outside this replacement
@@ -1474,17 +1524,17 @@ static void LMVUpdateDesktop(UIView *host, LMVDesktopSnapshot *snapshot) {
     // Frame holder only. Icons and Dock remain in their own higher windows.
     state.layer.frame = host.bounds; state.layer.hidden = YES;
     state.layer.opacity = LMVOpacityEnabled ? LMVOpacity : 0.0;
-    LMVFrameSnapshot *cached = LMVCachedFrame(path, state.revision);
+    LMVFrameSnapshot *cached = LMVCachedWallpaperFrame(path, state.revision, @"Desktop");
     if (!state.layer.contents && cached.image) state.layer.contents = (__bridge id)cached.image;
     if (activity.decode && [LMVReadyAssets containsObject:path]) {
-        if (!state.source || LMVSharedSources[path] != state.source) state.source = LMVSourceForPath(path);
+        if (!state.source || LMVSharedSources[LMVSourceRegistryKey(path,@"Desktop")] != state.source) state.source = LMVSourceForTarget(path,@"Desktop");
         if (state.source.lastImage) state.layer.contents = (__bridge id)state.source.lastImage;
     }
     BOOL directScope = LMVDesktopOriginalInScope(host, snapshot, activity);
     LMVRestoreBackground(state);
     state.wallpaperEligible = directScope;
-    LMVUpdateWallpaperWindows();
     state.active = activity.decode && state.source != nil;
+    LMVUpdateWallpaperWindows();
     [CATransaction commit];
     LMVDesktopDiagnostics(host, state, activity, snapshot);
     if (state.active) LMVStartSource(state.source);
@@ -1654,13 +1704,11 @@ static void LMVDesktopHostChanged(UIView *view) {
 - (void)setHidden:(BOOL)hidden {
     %orig;
     if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
-    LMVUpdateWallpaperWindows();
     LMVDesktopHostChanged((UIView *)self);
 }
 - (void)layoutSubviews {
     %orig;
     if (LMVWallpaperWindows) [LMVWallpaperWindows addObject:(UIWindow *)self];
-    LMVUpdateWallpaperWindows();
     LMVDesktopHostChanged((UIView *)self);
 }
 %end
@@ -1762,7 +1810,7 @@ static void LMVReleaseAllPlayers(void) {
     for (UIView *host in LMVDesktopHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVDesktopStateKey);
         LMVDesktopActivity activity = LMVDesktopHostActivity(host, state, snapshot);
-        state.layer.hidden = !activity.draw; state.active = NO;
+        state.layer.hidden = YES; state.active = NO;
         if (!LMVDesktopOriginalInScope(host, snapshot, activity)) LMVRestoreBackground(state);
         if (activity.releaseSource) LMVReleaseDesktopSource(state);
     }
@@ -1861,6 +1909,7 @@ static void LMVSyncDisplayLink(void) {
         if (discover) LMVUpdateDesktop(host, desktopSnapshot);
         if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
+    if (discover) LMVUpdateWallpaperWindows();
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
     }
@@ -1898,7 +1947,7 @@ static void LMVSyncDisplayLink(void) {
         if (!valid || (CMTIME_IS_NUMERIC(current) && fabs(CMTimeGetSeconds(time)-CMTimeGetSeconds(current))>0.5)) time=current;
         if (!source.readerMode && CMTIME_IS_NUMERIC(time) && ![source.output hasNewPixelBufferForItemTime:time] && CMTIME_IS_NUMERIC(current) && [source.output hasNewPixelBufferForItemTime:current]) time=current;
         LMVPublishFrame(source,time);
-        NSString *phase=[NSString stringWithFormat:@"mode=%@ requested=%d playerstatus=%ld itemstatus=%ld ready=%d timestatus=%ld rate=%.2f item=%d outputawake=%d mappedvalid=%d timevalid=%d",source.readerMode?@"shared-reader":@"shared-output",source.playing,(long)source.player.status,(long)item.status,item.status==AVPlayerItemStatusReadyToPlay,(long)source.player.timeControlStatus,source.player.rate,item!=nil,source.outputAwake,mappedTimeValid,CMTIME_IS_NUMERIC(time)];
+        NSString *phase=[NSString stringWithFormat:@"owner=%@ mode=%@ requested=%d playerstatus=%ld itemstatus=%ld ready=%d timestatus=%ld rate=%.2f item=%d outputawake=%d mappedvalid=%d timevalid=%d",source.ownerTarget,source.readerMode?@"shared-reader":@"shared-output",source.playing,(long)source.player.status,(long)item.status,item.status==AVPlayerItemStatusReadyToPlay,(long)source.player.timeControlStatus,source.player.rate,item!=nil,source.outputAwake,mappedTimeValid,CMTIME_IS_NUMERIC(time)];
         BOOL transition=![source.diagnosticState isEqualToString:phase];
         if (transition || (now-source.lastDiagnosticAt>=2 && now-source.startedAt<30)) {
             source.diagnosticState=phase; source.lastDiagnosticAt=now;

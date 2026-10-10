@@ -32,9 +32,10 @@ protected={
 for signature in protected:
     assert signature in s, signature
 # Source initialization now intentionally defers disk PTS seek until ready (.59).
-source=function(s,'static LMVSharedSource *LMVSourceForPath(NSString *path)')
+source=function(s,'static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
 assert 'LMVDiskPending' in source
-assert 'seekToTime:' not in source.split('LMVSharedSources[path]=source',1)[0]
+assert 'seekToTime:' not in source.split('LMVSharedSources[registryKey]=source',1)[0]
+assert 'LMVSourceForTarget(path,nil)' in function(s,'static LMVSharedSource *LMVSourceForPath(NSString *path)')
 # No early hook, singleton, global layer/view mutation or second decoder path.
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','%hook UIView','%hook CALayer','AVAudioSession','prerollAtRate','idleTimerDisabled']:
     assert forbidden not in s+h+l,forbidden

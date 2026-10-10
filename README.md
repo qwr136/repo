@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.67
+
+- 修复下拉通知中心时锁屏视频串到桌面：不再在壁纸窗口根层切换 Lock/Home；按实际 PBUIPosterLockViewController 与 PBUIPosterHomeViewController 分别替换背景绘制分支，保留系统变换、转场和镜像宿主。
+- 锁屏、桌面即使选择同一素材也各自创建独立播放器、视频输出、读取器、解码状态和播放时间；暂停/切换一项不会重置另一项。
+- 原壁纸背景仍从各自分支移除，视频不是叠加在原静态图片上。分别禁用后恢复各自原层及原顺序；素材替换、root 重建时不沿用旧内容。
+- 真实 QuartzCore 双分支测试覆盖部分下拉隔离、暂停帧、独立关闭恢复、素材无帧、原层重挂及控制器更换。CI 不代替真机通知中心/portal 转场验证。
+
 ## 0.0.66
 
 - 锁屏与桌面视频直接接管 `_SBWallpaperSecureWindow`：确认的原壁纸分支从父层移除，视频层接管壁纸窗口根层；关闭、切换素材或离开场景时恢复原壁纸对象和原层级。

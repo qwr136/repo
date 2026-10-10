@@ -121,11 +121,13 @@ static BOOL LMVDesktopOriginalInScope(UIView *host, LMVDesktopSnapshot *snapshot
 static void LMVDesktopDiagnostics(UIView *host, LMVVideoState *state, LMVDesktopActivity activity, LMVDesktopSnapshot *snapshot) {}
 static BOOL LMVBranchHasWallpaper(UIView *view, NSUInteger depth) { return NO; }
 static LMVFrameSnapshot *LMVCachedFrame(NSString *path, NSString *revision) { return nil; }
-static LMVSharedSource *LMVSourceForPath(NSString *path) { acquired++; LMVSharedSource *source=[LMVSharedSource new]; LMVSharedSources[path]=source; return source; }
+static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) { return [NSString stringWithFormat:@"wallpaper/%@|%@",target,path]; }
+static LMVFrameSnapshot *LMVCachedWallpaperFrame(NSString *path, NSString *revision, NSString *target) { return nil; }
+static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) { acquired++; LMVSharedSource *source=[LMVSharedSource new]; LMVSharedSources[LMVSourceRegistryKey(path,target)]=source; return source; }
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) { return NO; }
 static void LMVStartSource(LMVSharedSource *source) { if(!source.playing) starts++; source.playing=YES; }
 static void LMVStopSource(LMVSharedSource *source) { if(source.playing) stops++; source.playing=NO; source.restoreOnStart=YES; }
-static void LMVReleaseDesktopSource(LMVVideoState *state) { if(state.source) { released++; [LMVSharedSources removeObjectForKey:state.path]; } LMVStopSource(state.source); state.source=nil; state.active=NO; }
+static void LMVReleaseDesktopSource(LMVVideoState *state) { if(state.source) { released++; [LMVSharedSources removeObjectForKey:LMVSourceRegistryKey(state.path,@"Desktop")]; } LMVStopSource(state.source); state.source=nil; state.active=NO; }
 static void LMVDiagnostic(NSString *event) {}
 '''
 tests=r'''

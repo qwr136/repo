@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.66')==1
+assert (root/'control').read_text().count('Version: 0.0.67')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.66'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.67'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -23,7 +23,21 @@ for forbidden in ['[AVPlayerLayer','AVAudioSession','prerollAtRate','idleTimerDi
 # Unique-path source creation is unchanged; no player/reader on LMVVideoState.
 state=s.split('@interface LMVVideoState : NSObject',1)[1].split('@end',1)[0]
 assert 'AVPlayer' not in state and 'AVAssetReader' not in state
-assert 'LMVSharedSources[path]=source' in s
+assert 'LMVSharedSources[registryKey]=source' in s
+assert 'return LMVSourceForTarget(path,nil);' in s
+assert 'LMVSourceForTarget(path,@"LockScreen")' in s
+assert 'LMVSourceForTarget(path,@"Desktop")' in s
+assert s.index('static NSString *LMVSourceRegistryKey') < s.index('#import "LMVWallpaperWindow.h"')
+consumer=s.split('static BOOL LMVSourceHasConsumer',1)[1].split('static void LMVReleasePlayer',1)[0]
+assert consumer.count('state.active && host.window')==2
+assert 'state.overlay.superview' in consumer
+assert 'state.layer.superlayer' not in consumer
+assert 'LMVSharedSources[source.path]' not in s
+invalidate=s.split('static void LMVInvalidateSourcesForPath',1)[1].split('static void LMVPrepareAssets',1)[0]
+assert 'LMVSharedSources.allValues' in invalidate and '[source.path isEqualToString:path]' in invalidate
+assert 'LMVRetireSource(source)' in invalidate
+prepare=s.split('static void LMVPrepareAssets(void) {',1)[1].split('static ',1)[0]
+assert prepare.count('LMVInvalidateSourcesForPath(path)')==2
 # Source readiness/discovery polling cannot require the first frame or an active source.
 sync=s.split('static void LMVSyncDisplayLink(void) {',1)[1].split('@implementation LMVDisplayLinkTarget',1)[0]
 assert 'LMVPaths[target]' in sync and 'state.active' not in sync
@@ -66,4 +80,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.66 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.67 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first always-encode import/validation invariants (not device runtime tests)')
