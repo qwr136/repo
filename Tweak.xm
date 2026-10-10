@@ -41,7 +41,11 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
-static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey;
+static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey, LMVCardUpdateKey;
+// 0.0.80: the single cadence for updating a visible Notification Center card.
+// Cards still observe visibility and readiness every display-link tick (cheap,
+// no layout); only the full discovery/geometry update is throttled to this rate.
+static const CFTimeInterval LMVCardUpdateInterval = 0.1;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
@@ -125,7 +129,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.79 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.80 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -670,7 +674,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.79 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.80 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -843,11 +847,14 @@ static void LMVUpdate(UIView *cell) {
         if (LMVEnabled[target].boolValue && LMVPaths[target] && !host) missing = YES;
     }
     NSNumber *last = objc_getAssociatedObject(cell, &LMVDiscoveryKey);
-    BOOL refreshActions = (!last || now - last.doubleValue >= 0.1);
+    // 0.0.80: one shared 100 ms cadence for every refresh of a visible card. The
+    // action-host re-resolve and the full discovery previously used the same 0.1 s
+    // window but were two independent reads of it; they are now one decision.
+    BOOL refreshActions = (!last || now - last.doubleValue >= LMVCardUpdateInterval);
     if (refreshActions) {
         [hosts removeObjectForKey:@"Options"]; [hosts removeObjectForKey:@"Clear"];
     }
-    if ((missing || refreshActions) && (!last || now - last.doubleValue >= 0.1)) {
+    if ((missing || refreshActions) && (!last || now - last.doubleValue >= LMVCardUpdateInterval)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         LMVActionHosts(cell, hosts, 0);
         if (messageEligible) {
@@ -1110,11 +1117,13 @@ static void LMVSyncDisplayLink(void) {
 - (void)tick:(CADisplayLink *)link {
     if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
     // Visibility is separate from frame conversion; never rediscover/layout every card per frame.
+    // 0.0.80: a visible card's full update (discovery + geometry + reorder) is now
+    // rate-limited to one pass per LMVCardUpdateInterval, tracked per cell. The
+    // previous version keyed this off a single global discovery window, so every
+    // visible card was re-laid-out together on the first frame after the window
+    // elapsed - a burst of layout work that collided with the pull-down animation.
     NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
     NSUInteger consumers=0;
-    static CFTimeInterval lastDiscovery=0;
-    BOOL discover=link.timestamp-lastDiscovery>=0.20;
-    if (discover) lastDiscovery=link.timestamp;
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         BOOL cellVisible=LMVVisible(cell), changed=NO;
@@ -1123,7 +1132,13 @@ static void LMVSyncDisplayLink(void) {
             if (active!=state.active) changed=YES;
             state.active=active;
         }
-        if (changed || (discover && cellVisible)) LMVUpdate(cell);
+        BOOL due=NO;
+        if (cellVisible) {
+            NSNumber *lastUpdate=objc_getAssociatedObject(cell,&LMVCardUpdateKey);
+            due=!lastUpdate || link.timestamp-lastUpdate.doubleValue>=LMVCardUpdateInterval;
+            if (due) objc_setAssociatedObject(cell,&LMVCardUpdateKey,@(link.timestamp),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (changed || due) LMVUpdate(cell);
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
