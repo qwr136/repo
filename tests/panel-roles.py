@@ -23,16 +23,19 @@ assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"
 for target in ('LockScreen', 'Desktop'):
     assert video.count(f'@"{target}":@""') == 2  # Label and picker both start unselected.
     assert target + 'Opacity' not in video
-assert len(targets) + 2 == 7  # Five video targets, shared message opacity and original import.
-assert 'return LMVEasterTargets().count + 2;' in video
-assert 'return section == LMVEasterTargets().count + 1 ? 1 : 2;' in video
-assert 'section < LMVEasterTargets().count ? LMVEasterTitles()[section]' in video
-assert 'section == LMVEasterTargets().count ? @"消息、选项、清除视频透明度" : @"独立原片导入"' in video
-assert 'if (index.section == LMVEasterTargets().count)' in video
-assert 'toggle.tag = LMVEasterTargets().count;' in video
-assert 'if (toggle.tag < 0 || toggle.tag > targetCount) return;' in video
-assert 'toggle.tag == targetCount ? @"VideoOpacityEnabled"' in video
-assert video.count('if (index.section == LMVEasterTargets().count + 1)') == 2
+assert len(targets) + 3 == 8  # Five targets + one Control Center + message opacity + import.
+assert 'return LMVEasterImportSection() + 1;' in video
+assert 'LMVEasterControlCenterSection() + 1' in video and 'LMVEasterOpacitySection() + 1' in video
+assert 'section == LMVEasterControlCenterSection()) return 3' in video
+assert 'section == LMVEasterImportSection() ? 1 : 2' in video
+assert 'if (section < LMVEasterTargets().count) return LMVEasterTitles()[section]' in video
+assert 'ControlCenterBackgroundEnabled' in video
+assert 'ControlCenterDarkVideo' in video and 'ControlCenterLightVideo' in video
+assert '切换深色模式素材' in video and '切换浅色模式素材' in video
+assert 'toggle.tag = LMVEasterOpacitySection();' in video
+assert 'toggle.tag > LMVEasterOpacitySection()' in video
+assert 'toggle.tag == LMVEasterControlCenterSection()' in video
+assert 'if (index.section == LMVEasterImportSection())' in video
 assert 'if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;' in video
 assert 'if (self.presentedViewController || self.busy) return;' in video
 assert 'toggle.on = enabled ? [enabled boolValue] : YES;' in video

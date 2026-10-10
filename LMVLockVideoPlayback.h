@@ -22,6 +22,8 @@ static NSString *LMVLockVideoRevision(NSString *path) {
         (unsigned long long)s.st_dev,(unsigned long long)s.st_ino,(long long)s.st_size,
         (long long)modified.tv_sec,modified.tv_nsec,(long long)changed.tv_sec,changed.tv_nsec];
 }
+#import "LMVVideoPosterStore.h"
+
 static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **error) {
     AVAssetTrack *source=[asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
     CMTimeRange range=source.timeRange;
@@ -49,6 +51,11 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,readonly) BOOL loading,wantsPlayback;
 @property(nonatomic,readonly) NSUInteger generation,buildCount;
 @property(nonatomic,copy) void (^didChange)(void);
+@property(nonatomic) BOOL persistentPosterEnabled;
+- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;
+- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision;
+- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;
+- (void)showPreparedPoster:(BOOL)visible;
 - (void)selectPath:(NSString *)path revision:(NSString *)revision;
 - (void)setVisible:(BOOL)visible;
 - (void)layoutInBounds:(CGRect)bounds;
@@ -67,6 +74,10 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic) NSUInteger generation,buildCount;
 @property(nonatomic,strong) AVAssetImageGenerator *generator;
 @property(nonatomic,strong) id failedObserver;
+@property(nonatomic,copy) NSString *preparedPath,*preparedRevision;
+@property(nonatomic,assign) CGImageRef preparedImage;
+@property(nonatomic) NSUInteger posterGeneration;
+@property(nonatomic) BOOL posterOnlyVisible;
 - (void)updatePresentation;
 - (void)replacePlayerLayer;
 @end
@@ -97,10 +108,13 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     if (_failedObserver) [NSNotificationCenter.defaultCenter removeObserver:_failedObserver];
     [_generator cancelAllCGImageGeneration];[_player pause];[_looper disableLooping];
     _playerLayer.player=nil;[_player removeAllItems];[_renderLayer removeFromSuperlayer];
+    if (_preparedImage) CGImageRelease(_preparedImage);
 }
 - (void)clear {
     NSCAssert(NSThread.isMainThread,@"Lock playback must be coordinated on main");
-    self.generation++;self.loading=NO;self.wantsPlayback=NO;
+    self.generation++;self.posterGeneration++;self.loading=NO;self.wantsPlayback=NO;self.posterOnlyVisible=NO;
+    if (self.preparedImage) CGImageRelease(self.preparedImage);self.preparedImage=NULL;
+    self.preparedPath=nil;self.preparedRevision=nil;
     [self.generator cancelAllCGImageGeneration];self.generator=nil;
     if (self.failedObserver) [NSNotificationCenter.defaultCenter removeObserver:self.failedObserver];self.failedObserver=nil;
     if (self.observingPlayer) [self.player removeObserver:self forKeyPath:@"status" context:&LMVLockPlayerStatusContext];
@@ -119,6 +133,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     [CATransaction commit];
 }
 - (void)setVisible:(BOOL)visible {
+    self.posterOnlyVisible=NO;
     self.wantsPlayback=visible;
     if (visible && self.player && !self.error && self.player.status!=AVPlayerStatusFailed) {
         if (self.player.rate==0) [self.player playImmediatelyAtRate:1.0];
@@ -130,7 +145,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     [CATransaction begin];[CATransaction setDisableActions:YES];
     self.playerLayer.hidden=!ready;
     self.posterLayer.hidden=ready || !self.posterLayer.contents || self.error!=nil;
-    self.renderLayer.hidden=!self.wantsPlayback || self.error!=nil || (!ready && !self.posterLayer.contents);
+    self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible) || self.error!=nil || (!ready && !self.posterLayer.contents);
     [CATransaction commit];
     if (self.didChange) self.didChange();
 }
@@ -146,12 +161,65 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
         [live updatePresentation];
     });
 }
+- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision {
+    NSCAssert(NSThread.isMainThread,@"Poster application requires main");
+    if (!image || ![self.preparedPath isEqualToString:path] || ![self.preparedRevision isEqualToString:revision] ||
+        ![LMVLockVideoRevision(path) isEqualToString:revision]) return;
+    if (self.path && (![self.path isEqualToString:path] || ![self.revision isEqualToString:revision])) return;
+    if (self.preparedImage) CGImageRelease(self.preparedImage);self.preparedImage=CGImageRetain(image);
+    [CATransaction begin];[CATransaction setDisableActions:YES];self.posterLayer.contents=(__bridge id)image;[CATransaction commit];
+    [self updatePresentation];
+}
+- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision {
+    if (!self.persistentPosterEnabled || !path.length || !revision.length) return;
+    if ([self.preparedPath isEqualToString:path] && [self.preparedRevision isEqualToString:revision]) return;
+    self.posterGeneration++;NSUInteger epoch=self.posterGeneration;
+    if (self.preparedImage) CGImageRelease(self.preparedImage);self.preparedImage=NULL;
+    self.preparedPath=path;self.preparedRevision=revision;
+    __weak typeof(self) weakSelf=self;
+    dispatch_async(LMVVideoPosterQueue(),^{
+        CGImageRef image=LMVVideoPosterRead(path,revision);
+        if (!image && [LMVLockVideoRevision(path) isEqualToString:revision]) {
+            // Decode only on the poster queue. Hooks never synchronously open a
+            // video decoder; first use creates the cache for later resprings.
+            AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:@{AVURLAssetPreferPreciseDurationAndTimingKey:@NO}];
+            AVAssetImageGenerator *generator=[[AVAssetImageGenerator alloc] initWithAsset:asset];
+            generator.appliesPreferredTrackTransform=YES;generator.maximumSize=CGSizeMake(1440,1440);
+            image=[generator copyCGImageAtTime:kCMTimeZero actualTime:NULL error:nil];
+            if (image && [LMVLockVideoRevision(path) isEqualToString:revision]) LMVVideoPosterWrite(path,revision,image);
+            else if (image) {CGImageRelease(image);image=NULL;}
+        }
+        dispatch_async(dispatch_get_main_queue(),^{
+            LMVLockVideoPlayback *live=weakSelf;
+            if (live && live.posterGeneration==epoch) [live applyPreparedPoster:image path:path revision:revision];
+            if(image)CGImageRelease(image);
+        });
+    });
+}
+- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision {
+    NSCAssert(NSThread.isMainThread,@"Early poster needs main");
+    if (!self.persistentPosterEnabled || !path.length || !revision.length || self.preparedImage) return;
+    // This reads a small bounded still-image record, never a video or private
+    // singleton. Called at most once for the selected revision's first layout.
+    self.preparedPath=path;self.preparedRevision=revision;
+    CGImageRef image=LMVVideoPosterRead(path,revision);
+    if(image){[self applyPreparedPoster:image path:path revision:revision];CGImageRelease(image);}
+}
+- (void)showPreparedPoster:(BOOL)visible {
+    self.posterOnlyVisible=visible;self.wantsPlayback=NO;[self.player pause];[self updatePresentation];
+}
 - (void)selectPath:(NSString *)path revision:(NSString *)revision {
     NSCAssert(NSThread.isMainThread,@"Lock selection must be coordinated on main");
     if ([self.path isEqualToString:path] && [self.revision isEqualToString:revision]) return;
-    BOOL visible=self.wantsPlayback;[self clear];self.wantsPlayback=visible;
-    if (!path.length || !revision.length) return;
+    BOOL visible=self.wantsPlayback,posterVisible=self.posterOnlyVisible;
+    CGImageRef prepared=self.preparedImage && [self.preparedPath isEqualToString:path] && [self.preparedRevision isEqualToString:revision]?CGImageRetain(self.preparedImage):NULL;
+    [self clear];self.wantsPlayback=visible;self.posterOnlyVisible=posterVisible && prepared!=NULL;
+    if (!path.length || !revision.length) {if(prepared)CGImageRelease(prepared);return;}
     self.path=path;self.revision=revision;self.loading=YES;
+    if (prepared) {
+        self.preparedPath=path;self.preparedRevision=revision;
+        [self applyPreparedPoster:prepared path:path revision:revision];CGImageRelease(prepared);
+    } else [self preparePosterForPath:path revision:revision];
     NSUInteger generation=self.generation;__weak typeof(self) weakSelf=self;
     AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
     [asset loadValuesAsynchronouslyForKeys:@[@"tracks",@"playable"] completionHandler:^{
@@ -195,6 +263,12 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
                         current.generator=nil;
                         if (held && result==AVAssetImageGeneratorSucceeded) {
                             [CATransaction begin];[CATransaction setDisableActions:YES];current.posterLayer.contents=(__bridge id)held;[CATransaction commit];
+                            if (current.persistentPosterEnabled) {
+                                current.preparedPath=path;current.preparedRevision=revision;
+                                if(current.preparedImage)CGImageRelease(current.preparedImage);current.preparedImage=CGImageRetain(held);
+                                CGImageRef saved=CGImageRetain(held);
+                                dispatch_async(LMVVideoPosterQueue(),^{LMVVideoPosterWrite(path,revision,saved);CGImageRelease(saved);});
+                            }
                         }
                         [current updatePresentation];
                     }

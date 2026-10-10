@@ -15,6 +15,9 @@ static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
+static BOOL LMVMaterialTargetAllowed(NSString *target) {
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight"] containsObject:target];
+}
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
@@ -53,6 +56,19 @@ static void LMVNotify(void) {
         choose.buttonAction = actions[i];
         [_specifiers addObject:choose];
     }
+    PSSpecifier *controlCenter = [PSSpecifier groupSpecifierWithName:@"控制中心背景"];
+    [controlCenter setProperty:@"按系统深浅色模式自动选择素材；未选择对应模式素材时保留系统背景。" forKey:@"footerText"];
+    [_specifiers addObject:controlCenter];
+    PSSpecifier *controlCenterEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用控制中心背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [controlCenterEnabled setProperty:@"ControlCenterBackgroundEnabled" forKey:@"key"];
+    [controlCenterEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:controlCenterEnabled];
+    PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换深色模式素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    controlCenterDark.buttonAction = @selector(switchControlCenterDark:);
+    [_specifiers addObject:controlCenterDark];
+    PSSpecifier *controlCenterLight = [PSSpecifier preferenceSpecifierNamed:@"切换浅色模式素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
+    [_specifiers addObject:controlCenterLight];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];
     PSSpecifier *import = [PSSpecifier preferenceSpecifierNamed:@"从相册导入视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     import.buttonAction = @selector(chooseVideo:);
@@ -197,20 +213,20 @@ static void LMVNotify(void) {
     [self presentViewController:menu animated:YES completion:nil];
 }
 - (void)selectFile:(NSString *)file name:(NSString *)name target:(NSString *)target {
-    if (![LMVTargets() containsObject:target]) return;
+    if (!LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)switchTarget:(NSString *)target {
-    if (self.presentedViewController || ![LMVTargets() containsObject:target]) return;
+    if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -223,6 +239,8 @@ static void LMVNotify(void) {
 - (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
 - (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
 - (void)switchDesktop:(PSSpecifier *)specifier { [self switchTarget:@"Desktop"]; }
+- (void)switchControlCenterDark:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterDark"]; }
+- (void)switchControlCenterLight:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterLight"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
@@ -248,9 +266,8 @@ static void LMVNotify(void) {
             self.materialBusy = NO;
             if (copyError) [self showError:copyError];
             else {
-                for (NSString *target in LMVTargets()) {
-                    // LockScreen and Desktop stay unselected until the user chooses a material.
-                    if ([target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"]) continue;
+                // Only the three message targets receive an initial selection after import.
+                for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
                     NSString *key = [target stringByAppendingString:@"Video"];
                     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
                     BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];

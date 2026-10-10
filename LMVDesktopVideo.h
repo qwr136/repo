@@ -96,10 +96,11 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,strong) LMVDesktopContentLease *lease;
 @property(nonatomic,weak) UIView *container;
 @property(nonatomic,strong) NSTimer *timer;
-@property(nonatomic,copy) NSString *path,*revision,*status;
+@property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
 @property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery;
 - (void)refresh:(BOOL)reload;
+- (void)primePoster;
 - (void)update;
 - (void)suspend;
 @end
@@ -186,7 +187,8 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
 @implementation LMVDesktopVideoManager
 - (instancetype)init {
     if ((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_host=[[LMVDesktopVideoHost alloc] initWithFrame:CGRectZero];
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _host=[[LMVDesktopVideoHost alloc] initWithFrame:CGRectZero];
         _host.playback=_playback;_playback.renderLayer.name=@"com.minis.lockmessagevideo.desktop.render";
         _playback.renderLayer.backgroundColor=UIColor.blackColor.CGColor;[_host.layer addSublayer:_playback.renderLayer];
         __weak typeof(self) weakSelf=self;
@@ -195,12 +197,20 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
     return self;
 }
 - (void)dealloc {[_timer invalidate];[_lease restore];[_host removeFromSuperview];}
+- (void)primePoster {
+    id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
+    self.enabled=[enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
+    NSString *path=self.enabled?LMVDesktopSelectedPath():nil,*revision=LMVLockVideoRevision(path);
+    if ((self.path || path) && (![self.path isEqualToString:path] || ![self.revision isEqualToString:revision])) {
+        [self.lease restore];self.lease=nil;[self.playback clear];self.earlyPosterAttempt=nil;
+    }
+    self.path=path;self.revision=revision;
+    [self.playback preparePosterForPath:path revision:revision];
+}
 - (void)refresh:(BOOL)reload {
     self.suspended=NO;
     if (reload) {
-        id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
-        self.enabled=[enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
-        self.path=self.enabled?LMVDesktopSelectedPath():nil;self.revision=LMVLockVideoRevision(self.path);
+        [self primePoster];
         self.lastRevisionCheck=CACurrentMediaTime();[self.playback selectPath:self.path revision:self.revision];
     }
     if (self.enabled && self.path.length && !self.timer) {
@@ -283,7 +293,8 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
         self.host.hidden=YES;[self.lease restore];self.lease=nil;
         [self.host removeFromSuperview];self.container=nil;
     }
-    [self.playback setVisible:visible && !covered];
+    if (LMVLaunchReady) [self.playback setVisible:visible && !covered];
+    else [self.playback showPreparedPoster:visible];
     if (visible && covered && self.playback.path && !self.playback.error) {
         // Retain the existing desktop frame behind NC; withdrawing NC reveals
         // that frame immediately without a flash back to the static wallpaper.
@@ -303,6 +314,22 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
     self.updating=NO;
 }
 @end
+static void LMVDesktopPrimeEarly(void) {
+    if(!LMVInitialized || !NSThread.isMainThread)return;
+    if(!LMVDesktopVideo)LMVDesktopVideo=[LMVDesktopVideoManager new];
+    [LMVDesktopVideo primePoster];
+}
+static void LMVDesktopEarlyLayout(void) {
+    if(!LMVInitialized || !NSThread.isMainThread || LMVLaunchReady || !LMVDesktopVideo.enabled)return;
+    if(LMVDesktopWallpaperController)LMVDesktopDiscover();
+    LMVDesktopVideoManager *manager=LMVDesktopVideo;
+    NSString *key=manager.path && manager.revision?[manager.path stringByAppendingFormat:@"|%@",manager.revision]:nil;
+    if(key && ![manager.earlyPosterAttempt isEqualToString:key]) {
+        manager.earlyPosterAttempt=key;
+        [manager.playback loadCachedPosterNowForPath:manager.path revision:manager.revision];
+    }
+    [manager update];
+}
 static void LMVDesktopVideoRefresh(BOOL reload) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
     LMVDesktopDiscover();if(!LMVDesktopVideo){LMVDesktopVideo=[LMVDesktopVideoManager new];reload=YES;}
@@ -316,6 +343,7 @@ static void LMVDesktopLifecycle(UIViewController *controller,NSInteger visible) 
     LMVDesktopControllerRecord *record=objc_getAssociatedObject(controller,&LMVDesktopControllerRecordKey);
     if(!record){record=[LMVDesktopControllerRecord new];objc_setAssociatedObject(controller,&LMVDesktopControllerRecordKey,record,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     if(visible>=0){record.known=YES;record.visible=visible!=0;}
+    if(!LMVLaunchReady)LMVDesktopEarlyLayout();
     LMVRequestSafeUpdate();
 }
 
@@ -346,7 +374,7 @@ static id LMVDesktopWallpaperHookShared(id value,SEL selector) {
 }
 static void LMVDesktopWallpaperHookLayout(id value,SEL selector) {
     LMVDesktopWallpaperOriginalLayout(value,selector);
-    if(NSThread.isMainThread && LMVInitialized)LMVRequestSafeUpdate();
+    if(NSThread.isMainThread && LMVInitialized) {if(!LMVLaunchReady)LMVDesktopEarlyLayout();LMVRequestSafeUpdate();}
 }
 static void LMVDesktopVideoInstallHooks(void) {
 #define LMV_DESKTOP_INSTALL(cls,name,animated,replacement,original) do { \

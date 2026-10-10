@@ -27,6 +27,15 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.77：桌面首屏海报与控制中心深浅色视频
+
+- 基于已发布 0.0.76 修复桌面启动准备过晚的问题：提前预读选中视频的首帧缓存，在明确桌面宿主首次布局时先显示该视频海报，再交接到异步准备的动态播放器。只读取有界的静态缓存图，不在 Hook 内同步解码视频或创建壁纸单例。
+- 首帧图保存到 `.background-posters`，按路径和文件修订严格校验，素材替换/删除、缓存损坏时拒绝旧图。首次没有缓存时后台生成；有缓存后注销可提前显示，实际首屏时序需设备验证。
+- 新增控制中心背景独立播放器与开关 `ControlCenterBackgroundEnabled`；`ControlCenterDarkVideo` 与 `ControlCenterLightVideo` 分别选择深色和浅色模式素材，按系统外观自动切换，未选对应模式时保留系统背景。设置与浮窗都提供一组开关和两份素材选择。
+- 参考 VideoBackground 0.1.0-45 的控制中心覆盖控制器、全屏 MTMaterialView 背景和展开进度路径；仅挂插件自有背景层，不改变原按钮、滑块、材质视图和 backing layer。收回、关闭、熄屏暂停；模式切换清除旧画面，播放器不与锁屏/桌面/消息共享。
+- 删除素材同步清理两项控制中心选择；导入不自动分配锁屏、桌面和控制中心。保留原片导入提示、小彩蛋通知中心显示范围、消息背景与现有锁屏功能。
+- Actions 运行实际 ImageIO 缓存测试、AVFoundation 缓存到播放交接、QuartzCore 桌面启动与控制中心模式/进度/层级测试，再编译 rootless arm64 + arm64e deb。编译和原生测试不等于 iOS 真机视觉与注销时序验收。
+
 ## 0.0.76：独立桌面视频
 
 - 基于已发布 0.0.75 保留锁屏实现，新增 DesktopBackgroundEnabled / DesktopVideo，设置和通知中心浮窗均可选择桌面素材；默认关闭、未选择，导入不自动分配锁屏或桌面。

@@ -19,18 +19,33 @@ assert '@["Message"' not in panel
 for ui in (prefs, panel):
     assert '@[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]' in ui
     assert '消息、选项、清除视频透明度' in ui
-    for target in ('LockScreen', 'Desktop'):
-        assert target + 'Opacity' not in ui
+    for target in ('LockScreen', 'Desktop', 'ControlCenter'):
+        for option in ('Opacity', 'Blur', 'Audio'):
+            assert target + option not in ui
+    assert '控制中心背景' in ui
+    assert '按系统深浅色模式自动选择素材；未选择对应模式素材时保留系统背景。' in ui
+    assert 'ControlCenterBackgroundEnabled' in ui
+    assert 'ControlCenterDarkBackgroundEnabled' not in ui and 'ControlCenterLightBackgroundEnabled' not in ui
 assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]' in panel
 for target in ('LockScreen', 'Desktop'):
     assert f'@"{target}":@""' in panel and f'@"{target}": @""' in prefs
     assert f'@selector(switch{target}:)' in prefs
-assert 'if ([target isEqualToString:@"LockScreen"] || [target isEqualToString:@"Desktop"]) continue;' in prefs
-assert 'return LMVEasterTargets().count + 2;' in panel
+for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
+    assert f'@selector(switchControlCenter{mode}:)' in prefs
+    assert f'@"ControlCenter{mode}": @""' in prefs
+    assert f'@"ControlCenter{mode}Video"' in panel
+    assert f'切换{title}模式素材' in prefs and f'切换{title}模式素材' in panel
+prefs_import = prefs[prefs.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
+assert 'for (NSString *target in @[@"Message", @"Options", @"Clear"])' in prefs_import
+assert 'ControlCenter' not in prefs_import and 'LockScreen' not in prefs_import and 'Desktop' not in prefs_import
+assert 'static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterTargets().count; }' in panel
+assert 'static NSInteger LMVEasterOpacitySection(void) { return LMVEasterControlCenterSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }' in panel
+assert 'return LMVEasterImportSection() + 1;' in panel
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop"]' in delete
-for target in ('LockScreen', 'Desktop'):
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight"]' in delete
+for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight'):
     assert f'@"{target}":@""' in delete
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
 assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1

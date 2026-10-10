@@ -20,6 +20,8 @@ code=r'''
 #include <assert.h>
 #include <math.h>
 #include <string.h>
+static NSString *posterCache;
+#define LMV_VIDEO_POSTER_ROOT posterCache
 #import "LMVLockVideoPlayback.h"
 static void spin(NSTimeInterval time) {
  NSDate *end=[NSDate dateWithTimeIntervalSinceNow:time];
@@ -60,7 +62,7 @@ static void mix(NSURL *video,NSURL *waveURL,NSURL *destination) {
  assert(exporter.status==AVAssetExportSessionStatusCompleted);
 }
 int main(int argc,const char **argv) {@autoreleasepool {
- assert(argc==2);NSString *folder=[NSString stringWithUTF8String:argv[1]];
+ assert(argc==2);NSString *folder=[NSString stringWithUTF8String:argv[1]];posterCache=[folder stringByAppendingPathComponent:@"posters"];
  NSString *base=[folder stringByAppendingPathComponent:@"base.mov"],*mixed=[folder stringByAppendingPathComponent:@"mixed.mov"],*second=[folder stringByAppendingPathComponent:@"second.mov"],*wavePath=[folder stringByAppendingPathComponent:@"audio.wav"];
  movie([NSURL fileURLWithPath:base],45);movie([NSURL fileURLWithPath:second],145);mix([NSURL fileURLWithPath:base],[NSURL fileURLWithPath:wavePath],[NSURL fileURLWithPath:mixed]);
  AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:mixed] options:nil];assert([asset tracksWithMediaType:AVMediaTypeAudio].count);
@@ -87,6 +89,17 @@ int main(int argc,const char **argv) {@autoreleasepool {
  [p selectPath:mixed revision:rev];[p setVisible:YES];assert(until(^BOOL{return p.player && p.posterLayer.contents && p.player.rate>0;},15));
  first=p.player;loop=p.looper;firstLayer=p.playerLayer;NSUInteger baselineBuilds=p.buildCount;
  [desktop clear];assert(p.player==first && p.looper==loop && p.player.rate>0);
+ // Simulate a new SpringBoard playback instance with persisted Desktop poster.
+ CGImageRef savedPoster=(__bridge CGImageRef)p.posterLayer.contents;assert(savedPoster);
+ assert(LMVVideoPosterWrite(mixed,rev,savedPoster));
+ LMVLockVideoPlayback *startup=[LMVLockVideoPlayback new];startup.persistentPosterEnabled=YES;
+ [startup loadCachedPosterNowForPath:mixed revision:rev];[startup showPreparedPoster:YES];
+ assert(!startup.player && !startup.loading && startup.posterLayer.contents && !startup.renderLayer.hidden);
+ id posterBefore=startup.posterLayer.contents;[startup selectPath:mixed revision:rev];
+ assert(startup.posterLayer.contents==posterBefore && !startup.renderLayer.hidden && startup.loading);
+ [startup setVisible:YES];assert(until(^BOOL{return startup.player && !startup.loading && startup.player.rate>0;},15));
+ assert(startup.posterLayer.contents && !startup.renderLayer.hidden);[startup clear];
+ assert(!startup.posterLayer.contents && !startup.player && startup.renderLayer.hidden);
  AVPlayerItem *otherItem=[AVPlayerItem playerItemWithAsset:asset];AVPlayer *other=[AVPlayer playerWithPlayerItem:otherItem];
  assert(p.player.currentItem!=otherItem);[other pause];[p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));
  [p setVisible:NO];assert(p.player.rate==0 && p.renderLayer.hidden);CMTime paused=p.player.currentTime;spin(.2);
@@ -115,5 +128,5 @@ with tempfile.TemporaryDirectory() as tmp:
  with wave.open(str(folder/'audio.wav'),'wb') as audio:
   audio.setnchannels(1);audio.setsampwidth(2);audio.setframerate(44100);audio.writeframes(bytes(44100*3*2))
  source=folder/'lock.m';binary=folder/'lock';source.write_text(code)
- subprocess.run(['clang','-fobjc-arc','-Wno-deprecated-declarations','-I',str(r),'-framework','Foundation','-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia','-framework','CoreVideo','-framework','CoreGraphics',str(source),'-o',str(binary)],check=True)
+ subprocess.run(['clang','-fobjc-arc','-Wno-deprecated-declarations','-I',str(r),'-framework','Foundation','-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia','-framework','CoreVideo','-framework','CoreGraphics','-framework','ImageIO',str(source),'-o',str(binary)],check=True)
  subprocess.run([str(binary),str(folder)],check=True,timeout=120)

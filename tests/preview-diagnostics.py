@@ -41,7 +41,7 @@ static void flush(void) {dispatch_sync(queue,^{});}
 int main(void) {@autoreleasepool {
  [NSFileManager.defaultManager removeItemAtPath:@"/tmp/lmv-preview-diagnostic-tests" error:nil];
  LMVThumbnailDiagnosticWrite(@"thumbnail item=abc stage=request row=5"); flush();
- NSString *line=readLog(YES); assert([line containsString:@"version=0.0.76"] && [line containsString:@"host=SpringBoard"] && [line containsString:@"stage=request row=5"]);
+ NSString *line=readLog(YES); assert([line containsString:@"version=0.0.77"] && [line containsString:@"host=SpringBoard"] && [line containsString:@"stage=request row=5"]);
  for(int i=0;i<1100;i++) LMVThumbnailDiagnosticWrite(@"thumbnail item=abc stage=sample");flush();
  assert([readLog(YES) containsString:@"budget-reached"]);
  NSUInteger before=readLog(YES).length;

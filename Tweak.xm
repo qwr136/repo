@@ -125,7 +125,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.76 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.77 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -135,6 +135,7 @@ static void LMVDiagnostic(NSString *event) {
 
 #import "LMVLockVideo.h"
 #import "LMVDesktopVideo.h"
+#import "LMVControlCenterVideo.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -669,7 +670,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.76 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.77 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1055,6 +1056,7 @@ static void LMVRefresh(BOOL reload) {
     }
     LMVLockVideoRefresh(reload);
     LMVDesktopVideoRefresh(reload);
+    LMVCCRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
     for (UIView *cell in LMVCells.allObjects) {
         NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -1077,6 +1079,7 @@ static void LMVRefresh(BOOL reload) {
 static void LMVSuspend(void) {
     LMVLockVideoSuspend();
     LMVDesktopVideoSuspend();
+    LMVCCSuspend();
     LMVReleaseAllPlayers();
 }
 static void LMVSyncDisplayLink(void) {
@@ -1209,6 +1212,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         if (LMVDiagnosticsEnabled.load()) LMVDiagnosticEpoch.fetch_add(1);
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         notify_register_check("com.apple.springboard.lockstate", &LMVLockToken);
+        LMVDesktopPrimeEarly();
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             // Always leave the notification/system launch stack before policy.
             dispatch_async(dispatch_get_main_queue(), ^{ LMVMarkLaunchReady(); });
@@ -1228,6 +1232,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         %init;
         LMVLockVideoInstallHooks();
         LMVDesktopVideoInstallHooks();
+        LMVCCInstallHooks();
         Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
         if (coverWindow && [coverWindow isSubclassOfClass:UIWindow.class]) %init(LMVCoverWindowHooks);
         for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {
