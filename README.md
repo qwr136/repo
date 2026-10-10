@@ -27,6 +27,13 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.70
+
+- 修正 0.0.69 下拉/收回通知中心时锁屏视频覆盖露出桌面的问题：不再把背景容器 bounds 当作通知中心露出范围，改用已有 CoverSheet 内容视图及动画中的真实可见矩形。
+- 仅裁剪插件自己的通知中心视频层，桌面视频及系统容器的 alpha、transform、frame 和 mask 不改；背景与内容分别移动时也以内容边界裁剪。
+- 通知中心视频副本接管显示时抑制插件原 Poster Lock 视频层的重复显示，保持显示归属跨刷新；桌面播放/暂停与独立解码保持不变。
+- 原生测试专门模拟背景面板与内容错位，验证 100 个下拉位置的边界外无 Lock 绘制、取消后不覆盖 Home、独立帧发布和原副本恢复。真机 portal 与转场仍需验收。
+
 ## 0.0.69
 
 - 针对通知中心整屏背景必须下拉到底才出现的问题，接管已观测的 SBCoverSheetPanelBackgroundContainerView 中 SBWallpaperEffectView/PBUIWallpaperView 背景副本；视频挂到同一个滑动容器内，保留系统位置、变换及前景内容。

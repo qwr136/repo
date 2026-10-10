@@ -5,12 +5,15 @@
 static char LMVWallpaperSurfaceKey;
 static NSHashTable<UIWindow *> *LMVWallpaperWindows;
 static BOOL LMVWallpaperUpdating;
+// Display ownership persists across wallpaper-source refreshes during an NC pull.
+static BOOL LMVLockWallpaperReplicaOwnsDisplay;
 @interface LMVWallpaperSurface : NSObject
 @property(nonatomic,strong) CALayer *layer;
 @property(nonatomic,strong) NSArray<LMVOriginalLease *> *leases;
 @property(nonatomic,copy) NSString *target,*path,*revision,*diagnostic;
 @property(nonatomic,weak) UIView *host;
 @property(nonatomic,strong) NSMapTable<CALayer *, UIView *> *originalViews;
+@property(nonatomic) CFTimeInterval geometryDiagnosticAt;
 @end
 static void LMVWallpaperRetireSurface(LMVWallpaperSurface *surface);
 @implementation LMVWallpaperSurface
@@ -183,7 +186,7 @@ static BOOL LMVWallpaperUpdateVariant(UIView *host, NSString *target, LMVWallpap
     if (surface.layer.superlayer!=parent) { [surface.layer removeFromSuperlayer]; [parent insertSublayer:surface.layer atIndex:0]; }
     surface.layer.frame=host.bounds;
     surface.layer.opacity=LMVOpacityEnabled?LMVOpacity:0.0;
-    surface.layer.hidden=NO;
+    surface.layer.hidden=[target isEqualToString:@"LockScreen"] && LMVLockWallpaperReplicaOwnsDisplay;
     if (!surface.layer.contents || LMVWallpaperTargetConsumes(target,LMVSharedSources[LMVSourceRegistryKey(path,target)])) {
         id contents=LMVWallpaperFrameForTarget(target,path,revision);
         if (contents) surface.layer.contents=contents;

@@ -23,14 +23,43 @@ static void LMVNCWallpaperFindPanels(UIView *view, NSMutableArray<UIView *> *pan
     }
     for (UIView *child in view.subviews) LMVNCWallpaperFindPanels(child,panels,depth+1,budget);
 }
+// The wallpaper panel and CoverSheet content do NOT necessarily slide together.
+// Measure the actual loaded content's exposed rectangle, not panel/window bounds.
+static UIView *LMVNCContentView(UIWindow *window) {
+    for (UIView *cover in LMVLockHosts.allObjects) {
+        if (cover.window!=window) continue;
+        for (NSString *name in @[@"slideableContentView",@"contentView"]) {
+            SEL selector=NSSelectorFromString(name);
+            Method method=class_getInstanceMethod(cover.class,selector);
+            NSMethodSignature *sig=method?[NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)]:nil;
+            if (!sig || sig.numberOfArguments!=2 || strcmp(sig.methodReturnType,@encode(id))) continue;
+            id candidate=((id (*)(id,SEL))objc_msgSend)(cover,selector);
+            if ([candidate isKindOfClass:UIView.class] && candidate!=cover &&
+                [candidate isDescendantOfView:cover]) return candidate;
+        }
+    }
+    return nil; // Unknown geometry must not expose lock video over Home.
+}
+static CGRect LMVNCExposedRect(UIWindow *window) {
+    if (!window || window.hidden || window.alpha<.01) return CGRectZero;
+    UIView *content=LMVNCContentView(window);
+    if (!content || CGRectIsEmpty(content.bounds)) return CGRectZero;
+    for (UIView *node=content;node;node=node.superview)
+        if (node.hidden || node.alpha<.01) return CGRectZero;
+    CALayer *shown=content.layer.presentationLayer;
+    CALayer *rootShown=window.layer.presentationLayer;
+    CGRect rect=(shown && rootShown) ? [shown convertRect:shown.bounds toLayer:rootShown] : [content convertRect:content.bounds toView:window];
+    CGRect intersection=CGRectIntersection(rect,window.bounds);
+    if (CGRectIsNull(intersection) || CGRectIsInfinite(intersection) || CGRectIsEmpty(intersection)) return CGRectZero;
+    return intersection;
+}
 static BOOL LMVNCWallpaperPanelVisible(UIView *panel) {
     UIWindow *window=panel.window;
-    if (!window || window.hidden || window.alpha<.01 || CGRectIsEmpty(panel.bounds)) return NO;
+    CGRect content=LMVNCExposedRect(window);
+    if (CGRectIsEmpty(content) || !panel || CGRectIsEmpty(panel.bounds)) return NO;
     for (UIView *node=panel;node;node=node.superview)
         if (node.hidden || node.alpha<.01) return NO;
-    CGRect rect=[panel convertRect:panel.bounds toView:window];
-    CGRect overlap=CGRectIntersection(rect,window.bounds);
-    // Any real exposed strip is eligible, not only the full-screen final state.
+    CGRect overlap=CGRectIntersection([panel convertRect:panel.bounds toView:window],content);
     return !CGRectIsNull(overlap) && !CGRectIsEmpty(overlap) && overlap.size.height>1 && overlap.size.width>1;
 }
 static BOOL LMVNotificationWallpaperVisible(void) {
@@ -45,6 +74,64 @@ static BOOL LMVNotificationWallpaperVisible(void) {
         }
     }
     return NO;
+}
+static void LMVNCUpdateSurfaceGeometry(LMVWallpaperSurface *surface, UIWindow *window) {
+    UIView *panel=surface.host;
+    if (!panel || surface.layer.superlayer!=panel.layer) return;
+    CGRect exposed=LMVNCExposedRect(window);
+    CALayer *panelSpace=panel.layer.presentationLayer;
+    CALayer *windowSpace=window.layer.presentationLayer;
+    if (!panelSpace || !windowSpace) { panelSpace=panel.layer; windowSpace=window.layer; }
+    // Map through the CURRENT parent presentation, so a model jump during
+    // completion/cancellation cannot move the clip into the exposed Home area.
+    CGRect local=CGRectIsEmpty(exposed)?CGRectZero:[panelSpace convertRect:exposed fromLayer:windowSpace];
+    if (CGRectIsNull(local) || CGRectIsInfinite(local)) local=CGRectZero;
+    // Keep video framing stable in window coordinates while clipping to the
+    // actual content strip. This prevents both overdraw and double-scaled seams.
+    CGRect full=[panelSpace convertRect:window.bounds fromLayer:windowSpace];
+    if (CGRectIsNull(full) || CGRectIsInfinite(full) || CGRectIsEmpty(full)) {
+        surface.layer.hidden=YES; return;
+    }
+    surface.layer.frame=full;
+    surface.layer.opacity=LMVOpacityEnabled?LMVOpacity:0;
+    CAShapeLayer *mask=[surface.layer.mask isKindOfClass:CAShapeLayer.class]?(CAShapeLayer *)surface.layer.mask:nil;
+    if (!mask) {mask=[CAShapeLayer layer];surface.layer.mask=mask;}
+    mask.frame=surface.layer.bounds;
+    CGRect clip=CGRectOffset(local,-full.origin.x,-full.origin.y);
+    if (!mask.path || !CGRectEqualToRect(CGPathGetBoundingBox(mask.path),clip)) {
+        CGPathRef path=CGPathCreateWithRect(clip,NULL);mask.path=path;CGPathRelease(path);
+    }
+    surface.layer.hidden=CGRectIsEmpty(local);
+    NSString *message=[NSString stringWithFormat:@"wallpaper-notification geometry content=%@ clip=%@ videoFrame=%@ target=LockScreen home-overdraw=blocked",NSStringFromCGRect(exposed),NSStringFromCGRect(local),NSStringFromCGRect(full)];
+    if (![surface.diagnostic isEqual:message] && CACurrentMediaTime()-surface.geometryDiagnosticAt>=.25) {surface.diagnostic=message;surface.geometryDiagnosticAt=CACurrentMediaTime();LMVDiagnostic(message);}
+}
+static void LMVNCSetPosterLockHidden(BOOL hidden) {
+    LMVLockWallpaperReplicaOwnsDisplay=hidden;
+    // The Poster Lock root is behind the home window in some interactive pulls.
+    // NC's explicitly clipped replica is the ONLY Lock video during presentation.
+    // Leave the actual system Lock root, Home root and Home video untouched.
+    for (UIWindow *window in LMVWallpaperWindows.allObjects) {
+        NSDictionary *surfaces=objc_getAssociatedObject(window,&LMVWallpaperSurfaceKey);
+        LMVWallpaperSurface *lock=surfaces[@"LockScreen"];
+        if (lock.layer.superlayer) lock.layer.hidden=hidden;
+    }
+}
+static void LMVUpdateNotificationWallpaperGeometry(void) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
+    BOOL ownsReplica=NO;
+    [CATransaction begin];[CATransaction setDisableActions:YES];
+    for (UIWindow *window in LMVNCWallpaperWindows.allObjects) {
+        NSArray *surfaces=objc_getAssociatedObject(window,&LMVNCWallpaperKey);
+        for (LMVWallpaperSurface *surface in surfaces) {
+            if (window.hidden || !surface.leases.count || surface.layer.superlayer!=surface.host.layer) {
+                surface.layer.hidden=YES;continue;
+            }
+            ownsReplica=YES;
+            LMVNCUpdateSurfaceGeometry(surface,window);
+        }
+    }
+    LMVNCSetPosterLockHidden(ownsReplica);
+    [CATransaction commit];
 }
 static void LMVNCRetireWindow(UIWindow *window) {
     NSArray<LMVWallpaperSurface *> *surfaces=objc_getAssociatedObject(window,&LMVNCWallpaperKey);
@@ -95,14 +182,13 @@ static void LMVNCWallpaperUpdatePanel(UIView *panel, LMVWallpaperSurface *surfac
     if (surface.layer.superlayer!=panel.layer) {
         [surface.layer removeFromSuperlayer];[panel.layer insertSublayer:surface.layer atIndex:0];
     }
-    surface.layer.frame=panel.bounds;surface.layer.hidden=NO;surface.layer.opacity=LMVOpacityEnabled?LMVOpacity:0;
+    LMVNCUpdateSurfaceGeometry(surface,panel.window);
     LMVSharedSource *source=LMVSharedSources[LMVSourceRegistryKey(path,@"LockScreen")];
     if (!surface.layer.contents || LMVWallpaperTargetConsumes(@"LockScreen",source)) {
         id contents=LMVWallpaperFrameForTarget(@"LockScreen",path,revision);
         if (contents) surface.layer.contents=contents;
     }
-    NSString *message=[NSString stringWithFormat:@"wallpaper-notification exposed=%d frame=%@ detached=%lu parent=%@ panelFrame=%@ independentLockSource=1",LMVNCWallpaperPanelVisible(panel),surface.layer.contents?@"ready":@"blank",(unsigned long)live.count,NSStringFromClass(panel.class),NSStringFromCGRect(panel.frame)];
-    if (![surface.diagnostic isEqual:message]) {surface.diagnostic=message;LMVDiagnostic(message);}
+
 }
 static void LMVUpdateNotificationWallpapers(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVNCWallpaperUpdating) return;
@@ -132,6 +218,7 @@ static void LMVUpdateNotificationWallpapers(void) {
             objc_setAssociatedObject(window,&LMVNCWallpaperKey,surfaces,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         [CATransaction commit];
+        LMVUpdateNotificationWallpaperGeometry();
     } @finally {LMVNCWallpaperUpdating=NO;}
 }
 static void LMVNotificationWallpaperPublish(LMVSharedSource *source, CGImageRef image) {

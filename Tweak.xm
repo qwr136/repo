@@ -56,6 +56,7 @@ static void LMVUpdateWallpaperWindows(void);
 static void LMVWallpaperPublish(LMVSharedSource *source, CGImageRef image);
 static void LMVNotificationWallpaperPublish(LMVSharedSource *source, CGImageRef image);
 static void LMVUpdateNotificationWallpapers(void);
+static void LMVUpdateNotificationWallpaperGeometry(void);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
@@ -146,7 +147,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.69 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.70 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -744,7 +745,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.69 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.70 diagnostics-enabled");
         LMVReportWallpaperTrace();
         LMVStartWallpaperTraceReports();
     }
@@ -1920,6 +1921,8 @@ static void LMVSyncDisplayLink(void) {
         if (changed || (discover && cellVisible)) LMVUpdate(cell);
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
+    // Update only plugin-owned clip geometry on every interactive tracking tick.
+    LMVUpdateNotificationWallpaperGeometry();
     // Only the actual visible CoverSheet host consumes lockscreen frames.
     for (UIView *host in LMVLockHosts.allObjects) {
         LMVVideoState *state = objc_getAssociatedObject(host, &LMVLockStateKey);
@@ -1935,6 +1938,7 @@ static void LMVSyncDisplayLink(void) {
         if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     if (discover) { LMVUpdateWallpaperWindows(); LMVUpdateNotificationWallpapers(); }
+    LMVUpdateNotificationWallpaperGeometry();
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
         if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
     }
