@@ -30,9 +30,26 @@ pre=pre.replace('static int LMVBlankToken=1;', 'static int LMVBlankToken=1,LMVLo
 pre=pre.replace('static uint64_t screenBlank=0;', 'static uint64_t screenBlank=0,screenLocked=0;')
 pre=pre.replace('*state=screenBlank;return 0;', '*state=token==LMVLockToken?screenLocked:screenBlank;return 0;')
 pre=pre.replace('self.wantsPlayback=visible;', 'self.wantsPlayback=visible;self.renderLayer.hidden=!visible || self.error!=nil || !self.posterLayer.contents;')
-pre=pre.replace('@property NSUInteger builds,clears;', '@property NSUInteger builds,clears,earlyReads;\n@property BOOL persistentPosterEnabled,posterOnlyVisible;\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;\n- (void)showPreparedPoster:(BOOL)visible;')
-pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision {}\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision {self.earlyReads++;}\n- (void)showPreparedPoster:(BOOL)visible {self.posterOnlyVisible=visible;self.wantsPlayback=NO;self.renderLayer.hidden=!visible || !self.posterLayer.contents;}\n')
+pre=pre.replace('@property NSUInteger builds,clears;', '@property NSUInteger builds,clears,earlyReads;\n@property BOOL persistentPosterEnabled,posterOnlyVisible;\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;\n- (void)showPreparedPoster:(BOOL)visible;\n- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision;')
+pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision {}\n- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision {self.posterLayer.contents=(__bridge id)image;}\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision {self.earlyReads++;}\n- (void)showPreparedPoster:(BOOL)visible {self.posterOnlyVisible=visible;self.wantsPlayback=NO;self.renderLayer.hidden=!visible || !self.posterLayer.contents;}\n')
+# Reproduce the .077 failure boundary: dyld initializer executes before UIKit.
+# Any view/player construction or screen/application query then throws.
+pre=pre.replace('#import <Foundation/Foundation.h>', '#import <Foundation/Foundation.h>\nstatic BOOL forbidUIKit;\nstatic NSUInteger viewConstructions,playbackConstructions,screenQueries,appQueries;')
+pre=pre.replace('+ (instancetype)mainScreen {static UIScreen *s;', '+ (instancetype)mainScreen {screenQueries++;NSCAssert(!forbidUIKit,@"UIScreen used during loader initialization");static UIScreen *s;')
+pre=pre.replace('+ (instancetype)sharedApplication {static UIApplication *app;', '+ (instancetype)sharedApplication {appQueries++;NSCAssert(!forbidUIKit,@"UIApplication used during loader initialization");static UIApplication *app;')
+pre=pre.replace('- (instancetype)initWithFrame:(CGRect)rect {if((self=[super init]))', '- (instancetype)initWithFrame:(CGRect)rect {viewConstructions++;NSCAssert(!forbidUIKit,@"UIView created during loader initialization");if((self=[super init]))')
+pre=pre.replace('- (instancetype)init {if((self=[super init])){_renderLayer=', '- (instancetype)init {playbackConstructions++;NSCAssert(!forbidUIKit,@"Playback created during loader initialization");if((self=[super init])){_renderLayer=')
 pre+=r'''
+static NSDictionary *testPrefs;
+static CFPropertyListRef testPreference(CFStringRef key,CFStringRef domain) {return CFBridgingRetain(testPrefs[(__bridge NSString *)key]);}
+#define CFPreferencesCopyAppValue testPreference
+static NSUInteger posterReads;
+static dispatch_queue_t LMVVideoPosterQueue(void) {static dispatch_queue_t queue;static dispatch_once_t once;dispatch_once(&once,^{queue=dispatch_queue_create("test.desktop-poster",DISPATCH_QUEUE_SERIAL);});return queue;}
+static CGImageRef LMVVideoPosterRead(NSString *path,NSString *revision) {
+    posterReads++;CGColorSpaceRef color=CGColorSpaceCreateDeviceRGB();CGContextRef context=CGBitmapContextCreate(NULL,2,2,8,8,color,kCGImageAlphaPremultipliedLast);CGColorSpaceRelease(color);
+    assert(context);CGContextSetRGBFillColor(context,1,0,0,1);CGContextFillRect(context,CGRectMake(0,0,2,2));CGImageRef image=CGBitmapContextCreateImage(context);CGContextRelease(context);return image;
+}
+static void posterTurn(void) {dispatch_sync(LMVVideoPosterQueue(),^{});[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];}
 @interface SBHomeScreenWindow:UIWindow @end
 @implementation SBHomeScreenWindow @end
 @interface SBHomeScreenViewController:UIViewController @end
@@ -70,6 +87,19 @@ static void originalTree(UIView *parent,NSArray *expected) {
  assert([actual isEqual:expected]);for(UIView *v in expected)assert(v.superview==parent && v.layer.superlayer==parent.layer && v.layer.delegate==v);
 }
 int main(void){@autoreleasepool {
+ // Execute the same entry called from the real dylib ctor while all UIKit
+ // constructors, screen queries and application queries are forbidden.
+ LMVInitialized=YES;LMVLaunchReady=NO;forbidUIKit=YES;
+ testPrefs=@{@"DesktopBackgroundEnabled":@YES,@"DesktopVideo":@"library/warm.mov"};
+ for(int n=0;n<50;n++)LMVDesktopPrimeEarly();
+ assert(!LMVDesktopVideo && !LMVDesktopUIAvailable);
+ assert(![LMVDesktopVideoManager new] && !LMVDesktopEnsureManager());
+ LMVDesktopEarlyLayout();posterTurn();
+ assert(LMVDesktopSeed.image && posterReads==1 && !viewConstructions && !playbackConstructions && !screenQueries && !appQueries);
+ // Disabled early priming also stays data-only and drops the prior seed.
+ testPrefs=@{@"DesktopBackgroundEnabled":@NO};LMVDesktopPrimeEarly();posterTurn();assert(!LMVDesktopSeed.image && !LMVDesktopVideo && !viewConstructions && !playbackConstructions && !screenQueries && !appQueries);
+ testPrefs=@{@"DesktopBackgroundEnabled":@YES,@"DesktopVideo":@"library/warm.mov"};LMVDesktopPrimeEarly();posterTurn();assert(LMVDesktopSeed.image && posterReads==2);
+ forbidUIKit=NO;
  LMVLaunchReady=YES;
  SBHomeScreenWindow *homeWindow=[SBHomeScreenWindow new];UIView *home=[UIView new];[homeWindow addSubview:home];
  SBHomeScreenViewController *controller=[SBHomeScreenViewController new];controller.viewIfLoaded=home;homeWindow.rootViewController=controller;
@@ -124,9 +154,24 @@ int main(void){@autoreleasepool {
  CALayer *earlyLayer=m.playback.renderLayer;LMVLaunchReady=YES;[m update];assert(m.playback.wantsPlayback && m.playback.renderLayer==earlyLayer && !m.playback.renderLayer.hidden);
  // Typed IMP hooks forward once, record visibility only, and never invoke
  // wallpaper sharedInstance from lifecycle or discovery.
- LMVInitialized=YES;LMVLaunchReady=NO;LMVDesktopVideoInstallHooks();NSUInteger before=sharedCalls;
- [controller viewDidLoad];[controller viewDidLayoutSubviews];[controller viewWillAppear:YES];[controller viewDidAppear:YES];[controller viewDidDisappear:NO];
+ [m suspend];[m.host removeFromSuperview];
+ LMVInitialized=YES;LMVLaunchReady=NO;LMVDesktopUIAvailable=NO;LMVDesktopVideo=nil;
+ LMVDesktopVideoInstallHooks();NSUInteger before=sharedCalls;
+ // viewDidLoad and arbitrary wallpaper layout do not open the UI creation gate.
+ NSUInteger constructed=playbackConstructions;
+ [controller viewDidLoad];assert(!LMVDesktopVideo && !LMVDesktopUIAvailable);
+ [wall layoutSubviews];assert(!LMVDesktopVideo && !LMVDesktopUIAvailable);
+ SBHomeScreenViewController *detached=[SBHomeScreenViewController new];detached.viewIfLoaded=[UIView new];
+ [detached viewDidLayoutSubviews];assert(!LMVDesktopVideo && !LMVDesktopUIAvailable);
+ // Attached Home original layout has completed: now create one manager and
+ // adopt the cache-only seed without starting a video decoder before launch.
+ [controller viewDidLayoutSubviews];assert(LMVDesktopUIAvailable && LMVDesktopVideo && playbackConstructions==constructed+1);
+ assert(LMVDesktopVideo.playback.posterLayer.contents && LMVDesktopVideo.playback.posterOnlyVisible && !LMVDesktopVideo.playback.wantsPlayback);
+ assert(!LMVDesktopVideo.playback.builds && LMVDesktopSeed.image==NULL);
+ for(int n=0;n<50;n++)LMVDesktopHostReady(controller);assert(playbackConstructions==constructed+1);
+ [controller viewWillAppear:YES];[controller viewDidAppear:YES];[controller viewDidDisappear:NO];
  assert(controller.loads==1 && controller.layouts==1 && controller.appearances==2 && controller.disappearances==1 && sharedCalls==before && !requests);
+ [LMVDesktopVideo suspend];[LMVDesktopVideo.host removeFromSuperview];
  SBWallpaperController *publisher=[SBWallpaperController sharedInstance];publisher.homescreenWallpaperView=wall;publisher.lockscreenWallpaperView=[UIView new];LMVDesktopDiscover();assert(LMVDesktopExplicitWallpaper==wall && sharedCalls==before+1);
  publisher.lockscreenWallpaperView=wall;LMVDesktopDiscover();assert(!LMVDesktopExplicitWallpaper);publisher.lockscreenWallpaperView=[UIView new];
  [m suspend];[m.host removeFromSuperview];

@@ -61,6 +61,11 @@ static char LMVDesktopControllerRecordKey;
 static NSHashTable<UIViewController *> *LMVDesktopControllers;
 static __weak id LMVDesktopWallpaperController;
 static __weak UIView *LMVDesktopExplicitWallpaper;
+// A loader initializer is not UIKit readiness. Only an already initialized,
+// attached Home view or the launch notification can open this UI creation gate.
+static BOOL LMVDesktopUIAvailable,LMVDesktopCreatingManager;
+@class LMVDesktopPosterSeed;
+static LMVDesktopPosterSeed *LMVDesktopSeed;
 static void LMVDesktopVideoRefresh(BOOL reload);
 static void LMVDesktopVideoSuspend(void);
 
@@ -114,6 +119,21 @@ static NSString *LMVDesktopSelectedPath(void) {
     NSString *prefix=[LMVDirectory stringByAppendingString:@"/"];
     return [path hasPrefix:prefix] && [path.stringByResolvingSymlinksInPath hasPrefix:prefix]?path:nil;
 }
+// Foundation/ImageIO state only. This object may be created by the dylib
+// initializer: it must not own a view, layer, player or screen object.
+@interface LMVDesktopPosterSeed:NSObject
+@property(nonatomic,copy) NSString *path,*revision;
+@property(nonatomic,assign) CGImageRef image;
+@property(nonatomic) NSUInteger generation;
+@property(nonatomic) BOOL primed;
+@end
+@implementation LMVDesktopPosterSeed
+- (void)setImage:(CGImageRef)image {
+    CGImageRef held=image?CGImageRetain(image):NULL;
+    if(_image)CGImageRelease(_image);_image=held;
+}
+- (void)dealloc {if(_image)CGImageRelease(_image);}
+@end
 static UIView *LMVDesktopWallpaperContent(UIView *wallpaper) {
     if (!LMVDesktopWallpaperClass(wallpaper)) return nil;
     UIView *content=LMVLockVideoObjectView(wallpaper,@"contentView",wallpaper);
@@ -186,6 +206,7 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
 }
 @implementation LMVDesktopVideoManager
 - (instancetype)init {
+    if (!NSThread.isMainThread || (!LMVLaunchReady && !LMVDesktopUIAvailable)) return nil;
     if ((self=[super init])) {
         _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVDesktopVideoHost alloc] initWithFrame:CGRectZero];
@@ -206,6 +227,13 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
     }
     self.path=path;self.revision=revision;
     [self.playback preparePosterForPath:path revision:revision];
+    // The initializer may have pre-read a still image without constructing UI.
+    // Adopt it only after this manager passes the attached-Home/launch gate.
+    LMVDesktopPosterSeed *seed=LMVDesktopSeed;
+    if (seed.image && [seed.path isEqualToString:path] && [seed.revision isEqualToString:revision]) {
+        [self.playback applyPreparedPoster:seed.image path:path revision:revision];
+        seed.image=NULL;
+    }
 }
 - (void)refresh:(BOOL)reload {
     self.suspended=NO;
@@ -316,12 +344,50 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
 @end
 static void LMVDesktopPrimeEarly(void) {
     if(!LMVInitialized || !NSThread.isMainThread)return;
-    if(!LMVDesktopVideo)LMVDesktopVideo=[LMVDesktopVideoManager new];
-    [LMVDesktopVideo primePoster];
+    // dyld initializer: Foundation preferences and a queued ImageIO cache read
+    // only. Never create the desktop manager/view/player or query UIKit here.
+    if(!LMVDesktopSeed)LMVDesktopSeed=[LMVDesktopPosterSeed new];
+    LMVDesktopPosterSeed *seed=LMVDesktopSeed;
+    id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
+    NSString *path=([enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue])?LMVDesktopSelectedPath():nil;
+    NSString *revision=LMVLockVideoRevision(path);
+    BOOL samePath=seed.path==path || [seed.path isEqualToString:path];
+    BOOL sameRevision=seed.revision==revision || [seed.revision isEqualToString:revision];
+    if(seed.primed && samePath && sameRevision)return;
+    seed.primed=YES;seed.path=path;seed.revision=revision;seed.image=NULL;
+    NSUInteger generation=++seed.generation;
+    if(!path.length || !revision.length)return;
+    dispatch_async(LMVVideoPosterQueue(),^{
+        @autoreleasepool {
+            CGImageRef image=LMVVideoPosterRead(path,revision);
+            dispatch_async(dispatch_get_main_queue(),^{
+                if(seed==LMVDesktopSeed && seed.generation==generation && [LMVLockVideoRevision(path) isEqualToString:revision]) {
+                    seed.image=image;
+                    if(LMVDesktopVideo && (LMVLaunchReady || LMVDesktopUIAvailable) && !LMVDesktopVideo.suspended) {
+                        [LMVDesktopVideo primePoster];[LMVDesktopVideo update];
+                    }
+                }
+                if(image)CGImageRelease(image);
+            });
+        }
+    });
+}
+static BOOL LMVDesktopEnsureManager(void) {
+    if(!LMVInitialized || !NSThread.isMainThread || (!LMVLaunchReady && !LMVDesktopUIAvailable) || LMVDesktopCreatingManager)return NO;
+    if(LMVDesktopVideo)return YES;
+    LMVDesktopCreatingManager=YES;
+    @try {LMVDesktopVideo=[LMVDesktopVideoManager new];}
+    @finally {LMVDesktopCreatingManager=NO;}
+    if(!LMVDesktopVideo)return NO;
+    [LMVDesktopVideo primePoster];return YES;
 }
 static void LMVDesktopEarlyLayout(void) {
-    if(!LMVInitialized || !NSThread.isMainThread || LMVLaunchReady || !LMVDesktopVideo.enabled)return;
-    if(LMVDesktopWallpaperController)LMVDesktopDiscover();
+    if(!LMVInitialized || !NSThread.isMainThread || LMVLaunchReady || !LMVDesktopUIAvailable)return;
+    if(!LMVDesktopSeed.primed)LMVDesktopPrimeEarly();
+    if(!LMVDesktopSeed.path.length || !LMVDesktopSeed.revision.length)return;
+    if(!LMVDesktopEnsureManager() || !LMVDesktopVideo.enabled)return;
+    // Prelaunch hooks already recorded an attached Home controller. Avoid
+    // traversing private wallpaper getters during their initialization stack.
     LMVDesktopVideoManager *manager=LMVDesktopVideo;
     NSString *key=manager.path && manager.revision?[manager.path stringByAppendingFormat:@"|%@",manager.revision]:nil;
     if(key && ![manager.earlyPosterAttempt isEqualToString:key]) {
@@ -332,18 +398,33 @@ static void LMVDesktopEarlyLayout(void) {
 }
 static void LMVDesktopVideoRefresh(BOOL reload) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
-    LMVDesktopDiscover();if(!LMVDesktopVideo){LMVDesktopVideo=[LMVDesktopVideoManager new];reload=YES;}
-    [LMVDesktopVideo refresh:reload];
+    LMVDesktopDiscover();BOOL created=LMVDesktopVideo==nil;
+    if(!LMVDesktopEnsureManager())return;
+    [LMVDesktopVideo refresh:reload || created];
 }
 static void LMVDesktopVideoSuspend(void) {if(NSThread.isMainThread)[LMVDesktopVideo suspend];}
 static void LMVDesktopVideoScreenBlank(void) {if(NSThread.isMainThread){LMVDesktopVideo.authenticatedSession=NO;[LMVDesktopVideo suspend];}}
+static void LMVDesktopHostReady(UIViewController *controller) {
+    if(!LMVInitialized || !NSThread.isMainThread || LMVDesktopCreatingManager)return;
+    if(!LMVLockVideoClass(controller,@"SBHomeScreenViewController") && !LMVLockVideoClass(controller,@"SBIconController") &&
+       !LMVLockVideoClass(controller,@"PBUIPosterHomeViewController"))return;
+    UIView *view=controller.viewIfLoaded;UIWindow *window=view.window;
+    // Read only already-existing view/window state after the original layout.
+    // Mere class discovery or a detached view cannot enable UIKit construction.
+    if(!view || !window || ![window isKindOfClass:UIWindow.class] || !LMVLockVideoRectValid(view.bounds) ||
+       LMVLockVideoClass(window,@"SBCoverSheetWindow"))return;
+    BOOL homeWindow=LMVLockVideoClass(window,@"SBHomeScreenWindow");
+    BOOL poster=LMVLockVideoClass(controller,@"PBUIPosterHomeViewController");
+    if(!homeWindow && !poster)return;
+    LMVDesktopUIAvailable=YES;
+    if(!LMVLaunchReady)LMVDesktopEarlyLayout();
+}
 static void LMVDesktopLifecycle(UIViewController *controller,NSInteger visible) {
     if(!LMVInitialized || !NSThread.isMainThread)return;
     if(!LMVDesktopControllers)LMVDesktopControllers=[NSHashTable weakObjectsHashTable];[LMVDesktopControllers addObject:controller];
     LMVDesktopControllerRecord *record=objc_getAssociatedObject(controller,&LMVDesktopControllerRecordKey);
     if(!record){record=[LMVDesktopControllerRecord new];objc_setAssociatedObject(controller,&LMVDesktopControllerRecordKey,record,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     if(visible>=0){record.known=YES;record.visible=visible!=0;}
-    if(!LMVLaunchReady)LMVDesktopEarlyLayout();
     LMVRequestSafeUpdate();
 }
 
@@ -355,9 +436,9 @@ static void (*LMVPosterHomeOriginalLoad)(id,SEL),(*LMVPosterHomeOriginalLayout)(
 static void (*LMVPosterHomeOriginalWillAppear)(id,SEL,BOOL),(*LMVPosterHomeOriginalDidAppear)(id,SEL,BOOL),(*LMVPosterHomeOriginalDidDisappear)(id,SEL,BOOL);
 #define LMV_DESKTOP_CALLBACKS(prefix) \
 static void prefix##HookLoad(id value,SEL selector){prefix##OriginalLoad(value,selector);LMVDesktopLifecycle(value,-1);} \
-static void prefix##HookLayout(id value,SEL selector){prefix##OriginalLayout(value,selector);LMVDesktopLifecycle(value,-1);} \
+static void prefix##HookLayout(id value,SEL selector){prefix##OriginalLayout(value,selector);LMVDesktopLifecycle(value,-1);LMVDesktopHostReady(value);} \
 static void prefix##HookWillAppear(id value,SEL selector,BOOL animated){prefix##OriginalWillAppear(value,selector,animated);LMVDesktopLifecycle(value,1);} \
-static void prefix##HookDidAppear(id value,SEL selector,BOOL animated){prefix##OriginalDidAppear(value,selector,animated);LMVDesktopLifecycle(value,1);} \
+static void prefix##HookDidAppear(id value,SEL selector,BOOL animated){prefix##OriginalDidAppear(value,selector,animated);LMVDesktopLifecycle(value,1);LMVDesktopHostReady(value);} \
 static void prefix##HookDidDisappear(id value,SEL selector,BOOL animated){prefix##OriginalDidDisappear(value,selector,animated);LMVDesktopLifecycle(value,0);}
 LMV_DESKTOP_CALLBACKS(LMVDesktop)
 LMV_DESKTOP_CALLBACKS(LMVIcon)
@@ -374,7 +455,9 @@ static id LMVDesktopWallpaperHookShared(id value,SEL selector) {
 }
 static void LMVDesktopWallpaperHookLayout(id value,SEL selector) {
     LMVDesktopWallpaperOriginalLayout(value,selector);
-    if(NSThread.isMainThread && LMVInitialized) {if(!LMVLaunchReady)LMVDesktopEarlyLayout();LMVRequestSafeUpdate();}
+    // Wallpaper layout can run inside system initialization. It never creates
+    // Desktop UI or evaluates screen/application state synchronously.
+    if(NSThread.isMainThread && LMVInitialized)LMVRequestSafeUpdate();
 }
 static void LMVDesktopVideoInstallHooks(void) {
 #define LMV_DESKTOP_INSTALL(cls,name,animated,replacement,original) do { \
