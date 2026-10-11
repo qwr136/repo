@@ -88,8 +88,16 @@ static CGRect LMVVideoWindowViewport(UIWindow *window) {
     return LMVLockVideoRectValid(visible)?visible:CGRectZero;
 }
 static CGRect LMVLockVideoRectInTree(UIView *content,UIWindow *window,CALayer *space,CALayer *root) {
-    if (!content || !window || !space || !root || window.hidden || window.alpha<.01 || !LMVLockVideoRectValid(content.bounds)) return CGRectZero;
-    for (UIView *node=content;node;node=node.superview) if (node.hidden || node.alpha<.01) return CGRectZero;
+    if (!content || !window || !space || !root || !LMVLockVideoRectValid(content.bounds)) return CGRectZero;
+    // 0.0.84 fix: window/ancestor `hidden` no longer vetoes the geometry.
+    // Notification Center 降半屏 keeps SBCoverSheetWindow.hidden=1 (30 of 40
+    // observed layouts) while the window still occupies the full screen, and
+    // Control Center does the same with SBControlCenterWindow. The old
+    // short-circuit collapsed this rect to zero, so the video layer was skipped
+    // and the background disappeared exactly when the panel stopped being
+    // full-screen. The window viewport is the geometric authority instead: it
+    // returns zero only when the window is genuinely off-screen (Reachability).
+    if (!LMVLockVideoRectValid(LMVVideoWindowViewport(window))) return CGRectZero;
     CGRect rect=[space convertRect:space.bounds toLayer:root];
     if (!LMVLockVideoRectValid(rect)) return CGRectZero;
     // Every ancestor clipping boundary is measured in the same model/presentation tree.
