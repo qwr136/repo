@@ -27,6 +27,48 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.95：回退「一下拉就铺满」，改为跟随下拉的渐进显露；诊断扩到三个通道 + 卡顿观测
+
+0.0.92~0.0.94 为了让面板滑动时不露壁纸，把裁剪基准改成「整个窗口可见视口」并把宿主提升
+到面板之外。实测结果是**下拉一点点视频就整屏铺开**，与预期相反。
+
+本版把锁屏/通知中心通道**整体回退到 0.0.91 的跟随行为**：
+
+```objc
+CGRect clip=LMVLockVideoClip(content,container,content.window);   // 裁剪跟随可滑动内容
+[self.host insertSubview:... aboveSubview:anchor];                // 宿主仍在面板内、背景之上
+```
+
+即「**下拉多少、视频出来多少**」。0.0.92~0.0.94 引入的提升/视口裁剪代码全部移除。
+
+### 诊断扩展（设置里打开「启用诊断日志」，写入 `/var/mobile/LockMessageVideo/shared-render.log`）
+
+三个通道各输出一行覆盖度量，数值单位为点，按 20pt 分桶，只在跨桶时记录：
+
+```
+lock-video cover reveal=266.0 gapTop=0.0 gapBottom=666.0 leakArea=0.715 hostHidden=0 container=CSCoverSheetView ...
+desktop-cover    attached=1 revealed=932.0 gapTop=0.0 gapBottom=0.0 visible=1 frozen=0 hostHidden=0 container=UIView
+cc-cover         attached=1 revealed=932.0 gapTop=0.0 gapBottom=0.0 visible=1 material=MTMaterialView window=SBControlCenterWindow
+```
+
+- `reveal`：该通道视频当前真正铺出的高度
+- `gapTop` / `gapBottom`：上下各有多少像素没有视频（漏背景/漏壁纸的量）
+- `attached` / `hostHidden` / `visible`：是否挂上、是否被隐藏、是否判定可见
+  —— 用来区分「掉背景」（attached=0）和「被挡住」（attached=1 但 gap>0）
+
+### 卡顿观测
+
+每个通道每 2 秒输出一次 `update` 的耗时统计：
+
+```
+perf lock    calls=60 max=1.84ms slow=0
+perf desktop calls=20 max=0.42ms slow=0
+perf cc      calls=20 max=3.91ms slow=1
+```
+
+`slow` 是单次 `update` 超过 4ms 的次数。如果卡顿，`max` 会明显抬高，`slow` 会累加，
+可直接对应到是哪个通道在拖帧。
+
 ## 0.0.94：找到真正可用的槽位（0.0.93 报 promo-no-slot）
 
 0.0.93 日志：

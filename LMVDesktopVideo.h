@@ -101,7 +101,7 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,strong) LMVDesktopContentLease *lease;
 @property(nonatomic,weak) UIView *container;
 @property(nonatomic,strong) NSTimer *timer;
-@property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt;
+@property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
 @property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery;
 - (void)refresh:(BOOL)reload;
@@ -204,6 +204,17 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
     }
     return LMVDesktopHomeWindow(root.window);
 }
+static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds) {
+    static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
+    CFTimeInterval now=CACurrentMediaTime();
+    if (windowStart<=0) windowStart=now;
+    calls++;if (seconds>maxSeconds)maxSeconds=seconds;if (seconds>0.004)slow++;
+    if (now-windowStart<2.0) return nil;
+    NSString *report=[NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
+        channel,(unsigned long)calls,maxSeconds*1000.0,(unsigned long)slow];
+    calls=0;slow=0;maxSeconds=0;windowStart=now;
+    return report;
+}
 @implementation LMVDesktopVideoManager
 - (instancetype)init {
     if (!NSThread.isMainThread || (!LMVLaunchReady && !LMVDesktopUIAvailable)) return nil;
@@ -260,6 +271,7 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
 }
 - (void)update {
     if (self.updating || self.suspended) return;self.updating=YES;
+    CFTimeInterval coverPerf0=CACurrentMediaTime();
     uint64_t blank=1,locked=1;
     BOOL screenKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
@@ -354,6 +366,29 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
+    // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
+    // and where the uncovered band is ("background dropped / leaked").
+    {
+        UIWindow *coverWindow=self.host.window;
+        CGRect coverViewport=LMVVideoWindowViewport(coverWindow);
+        BOOL attached=self.host.superview!=nil && coverWindow!=nil;
+        CALayer *coverRoot=coverWindow.layer.presentationLayer ?: coverWindow.layer;
+        CALayer *coverSpace=self.host.layer.presentationLayer ?: self.host.layer;
+        CGRect hostInWindow=attached?[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot]:CGRectZero;
+        CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectIntersection(hostInWindow,coverViewport);
+        CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
+        CGFloat coverGapTop=CGRectIsEmpty(coverViewport)?0.0:MAX(0.0,hostInWindow.origin.y-coverViewport.origin.y);
+        CGFloat coverGapBottom=CGRectIsEmpty(coverViewport)?0.0:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(hostInWindow.origin.y+hostInWindow.size.height));
+        NSString *coverKey=[NSString stringWithFormat:@"a=%d r=%.0f t=%.0f b=%.0f",(int)attached,floor(revealedHeight/20.0)*20.0,floor(coverGapTop/20.0)*20.0,floor(coverGapBottom/20.0)*20.0];
+        if (![coverKey isEqualToString:self.coverage]) {
+            self.coverage=coverKey;
+            LMVDiagnostic([NSString stringWithFormat:@"desktop-cover attached=%d revealed=%.1f gapTop=%.1f gapBottom=%.1f visible=%d frozen=%d hostHidden=%d container=%@",
+                (int)attached,revealedHeight,coverGapTop,coverGapBottom,visible,(int)appForeground,(int)self.host.hidden,
+                self.container?NSStringFromClass(self.container.class):@"none"]);
+        }
+    }
+    NSString *coverPerf=LMVDesktopVideoPerf("desktop",CACurrentMediaTime()-coverPerf0);
+    if (coverPerf) LMVDiagnostic(coverPerf);
     self.updating=NO;
 }
 @end

@@ -135,7 +135,7 @@ static NSHashTable<UIViewController *> *LMVCCControllers;
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,weak) UIViewController *controller;
 @property(nonatomic,weak) UIView *material;
-@property(nonatomic,copy) NSString *darkPath,*lightPath,*path,*revision,*status;
+@property(nonatomic,copy) NSString *darkPath,*lightPath,*path,*revision,*status,*coverage;
 @property(nonatomic) BOOL enabled,updating,suspended,presented;
 @property(nonatomic) UIUserInterfaceStyle style;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
@@ -180,6 +180,17 @@ static void LMVCCDiscover(void) {
         }
     }
 }
+static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
+    static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
+    CFTimeInterval now=CACurrentMediaTime();
+    if (windowStart<=0) windowStart=now;
+    calls++;if (seconds>maxSeconds)maxSeconds=seconds;if (seconds>0.004)slow++;
+    if (now-windowStart<2.0) return nil;
+    NSString *report=[NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
+        channel,(unsigned long)calls,maxSeconds*1000.0,(unsigned long)slow];
+    calls=0;slow=0;maxSeconds=0;windowStart=now;
+    return report;
+}
 @implementation LMVControlCenterVideoManager
 - (instancetype)init {
     if((self=[super init])) {
@@ -209,6 +220,7 @@ static void LMVCCDiscover(void) {
 }
 - (void)update {
     if(self.updating || self.suspended)return;self.updating=YES;
+    CFTimeInterval coverPerf0=CACurrentMediaTime();
     UIViewController *best=nil;UIView *material=nil;
     if(self.enabled && LMVLockVideoScreenAllowed())for(UIViewController *candidate in LMVCCControllers.allObjects) {
         LMVCCRecord *record=objc_getAssociatedObject(candidate,&LMVCCRecordKey);
@@ -300,6 +312,31 @@ static void LMVCCDiscover(void) {
         visible,self.enabled,self.presented,(long)style,path.length>0,self.playback.playerLayer.readyForDisplay,self.playback.posterLayer.contents!=nil,
         material?NSStringFromClass(material.class):@"none",(long)self.playback.error.code];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
+    // 0.0.95 diagnostics: how much of the visible screen the Control Center surface
+    // covers and where the uncovered band is ("background dropped / leaked").
+    {
+        UIView *coverSurface=material;
+        UIWindow *coverWindow=coverSurface.window;
+        CGRect coverViewport=LMVVideoWindowViewport(coverWindow);
+        BOOL attached=coverSurface!=nil && coverSurface.superview!=nil && coverWindow!=nil;
+        CALayer *coverRoot=coverWindow.layer.presentationLayer ?: coverWindow.layer;
+        CALayer *coverSpace=coverSurface.layer.presentationLayer ?: coverSurface.layer;
+        CGRect surfaceInWindow=attached?[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot]:CGRectZero;
+        CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectIntersection(surfaceInWindow,coverViewport);
+        CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
+        CGFloat coverGapTop=CGRectIsEmpty(coverViewport)?0.0:MAX(0.0,surfaceInWindow.origin.y-coverViewport.origin.y);
+        CGFloat coverGapBottom=CGRectIsEmpty(coverViewport)?0.0:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(surfaceInWindow.origin.y+surfaceInWindow.size.height));
+        NSString *coverKey=[NSString stringWithFormat:@"a=%d r=%.0f t=%.0f b=%.0f",(int)attached,floor(revealedHeight/20.0)*20.0,floor(coverGapTop/20.0)*20.0,floor(coverGapBottom/20.0)*20.0];
+        if (![coverKey isEqualToString:self.coverage]) {
+            self.coverage=coverKey;
+            LMVDiagnostic([NSString stringWithFormat:@"cc-cover attached=%d revealed=%.1f gapTop=%.1f gapBottom=%.1f visible=%d material=%@ window=%@",
+                (int)attached,revealedHeight,coverGapTop,coverGapBottom,visible,
+                coverSurface?NSStringFromClass(coverSurface.class):@"none",
+                coverWindow?NSStringFromClass(coverWindow.class):@"none"]);
+        }
+    }
+    NSString *coverPerf=LMVCCPerf("cc",CACurrentMediaTime()-coverPerf0);
+    if (coverPerf) LMVDiagnostic(coverPerf);
     self.updating=NO;
 }
 @end

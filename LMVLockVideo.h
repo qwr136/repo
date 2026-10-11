@@ -144,62 +144,22 @@ static CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow *windo
 // draws the panel background, and widens the clip to that ancestor. Visibility is
 // still decided by the slideable content, so a withdrawn panel withdraws the
 // surface exactly as before.
-static UIView *LMVLockVideoPromotion(UIView *container,UIWindow *window,UIView **branch,NSString **why) {
-    *branch=nil;*why=@"no-window";
-    if (!container || !window) return nil;
-    CALayer *root=window.layer.presentationLayer ?: window.layer;
-    CGRect viewport=LMVVideoWindowViewport(window);
-    if (!LMVLockVideoRectValid(viewport)) {*why=@"no-viewport";return nil;}
-    CALayer *space=container.layer.presentationLayer ?: container.layer;
-    if (CGRectContainsRect([space convertRect:space.bounds toLayer:root],viewport)) {*why=@"covers";return nil;}
-    // 0.0.93: a clipping ancestor is NOT disqualifying -- the host is placed in
-    // this ancestor (below the panel branch), never inside the clipping view, so
-    // covering the viewport is the only real requirement. 0.0.92 bailed out on the
-    // first clipping ancestor, which is why no promotion ever happened on device.
-    // 0.0.94: an ancestor whose panel branch is its FIRST child has no sibling to
-    // sit above, and landing behind the panel's own background view would hide the
-    // surface. Keep walking up instead: the controller's own view normally carries
-    // the panel background and the panel branch as SEPARATE children, and that
-    // sibling pair is exactly the slot we need (above the panel background, below
-    // the panel content).
-    NSUInteger skipped=0;
-    for (UIView *node=container.superview;node && node!=window;node=node.superview) {
-        CALayer *layer=node.layer.presentationLayer ?: node.layer;
-        if (!CGRectContainsRect([layer convertRect:layer.bounds toLayer:root],viewport)) continue;
-        UIView *child=container;
-        while (child.superview && child.superview!=node) child=child.superview;
-        if (child.superview!=node) continue;
-        if ([node.subviews indexOfObjectIdenticalTo:child]==0) {skipped++;continue;}
-        *branch=child;
-        *why=skipped?[NSString stringWithFormat:@"promo-skip%lu:%@",(unsigned long)skipped,NSStringFromClass(node.class)]
-                    :[@"promo:" stringByAppendingString:NSStringFromClass(node.class)];
-        return node;
-    }
-    *why=skipped?@"no-slot":@"no-ancestor";
-    return nil;
-}
 // The promoted surface must cover the whole visible viewport, otherwise the same
 // strip simply leaks again from a different parent.
-static CGRect LMVLockVideoCoverageClip(UIView *container,UIWindow *window) {
-    if (!container || !window) return CGRectZero;
-    CGRect viewport=LMVVideoWindowViewport(window);
-    if (!LMVLockVideoRectValid(viewport)) return CGRectZero;
-    CALayer *space=container.layer.presentationLayer ?: container.layer;
-    CALayer *root=window.layer.presentationLayer ?: window.layer;
-    CGRect local=[space convertRect:viewport fromLayer:root];
-    local=CGRectIntersection(local,space.bounds);
-    if (!LMVLockVideoRectValid(local)) return CGRectZero;
-    return CGRectOffset(local,-space.bounds.origin.x,-space.bounds.origin.y);
-}
 // Only aboveSubview: is used for placement, so no extra UIView API is required.
-static UIView *LMVLockVideoSiblingBelow(UIView *container,UIView *branch) {
-    NSArray *children=container.subviews;
-    NSUInteger index=[children indexOfObjectIdenticalTo:branch];
-    if (index==NSNotFound || index==0) return nil;
-    return children[index-1];
-}
 static NSString *LMVLockVideoRectText(CGRect rect) {
     return LMVLockVideoRectValid(rect)?[NSString stringWithFormat:@"{{%.0f,%.0f},{%.0f,%.0f}}",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height]:@"(none)";
+}
+static NSString *LMVLockVideoPerf(const char *channel,CFTimeInterval seconds) {
+    static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
+    CFTimeInterval now=CACurrentMediaTime();
+    if (windowStart<=0) windowStart=now;
+    calls++;if (seconds>maxSeconds)maxSeconds=seconds;if (seconds>0.004)slow++;
+    if (now-windowStart<2.0) return nil;
+    NSString *report=[NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
+        channel,(unsigned long)calls,maxSeconds*1000.0,(unsigned long)slow];
+    calls=0;slow=0;maxSeconds=0;windowStart=now;
+    return report;
 }
 @interface LMVLockVideoHost : UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
@@ -298,6 +258,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
 }
 - (void)update {
     if (self.updating) return;self.updating=YES;
+    CFTimeInterval coverPerf0=CACurrentMediaTime();
     UIViewController *best=nil;UIView *content=nil;CGFloat area=0;
     if (self.enabled && self.path.length && self.revision.length && self.screenAllowed) {
         for (UIViewController *candidate in LMVLockControllers.allObjects) {
@@ -319,72 +280,45 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     UIView *anchor=nil;UIView *container=content?LMVLockVideoContainer(best.viewIfLoaded,content,self.host,&anchor):nil;
     BOOL visible=best && content && container && anchor;
     if (visible) {
+        NSArray *children=container.subviews;
+        NSUInteger back=[children indexOfObjectIdenticalTo:anchor],own=[children indexOfObjectIdenticalTo:self.host];
+        if (self.host.superview!=container || own!=back+1) {
+            [self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:anchor];
+        }
         self.content=content;self.controller=best;
-        CGRect contentClip=LMVLockVideoClip(content,container,content.window);
-        BOOL hasContent=!CGRectIsEmpty(contentClip);
-        UIView *hostContainer=container,*branch=nil;
-        CGRect clip=contentClip;
-        NSString *why=@"n/a";
-        if (hasContent) {
-            UIWindow *promoWindow=content.window ?: container.window;
-            UIView *promoted=LMVLockVideoPromotion(container,promoWindow,&branch,&why);
-            if (promoted) {
-                hostContainer=promoted;
-                CGRect coverage=LMVLockVideoCoverageClip(promoted,promoWindow);
-                clip=LMVLockVideoRectValid(coverage)?coverage:CGRectZero;
-            }
-        }
-        // Place the promoted surface directly BELOW the branch that holds the panel,
-        // so the panel's own content (clock, cards) still draws over the video.
-        UIView *below=branch?LMVLockVideoSiblingBelow(hostContainer,branch):nil;
-        if (branch && !below) {
-            // This ancestor has no slot below the panel branch; keep the original
-            // container and the original clip instead of reordering siblings.
-            hostContainer=container;branch=nil;clip=contentClip;why=@"promo-lost-slot";
-        }
-        NSArray *children=hostContainer.subviews;
-        NSUInteger own=[children indexOfObjectIdenticalTo:self.host];
-        if (below) {
-            NSUInteger wanted=[children indexOfObjectIdenticalTo:below]+1;
-            if (self.host.superview!=hostContainer || own!=wanted) {
-                [self.host removeFromSuperview];[hostContainer insertSubview:self.host aboveSubview:below];
-            }
-        } else {
-            NSUInteger back=[children indexOfObjectIdenticalTo:anchor];
-            if (self.host.superview!=hostContainer || own!=back+1) {
-                [self.host removeFromSuperview];[hostContainer insertSubview:self.host aboveSubview:anchor];
-            }
-        }
+        // 0.0.95: the revealed area follows the pull again -- "pull this much, reveal
+        // this much". 0.0.92-0.0.94 promoted the surface out of the panel and widened
+        // the clip to the whole window viewport, so the entire video appeared as soon
+        // as the panel moved a little. The clip is the slideable content's own rect.
+        CGRect clip=LMVLockVideoClip(content,container,content.window);
         visible=!CGRectIsEmpty(clip);
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        self.host.frame=hostContainer.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [self.playback layoutInBounds:self.host.bounds];self.host.clipLayer.frame=self.host.bounds;
         if (!self.host.clipLayer.path || !CGRectEqualToRect(CGPathGetBoundingBox(self.host.clipLayer.path),clip)) {
             CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
         }
         self.host.hidden=!visible;[CATransaction commit];
-        // Focused "background leaks wallpaper" diagnostic: how much of the visible
-        // window the surface actually covers, and how big the remaining leak is.
-        CGRect viewport=LMVVideoWindowViewport(content.window);
-        CALayer *hostRoot=content.window.layer.presentationLayer ?: content.window.layer;
-        CALayer *hostSpace=self.host.layer.presentationLayer ?: self.host.layer;
-        CGRect hostInWindow=[hostSpace convertRect:hostSpace.bounds toLayer:hostRoot];
-        CGRect covered=CGRectIntersection(hostInWindow,viewport);
-        CGFloat area=viewport.size.width*viewport.size.height;
-        CGFloat leakArea=area>0?1-(MAX(0,covered.size.width)*MAX(0,covered.size.height))/area:0;
-        // Screen-space coverage: the clip is expressed in host coordinates, so add
-        // the host origin to get the band of the screen the video actually paints.
-        CGRect visible=CGRectOffset(clip,hostInWindow.origin.x,hostInWindow.origin.y);
-        CGFloat gapTop=CGRectIsEmpty(visible)?viewport.size.height:MAX(0.0,visible.origin.y-viewport.origin.y);
-        CGFloat gapBottom=CGRectIsEmpty(visible)?viewport.size.height:MAX(0.0,(viewport.origin.y+viewport.size.height)-(visible.origin.y+visible.size.height));
-        NSString *bucket=[NSString stringWithFormat:@"%@>%@ %@ top=%.0f bot=%.0f",
-            NSStringFromClass(container.class),hostContainer==container?@"self":NSStringFromClass(hostContainer.class),
-            why,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0];
-        if (![bucket isEqualToString:self.coverage]) {
-            self.coverage=bucket;
-            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover %@ viewport=%@ contentClip=%@ clip=%@ hostInWindow=%@ visible=%@ gapTop=%.1f gapBottom=%.1f leakArea=%.3f",
-                bucket,LMVLockVideoRectText(viewport),LMVLockVideoRectText(contentClip),LMVLockVideoRectText(clip),
-                LMVLockVideoRectText(hostInWindow),LMVLockVideoRectText(visible),gapTop,gapBottom,leakArea];
+        // Diagnostics: where the revealed band sits on screen and how much of the
+        // viewport stays uncovered (the "background dropped / wallpaper leaked"
+        // measurement). Numbers only, so every harness can compile it.
+        UIWindow *coverWindow=content.window;
+        CGRect coverViewport=LMVVideoWindowViewport(coverWindow);
+        CALayer *coverRoot=coverWindow.layer.presentationLayer ?: coverWindow.layer;
+        CALayer *coverSpace=self.host.layer.presentationLayer ?: self.host.layer;
+        CGRect hostInWindow=[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot];
+        CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectOffset(clip,hostInWindow.origin.x,hostInWindow.origin.y);
+        CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
+        CGFloat gapTop=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,revealed.origin.y-coverViewport.origin.y);
+        CGFloat gapBottom=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(revealed.origin.y+revealed.size.height));
+        CGFloat coverArea=coverViewport.size.width*coverViewport.size.height;
+        CGFloat leakArea=coverArea>0?1-(MAX(0.0,revealed.size.width)*MAX(0.0,revealedHeight))/coverArea:0;
+        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f v=%d",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,(int)self.host.hidden];
+        if (![coverKey isEqualToString:self.coverage]) {
+            self.coverage=coverKey;
+            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f leakArea=%.3f hostHidden=%d container=%@ clip=%@ hostInWindow=%@",
+                revealedHeight,gapTop,gapBottom,leakArea,(int)self.host.hidden,
+                NSStringFromClass(container.class),LMVLockVideoRectText(clip),LMVLockVideoRectText(hostInWindow)];
             LMVLockVideoLog(coverLine);
         }
     } else {
@@ -400,6 +334,8 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     if (!self.enabled || !self.path.length || !self.revision.length) {
         if (self.playback.path || self.playback.player || self.playback.loading) [self.playback clear];
     }
+    NSString *coverPerf=LMVLockVideoPerf("lock",CACurrentMediaTime()-coverPerf0);
+    if (coverPerf) LMVLockVideoLog(coverPerf);
     self.updating=NO;
 }
 @end
