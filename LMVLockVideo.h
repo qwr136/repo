@@ -260,6 +260,14 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         }
         self.content=content;self.controller=best;
         CGRect clip=LMVLockVideoClip(content,container,content.window);
+        // 0.0.85 fix: when Notification Center opens, the slideable content is
+        // pushed off-screen (device probe measured an exposed height of only
+        // 0.3pt), so LMVLockVideoClip's final `size.height>1` check returns zero,
+        // the whole host gets removed and the background video disappears. Clip
+        // must still follow the content, but when the content itself is no longer
+        // exposed, fall back to the background anchor's geometry so the video
+        // keeps covering the background that is still on screen.
+        if (CGRectIsEmpty(clip) && anchor) clip=LMVLockVideoClip(anchor,container,anchor.window);
         visible=!CGRectIsEmpty(clip);
         [CATransaction begin];[CATransaction setDisableActions:YES];
         self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
