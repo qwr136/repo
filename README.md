@@ -27,6 +27,23 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.88：渲染图层可识别（纯诊断，不改变任何行为）
+
+消息卡片通道把视频画进一个**裸 `UIView`**，图层没有名字。视图层级 dump 里
+SpringBoard 有近两万个 `UIView`，因此无法判断视频层到底挂没挂上、被谁挡住——
+前几轮排查因此两次读错方向。
+
+本版给该通道的两个图层加上稳定名字（**仅命名，不影响渲染、布局或播控**）：
+
+| 图层 | 名称 |
+|------|------|
+| 卡片视频承载视图 | `com.minis.lockmessagevideo.card.surface` |
+| 卡片视频渲染层 | `com.minis.lockmessagevideo.card.render` |
+
+锁屏 / 桌面 / 控制中心通道原本已有同类命名（`.lock.render`、`.desktop.render`、
+`.control-center.render`），至此四个通道一致，外部诊断工具可以按前缀一次性
+定位全部视频层，并逐道核对可见性判定。
+
 ## 0.0.87：修复通知中心（消息卡片）背景视频消失
 
 前三个版本都改在锁屏通道（`LMVLockVideo.h`），而「通知中心背景视频」实际走的是
