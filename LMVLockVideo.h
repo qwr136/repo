@@ -177,6 +177,13 @@ static CGRect LMVLockVideoCoverageClip(UIView *container,UIWindow *window) {
     if (!LMVLockVideoRectValid(local)) return CGRectZero;
     return CGRectOffset(local,-space.bounds.origin.x,-space.bounds.origin.y);
 }
+// Only aboveSubview: is used for placement, so no extra UIView API is required.
+static UIView *LMVLockVideoSiblingBelow(UIView *container,UIView *branch) {
+    NSArray *children=container.subviews;
+    NSUInteger index=[children indexOfObjectIdenticalTo:branch];
+    if (index==NSNotFound || index==0) return nil;
+    return children[index-1];
+}
 static NSString *LMVLockVideoRectText(CGRect rect) {
     return LMVLockVideoRectValid(rect)?[NSString stringWithFormat:@"{{%.0f,%.0f},{%.0f,%.0f}}",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height]:@"(none)";
 }
@@ -311,20 +318,27 @@ static BOOL LMVLockVideoScreenAllowed(void) {
                 clip=LMVLockVideoRectValid(coverage)?coverage:CGRectZero;
             }
         }
+        // Place the promoted surface directly BELOW the branch that holds the panel,
+        // so the panel's own content (clock, cards) still draws over the video.
+        UIView *below=branch?LMVLockVideoSiblingBelow(hostContainer,branch):nil;
+        if (branch && !below) {
+            // This ancestor has no slot below the panel branch; keep the original
+            // container and the original clip instead of reordering siblings.
+            hostContainer=container;branch=nil;clip=contentClip;
+        }
         NSArray *children=hostContainer.subviews;
         NSUInteger own=[children indexOfObjectIdenticalTo:self.host];
-        BOOL placed=NO;
-        if (branch) {
-            NSUInteger index=[children indexOfObjectIdenticalTo:branch];
-            if (own!=index) {[self.host removeFromSuperview];placed=YES;
-                [hostContainer insertSubview:self.host atIndex:(index==NSNotFound?hostContainer.subviews.count:index)];}
+        if (below) {
+            NSUInteger wanted=[children indexOfObjectIdenticalTo:below]+1;
+            if (self.host.superview!=hostContainer || own!=wanted) {
+                [self.host removeFromSuperview];[hostContainer insertSubview:self.host aboveSubview:below];
+            }
         } else {
             NSUInteger back=[children indexOfObjectIdenticalTo:anchor];
             if (self.host.superview!=hostContainer || own!=back+1) {
-                [self.host removeFromSuperview];placed=YES;[hostContainer insertSubview:self.host aboveSubview:anchor];
+                [self.host removeFromSuperview];[hostContainer insertSubview:self.host aboveSubview:anchor];
             }
         }
-        (void)placed;
         visible=!CGRectIsEmpty(clip);
         [CATransaction begin];[CATransaction setDisableActions:YES];
         self.host.frame=hostContainer.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
@@ -348,9 +362,10 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             floor(leakTop/20.0)*20.0,floor(leakArea/0.02)*0.02];
         if (![bucket isEqualToString:self.coverage]) {
             self.coverage=bucket;
-            LMVLockVideoLog([NSString stringWithFormat:@"lock-video cover %@ viewport=%@ contentClip=%@ clip=%@ hostInWindow=%@ leakTop=%.1f leakArea=%.3f",
+            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover %@ viewport=%@ contentClip=%@ clip=%@ hostInWindow=%@ leakTop=%.1f leakArea=%.3f",
                 bucket,LMVLockVideoRectText(viewport),LMVLockVideoRectText(contentClip),LMVLockVideoRectText(clip),
-                LMVLockVideoRectText(hostInWindow),leakTop,leakArea]);
+                LMVLockVideoRectText(hostInWindow),leakTop,leakArea];
+            LMVLockVideoLog(coverLine);
         }
     } else {
         self.host.hidden=YES;[self.host removeFromSuperview];self.content=nil;self.controller=nil;
