@@ -27,6 +27,34 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.94：找到真正可用的槽位（0.0.93 报 promo-no-slot）
+
+0.0.93 日志：
+
+```
+lock-video cover CSCoverSheetView>self promo-no-slot top=0 bot=860 ...
+```
+
+提升已经找到了能覆盖整屏的祖先（`SBCoverSheetPositionView`），但**面板分支在那个祖先里
+排第一个**，下面没有兄弟可插——插进去就等于放到面板**背后**，会被面板自己的背景视图
+`SBUIBackgroundView` 挡住。所以 0.0.93 选择放弃。
+
+本版改为：**继续向上找同时满足「覆盖视口」和「面板分支之前有兄弟」的祖先**。
+再往上一层（controller 自己的视图，即 `SBFTouchPassThroughView`）里，
+面板背景分支 `SBCoverSheetPanelBackgroundContainerView` 与面板分支
+`SBCoverSheetPositionView` 是**并列的两个子视图**，正好就是需要的槽位：
+
+```
+SBCoverSheetWindow
+ └ SBFTouchPassThroughView            ← 提升目标（满屏、不裁剪）
+    ├ SBCoverSheetPanelBackgroundContainerView
+    ├ ▼ 视频落在这里
+    └ SBCoverSheetPositionView       ← 面板内容，仍在其上
+```
+
+层级语义正好：**在面板背景之上、在面板内容之下**。日志里会写成
+`promo:SBFTouchPassThroughView`（跳过的祖先数会记成 `promo-skipN:...`）。
+
 ## 0.0.93：让 0.0.92 的提升真正生效 + 定位漏出方向
 
 设备日志（`shared-render.log`）显示 **312/312 行仍是 `CSCoverSheetView>self`**，

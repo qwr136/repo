@@ -152,21 +152,30 @@ static UIView *LMVLockVideoPromotion(UIView *container,UIWindow *window,UIView *
     if (!LMVLockVideoRectValid(viewport)) {*why=@"no-viewport";return nil;}
     CALayer *space=container.layer.presentationLayer ?: container.layer;
     if (CGRectContainsRect([space convertRect:space.bounds toLayer:root],viewport)) {*why=@"covers";return nil;}
+    // 0.0.93: a clipping ancestor is NOT disqualifying -- the host is placed in
+    // this ancestor (below the panel branch), never inside the clipping view, so
+    // covering the viewport is the only real requirement. 0.0.92 bailed out on the
+    // first clipping ancestor, which is why no promotion ever happened on device.
+    // 0.0.94: an ancestor whose panel branch is its FIRST child has no sibling to
+    // sit above, and landing behind the panel's own background view would hide the
+    // surface. Keep walking up instead: the controller's own view normally carries
+    // the panel background and the panel branch as SEPARATE children, and that
+    // sibling pair is exactly the slot we need (above the panel background, below
+    // the panel content).
+    NSUInteger skipped=0;
     for (UIView *node=container.superview;node && node!=window;node=node.superview) {
-        // 0.0.93: a clipping ancestor is NOT disqualifying. The surface never draws
-        // inside it (the host is placed in this ancestor, below the panel branch),
-        // and covering the viewport is the only real requirement. 0.0.92 bailed out
-        // on the first clipping ancestor, which is why no promotion ever happened
-        // on device: every single log line still read "...>self".
         CALayer *layer=node.layer.presentationLayer ?: node.layer;
         if (!CGRectContainsRect([layer convertRect:layer.bounds toLayer:root],viewport)) continue;
         UIView *child=container;
         while (child.superview && child.superview!=node) child=child.superview;
         if (child.superview!=node) continue;
-        *branch=child;*why=[@"promo:" stringByAppendingString:NSStringFromClass(node.class)];
+        if ([node.subviews indexOfObjectIdenticalTo:child]==0) {skipped++;continue;}
+        *branch=child;
+        *why=skipped?[NSString stringWithFormat:@"promo-skip%lu:%@",(unsigned long)skipped,NSStringFromClass(node.class)]
+                    :[@"promo:" stringByAppendingString:NSStringFromClass(node.class)];
         return node;
     }
-    *why=@"no-ancestor";
+    *why=skipped?@"no-slot":@"no-ancestor";
     return nil;
 }
 // The promoted surface must cover the whole visible viewport, otherwise the same
@@ -331,7 +340,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         if (branch && !below) {
             // This ancestor has no slot below the panel branch; keep the original
             // container and the original clip instead of reordering siblings.
-            hostContainer=container;branch=nil;clip=contentClip;why=@"promo-no-slot";
+            hostContainer=container;branch=nil;clip=contentClip;why=@"promo-lost-slot";
         }
         NSArray *children=hostContainer.subviews;
         NSUInteger own=[children indexOfObjectIdenticalTo:self.host];
