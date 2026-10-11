@@ -182,10 +182,10 @@ pre+=r'''
 @implementation LMVLockVideoPlayback
 - (instancetype)init {if((self=[super init])){_renderLayer=[CALayer layer];_posterLayer=[CALayer layer];_playerLayer=[TestPlayerLayer layer];_player=[TestPlayer new];}return self;}
 - (void)selectPath:(NSString *)path revision:(NSString *)revision {if(![self.path isEqual:path] || ![self.revision isEqual:revision])self.builds++;self.path=path;self.revision=revision;}
-- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;self.frozen=NO;}
-- (void)setFrozen:(BOOL)frozen {self.frozen=frozen;}
+- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;_frozen=NO;}
+- (void)setFrozen:(BOOL)frozen {_frozen=frozen;}
 - (void)layoutInBounds:(CGRect)bounds {self.renderLayer.frame=bounds;}
-- (void)clear {self.clears++;self.path=nil;self.revision=nil;self.wantsPlayback=NO;self.frozen=NO;self.player=nil;}
+- (void)clear {self.clears++;self.path=nil;self.revision=nil;self.wantsPlayback=NO;_frozen=NO;self.player=nil;}
 @end
 static NSString *LMVLockVideoRevision(NSString *path){return path.length?@"rev1":nil;}
 static BOOL LMVInitialized,LMVLaunchReady;

@@ -32,8 +32,8 @@ pre=pre.replace('*state=screenBlank;return 0;', '*state=token==LMVLockToken?scre
 pre=pre.replace('self.wantsPlayback=visible;', 'self.wantsPlayback=visible;self.renderLayer.hidden=!visible || self.error!=nil || !self.posterLayer.contents;')
 # 0.0.91: the double mirrors the production rule, where a frozen (paused)
 # surface keeps renderLayer on screen while wantsPlayback is NO.
-pre=pre.replace('- (void)setFrozen:(BOOL)frozen {self.frozen=frozen;}',
-                '- (void)setFrozen:(BOOL)frozen {self.frozen=frozen;self.renderLayer.hidden=(!self.wantsPlayback && !self.frozen && !self.posterOnlyVisible) || self.error!=nil || !self.posterLayer.contents;}')
+pre=pre.replace('- (void)setFrozen:(BOOL)frozen {_frozen=frozen;}',
+                '- (void)setFrozen:(BOOL)frozen {_frozen=frozen;self.renderLayer.hidden=(!self.wantsPlayback && !self.frozen && !self.posterOnlyVisible) || self.error!=nil || !self.posterLayer.contents;}')
 pre=pre.replace('@property NSUInteger builds,clears;', '@property NSUInteger builds,clears,earlyReads;\n@property BOOL persistentPosterEnabled,posterOnlyVisible;\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;\n- (void)showPreparedPoster:(BOOL)visible;\n- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision;')
 pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision {}\n- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision {self.posterLayer.contents=(__bridge id)image;}\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision {self.earlyReads++;}\n- (void)showPreparedPoster:(BOOL)visible {self.posterOnlyVisible=visible;self.wantsPlayback=NO;self.renderLayer.hidden=!visible || !self.posterLayer.contents;}\n')
 # Reproduce the .077 failure boundary: dyld initializer executes before UIKit.

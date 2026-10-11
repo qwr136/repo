@@ -117,7 +117,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
 }
 - (void)clear {
     NSCAssert(NSThread.isMainThread,@"Lock playback must be coordinated on main");
-    self.generation++;self.posterGeneration++;self.loading=NO;self.wantsPlayback=NO;self.posterOnlyVisible=NO;self.frozen=NO;
+    self.generation++;self.posterGeneration++;self.loading=NO;self.wantsPlayback=NO;self.posterOnlyVisible=NO;_frozen=NO;
     if (self.preparedImage) CGImageRelease(self.preparedImage);self.preparedImage=NULL;
     self.preparedPath=nil;self.preparedRevision=nil;
     [self.generator cancelAllCGImageGeneration];self.generator=nil;
@@ -139,7 +139,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
 }
 - (void)setVisible:(BOOL)visible {
     self.posterOnlyVisible=NO;
-    self.frozen=NO;
+    _frozen=NO;
     self.wantsPlayback=visible;
     if (visible && self.player && !self.error && self.player.status!=AVPlayerStatusFailed) {
         if (self.player.rate==0) [self.player playImmediatelyAtRate:1.0];
@@ -150,7 +150,8 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     // A paused AVPlayerLayer keeps showing its current frame, so freezing both
     // stops decoding and holds the picture. Callers that want the surface gone
     // still use setVisible:NO / suspend.
-    self.frozen=frozen;
+    // Assign the ivar directly: `self.frozen=` would re-enter this setter.
+    _frozen=frozen;
     if (frozen) [self.player pause];
     [self updatePresentation];
 }
