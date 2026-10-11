@@ -27,6 +27,16 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.85：修复通知中心展开时背景视频消失
+
+设备探针实测：通知中心展开时 `slideableContentView` 被推出屏幕，在窗口中只剩
+**0.3pt** 可见高度。`LMVLockVideoClip()` 末行 `rect.size.height>1` 因此返回零，
+`visible=NO`，宿主 `LMVLockVideoHost` 被整层 `removeFromSuperview` —— 背景视频消失。
+
+修复：裁剪区域仍然优先跟随滑动内容；当内容本身已不可见时，退回使用背景锚点
+（`SBUIBackgroundView`，设备上始终全屏可用）的几何，让视频继续覆盖屏幕上仍然存在的背景。
+锁屏真正关闭时仍由控制器生命周期挡住，不会误显示。
+
 ## 0.0.84：修复控制中心 / 通知中心「降半屏」时视频背景消失
 
 降半屏（面板不再全屏）时 `SBControlCenterWindow` / `SBCoverSheetWindow` 会被系统置为
