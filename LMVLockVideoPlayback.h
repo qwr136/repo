@@ -58,6 +58,10 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 - (void)showPreparedPoster:(BOOL)visible;
 - (void)selectPath:(NSString *)path revision:(NSString *)revision;
 - (void)setVisible:(BOOL)visible;
+// 0.0.91: pause the decoder but KEEP the currently displayed frame on screen.
+// `setVisible:NO` additionally hides renderLayer, which is what revealed the
+// system wallpaper for the whole app-launch transition.
+- (void)setFrozen:(BOOL)frozen;
 - (void)layoutInBounds:(CGRect)bounds;
 - (void)clear;
 @end
@@ -78,6 +82,7 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,assign) CGImageRef preparedImage;
 @property(nonatomic) NSUInteger posterGeneration;
 @property(nonatomic) BOOL posterOnlyVisible;
+@property(nonatomic) BOOL frozen;
 - (void)updatePresentation;
 - (void)replacePlayerLayer;
 @end
@@ -112,7 +117,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
 }
 - (void)clear {
     NSCAssert(NSThread.isMainThread,@"Lock playback must be coordinated on main");
-    self.generation++;self.posterGeneration++;self.loading=NO;self.wantsPlayback=NO;self.posterOnlyVisible=NO;
+    self.generation++;self.posterGeneration++;self.loading=NO;self.wantsPlayback=NO;self.posterOnlyVisible=NO;self.frozen=NO;
     if (self.preparedImage) CGImageRelease(self.preparedImage);self.preparedImage=NULL;
     self.preparedPath=nil;self.preparedRevision=nil;
     [self.generator cancelAllCGImageGeneration];self.generator=nil;
@@ -134,10 +139,19 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
 }
 - (void)setVisible:(BOOL)visible {
     self.posterOnlyVisible=NO;
+    self.frozen=NO;
     self.wantsPlayback=visible;
     if (visible && self.player && !self.error && self.player.status!=AVPlayerStatusFailed) {
         if (self.player.rate==0) [self.player playImmediatelyAtRate:1.0];
     } else [self.player pause];
+    [self updatePresentation];
+}
+- (void)setFrozen:(BOOL)frozen {
+    // A paused AVPlayerLayer keeps showing its current frame, so freezing both
+    // stops decoding and holds the picture. Callers that want the surface gone
+    // still use setVisible:NO / suspend.
+    self.frozen=frozen;
+    if (frozen) [self.player pause];
     [self updatePresentation];
 }
 - (void)updatePresentation {
@@ -145,7 +159,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     [CATransaction begin];[CATransaction setDisableActions:YES];
     self.playerLayer.hidden=!ready;
     self.posterLayer.hidden=ready || !self.posterLayer.contents || self.error!=nil;
-    self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible) || self.error!=nil || (!ready && !self.posterLayer.contents);
+    self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || (!ready && !self.posterLayer.contents);
     [CATransaction commit];
     if (self.didChange) self.didChange();
 }

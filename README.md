@@ -27,6 +27,29 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.91：修复打开 App 瞬间视频背景变成原壁纸
+
+打开应用的过渡期间，`LMVDesktopForeground()` 把前台判定为应用（返回 -1），`environment`
+随之失效，旧代码走 teardown 分支：
+
+```objc
+self.host.hidden=YES;[self.lease restore];self.lease=nil;
+[self.host removeFromSuperview];self.container=nil;
+```
+
+宿主与抑制租约一起被撤销，于是**整个启动动画期间显示的都是系统静态壁纸**，而不是视频
+的当前画面。
+
+本版改为：应用切到前台时**保留宿主、保留租约、只冻结播放**。
+
+- 新增 `-[LMVLockVideoPlayback setFrozen:]`：`wantsPlayback` 为 NO、解码器暂停，但
+  `renderLayer` 继续显示当前帧（暂停的 AVPlayerLayer 会保留画面）。
+- 桌面通道新增 `appForeground` 分支：不再拆除宿主，改为冻结。应用的窗口都位于
+  Home / 壁纸窗口之上，冻结画面被应用挡住，暂停后也不再消耗解码。
+
+真正需要撤下的场景（息屏、锁屏、未知通知内容、功能关闭、解码错误、禁用素材）仍然走
+原来的 teardown 分支，行为边界不变。
+
 ## 0.0.90：回退到 0.0.84 行为（只保留诊断用图层命名）
 
 0.0.85 ~ 0.0.89 的改动都建立在对设备的推测上，实测反而引入了新的不确定行为。

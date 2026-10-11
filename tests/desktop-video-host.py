@@ -30,6 +30,10 @@ pre=pre.replace('static int LMVBlankToken=1;', 'static int LMVBlankToken=1,LMVLo
 pre=pre.replace('static uint64_t screenBlank=0;', 'static uint64_t screenBlank=0,screenLocked=0;')
 pre=pre.replace('*state=screenBlank;return 0;', '*state=token==LMVLockToken?screenLocked:screenBlank;return 0;')
 pre=pre.replace('self.wantsPlayback=visible;', 'self.wantsPlayback=visible;self.renderLayer.hidden=!visible || self.error!=nil || !self.posterLayer.contents;')
+# 0.0.91: the double mirrors the production rule, where a frozen (paused)
+# surface keeps renderLayer on screen while wantsPlayback is NO.
+pre=pre.replace('- (void)setFrozen:(BOOL)frozen {self.frozen=frozen;}',
+                '- (void)setFrozen:(BOOL)frozen {self.frozen=frozen;self.renderLayer.hidden=(!self.wantsPlayback && !self.frozen && !self.posterOnlyVisible) || self.error!=nil || !self.posterLayer.contents;}')
 pre=pre.replace('@property NSUInteger builds,clears;', '@property NSUInteger builds,clears,earlyReads;\n@property BOOL persistentPosterEnabled,posterOnlyVisible;\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;\n- (void)showPreparedPoster:(BOOL)visible;\n- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision;')
 pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision {}\n- (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision {self.posterLayer.contents=(__bridge id)image;}\n- (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision {self.earlyReads++;}\n- (void)showPreparedPoster:(BOOL)visible {self.posterOnlyVisible=visible;self.wantsPlayback=NO;self.renderLayer.hidden=!visible || !self.posterLayer.contents;}\n')
 # Reproduce the .077 failure boundary: dyld initializer executes before UIKit.
@@ -116,9 +120,10 @@ int main(void){@autoreleasepool {
  [m update];assert(m.host.superview==wall && [wall.subviews indexOfObject:m.host]==1 && wallPixels.hidden && m.playback.wantsPlayback);
  assert(m.host.alpha==1 && !m.host.userInteractionEnabled && m.host.accessibilityElementsHidden);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
  for(int n=0;n<100;n++){[m update];assert(m.host.superview==wall && wallPixels.hidden);originalTree(wall,wallOriginal);}
- // App transition pauses/hides Desktop and restores only the leased content.
+ // 0.0.91: the app transition freezes the Desktop surface in place instead of
+ // tearing it down, so the launch animation never flashes the system wallpaper.
  TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";UIApplication.sharedApplication.frontmost=app;[m update];
- assert(!m.host.superview && !m.playback.wantsPlayback && !wallPixels.hidden);UIApplication.sharedApplication.frontmost=nil;[m update];assert(m.host.superview==wall);
+ assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);UIApplication.sharedApplication.frontmost=nil;[m update];assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
  // Content-only NC pulls do not retarget Home, do not mutate Home frame/alpha,
  // and fully covered NC pauses decoding while retaining the last Desktop frame.
  for(int n=0;n<=100;n++) {

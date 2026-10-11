@@ -292,6 +292,13 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
     BOOL visible=configured && container && LMVDesktopGeometryVisible(container) && environment;
     // A currently locked state outside an authenticated NC pull is a real lock.
     if (locked && CGRectIsEmpty(cover))visible=NO;
+    // 0.0.91: an application reaching the foreground must NOT tear the surface
+    // down. Removing it at that instant dropped the lease and the layer, so the
+    // whole app-launch transition showed the static system wallpaper. Keep the
+    // surface and the last displayed frame where they are and freeze instead;
+    // every app window sits above the Home/wallpaper window, so a frozen frame
+    // stays hidden and a paused player costs nothing.
+    BOOL appForeground=configured && foreground<0 && !unknownCover && !visible && self.host.superview!=nil;
     if (visible) {
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
             [self.lease restore];self.lease=nil;[self.host removeFromSuperview];
@@ -317,11 +324,19 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
         self.host.frame=container.bounds;self.host.alpha=1;self.host.hidden=NO;
         self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [self.playback layoutInBounds:self.host.bounds];[CATransaction commit];
+    } else if (appForeground) {
+        // Hold the attachment, the displayed frame and the suppress-lease: the
+        // background stays a video still instead of flashing to the wallpaper.
+        self.host.hidden=NO;
     } else {
         self.host.hidden=YES;[self.lease restore];self.lease=nil;
         [self.host removeFromSuperview];self.container=nil;
     }
-    if (LMVLaunchReady) [self.playback setVisible:visible && !covered];
+    if (LMVLaunchReady) {
+        [self.playback setVisible:visible && !covered];
+        // Applied after setVisible:, which clears the flag.
+        [self.playback setFrozen:appForeground];
+    }
     else [self.playback showPreparedPoster:visible];
     if (visible && covered && self.playback.path && !self.playback.error) {
         // Retain the existing desktop frame behind NC; withdrawing NC reveals
@@ -329,14 +344,14 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
         BOOL hasPixels=self.playback.playerLayer.readyForDisplay || self.playback.posterLayer.contents!=nil;
         self.playback.renderLayer.hidden=!hasPixels;
     }
-    BOOL pixels=visible && !self.playback.renderLayer.hidden && !self.playback.error;
+    BOOL pixels=(visible || appForeground) && !self.playback.renderLayer.hidden && !self.playback.error;
     if (pixels && content && content.superview==container) {
         if (!self.lease) {self.lease=[LMVDesktopContentLease new];self.lease.content=content;self.lease.parent=container;self.lease.baselineHidden=content.hidden;}
         if (!self.lease.baselineHidden) {content.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu",
-        visible,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu",
+        visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     self.updating=NO;
