@@ -246,6 +246,17 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             if (record.lifecycleKnown && !record.visible && !half) continue;
             if (!root || !LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=UIScreen.mainScreen) continue;
             UIView *sliding=LMVLockVideoContent(root);CGRect exposed=LMVLockVideoVisibleRect(sliding,window);
+            // 0.0.86 fix: Notification Center pushes the slideable content off-screen
+            // (device probe measured 0.3pt of exposure), so `exposed` is already invalid
+            // and the WHOLE candidate gets skipped - the 0.0.85 clip fallback further
+            // down can never run because it requires `best` to be set first. Fall back
+            // to the background anchor here instead: on device SBUIBackgroundView still
+            // covers the full screen, so the video keeps covering the visible backdrop.
+            if (!LMVLockVideoRectValid(exposed)) {
+                UIView *background=LMVLockVideoBackgroundAnchor(root,self.host);
+                CGRect backgroundExposed=background?LMVLockVideoVisibleRect(background,window):CGRectZero;
+                if (LMVLockVideoRectValid(backgroundExposed)) {sliding=background;exposed=backgroundExposed;}
+            }
             CGFloat size=exposed.size.width*exposed.size.height;
             if (LMVLockVideoRectValid(exposed) && size>area) {best=candidate;content=sliding;area=size;}
         }
