@@ -246,20 +246,6 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             if (record.lifecycleKnown && !record.visible && !half) continue;
             if (!root || !LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=UIScreen.mainScreen) continue;
             UIView *sliding=LMVLockVideoContent(root);CGRect exposed=LMVLockVideoVisibleRect(sliding,window);
-            // 0.0.86 fix: Notification Center pushes the slideable content off-screen
-            // (device probe measured 0.3pt of exposure), so `exposed` is already invalid
-            // and the WHOLE candidate gets skipped - the 0.0.85 clip fallback further
-            // down can never run because it requires `best` to be set first. Fall back
-            // to the background anchor here instead: on device SBUIBackgroundView still
-            // covers the full screen, so the video keeps covering the visible backdrop.
-            // Only fall back when the content EXISTS but is not exposed; unknown
-            // content (slideableContentView == nil) must keep failing closed, which
-            // is what the "no full-root/window fallback" contract requires.
-            if (sliding && !LMVLockVideoRectValid(exposed)) {
-                UIView *background=LMVLockVideoBackgroundAnchor(root,self.host);
-                CGRect backgroundExposed=background?LMVLockVideoVisibleRect(background,window):CGRectZero;
-                if (LMVLockVideoRectValid(backgroundExposed)) {sliding=background;exposed=backgroundExposed;}
-            }
             CGFloat size=exposed.size.width*exposed.size.height;
             if (LMVLockVideoRectValid(exposed) && size>area) {best=candidate;content=sliding;area=size;}
         }
@@ -274,14 +260,6 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         }
         self.content=content;self.controller=best;
         CGRect clip=LMVLockVideoClip(content,container,content.window);
-        // 0.0.85 fix: when Notification Center opens, the slideable content is
-        // pushed off-screen (device probe measured an exposed height of only
-        // 0.3pt), so LMVLockVideoClip's final `size.height>1` check returns zero,
-        // the whole host gets removed and the background video disappears. Clip
-        // must still follow the content, but when the content itself is no longer
-        // exposed, fall back to the background anchor's geometry so the video
-        // keeps covering the background that is still on screen.
-        if (CGRectIsEmpty(clip) && anchor) clip=LMVLockVideoClip(anchor,container,anchor.window);
         visible=!CGRectIsEmpty(clip);
         [CATransaction begin];[CATransaction setDisableActions:YES];
         self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;

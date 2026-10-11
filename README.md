@@ -27,89 +27,24 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
-## 0.0.89：修复桌面 / 壁纸通道在「降半屏」时视频背景消失
+## 0.0.90：回退到 0.0.84 行为（只保留诊断用图层命名）
 
-0.0.84 拆掉了锁屏通道与控制中心通道的 `hidden` 否决，但**桌面通道的同一个缺陷一直没修**：
+0.0.85 ~ 0.0.89 的改动都建立在对设备的推测上，实测反而引入了新的不确定行为。
+本版把**产品代码整体回到 0.0.84**（即「控制中心降半屏修复」那个你确认过可用的版本），
+0.0.85 / 0.0.86 的锁屏裁剪兜底、0.0.87 的消息卡片可见性改动、0.0.89 的桌面通道改动
+**全部撤销**。
 
-```objc
-// LMVDesktopVideo.h（0.0.88 及以前）
-if (!window || window.hidden || window.alpha<.01 || ...) return NO;
-for (UIView *node=view;node;node=node.superview) if (node.hidden || node.alpha<.01) return NO;
-```
-
-`LMVDesktopControllerEligible()` 用它决定「桌面视频宿主该不该挂在
-`PBUIPosterHomeViewController` 这一支上」。设备 dump 实测（`CC.viewWillDisappear` 时刻）：
-
-```
-LMVDesktopVideoHost frame={{0,0},{430,932}} hidden=0 alpha=1.00 clips=1
-  window=_SBWallpaperSecureWindow parent=UIView      ← 全场唯一存在的 LMV 视频层
-SBCoverSheetWindow  frame={{0,0},{430,932}} hidden=1
-  SBCoverSheetPanelBackgroundContainerView frame={{0,-932},{430,932}}
-```
-
-壁纸窗口内部有多个 `hidden=1` / `alpha=0.00` 的克隆层（`PBUISnapshotReplicaView`、
-`PBUIPosterFloatingView`、`PBUIPosterHomeViewController` 分支），面板不再全屏时
-系统会把其中一支置为 `hidden`。命中否决后宿主被摘除，露出系统壁纸——正是
-「降半屏 → 视频背景变成壁纸」。
-
-本版让桌面通道与另外两条通道口径一致：
-
-- `LMVDesktopGeometryVisible()`：去掉 `window.hidden`、`window.alpha` 与祖先
-  `hidden`/`alpha` 否决，改由 `LMVLockVideoVisibleRect()` 的几何结果作唯一判据；
-- `LMVDesktopCoverRect()`：不再因 `SBCoverSheetWindow.hidden` 跳过锁屏窗口，
-  改为按 `LMVVideoWindowViewport()` 判断是否真的离屏。
-
-真正离屏（Reachability / 滑出屏幕）的视图仍然判定为不可见，行为边界不变。
-
-## 0.0.88：渲染图层可识别（纯诊断，不改变任何行为）
-
-消息卡片通道把视频画进一个**裸 `UIView`**，图层没有名字。视图层级 dump 里
-SpringBoard 有近两万个 `UIView`，因此无法判断视频层到底挂没挂上、被谁挡住——
-前几轮排查因此两次读错方向。
-
-本版给该通道的两个图层加上稳定名字（**仅命名，不影响渲染、布局或播控**）：
+保留的唯一改动是**纯命名**（不影响渲染、布局、播控）：
 
 | 图层 | 名称 |
 |------|------|
-| 卡片视频承载视图 | `com.minis.lockmessagevideo.card.surface` |
-| 卡片视频渲染层 | `com.minis.lockmessagevideo.card.render` |
+| 消息卡片视频承载视图 | `com.minis.lockmessagevideo.card.surface` |
+| 消息卡片视频渲染层 | `com.minis.lockmessagevideo.card.render` |
 
-锁屏 / 桌面 / 控制中心通道原本已有同类命名（`.lock.render`、`.desktop.render`、
-`.control-center.render`），至此四个通道一致，外部诊断工具可以按前缀一次性
-定位全部视频层，并逐道核对可见性判定。
-
-## 0.0.87：修复通知中心（消息卡片）背景视频消失
-
-前三个版本都改在锁屏通道（`LMVLockVideo.h`），而「通知中心背景视频」实际走的是
-**消息卡片通道**（`Tweak.xm` 的 `LMVPrimeMessageCard` / `LMVCardUpdates`）。它的准入门槛是：
-
-- `LMVNotificationCenterSurface()`：`if (!view.window || view.window.hidden) return NO;`
-- `LMVVisible()`：`if (!view.window || view.window.hidden || ...) return NO;` 以及祖先 `hidden` 否决
-
-通知中心展开时 `SBCoverSheetWindow` 会被系统置为 `hidden=1`（实测 30/40 次），
-两个函数因此把整个通知中心判定为「不可见」，所有卡片视频同时消失。
-
-本版移除 `window.hidden` 与祖先 `hidden` 的硬性否决，改由几何裁剪与可见视口判定；
-离屏或被裁剪的视图仍会失败，行为边界不变。
-
-## 0.0.86：真正修好通知中心展开时背景视频消失
-
-0.0.85 把兜底写在 `update()` 的 clip 计算处，但那里要求 `best`/`content` 先成立；
-而设备实测通知中心展开时 `slideableContentView` 只剩 **0.3pt** 暴露，`exposed` 直接失效，
-候选在更早的循环里就被整条跳过 —— 兜底永远执行不到。
-
-本版把兜底下移到候选循环：`exposed` 无效时改用背景锚点（`SBUIBackgroundView`，始终覆盖整屏）
-作为视频区域，`best`/`content` 得以建立，后续裁剪才真正生效。
-
-## 0.0.85：修复通知中心展开时背景视频消失
-
-设备探针实测：通知中心展开时 `slideableContentView` 被推出屏幕，在窗口中只剩
-**0.3pt** 可见高度。`LMVLockVideoClip()` 末行 `rect.size.height>1` 因此返回零，
-`visible=NO`，宿主 `LMVLockVideoHost` 被整层 `removeFromSuperview` —— 背景视频消失。
-
-修复：裁剪区域仍然优先跟随滑动内容；当内容本身已不可见时，退回使用背景锚点
-（`SBUIBackgroundView`，设备上始终全屏可用）的几何，让视频继续覆盖屏幕上仍然存在的背景。
-锁屏真正关闭时仍由控制器生命周期挡住，不会误显示。
+锁屏 / 桌面 / 控制中心通道原本已有同类命名，至此四个通道一致，外部诊断工具
+（`com.minis.lmvdiagnostic` 0.0.3）可以按前缀一次性定位全部视频层，
+并逐道核对 `verdict=PASS/FAIL(...)`、祖先链与遮挡情况，从而在**不改产品代码的
+前提下**先确定断点位置，再决定要不要动代码。
 
 ## 0.0.84：修复控制中心 / 通知中心「降半屏」时视频背景消失
 

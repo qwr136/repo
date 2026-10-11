@@ -35,14 +35,8 @@ static BOOL LMVDesktopHomeWindow(UIWindow *window) {
 }
 static BOOL LMVDesktopGeometryVisible(UIView *view) {
     UIWindow *window=view.window;
-    // 0.0.89 fix: the same contract the lock and Control Center channels got in
-    // 0.0.84. The wallpaper poster swaps hidden/faded ancestors (and the whole
-    // poster branch) in and out while the surface is still on screen, so a
-    // `hidden` veto here released the desktop video exactly when the panel
-    // stopped being full-screen and the system wallpaper showed through.
-    // Geometry stays the authority: LMVLockVideoVisibleRect() returns empty only
-    // when the surface is genuinely off-screen or clipped away.
-    if (!window || !LMVLockVideoRectValid(view.bounds)) return NO;
+    if (!window || window.hidden || window.alpha<.01 || !LMVLockVideoRectValid(view.bounds)) return NO;
+    for (UIView *node=view;node;node=node.superview) if (node.hidden || node.alpha<.01) return NO;
     return !CGRectIsEmpty(LMVLockVideoVisibleRect(view,window));
 }
 // 1 = existing SpringBoard/Home evidence; -1 = application; 0 = unavailable.
@@ -182,11 +176,7 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown) {
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            // 0.0.89: a hidden-but-on-screen cover sheet still covers the screen
-            // (the lock channel measured hidden=1 on 30 of 40 real layouts), so
-            // skip on geometry instead of on `hidden`/`alpha`.
-            if (!LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=destination.screen) continue;
-            if (!LMVLockVideoRectValid(LMVVideoWindowViewport(window))) continue;
+            if (!LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=destination.screen || window.hidden || window.alpha<.01) continue;
             UIView *content=LMVLockVideoContent(window);
             if (!content) {*unknown=YES;continue;}
             CGRect rect=LMVLockVideoVisibleRect(content,window);if(CGRectIsEmpty(rect))continue;
