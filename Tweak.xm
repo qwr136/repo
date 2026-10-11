@@ -128,7 +128,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.87 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.88 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -681,7 +681,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.87 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.88 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -972,6 +972,12 @@ static void LMVUpdate(UIView *cell) {
         [CATransaction begin]; [CATransaction setDisableActions:YES];
         if (!state.layer) {
             state.layer=[CALayer layer]; state.layer.contentsGravity=kCAGravityResizeAspectFill;
+            // 0.0.88: stable layer names make this surface identifiable from a
+            // hierarchy dump. Names are diagnostic only and never affect
+            // rendering; the card channel previously had no marker at all, so a
+            // dump could not tell its overlay apart from the other UIViews.
+            state.overlay.layer.name=@"com.minis.lockmessagevideo.card.surface";
+            state.layer.name=@"com.minis.lockmessagevideo.card.render";
             [state.overlay.layer addSublayer:state.layer];
         }
         LMVFrameSnapshot *cached=LMVCachedFrame(path,state.revision);
