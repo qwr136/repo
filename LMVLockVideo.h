@@ -252,7 +252,10 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             // down can never run because it requires `best` to be set first. Fall back
             // to the background anchor here instead: on device SBUIBackgroundView still
             // covers the full screen, so the video keeps covering the visible backdrop.
-            if (!LMVLockVideoRectValid(exposed)) {
+            // Only fall back when the content EXISTS but is not exposed; unknown
+            // content (slideableContentView == nil) must keep failing closed, which
+            // is what the "no full-root/window fallback" contract requires.
+            if (sliding && !LMVLockVideoRectValid(exposed)) {
                 UIView *background=LMVLockVideoBackgroundAnchor(root,self.host);
                 CGRect backgroundExposed=background?LMVLockVideoVisibleRect(background,window):CGRectZero;
                 if (LMVLockVideoRectValid(backgroundExposed)) {sliding=background;exposed=backgroundExposed;}
