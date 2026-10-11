@@ -27,6 +27,15 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.86：真正修好通知中心展开时背景视频消失
+
+0.0.85 把兜底写在 `update()` 的 clip 计算处，但那里要求 `best`/`content` 先成立；
+而设备实测通知中心展开时 `slideableContentView` 只剩 **0.3pt** 暴露，`exposed` 直接失效，
+候选在更早的循环里就被整条跳过 —— 兜底永远执行不到。
+
+本版把兜底下移到候选循环：`exposed` 无效时改用背景锚点（`SBUIBackgroundView`，始终覆盖整屏）
+作为视频区域，`best`/`content` 得以建立，后续裁剪才真正生效。
+
 ## 0.0.85：修复通知中心展开时背景视频消失
 
 设备探针实测：通知中心展开时 `slideableContentView` 被推出屏幕，在窗口中只剩
