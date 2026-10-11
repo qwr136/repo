@@ -388,8 +388,6 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
         CGFloat gapTop=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,revealed.origin.y-coverViewport.origin.y);
         CGFloat gapBottom=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(revealed.origin.y+revealed.size.height));
-        CGFloat coverArea=coverViewport.size.width*coverViewport.size.height;
-        CGFloat leakArea=coverArea>0?1-(MAX(0.0,revealed.size.width)*MAX(0.0,revealedHeight))/coverArea:0;
         NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d %@|%@",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden,hostParent?NSStringFromClass(hostParent.class):@"none",aboveText];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
