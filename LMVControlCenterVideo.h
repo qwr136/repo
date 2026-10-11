@@ -54,8 +54,13 @@ static BOOL LMVCCPureBackground(UIView *view) {
 // window.bounds alone does not account for a translated window.
 static CGRect LMVCCVisibleViewport(UIView *root) {
     if(!root || !LMVLockVideoRectValid(root.bounds))return CGRectZero;
-    for(UIView *node=root;node;node=node.superview)
-        if(node.hidden || node.alpha<.01)return CGRectZero;
+    // 0.0.84 fix: the ancestor hidden/faded short-circuit that used to sit here
+    // returned CGRectZero whenever SBControlCenterWindow.hidden==1, which is
+    // exactly what 降半屏/收起 leaves behind (16 of 40 observed layouts). That
+    // made LMVCCMaterial bail out on its first line and the video layer was
+    // detached, so the background vanished as soon as the panel stopped being
+    // full-screen. Visibility is no longer a veto; the exposed window viewport
+    // below is the only geometric authority.
     CGRect viewport=root.bounds;UIWindow *window=root.window;
     if(window) {
         CGRect exposed=LMVVideoWindowViewport(window);
@@ -88,7 +93,11 @@ static UIView *LMVCCMaterial(UIView *root) {
         if(clipped.size.width>1 && clipped.size.height>1 &&
            rootClip.size.width>=bounds.size.width*.98 &&
            clipped.size.width>=viewport.size.width*.98 &&
-           clipped.size.height>=viewport.size.height*.98 && LMVCCPureBackground(child))return child;
+           // 0.0.84 fix: compare against the smaller of viewport/material height.
+           // Requiring the material to cover the full viewport height rejected a
+           // half-height backdrop whenever the viewport was still full-size
+           // (screenOffset==0), which is the other half of the 降半屏 failure.
+           clipped.size.height>=MIN(viewport.size.height,rect.size.height)*.98 && LMVCCPureBackground(child))return child;
     }
     // Seed actual children: starting at root and immediately skipping it made
     // the old fallback unreachable. Only nested full-root backgrounds qualify;
@@ -205,7 +214,12 @@ static void LMVCCDiscover(void) {
         LMVCCRecord *record=objc_getAssociatedObject(candidate,&LMVCCRecordKey);
         if(!record || !record.known)continue;
         UIView *root=candidate.viewIfLoaded;
-        if(!root || !LMVDesktopGeometryVisible(root))continue;
+        // 0.0.84 fix: never gate on LMVDesktopGeometryVisible here. That helper
+        // vetoes on window.hidden and hidden/faded ancestors, and the Control
+        // Center window is hidden=1 during 降半屏, so the candidate was skipped
+        // before any geometry ran and the video layer stayed detached. Bounds
+        // validity is the precondition that actually matters for this channel.
+        if(!root || !LMVLockVideoRectValid(root.bounds))continue;
         CGRect viewport=LMVCCVisibleViewport(root);
         CGFloat full=root.bounds.size.width*root.bounds.size.height;
         BOOL half=full>0 && viewport.size.width*viewport.size.height<full*.90;
