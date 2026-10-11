@@ -194,6 +194,10 @@ static void LMVLockVideoSuspend(void);
 @property(nonatomic,copy) NSString *path,*revision,*diagnostic,*coverage;
 @property(nonatomic) BOOL enabled,updating,screenAllowed;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
+// 0.0.97: previous sampled band + its timestamp, used to lead the moving edge
+// by exactly one frame of motion (see update()).
+@property(nonatomic) CGRect lastClipRect;@property(nonatomic) CFTimeInterval lastClipTime;
+@property(nonatomic) BOOL hasLastClip;
 - (void)refresh:(BOOL)reload;
 - (void)update;
 - (void)suspend;
@@ -291,6 +295,30 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         // the clip to the whole window viewport, so the entire video appeared as soon
         // as the panel moved a little. The clip is the slideable content's own rect.
         CGRect clip=LMVLockVideoClip(content,container,content.window);
+        CGRect sampledClip=clip;
+        // 0.0.97: the panel is animated by the system at the display refresh rate
+        // while this geometry is sampled on the display link, so the moving edge of
+        // the revealed band trailed the panel by up to one frame. That trailing
+        // strip is the original wallpaper people see while pulling Notification
+        // Center down ("the video comes out slowly at the top"). Lead the edge in
+        // the direction it is already moving by the previous step (one frame of
+        // motion, clamped). A shrinking band gets nothing, so a withdrawing panel
+        // still withdraws the surface exactly as before.
+        CFTimeInterval leadNow=CACurrentMediaTime();
+        CGFloat lead=0.0;
+        if (self.hasLastClip && !CGRectIsEmpty(self.lastClipRect) && !CGRectIsEmpty(clip)) {
+            CFTimeInterval leadDt=leadNow-self.lastClipTime;
+            if (leadDt>0.0005 && leadDt<0.10) {
+                CGFloat dy=clip.origin.y-self.lastClipRect.origin.y;
+                CGFloat dh=clip.size.height-self.lastClipRect.size.height;
+                if (dh>0.5) {
+                    if (dy<-0.5) {lead=-dy;clip.origin.y-=lead;clip.size.height+=lead;}
+                    else {lead=dh;clip.size.height+=lead;}
+                    if (lead>60.0) {clip.size.height-=(lead-60.0);lead=60.0;}
+                }
+            }
+        }
+        self.lastClipRect=sampledClip;self.lastClipTime=leadNow;self.hasLastClip=YES;
         visible=!CGRectIsEmpty(clip);
         [CATransaction begin];[CATransaction setDisableActions:YES];
         self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
@@ -308,16 +336,22 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         CALayer *coverSpace=self.host.layer.presentationLayer ?: self.host.layer;
         CGRect hostInWindow=[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot];
         CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectOffset(clip,hostInWindow.origin.x,hostInWindow.origin.y);
+        // What the sampled band alone would have left uncovered: this is the leak
+        // that the one-frame lead above removes, so a future report can tell the two
+        // apart ("geometry lag" vs "covered by something else").
+        CGRect sampledRevealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectOffset(sampledClip,hostInWindow.origin.x,hostInWindow.origin.y);
+        CGFloat sampledGapTop=CGRectIsEmpty(sampledRevealed)?coverViewport.size.height:MAX(0.0,sampledRevealed.origin.y-coverViewport.origin.y);
+        CGFloat sampledGapBottom=CGRectIsEmpty(sampledRevealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(sampledRevealed.origin.y+sampledRevealed.size.height));
         CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
         CGFloat gapTop=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,revealed.origin.y-coverViewport.origin.y);
         CGFloat gapBottom=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(revealed.origin.y+revealed.size.height));
         CGFloat coverArea=coverViewport.size.width*coverViewport.size.height;
         CGFloat leakArea=coverArea>0?1-(MAX(0.0,revealed.size.width)*MAX(0.0,revealedHeight))/coverArea:0;
-        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f v=%d",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,(int)self.host.hidden];
+        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
-            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f leakArea=%.3f hostHidden=%d container=%@ clip=%@ hostInWindow=%@",
-                revealedHeight,gapTop,gapBottom,leakArea,(int)self.host.hidden,
+            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f leakArea=%.3f lead=%.1f sampledGapTop=%.1f sampledGapBottom=%.1f hostHidden=%d container=%@ clip=%@ hostInWindow=%@",
+                revealedHeight,gapTop,gapBottom,leakArea,lead,sampledGapTop,sampledGapBottom,(int)self.host.hidden,
                 NSStringFromClass(container.class),LMVLockVideoRectText(clip),LMVLockVideoRectText(hostInWindow)];
             LMVLockVideoLog(coverLine);
         }

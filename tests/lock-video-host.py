@@ -227,7 +227,10 @@ int main(void){@autoreleasepool{
   if(n==0){assert(CGRectIsEmpty(clip) && !manager.host.superview && !manager.playback.wantsPlayback);}
   else {assert(fabs(clip.size.height-exposed)<.001 && fabs(clip.origin.y)<.001);assert(manager.host.superview==cover && manager.playback.wantsPlayback);
    assert(CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,exposed/2),NO));
-   if(exposed<843)assert(!CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,exposed+1),NO));}
+   // 0.0.97: the mask may LEAD the sampled edge by at most one frame of motion --
+   // the step of this loop -- and never more. Leading is what keeps the revealed
+   // band from trailing the panel while Notification Center is pulled down.
+   if(exposed<835)assert(!CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,exposed+844.0/100.0+1.0),NO));}
   assertSystemTree(cover,original);
  }
  // Reachability translates a still full-size window: viewport is only the

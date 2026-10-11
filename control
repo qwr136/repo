@@ -1,8 +1,8 @@
 Package: com.minis.lockmessagevideo
 Name: 锁屏背景视频
-Version: 0.0.96
+Version: 0.0.97
 Architecture: iphoneos-arm64
-Description: 锁屏消息通知视频背景与独立素材库插件（修复控制中心与通知中心降半屏时视频背景消失）
+Description: 锁屏消息通知视频背景与独立素材库插件（修复下拉通知中心时顶部漏壁纸与打开/退出 App 时视频背景卡顿）
 Maintainer: 小飞
 Author: 小飞
 Section: Tweaks

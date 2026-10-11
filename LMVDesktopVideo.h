@@ -104,6 +104,11 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
 @property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery;
+// 0.0.97: how long the surface has been held (attached, frozen) through a
+// transient loss of visibility, and how many real teardowns have happened. Both
+// are diagnostics for the "hitches when opening/leaving an app" report.
+@property(nonatomic) CFTimeInterval holdSince;
+@property(nonatomic) NSUInteger teardowns;
 - (void)refresh:(BOOL)reload;
 - (void)primePoster;
 - (void)update;
@@ -310,7 +315,21 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     // surface and the last displayed frame where they are and freeze instead;
     // every app window sits above the Home/wallpaper window, so a frozen frame
     // stays hidden and a paused player costs nothing.
-    BOOL appForeground=configured && foreground<0 && !unknownCover && !visible && self.host.superview!=nil;
+    // 0.0.97: hold for ANY transient loss of visibility, not only a clean -1.
+    // While an app is being launched or left, the frontmost-application probe can
+    // report 0 (unavailable) for a frame and the Home geometry flaps while the app
+    // window animates away. The old test tore the surface down at that instant,
+    // restored the wallpaper and re-attached a frame later -- the visible hitch on
+    // "quickly open an app, then leave it". Definitive reasons (screen off, locked,
+    // unknown cover, feature off, decode error) still tear down immediately.
+    BOOL definitiveAway=!configured || !screenKnown || blank || !lockKnown || locked ||
+        unknownCover || self.playback.error!=nil;
+    CFTimeInterval holdNow=CACurrentMediaTime();
+    if (!visible && self.host.superview!=nil && !definitiveAway) {
+        if (self.holdSince<=0) self.holdSince=holdNow;
+    } else self.holdSince=0;
+    BOOL appForeground=!definitiveAway && !visible && self.host.superview!=nil &&
+        (foreground<=0 || (self.holdSince>0 && holdNow-self.holdSince<0.6));
     if (visible) {
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
             [self.lease restore];self.lease=nil;[self.host removeFromSuperview];
@@ -341,8 +360,9 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
         // background stays a video still instead of flashing to the wallpaper.
         self.host.hidden=NO;
     } else {
+        if (self.host.superview!=nil) self.teardowns++;
         self.host.hidden=YES;[self.lease restore];self.lease=nil;
-        [self.host removeFromSuperview];self.container=nil;
+        [self.host removeFromSuperview];self.container=nil;self.holdSince=0;
     }
     if (LMVLaunchReady) {
         [self.playback setVisible:visible && !covered];
@@ -362,10 +382,11 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
         if (!self.lease.baselineHidden) {content.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d",
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
-        (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container))];
+        (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container)),
+        (self.holdSince>0?holdNow-self.holdSince:0.0),(unsigned long)self.teardowns];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
     // and where the uncovered band is ("background dropped / leaked").
