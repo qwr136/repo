@@ -27,6 +27,20 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.87：修复通知中心（消息卡片）背景视频消失
+
+前三个版本都改在锁屏通道（`LMVLockVideo.h`），而「通知中心背景视频」实际走的是
+**消息卡片通道**（`Tweak.xm` 的 `LMVPrimeMessageCard` / `LMVCardUpdates`）。它的准入门槛是：
+
+- `LMVNotificationCenterSurface()`：`if (!view.window || view.window.hidden) return NO;`
+- `LMVVisible()`：`if (!view.window || view.window.hidden || ...) return NO;` 以及祖先 `hidden` 否决
+
+通知中心展开时 `SBCoverSheetWindow` 会被系统置为 `hidden=1`（实测 30/40 次），
+两个函数因此把整个通知中心判定为「不可见」，所有卡片视频同时消失。
+
+本版移除 `window.hidden` 与祖先 `hidden` 的硬性否决，改由几何裁剪与可见视口判定；
+离屏或被裁剪的视图仍会失败，行为边界不变。
+
 ## 0.0.86：真正修好通知中心展开时背景视频消失
 
 0.0.85 把兜底写在 `update()` 的 clip 计算处，但那里要求 `best`/`content` 先成立；
