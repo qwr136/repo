@@ -128,7 +128,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.86 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.87 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -681,7 +681,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.86 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.87 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -722,7 +722,11 @@ static CGRect LMVRectInView(UIView *view, UIView *ancestor) {
     return [view convertRect:view.bounds toView:ancestor];
 }
 static BOOL LMVNotificationCenterSurface(UIView *view) {
-    if (!view.window || view.window.hidden) return NO;
+    // 0.0.87 fix: window.hidden no longer disqualifies the surface. Notification
+    // Center keeps SBCoverSheetWindow.hidden=1 while its content is fully on
+    // screen (30 of 40 layouts on device), and the old test rejected every card
+    // in that state, which is exactly when the background videos disappeared.
+    if (!view.window) return NO;
     for (UIView *node = view; node; node = node.superview) {
         NSString *name = NSStringFromClass(node.class);
         if ([name containsString:@"SBCoverSheet"] || [name containsString:@"NCNotification"] ||
@@ -738,10 +742,16 @@ static BOOL LMVNotificationCenterSurface(UIView *view) {
 }
 static BOOL LMVVisible(UIView *view) {
     if (!LMVNotificationCenterSurface(view)) return NO;
-    if (!view.window || view.window.hidden || view.bounds.size.width < 1 || view.bounds.size.height < 1) return NO;
+    // 0.0.87 fix: neither window.hidden nor a hidden/faded ancestor vetoes
+    // visibility any more. Notification Center flips SBCoverSheetWindow (and some
+    // intermediate containers) to hidden=1 while the notification surface is
+    // still on screen, so the old checks detached every card video at exactly the
+    // moment the user opened Notification Center. Geometry below remains the real
+    // authority: an off-screen or clipped-out view still fails those tests.
+    if (!view.window || view.bounds.size.width < 1 || view.bounds.size.height < 1) return NO;
     for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
-        if (ancestor.hidden || LMVOriginalVisibilityAlpha(ancestor) < 0.01) return NO;
-        if (ancestor.clipsToBounds && !CGRectIntersectsRect(LMVRectInView(view, ancestor), (ancestor.layer.presentationLayer ?: ancestor.layer).bounds)) return NO;
+        if (ancestor.clipsToBounds && LMVOriginalVisibilityAlpha(ancestor) >= 0.0 &&
+            !CGRectIntersectsRect(LMVRectInView(view, ancestor), (ancestor.layer.presentationLayer ?: ancestor.layer).bounds)) return NO;
     }
     uint64_t blank = 0;
     if (LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK && blank) return NO;
