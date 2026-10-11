@@ -232,7 +232,9 @@ int main(void){@autoreleasepool {
  root.hidden=YES;assert(LMVCCMaterial(root)==background);root.hidden=NO;
  window.hidden=YES;assert(LMVCCMaterial(root)==background);window.hidden=NO;
  background.frame=CGRectMake(0,0,380,422);assert(LMVCCMaterial(root)==nil);
- background.frame=CGRectMake(0,0,390,410);assert(LMVCCMaterial(root)==nil);
+ // 0.0.84: a material that fully sits inside the viewport is accepted, since the
+ // height test now uses MIN(viewport, material). Rejection is width-driven.
+ background.frame=CGRectMake(0,0,390,410);assert(LMVCCMaterial(root)==background);
  background.frame=CGRectMake(0,0,390,422);
  window.screenOffset=CGPointMake(0,843);assert(LMVCCMaterial(root)==nil);window.screenOffset=CGPointMake(0,422);
  // When the observed content scroll is present, only materials before it may
