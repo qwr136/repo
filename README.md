@@ -27,6 +27,46 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.92：修复下拉通知中心过程中顶部露出壁纸
+
+CoverSheet 的层级是：
+
+```
+SBCoverSheetWindow
+ └ SBFTouchPassThroughView            (controller.view，满屏、不裁剪)
+    ├ SBCoverSheetPanelBackgroundContainerView   ← 面板自己的背景/模糊
+    └ SBCoverSheetPositionView
+       └ SBFTouchPassThroughView   ← 滑动时整体偏移的就是这一层
+          └ CSCoverSheetView      └ clipsToBounds=1 ← 视频原本挂在这里
+```
+
+视频原本挂在 `CSCoverSheetView` 内、裁剪范围也只算「可滑动内容的可见区」。
+面板滑动时整条 `PositionView` 分支被偏移，**面板没盖到的那一段就露出系统壁纸**，
+而挂在面板内部的图层无论怎么放大都盖不到面板之外（`clipsToBounds=1`）。
+
+本版做两件事：
+
+1. **提升宿主**：当所在容器没能覆盖窗口可见视口时，把视频层提升到第一个
+   「不裁剪 + 覆盖整个可见视口」的祖先（即 `SBFTouchPassThroughView`），
+   插在**面板分支之下、面板背景分支之上**，层级关系不变。
+2. **扩展裁剪**：提升后裁剪基准改为「窗口可见视口 ∩ 新容器」，视频铺满整屏。
+
+**可见性判定不变**：仍然由可滑动内容的可见区决定，面板收起（内容滑出屏幕）时
+`contentClip` 为空 → 视频照旧撤下，不会在解锁后残留。
+
+### 诊断（自带日志，设置里打开「启用诊断日志」）
+
+每次覆盖状态变化时向 `/var/mobile/LockMessageVideo/shared-render.log` 写一行：
+
+```
+lock-video cover CSCoverSheetView>SBFTouchPassThroughView top=40 area=0.04
+  viewport={{0,0},{430,932}} contentClip={{0,0},{430,266}} clip={{0,0},{430,932}}
+  hostInWindow={{0,40},{430,892}} leakTop=40.0 leakArea=0.043
+```
+
+`leakTop` / `leakArea` 就是「漏出的壁纸」有多少：`0 / 0.000` 表示完全覆盖。
+数值按 20pt / 2% 分桶，只在跨越桶时记录，所以拖一次只写几行。
+
 ## 0.0.91：修复打开 App 瞬间视频背景变成原壁纸
 
 打开应用的过渡期间，`LMVDesktopForeground()` 把前台判定为应用（返回 -1），`environment`

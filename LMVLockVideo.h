@@ -135,6 +135,51 @@ static CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow *windo
     return LMVLockVideoRectValid(local)?CGRectOffset(local,-space.bounds.origin.x,-space.bounds.origin.y):CGRectZero;
 }
 
+// 0.0.92: while the CoverSheet slides, the branch that holds the panel is offset
+// inside the controller's own view, so a surface parented inside that branch can
+// only ever cover the panel itself. Everything the panel no longer covers showed
+// the system wallpaper (the "top leaks wallpaper" report). Promotion moves the
+// surface into the first non-clipping ancestor that still covers the window
+// viewport, directly below the branch holding the panel and above the branch that
+// draws the panel background, and widens the clip to that ancestor. Visibility is
+// still decided by the slideable content, so a withdrawn panel withdraws the
+// surface exactly as before.
+static UIView *LMVLockVideoPromotion(UIView *container,UIWindow *window,UIView **branch) {
+    *branch=nil;
+    if (!container || !window || container.window!=window) return nil;
+    CALayer *root=window.layer.presentationLayer ?: window.layer;
+    CGRect viewport=LMVVideoWindowViewport(window);
+    if (!LMVLockVideoRectValid(viewport)) return nil;
+    CALayer *space=container.layer.presentationLayer ?: container.layer;
+    if (CGRectContainsRect([space convertRect:space.bounds toLayer:root],viewport)) return nil;
+    for (UIView *node=container.superview;node && node!=window;node=node.superview) {
+        if (node.clipsToBounds) break;
+        CALayer *layer=node.layer.presentationLayer ?: node.layer;
+        if (!CGRectContainsRect([layer convertRect:layer.bounds toLayer:root],viewport)) continue;
+        UIView *child=container;
+        while (child.superview && child.superview!=node) child=child.superview;
+        if (child.superview!=node) break;
+        *branch=child;
+        return node;
+    }
+    return nil;
+}
+// The promoted surface must cover the whole visible viewport, otherwise the same
+// strip simply leaks again from a different parent.
+static CGRect LMVLockVideoCoverageClip(UIView *container,UIWindow *window) {
+    if (!container || !window) return CGRectZero;
+    CGRect viewport=LMVVideoWindowViewport(window);
+    if (!LMVLockVideoRectValid(viewport)) return CGRectZero;
+    CALayer *space=container.layer.presentationLayer ?: container.layer;
+    CALayer *root=window.layer.presentationLayer ?: window.layer;
+    CGRect local=[space convertRect:viewport fromLayer:root];
+    local=CGRectIntersection(local,space.bounds);
+    if (!LMVLockVideoRectValid(local)) return CGRectZero;
+    return CGRectOffset(local,-space.bounds.origin.x,-space.bounds.origin.y);
+}
+static NSString *LMVLockVideoRectText(CGRect rect) {
+    return LMVLockVideoRectValid(rect)?[NSString stringWithFormat:@"{{%.0f,%.0f},{%.0f,%.0f}}",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height]:@"(none)";
+}
 @interface LMVLockVideoHost : UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) CAShapeLayer *clipLayer;
@@ -165,7 +210,7 @@ static void LMVLockVideoSuspend(void);
 @property(nonatomic,weak) UIViewController *controller;
 @property(nonatomic,weak) UIView *content;
 @property(nonatomic,strong) CADisplayLink *link;
-@property(nonatomic,copy) NSString *path,*revision,*diagnostic;
+@property(nonatomic,copy) NSString *path,*revision,*diagnostic,*coverage;
 @property(nonatomic) BOOL enabled,updating,screenAllowed;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
 - (void)refresh:(BOOL)reload;
@@ -253,21 +298,60 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     UIView *anchor=nil;UIView *container=content?LMVLockVideoContainer(best.viewIfLoaded,content,self.host,&anchor):nil;
     BOOL visible=best && content && container && anchor;
     if (visible) {
-        NSArray *children=container.subviews;
-        NSUInteger back=[children indexOfObjectIdenticalTo:anchor],own=[children indexOfObjectIdenticalTo:self.host];
-        if (self.host.superview!=container || own!=back+1) {
-            [self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:anchor];
-        }
         self.content=content;self.controller=best;
-        CGRect clip=LMVLockVideoClip(content,container,content.window);
+        CGRect contentClip=LMVLockVideoClip(content,container,content.window);
+        BOOL hasContent=!CGRectIsEmpty(contentClip);
+        UIView *hostContainer=container,*branch=nil;
+        CGRect clip=contentClip;
+        if (hasContent) {
+            UIView *promoted=LMVLockVideoPromotion(container,content.window,&branch);
+            if (promoted) {
+                hostContainer=promoted;
+                CGRect coverage=LMVLockVideoCoverageClip(promoted,content.window);
+                clip=LMVLockVideoRectValid(coverage)?coverage:CGRectZero;
+            }
+        }
+        NSArray *children=hostContainer.subviews;
+        NSUInteger own=[children indexOfObjectIdenticalTo:self.host];
+        BOOL placed=NO;
+        if (branch) {
+            NSUInteger index=[children indexOfObjectIdenticalTo:branch];
+            if (own!=index) {[self.host removeFromSuperview];placed=YES;
+                [hostContainer insertSubview:self.host atIndex:(index==NSNotFound?hostContainer.subviews.count:index)];}
+        } else {
+            NSUInteger back=[children indexOfObjectIdenticalTo:anchor];
+            if (self.host.superview!=hostContainer || own!=back+1) {
+                [self.host removeFromSuperview];placed=YES;[hostContainer insertSubview:self.host aboveSubview:anchor];
+            }
+        }
+        (void)placed;
         visible=!CGRectIsEmpty(clip);
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        self.host.frame=container.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        self.host.frame=hostContainer.bounds;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [self.playback layoutInBounds:self.host.bounds];self.host.clipLayer.frame=self.host.bounds;
         if (!self.host.clipLayer.path || !CGRectEqualToRect(CGPathGetBoundingBox(self.host.clipLayer.path),clip)) {
             CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
         }
         self.host.hidden=!visible;[CATransaction commit];
+        // Focused "background leaks wallpaper" diagnostic: how much of the visible
+        // window the surface actually covers, and how big the remaining leak is.
+        CGRect viewport=LMVVideoWindowViewport(content.window);
+        CALayer *hostRoot=content.window.layer.presentationLayer ?: content.window.layer;
+        CALayer *hostSpace=self.host.layer.presentationLayer ?: self.host.layer;
+        CGRect hostInWindow=[hostSpace convertRect:hostSpace.bounds toLayer:hostRoot];
+        CGRect covered=CGRectIntersection(hostInWindow,viewport);
+        CGFloat area=viewport.size.width*viewport.size.height;
+        CGFloat leakArea=area>0?1-(MAX(0,covered.size.width)*MAX(0,covered.size.height))/area:0;
+        CGFloat leakTop=LMVLockVideoRectValid(covered)?covered.origin.y-viewport.origin.y:viewport.size.height;
+        NSString *bucket=[NSString stringWithFormat:@"%@>%@ top=%.0f area=%.2f",
+            NSStringFromClass(container.class),hostContainer==container?@"self":NSStringFromClass(hostContainer.class),
+            floor(leakTop/20.0)*20.0,floor(leakArea/0.02)*0.02];
+        if (![bucket isEqualToString:self.coverage]) {
+            self.coverage=bucket;
+            LMVLockVideoLog([NSString stringWithFormat:@"lock-video cover %@ viewport=%@ contentClip=%@ clip=%@ hostInWindow=%@ leakTop=%.1f leakArea=%.3f",
+                bucket,LMVLockVideoRectText(viewport),LMVLockVideoRectText(contentClip),LMVLockVideoRectText(clip),
+                LMVLockVideoRectText(hostInWindow),leakTop,leakArea]);
+        }
     } else {
         self.host.hidden=YES;[self.host removeFromSuperview];self.content=nil;self.controller=nil;
     }
