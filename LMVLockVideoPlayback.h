@@ -49,6 +49,11 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,readonly,copy) NSString *path,*revision;
 @property(nonatomic,readonly,strong) NSError *error;
 @property(nonatomic,readonly) BOOL loading,wantsPlayback;
+// 0.0.98: true once a frame has actually been displayed. A momentary
+// `readyForDisplay == NO` (a paused player re-priming after the app-foreground
+// freeze, a layer rebuild) must not hide the surface any more: hiding it is what
+// showed the system wallpaper for a moment and then "recovered".
+@property(nonatomic) BOOL everReady;
 @property(nonatomic,readonly) NSUInteger generation,buildCount;
 @property(nonatomic,copy) void (^didChange)(void);
 @property(nonatomic) BOOL persistentPosterEnabled;
@@ -130,6 +135,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     self.path=nil;self.revision=nil;self.error=nil;
     [CATransaction begin];[CATransaction setDisableActions:YES];
     self.posterLayer.contents=nil;self.posterLayer.hidden=YES;self.playerLayer.hidden=YES;self.renderLayer.hidden=YES;
+    self.everReady=NO;
     [CATransaction commit];
 }
 - (void)layoutInBounds:(CGRect)bounds {
@@ -157,10 +163,14 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
 }
 - (void)updatePresentation {
     BOOL ready=self.player && self.playerLayer.readyForDisplay && !self.error;
+    if (ready) self.everReady=YES;
+    // 0.0.98: keep showing the last decoded frame while the player re-primes.
+    // `!ready` alone only blanks a surface that never displayed anything.
+    BOOL blank=!ready && !self.posterLayer.contents && !self.everReady;
     [CATransaction begin];[CATransaction setDisableActions:YES];
     self.playerLayer.hidden=!ready;
     self.posterLayer.hidden=ready || !self.posterLayer.contents || self.error!=nil;
-    self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || (!ready && !self.posterLayer.contents);
+    self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || blank;
     [CATransaction commit];
     if (self.didChange) self.didChange();
 }

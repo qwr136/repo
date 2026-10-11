@@ -115,7 +115,36 @@ static CGRect LMVLockVideoVisibleRect(UIView *content,UIWindow *window) {
     if (!space || !root) {space=content.layer;root=window.layer;}
     return LMVLockVideoRectInTree(content,window,space,root);
 }
+// 0.0.98: the slideable content paints the panel's background itself -- its child
+// list leads with SBDashBoardWallpaperEffectView / UIVisualEffectView -- and those
+// siblings sit ABOVE controller.view in z order. A surface parented in
+// controller.view therefore cannot cover them: that is the ORIGINAL wallpaper still
+// showing while the panel is pulled down (gapTop is 0.0 in every device sample, so
+// it is paint order, not geometry).
+static BOOL LMVLockVideoBackgroundPaint(UIView *view) {
+    NSString *name=view?NSStringFromClass(view.class):@"";
+    return [name containsString:@"Background"] || [name containsString:@"Wallpaper"] ||
+           [name containsString:@"Material"] || [name containsString:@"Backdrop"] ||
+           [name containsString:@"VisualEffect"] || [name containsString:@"Effect"];
+}
+// The last member of the LEADING run of background-paint children: the surface goes
+// directly above it, i.e. above the wallpaper paint and still below the clock and
+// the notification list. nil when the content has no such run, in which case the
+// previous controller.view placement is kept unchanged.
+static UIView *LMVLockVideoContentBackdrop(UIView *content) {
+    UIView *last=nil;
+    for (UIView *child in content.subviews) {
+        if (!LMVLockVideoBackgroundPaint(child)) break;
+        last=child;
+    }
+    return last;
+}
 static UIView *LMVLockVideoContainer(UIView *root,UIView *content,UIView *own,UIView **anchor) {
+    // Prefer the content itself when it owns the panel's background paint.
+    if (content && content!=root && [content isDescendantOfView:root]) {
+        UIView *backdrop=LMVLockVideoContentBackdrop(content);
+        if (backdrop) {if (anchor) *anchor=backdrop;return content;}
+    }
     // The reference places its own video UIView in controller.view. Preserve
     // every system sibling's order; use nested content only if root has no
     // separated background branch. A known sliding content is always required.
@@ -327,6 +356,20 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
         }
         self.host.hidden=!visible;[CATransaction commit];
+        // Which parent the surface ended up in, and every visible sibling painted
+        // above it: if wallpaper still shows through, this names the culprit.
+        NSMutableString *aboveText=[NSMutableString string];
+        UIView *hostParent=self.host.superview;
+        if (hostParent) {
+            NSArray *siblings=hostParent.subviews;
+            NSUInteger hostIndex=[siblings indexOfObjectIdenticalTo:self.host];
+            for (NSUInteger index=(hostIndex==NSNotFound?0:hostIndex+1);index<siblings.count;index++) {
+                UIView *sibling=siblings[index];
+                if (sibling.hidden || sibling.alpha<0.05) continue;
+                if (aboveText.length>140) {[aboveText appendString:@"..."];break;}
+                [aboveText appendFormat:@"%@ ",NSStringFromClass(sibling.class)];
+            }
+        }
         // Diagnostics: where the revealed band sits on screen and how much of the
         // viewport stays uncovered (the "background dropped / wallpaper leaked"
         // measurement). Numbers only, so every harness can compile it.
@@ -347,12 +390,13 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         CGFloat gapBottom=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(revealed.origin.y+revealed.size.height));
         CGFloat coverArea=coverViewport.size.width*coverViewport.size.height;
         CGFloat leakArea=coverArea>0?1-(MAX(0.0,revealed.size.width)*MAX(0.0,revealedHeight))/coverArea:0;
-        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden];
+        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d %@|%@",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden,hostParent?NSStringFromClass(hostParent.class):@"none",aboveText];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
-            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f leakArea=%.3f lead=%.1f sampledGapTop=%.1f sampledGapBottom=%.1f hostHidden=%d container=%@ clip=%@ hostInWindow=%@",
-                revealedHeight,gapTop,gapBottom,leakArea,lead,sampledGapTop,sampledGapBottom,(int)self.host.hidden,
-                NSStringFromClass(container.class),LMVLockVideoRectText(clip),LMVLockVideoRectText(hostInWindow)];
+            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f lead=%.1f sampledGapTop=%.1f sampledGapBottom=%.1f hostHidden=%d container=%@ hostSuper=%@ above=[%@] clip=%@ hostInWindow=%@",
+                revealedHeight,gapTop,gapBottom,lead,sampledGapTop,sampledGapBottom,(int)self.host.hidden,
+                NSStringFromClass(container.class),hostParent?NSStringFromClass(hostParent.class):@"none",aboveText,
+                LMVLockVideoRectText(clip),LMVLockVideoRectText(hostInWindow)];
             LMVLockVideoLog(coverLine);
         }
     } else {

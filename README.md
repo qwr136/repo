@@ -27,6 +27,51 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.98：下拉露出的原壁纸来自面板自己画的背景；切换 App 时画面不再闪掉
+
+### 顶部/面板区域露出原壁纸
+
+设备日志给出了决定性事实：`gapTop` 与 `sampledGapTop` 在 **209/209** 个样本里都是 `0.0`
+——几何上视频一直盖住该区域。所以露出的是**绘制顺序**问题：
+
+```
+CSCoverSheetView
+ ├ SBUIBackgroundView          ← 宿主原本插在它上面
+ ├ SBFStatusBarLegibilityView
+ ├ LMVLockVideoHost            ← 0.0.97 及以前在这里
+ └ SBFTouchPassThroughView     ← 可滑动内容（sublayers=6）
+    ├ SBDashBoardWallpaperEffectView   ← 面板自己再画一遍壁纸
+    ├ UIVisualEffectView
+    ├ ▼ ▼ ▼ 视频应该在这里
+    ├ UIView / SBFTouchPassThroughView
+    ├ CSScrollView              ← 时钟与通知列表
+    └ CSFixedFooterView
+```
+
+可滑动内容自己画了面板背景（`SBDashBoardWallpaperEffectView` / `UIVisualEffectView`），
+而它在 z 序上位于 `controller.view` **之上**，挂在 `controller.view` 里的表面永远盖不住它
+——这就是下拉时看到的原壁纸。
+
+本版改为：**当可滑动内容以一段"背景绘制"子视图开头时，把宿主放进该内容内部、就在这段
+之后**（壁纸绘制之上、时钟与通知列表之下）。没有这种结构时，仍沿用原来的
+`controller.view` 摆放，逐字节不变。
+
+### 切换 App 时视频背景闪掉再恢复
+
+`updatePresentation` 原来有一条 `(!ready && !posterLayer.contents)` —— 播放器一旦
+`readyForDisplay` 瞬时变假（**冻结后恢复播放、解码器重新预热**正是这种时刻），就把
+`renderLayer` 隐藏，于是露出系统壁纸，等就绪再恢复。
+
+本版新增 `everReady`：**只要这一层已经显示过画面，就永远保留最后一帧**，`!ready` 只对
+"从未显示过任何东西"的表面生效。
+
+### 诊断
+
+- `lock-video cover` 新增 `hostSuper=`（宿主落在哪个父视图）与 `above=[...]`（**宿主之上
+  还在绘制的可见兄弟**列表）；`container=` 与它们一起构成完整的层级证据。
+- `desktop-video` 新增 `hostHidden=` / `poster=` / `shown=`，用于区分"视频是被我们自己
+  藏了"还是"被别的东西盖住"。
+
 ## 0.0.97：下拉不再漏壁纸；打开/退出 App 不再卡顿
 
 ### 顶部漏原壁纸（下拉通知中心）
