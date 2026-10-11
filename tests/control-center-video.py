@@ -10,7 +10,7 @@ assert 'MTMaterialView' in h and 'LMVCCHookMatches' in h
 assert 'LMVCacheFrame' not in h and 'LMVAcquireOriginal' not in h
 assert 'LMVVideoWindowViewport(window)' in h
 assert 'rootClip.size.width>=bounds.size.width*.98' in h
-assert 'clipped.size.height>=viewport.size.height*.98' in h
+assert 'clipped.size.height>=MIN(viewport.size.height,rect.size.height)*.98' in h
 assert 'if(view==root)continue' not in h
 # Use the same UIKit input doubles as existing lock tests. All behavior under
 # test below comes directly from the production CC header.
@@ -185,8 +185,9 @@ int main(void){@autoreleasepool {
  assert(CGRectEqualToRect(LMVCCVisibleViewport(root),CGRectMake(17,31,390,422)));
  [manager update];assert(manager.playback.wantsPlayback && manager.playback.builds==built && manager.playback.player==samePlayer);
  root.bounds=CGRectMake(0,0,390,844);background.frame=CGRectMake(0,0,390,422);
- // A half-height material in a fully visible root is not a background match.
- window.screenOffset=CGPointZero;assert(LMVCCMaterial(root)==nil);
+ // 0.0.84: a half-height material in a fully visible root IS a match now.
+ // Requiring full viewport height rejected the 降半屏 backdrop.
+ window.screenOffset=CGPointZero;assert(LMVCCMaterial(root)==background);
  window.screenOffset=CGPointMake(0,422);
  // Controller -> window -> scene -> screen style priority remains authoritative.
  window.traitCollection=[UITraitCollection new];window.windowScene=[UIWindowScene new];window.windowScene.traitCollection=[UITraitCollection new];
@@ -227,8 +228,9 @@ int main(void){@autoreleasepool {
  [tile removeFromSuperview];[root addSubview:background];[button removeFromSuperview];[root addSubview:button];
  background.hidden=YES;assert(LMVCCMaterial(root)==nil);background.hidden=NO;
  background.alpha=0;assert(LMVCCMaterial(root)==nil);background.alpha=1;
- root.hidden=YES;assert(LMVCCMaterial(root)==nil);root.hidden=NO;
- window.hidden=YES;assert(LMVCCMaterial(root)==nil);window.hidden=NO;
+ // 0.0.84: root/window `hidden` no longer vetoes the backdrop (降半屏 sets it).
+ root.hidden=YES;assert(LMVCCMaterial(root)==background);root.hidden=NO;
+ window.hidden=YES;assert(LMVCCMaterial(root)==background);window.hidden=NO;
  background.frame=CGRectMake(0,0,380,422);assert(LMVCCMaterial(root)==nil);
  background.frame=CGRectMake(0,0,390,410);assert(LMVCCMaterial(root)==nil);
  background.frame=CGRectMake(0,0,390,422);
