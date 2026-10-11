@@ -190,6 +190,42 @@ static NSString *LMVLockVideoPerf(const char *channel,CFTimeInterval seconds) {
     calls=0;slow=0;maxSeconds=0;windowStart=now;
     return report;
 }
+// 0.0.99: views the panel paints ABOVE our surface that repaint the ORIGINAL
+// wallpaper. Device hierarchy (SBCoverSheetWindow -> ... -> CSCoverSheetView ->
+// slideable content) shows two of them sitting on top of the content's background
+// run: PBUIPosterFloatingLayerReplica (a live portal of the wallpaper's floating
+// layer) and NCMaterialDisplayingCaptureOnlyViewControllerView (the Notification
+// Center's captured-wallpaper backdrop). Covering them geometrically is impossible
+// from below, so they are LEASED: hidden while our video is on screen and restored
+// exactly as found afterwards. Nothing is detached, so the system keeps owning them.
+@interface LMVLockVideoPaintLease : NSObject
+@property(nonatomic,strong) NSMutableArray<UIView *> *views;
+@property(nonatomic,strong) NSMutableArray<UIView *> *revealed;
+@end
+@implementation LMVLockVideoPaintLease @end
+static BOOL LMVLockVideoRepaint(UIView *view,UIView *content) {
+    if (!view || !content) return NO;
+    NSString *name=NSStringFromClass(view.class);
+    BOOL named=[name containsString:@"NCMaterialDisplayingCaptureOnly"] ||
+               [name containsString:@"PBUIPosterFloatingLayerReplica"] ||
+               [name containsString:@"PBUIPosterFloatingView"] ||
+               [name containsString:@"PBUISnapshotReplica"] ||
+               [name containsString:@"SBDashBoardWallpaper"] ||
+               [name containsString:@"WallpaperEffectView"] ||
+               [name containsString:@"PBUIWallpaperView"];
+    if (!named) return NO;
+    CALayer *layer=view.layer.presentationLayer ?: view.layer;
+    CGRect frame=[layer convertRect:layer.bounds toLayer:content.layer];
+    return frame.size.width>=content.bounds.size.width*0.5 && frame.size.height>=content.bounds.size.height*0.3;
+}
+static void LMVLockVideoCollectRepainters(UIView *node,UIView *content,NSMutableArray *output,NSUInteger *budget) {
+    for (UIView *child in node.subviews) {
+        if (!*budget) return;
+        --*budget;
+        if (LMVLockVideoRepaint(child,content)) [output addObject:child];
+        else LMVLockVideoCollectRepainters(child,content,output,budget);
+    }
+}
 @interface LMVLockVideoHost : UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) CAShapeLayer *clipLayer;
@@ -227,8 +263,13 @@ static void LMVLockVideoSuspend(void);
 // by exactly one frame of motion (see update()).
 @property(nonatomic) CGRect lastClipRect;@property(nonatomic) CFTimeInterval lastClipTime;
 @property(nonatomic) BOOL hasLastClip;
+@property(nonatomic,strong) LMVLockVideoPaintLease *paintLease;
+@property(nonatomic) CFTimeInterval paintLeaseTime;
+@property(nonatomic,copy) NSString *paintText;
 - (void)refresh:(BOOL)reload;
 - (void)update;
+- (void)leasePaint:(UIView *)container;
+- (void)releasePaint;
 - (void)suspend;
 @end
 static LMVLockVideoManager *LMVLockVideo;
@@ -276,6 +317,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     self.screenAllowed=LMVLockVideoScreenAllowed();[self update];
 }
 - (void)suspend {
+    [self releasePaint];
     [self.playback setVisible:NO];self.host.hidden=YES;
     [self.link invalidate];self.link=nil;
 }
@@ -288,6 +330,37 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         }
     }
     [self update];
+}
+- (void)releasePaint {
+    for (UIView *view in self.paintLease.revealed) view.hidden=NO;
+    self.paintLease=nil;self.paintText=nil;
+}
+- (void)leasePaint:(UIView *)container {
+    CFTimeInterval now=CACurrentMediaTime();
+    if (self.paintLease) {
+        BOOL attached=YES;
+        for (UIView *view in self.paintLease.views) if (!view.superview) {attached=NO;break;}
+        // Keep a settled lease; rescan when it went stale or every half second so
+        // views the system recreates during a pull are picked up again.
+        if (attached && now-self.paintLeaseTime<0.5) return;
+        [self releasePaint];
+    }
+    NSUInteger own=[container.subviews indexOfObjectIdenticalTo:self.host];
+    NSMutableArray *found=[NSMutableArray new];NSUInteger budget=240;
+    for (NSUInteger index=(own==NSNotFound?0:own+1);index<container.subviews.count;index++) {
+        if (!budget) break;
+        LMVLockVideoCollectRepainters(container.subviews[index],container,found,&budget);
+    }
+    self.paintLeaseTime=now;
+    if (!found.count) {self.paintText=nil;return;}
+    LMVLockVideoPaintLease *lease=[LMVLockVideoPaintLease new];
+    lease.views=found;lease.revealed=[NSMutableArray new];
+    NSMutableString *text=[NSMutableString string];
+    for (UIView *view in found) {
+        if (!view.hidden) {[lease.revealed addObject:view];view.hidden=YES;}
+        [text appendFormat:@"%@,",NSStringFromClass(view.class)];
+    }
+    self.paintLease=lease;self.paintText=text;
 }
 - (void)update {
     if (self.updating) return;self.updating=YES;
@@ -356,6 +429,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
         }
         self.host.hidden=!visible;[CATransaction commit];
+        if (visible) [self leasePaint:container];
         // Which parent the surface ended up in, and every visible sibling painted
         // above it: if wallpaper still shows through, this names the culprit.
         NSMutableString *aboveText=[NSMutableString string];
@@ -388,16 +462,17 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
         CGFloat gapTop=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,revealed.origin.y-coverViewport.origin.y);
         CGFloat gapBottom=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(revealed.origin.y+revealed.size.height));
-        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d %@|%@",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden,hostParent?NSStringFromClass(hostParent.class):@"none",aboveText];
+        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d %@|%@|%@",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden,hostParent?NSStringFromClass(hostParent.class):@"none",aboveText,self.paintText?:@"-"];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
-            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f lead=%.1f sampledGapTop=%.1f sampledGapBottom=%.1f hostHidden=%d container=%@ hostSuper=%@ above=[%@] clip=%@ hostInWindow=%@",
+            NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f lead=%.1f sampledGapTop=%.1f sampledGapBottom=%.1f hostHidden=%d container=%@ hostSuper=%@ above=[%@] leasedPaint=[%@] clip=%@ hostInWindow=%@",
                 revealedHeight,gapTop,gapBottom,lead,sampledGapTop,sampledGapBottom,(int)self.host.hidden,
                 NSStringFromClass(container.class),hostParent?NSStringFromClass(hostParent.class):@"none",aboveText,
-                LMVLockVideoRectText(clip),LMVLockVideoRectText(hostInWindow)];
+                self.paintText?:@"-",LMVLockVideoRectText(clip),LMVLockVideoRectText(hostInWindow)];
             LMVLockVideoLog(coverLine);
         }
     } else {
+        [self releasePaint];
         self.host.hidden=YES;[self.host removeFromSuperview];self.content=nil;self.controller=nil;
     }
     [self.playback setVisible:visible];

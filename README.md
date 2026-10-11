@@ -27,6 +27,42 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.99：系统在视频之上又画了一遍原壁纸 → 临时抑制那两个「重画壁纸」的层
+
+设备日志显示 `gapTop` / `sampledGapTop` 在所有样本里都是 `0.0`，`above` 里也只剩时钟
+与通知列表这类非背景视图——即**几何与 z 序都已就位**。把 `SBCoverSheetWindow` 的完整
+层级展开后，找到了压在我们之上的两个「重画原壁纸」的层：
+
+```
+CSCoverSheetView
+ └ SBFTouchPassThroughView（可滑动内容）
+    ├ SBDashBoardWallpaperEffectView   ← 面板背景（我们已在其上）
+    ├ UIVisualEffectView
+    ├ ▼ LMVLockVideoHost（0.0.98 起的落点）
+    ├ UIView → SBFLockScreenDateView    ← 时钟
+    ├ SBFTouchPassThroughView
+    │   └ PBUIPosterFloatingLayerReplica → _UIPortalView   ← ① 壁纸浮动层实时门户
+    └ CSScrollView
+        └ CSMainPageView → CSCoverSheetViewBase
+            ├ NCMaterialDisplayingCaptureOnlyViewControllerView  ← ② 通知中心「捕获壁纸」底板
+            └ 通知列表
+```
+
+两者都在视频**之上**：① 是壁纸浮动层的实时门户，② 是通知中心捕获的壁纸底板。
+从下方无法盖住它们，因此本版改为**临时抑制（lease）**：视频在屏时把它们 `hidden=YES`，
+撤下时**原样恢复**（不摘除、不改结构，系统始终持有这些视图）。
+
+抑制范围有严格限定，避免误伤：
+
+- 命中类名：`NCMaterialDisplayingCaptureOnly`、`PBUIPosterFloatingLayerReplica`、
+  `PBUIPosterFloatingView`、`PBUISnapshotReplica`、`SBDashBoardWallpaper*`、
+  `*WallpaperEffectView`、`PBUIWallpaperView`；
+- 尺寸必须覆盖面板（宽 ≥ 容器一半、高 ≥ 三成），所以通知卡片自身的磨砂底板不受影响；
+- 只扫描**视频之上**的兄弟子树（下方的系统壁纸分支保持不动，关掉视频即恢复原样）。
+
+日志新增 `leasedPaint=[...]`，直接列出本次抑制了哪些类。**若某次下拉仍露壁纸，
+`leasedPaint` 为空就说明另有其层，`above=[...]` 会同时给出它的类名。**
+
 ## 0.0.98：下拉露出的原壁纸来自面板自己画的背景；切换 App 时画面不再闪掉
 
 ### 顶部/面板区域露出原壁纸
