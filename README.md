@@ -27,6 +27,40 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.89：修复桌面 / 壁纸通道在「降半屏」时视频背景消失
+
+0.0.84 拆掉了锁屏通道与控制中心通道的 `hidden` 否决，但**桌面通道的同一个缺陷一直没修**：
+
+```objc
+// LMVDesktopVideo.h（0.0.88 及以前）
+if (!window || window.hidden || window.alpha<.01 || ...) return NO;
+for (UIView *node=view;node;node=node.superview) if (node.hidden || node.alpha<.01) return NO;
+```
+
+`LMVDesktopControllerEligible()` 用它决定「桌面视频宿主该不该挂在
+`PBUIPosterHomeViewController` 这一支上」。设备 dump 实测（`CC.viewWillDisappear` 时刻）：
+
+```
+LMVDesktopVideoHost frame={{0,0},{430,932}} hidden=0 alpha=1.00 clips=1
+  window=_SBWallpaperSecureWindow parent=UIView      ← 全场唯一存在的 LMV 视频层
+SBCoverSheetWindow  frame={{0,0},{430,932}} hidden=1
+  SBCoverSheetPanelBackgroundContainerView frame={{0,-932},{430,932}}
+```
+
+壁纸窗口内部有多个 `hidden=1` / `alpha=0.00` 的克隆层（`PBUISnapshotReplicaView`、
+`PBUIPosterFloatingView`、`PBUIPosterHomeViewController` 分支），面板不再全屏时
+系统会把其中一支置为 `hidden`。命中否决后宿主被摘除，露出系统壁纸——正是
+「降半屏 → 视频背景变成壁纸」。
+
+本版让桌面通道与另外两条通道口径一致：
+
+- `LMVDesktopGeometryVisible()`：去掉 `window.hidden`、`window.alpha` 与祖先
+  `hidden`/`alpha` 否决，改由 `LMVLockVideoVisibleRect()` 的几何结果作唯一判据；
+- `LMVDesktopCoverRect()`：不再因 `SBCoverSheetWindow.hidden` 跳过锁屏窗口，
+  改为按 `LMVVideoWindowViewport()` 判断是否真的离屏。
+
+真正离屏（Reachability / 滑出屏幕）的视图仍然判定为不可见，行为边界不变。
+
 ## 0.0.88：渲染图层可识别（纯诊断，不改变任何行为）
 
 消息卡片通道把视频画进一个**裸 `UIView`**，图层没有名字。视图层级 dump 里
