@@ -27,6 +27,33 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.96：视频跟随提速到 60fps；桌面掉背景可直接读日志定位
+
+设备日志（0.0.95）显示几何本身是干净的：下拉时 `reveal` 随下拉递减、`gapTop` 恒为 0。
+但拖动过程中仍然会「顶部漏一点」，说明是**跟随速度**问题——视频几何跑在
+`CADisplayLink` 的 30fps 上，而面板动画是 60/120fps，领先边因此滞后一帧露出壁纸。
+
+本版把锁屏通道的显示链提高到 **60fps**：
+
+```objc
+self.link.preferredFramesPerSecond=60;
+```
+
+### 桌面「掉背景」诊断
+
+`desktop-video` 一行补齐了全部决策输入，掉背景时可以直接看出是哪一项否掉的：
+
+```
+desktop-video visible=0 frozen=0 home=1 host=none path=1 layer=0 contentHidden=0
+  foreground=1 cover=0 blank=0 locked=0 session=1 covered=0 env=1 geo=0
+```
+
+- `env` / `geo` / `session`：环境判定、几何可见性、已认证会话
+- `covered`：是否被通知中心完全覆盖（此时保留静帧而不是撤下）
+- `foreground`：1=SpringBoard、-1=有应用在前台、0=取不到
+
+`visible=0` 时对照这几项即可判断是「几何不可见」「环境未通过」还是「被覆盖」。
+
 ## 0.0.95：回退「一下拉就铺满」，改为跟随下拉的渐进显露；诊断扩到三个通道 + 卡顿观测
 
 0.0.92~0.0.94 为了让面板滑动时不露壁纸，把裁剪基准改成「整个窗口可见视口」并把宿主提升

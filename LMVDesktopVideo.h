@@ -362,9 +362,10 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
         if (!self.lease.baselineHidden) {content.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu",
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
-        (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked];
+        (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
+        (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container))];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
     // and where the uncovered band is ("background dropped / leaked").

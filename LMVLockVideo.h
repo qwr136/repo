@@ -329,7 +329,9 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     // No message frame decoder, extra UIWindow, original opacity lease or source-cache write.
     if (best && content && self.screenAllowed) {
         if (!self.link) {self.link=[CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
-            self.link.preferredFramesPerSecond=30;[self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
+            // 0.0.96: 30fps lagged the panel animation by up to a frame, so the
+            // leading edge of the video band exposed wallpaper while dragging.
+            self.link.preferredFramesPerSecond=60;[self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
     } else {[self.link invalidate];self.link=nil;}
     if (!self.enabled || !self.path.length || !self.revision.length) {
         if (self.playback.path || self.playback.player || self.playback.loading) [self.playback clear];
