@@ -29,7 +29,7 @@ pre=pre.replace('@implementation UIApplication\n','@implementation UIApplication
 pre=pre.replace('static int LMVBlankToken=1;', 'static int LMVBlankToken=1,LMVLockToken=2;')
 pre=pre.replace('static uint64_t screenBlank=0;', 'static uint64_t screenBlank=0,screenLocked=0;')
 pre=pre.replace('*state=screenBlank;return 0;', '*state=token==LMVLockToken?screenLocked:screenBlank;return 0;')
-pre=pre.replace('self.wantsPlayback=visible;', 'self.wantsPlayback=visible;self.renderLayer.hidden=!visible || self.error!=nil || !self.posterLayer.contents;')
+pre=pre.replace('self.wantsPlayback=visible;', 'self.wantsPlayback=visible;_frozen=NO;self.renderLayer.hidden=!visible || self.error!=nil || !self.posterLayer.contents;')
 # 0.0.91: the double mirrors the production rule, where a frozen (paused)
 # surface keeps renderLayer on screen while wantsPlayback is NO.
 pre=pre.replace('- (void)setFrozen:(BOOL)frozen {_frozen=frozen;}',
