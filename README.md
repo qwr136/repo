@@ -27,6 +27,37 @@ make clean package FINALPACKAGE=1
 ### GitHub Actions
 把整个工程上传到 GitHub 仓库，Actions 会在 `packages/` 产出 deb 并上传 artifact。
 
+## 0.0.93：让 0.0.92 的提升真正生效 + 定位漏出方向
+
+设备日志（`shared-render.log`）显示 **312/312 行仍是 `CSCoverSheetView>self`**，
+即 0.0.92 的提升从未生效。日志还给出了确切规律：
+
+```
+contentClip 起始 y  ≡  -hostInWindow 起始 y
+```
+
+也就是「视频的可见区恰好等于面板当前盖住的那一段」——面板一偏移，另一端就露壁纸。
+
+原因：0.0.92 在向上遍历祖先时，遇到第一个 `clipsToBounds` 的祖先就 `break` 返回，
+而实际层级里那个祖先确实存在，于是每次都直接放弃提升。
+
+本版修正：
+
+- 遇到会裁剪的祖先改为 `continue` 继续向上找。裁剪与否不影响正确性——
+  宿主最终放在**这个祖先里、面板分支之下**，并不会画进那个裁剪视图内部；
+  唯一的判据是「该祖先是否覆盖窗口可见视口」。
+- 提升原因写入日志（`covers` / `promo:<类名>` / `no-ancestor` / `promo-no-slot`）。
+
+诊断行同时改为输出**屏幕坐标下的两条缝**：
+
+```
+lock-video cover CSCoverSheetView>SBFTouchPassThroughView promo:SBFTouchPassThroughView top=0 bot=0
+  viewport={{0,0},{430,932}} clip={{0,0},{430,932}} visible={{0,0},{430,932}}
+  hostInWindow={{0,0},{430,932}} gapTop=0.0 gapBottom=0.0 leakArea=0.000
+```
+
+`gapTop` / `gapBottom` 为 0 表示上下都不漏。
+
 ## 0.0.92：修复下拉通知中心过程中顶部露出壁纸
 
 CoverSheet 的层级是：
