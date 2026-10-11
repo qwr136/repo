@@ -238,7 +238,11 @@ int main(void){@autoreleasepool{
  window.screenOffset=CGPointMake(0,0);[manager update];assert(manager.playback.wantsPlayback && fabs(LMVLockVideoClip(sliding,cover,window).size.height-844)<.001);
  // Unknown content and hidden window fail closed, no full-root/window fallback.
  cover.slideableContentView=nil;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);cover.slideableContentView=sliding;
- window.hidden=YES;[manager update];assert(!manager.playback.wantsPlayback);window.hidden=NO;[manager update];assert(manager.playback.wantsPlayback);
+ // 0.0.84: a hidden window no longer collapses the geometry. 降半屏 keeps
+ // SBCoverSheetWindow.hidden=1 while the sheet is still on screen, so the old
+ // fail-closed-on-hidden contract was what killed the Notification Center
+ // background. Only a genuinely off-screen window fails closed now.
+ window.hidden=YES;[manager update];assert(manager.playback.wantsPlayback);window.hidden=NO;[manager update];assert(manager.playback.wantsPlayback);
  // Bad background with foreground descendants may not become an anchor.
  UILabel *unsafe=[UILabel new];[background addSubview:unsafe];[manager update];assert(!manager.host.superview);[unsafe removeFromSuperview];[manager update];assert(manager.host.superview==cover);
  // Controller disappearance, no screen power, and disabled state each stop.
