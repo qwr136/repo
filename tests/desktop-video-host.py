@@ -201,9 +201,9 @@ int main(void){@autoreleasepool {
   UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
   assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);
  }
- record.visible=NO;UIApplication.sharedApplication.frontmost=nil;[m update];
+ // Returning to the desktop resumes immediately (the Home view is visible again).
+ record.visible=YES;UIApplication.sharedApplication.frontmost=nil;[m update];
  assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
- record.visible=YES;
  // Measured fast enter/exit: no intermediate setHidden:YES on render/host,
  // no background lease release, and one retained player through transient zero bounds.
  watchFastTransitions=YES;watchedHost=m.host;watchedContent=wallPixels;
