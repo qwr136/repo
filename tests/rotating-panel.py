@@ -201,11 +201,13 @@ int main(void) { @autoreleasepool {
     // time. Speed replacement uses the old turn evaluated at the NEW beginTime.
     CALayer *scaled=[CALayer layer];
     CountingLayer *running=[CountingLayer layer]; [scaled addSublayer:running];
-    running.speed=.5;running.beginTime=CACurrentMediaTime()-20;running.timeOffset=100;
+    // No render server commits a running ancestor clock in this CLI harness.
+    // Real paused local time is deterministic and still tests convertTime.
+    running.speed=0;running.timeOffset=100;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     LMVEasterUpdateRotation(running,YES,NO,YES,45);
     CABasicAnimation *first=turn(running);
-    double global=CACurrentMediaTime(); assert(fabs(first.beginTime-global)>1);
+    near(first.beginTime,100);
     // Jump only the fixture's clock by 2 local seconds to guarantee nonzero
     // phase without sleeping or depending on a window server/display refresh.
     running.timeOffset+=2;
