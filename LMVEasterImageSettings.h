@@ -1,10 +1,15 @@
 #pragma once
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
+// 0.0.122: shared corner-radius / panel-size rules (also used by the overlay).
+#import "LMVEasterPanelAppearance.h"
 
 static NSInteger LMVEasterImageSection(void) { return 0; }
 static NSInteger LMVEasterImageDisplaySection(void) { return LMVEasterImageSection() + 1; }
 static NSInteger LMVEasterImageRotationSection(void) { return LMVEasterImageDisplaySection() + 1; }
+// 0.0.122: floating-panel appearance lives on this same page, so both entries
+// (Settings app and the panel's own 显示场景与图片旋转) edit exactly one place.
+static NSInteger LMVEasterImagePanelSection(void) { return LMVEasterImagePanelSection() + 1; }
 static NSArray<NSString *> *LMVEasterImageDisplayKeys(void) { return @[@"EasterEggShowOnLockScreen", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]; }
 static NSArray<NSString *> *LMVEasterImageDisplayTitles(void) { return @[@"在锁屏显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]; }
 static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES]; }
@@ -117,17 +122,22 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImageRotationSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == LMVEasterImageSection()) return 3;
+    // Corner toggle + corner slider + size toggle + width + height.
+    if (section == LMVEasterImagePanelSection()) return 5;
     return section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().count : 2;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == LMVEasterImageDisplaySection()) return @"小彩蛋显示场景";
+    if (section == LMVEasterImagePanelSection()) return @"悬浮窗外观";
     return section == LMVEasterImageRotationSection() ? @"彩蛋图片旋转" : @"图片 / GIF 与图标大小";
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return section == LMVEasterImageDisplaySection() ? @"默认不在锁屏显示；控制中心和桌面默认显示。通知中心沿用现有显示行为。" : nil;
+    if (section == LMVEasterImageDisplaySection()) return @"默认不在锁屏显示；控制中心和桌面默认显示。通知中心沿用现有显示行为。";
+    return section == LMVEasterImagePanelSection() ? @"拖动悬浮窗顶部标题栏即可移动窗口；窗口始终被限制在屏幕内。关闭「自定义悬浮窗大小」时按屏幕自动计算。" : nil;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {
     if (index.section == LMVEasterImageSection()) return index.row == 0 ? 184 : (index.row == 2 ? 80 : 44);
+    if (index.section == LMVEasterImagePanelSection()) return (index.row % 2) ? 80 : 44;
     return index.section == LMVEasterImageRotationSection() && index.row == 1 ? 80 : 44;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
@@ -139,6 +149,43 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
         toggle.on = LMVEasterImageBool(key, LMVEasterImageDisplayDefaults()[index.row].boolValue);
         toggle.accessibilityLabel = cell.textLabel.text;
         [toggle addTarget:self action:@selector(displayChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        return cell;
+    }
+    if (index.section == LMVEasterImagePanelSection()) {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        BOOL cornerOn = LMVEasterPanelToggle(LMVEasterRead(@"EasterPanelCornerEnabled"), YES);
+        BOOL sizeOn = LMVEasterPanelToggle(LMVEasterRead(@"EasterPanelSizeEnabled"), NO);
+        if (index.row == 0) {
+            cell.textLabel.text = @"悬浮窗圆角";
+            UISwitch *toggle = [UISwitch new]; toggle.on = cornerOn;
+            toggle.accessibilityLabel = cell.textLabel.text;
+            [toggle addTarget:self action:@selector(panelCornerToggled:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else if (index.row == 2) {
+            cell.textLabel.text = @"自定义悬浮窗大小";
+            UISwitch *toggle = [UISwitch new]; toggle.on = sizeOn;
+            toggle.accessibilityLabel = cell.textLabel.text;
+            [toggle addTarget:self action:@selector(panelSizeToggled:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else {
+            BOOL width = index.row == 3;
+            NSString *key = width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale";
+            CGFloat scale = LMVEasterPanelScaleValue(LMVEasterRead(key));
+            cell.textLabel.text = width ? @"悬浮窗宽度" : @"悬浮窗高度";
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
+            UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
+            slider.tag = index.row;
+            if (index.row == 1) {
+                slider.minimumValue = LMVEasterPanelCornerMin; slider.maximumValue = LMVEasterPanelCornerMax;
+                slider.value = LMVEasterPanelCornerValue(LMVEasterRead(@"EasterPanelCorner"));
+                slider.enabled = cornerOn; slider.accessibilityLabel = @"悬浮窗圆角大小";
+                [slider addTarget:self action:@selector(panelCornerChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+            } else {
+                slider.minimumValue = LMVEasterPanelScaleMin; slider.maximumValue = LMVEasterPanelScaleMax;
+                slider.value = scale;
+                slider.enabled = sizeOn; slider.accessibilityLabel = width ? @"悬浮窗宽度" : @"悬浮窗高度";
+                [slider addTarget:self action:@selector(panelScaleChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+            }
+            cell.accessoryView = slider;
+        }
         return cell;
     }
     if (index.section == LMVEasterImageRotationSection()) {
@@ -224,6 +271,30 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     // (a reload mid-drag would drop the slider's tracking state).
     for (NSLayoutConstraint *constraint in self.previewSizeConstraints) constraint.constant = size;
     if (!self.settingsTracking) [self.tableView reloadData];
+}
+// 0.0.122: floating-panel appearance. Values are clamped by the shared rules, and
+// every change notifies SpringBoard, which re-lays the open panel immediately.
+- (void)panelCornerToggled:(UISwitch *)toggle {
+    LMVEasterSet(@"EasterPanelCornerEnabled", @(toggle.on)); [self.tableView reloadData];
+}
+- (void)panelSizeToggled:(UISwitch *)toggle {
+    LMVEasterSet(@"EasterPanelSizeEnabled", @(toggle.on)); [self.tableView reloadData];
+}
+- (void)panelCornerChanged:(UISlider *)slider {
+    self.settingsTracking = slider.isTracking;
+    CGFloat corner = LMVEasterPanelCornerValue(@(slider.value)); LMVEasterSet(@"EasterPanelCorner", @(corner));
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImagePanelSection()]];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", corner];
+    if (!slider.isTracking) [self.tableView reloadData];
+}
+- (void)panelScaleChanged:(UISlider *)slider {
+    self.settingsTracking = slider.isTracking;
+    BOOL width = slider.tag == 3;
+    CGFloat scale = LMVEasterPanelScaleValue(@(slider.value));
+    LMVEasterSet(width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale", @(scale));
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:slider.tag inSection:LMVEasterImagePanelSection()]];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
+    if (!slider.isTracking) [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES]; if (index.section != LMVEasterImageSection() || index.row != 1 || self.busy || self.presentedViewController) return;

@@ -80,7 +80,7 @@ class UISectionOrder(unittest.TestCase):
         old_cells = cells[:audio_start] + cells[audio_end:]
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
         self.assertEqual(digest(old_cells), '9fe3724d491aea26e6e818db22d0bc23b4946422660d4bfe009d0a3447cd71c4')
-        self.assertEqual(digest(selection), 'e694bb5e12fb3a1209f893373ee1bb3ae820b2a3b8e740264d72d2608f88e119')
+        self.assertEqual(digest(selection), '00c65dc68f840dcee1932bb65d5e82f74f4f5b57b3b99028e6787086b87a79e5')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',

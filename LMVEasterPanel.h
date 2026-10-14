@@ -335,7 +335,11 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@"", @"Desktop":@""};
         fallback = legacy[target] ?: @"";
     }
-    LMVMaterialPicker *picker = [LMVMaterialPicker new]; picker.pushed = YES; picker.showsThumbnails = NO;
+    // 0.0.122: the floating panel shows the same previews as the Settings app.
+    // LMVMaterialPicker already loads them on a single utility queue with an
+    // NSCache + a remembered-failure set and only for visible rows, so a large
+    // library never blocks scrolling.
+    LMVMaterialPicker *picker = [LMVMaterialPicker new]; picker.pushed = YES; picker.showsThumbnails = YES;
     id current = LMVEasterRead(key);
     picker.selected = [current isKindOfClass:NSString.class] ? current : fallback;
     __weak typeof(self) weakSelf = self;

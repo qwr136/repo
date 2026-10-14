@@ -12,12 +12,19 @@ for forbidden in ['imageControls','EasterEggEnabled','EasterEggImage','imagesFil
     assert forbidden not in video,forbidden
 for forbidden in ['LMVEasterTargets','VideoOpacity','videosFilter','LMVMaterialPicker']:
     assert forbidden not in image,forbidden
-assert 'return LMVEasterImageRotationSection() + 1;' in image and 'LMVEasterImageDisplayKeys().count : 2;' in image and '启用小彩蛋' not in image
+# 0.0.122: the page gained a floating-panel appearance section (corner radius,
+# width, height) that both entry points share.
+assert 'return LMVEasterImagePanelSection() + 1;' in image and 'LMVEasterImageDisplayKeys().count : 2;' in image and '启用小彩蛋' not in image
+assert 'if (section == LMVEasterImagePanelSection()) return 5;' in image
+assert 'LMVEasterResolvedPanelCorner(' in overlay
 assert '#import "LMVEasterImageSettings.h"' in video
 assert 'pushViewController:[LMVEasterImageSettings new]' in video
 assert '显示场景与图片旋转' in video
 assert 'loadPreview' not in image and 'UIImage *preview' not in image
-assert 'picker.showsThumbnails = NO' in video
+# 0.0.122: the floating panel shows previews too; the picker already loads
+# them on one utility queue with an NSCache, remembers failures and only
+# touches visible rows, so a large library never blocks scrolling.
+assert 'picker.showsThumbnails = YES' in video
 assert 'slider.minimumValue = 12; slider.maximumValue = 128' in image
 assert 'constraintEqualToConstant:LMVEasterSize()' in image and 'previewSizeConstraints' in image
 assert 'if (self.close) self.close();' in image
@@ -95,7 +102,10 @@ assert 'prompt.promptTitle = success ? @"导入成功" : @"导入失败";' in ca
 assert 'prompt.message = success ? @"已保存到素材库" : (error.localizedDescription ?: @"无法保存视频");' in callback
 assert 'if (!panel) return;' not in callback  # Survives overlay panel teardown.
 assert 'LMVEasterSet(' not in callback and 'CFPreferencesSetAppValue' not in callback
-assert 'cornerRadius = 20' in overlay and 'bounds.size.height * .65' in overlay
+# 0.0.122: the panel's corner radius comes from the shared appearance rules
+# (20 pt when the toggle is off or was never set), never a literal at the call site.
+assert 'LMVEasterResolvedPanelCorner(LMVEasterRead(@"EasterPanelCornerEnabled"),' in overlay
+assert ', 20.0);' in overlay and 'bounds.size.height * .65' in overlay
 assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
 assert 'blankKnown' in overlay and 'home-nc-cc:not-visible-or-locked' in overlay

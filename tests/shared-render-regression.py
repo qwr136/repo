@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.121')==1
+assert (root/'control').read_text().count('Version: 0.0.122')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.121'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.122'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -36,7 +36,7 @@ registry=s.split('static NSString *LMVSourceRegistryKey',1)[1].split('@interface
 assert 'Desktop' not in registry  # Desktop has its own player instance, never the message source cache.
 assert 'containsObject:target ?: @""' in registry
 assert all('@"'+target+'"' in registry for target in ('Message','Options','Clear'))
-# 0.0.121 user policy: the registry key is the SELECTED FILE, so the three card
+# 0.0.122 user policy: the registry key is the SELECTED FILE, so the three card
 # categories share one chain while they select the same video and stay
 # independent when they select different ones.
 assert 'return path;' in registry
@@ -98,9 +98,9 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-# 0.0.121: the floating-ball decision lines must survive the high-rate card/lock
+# 0.0.122: the floating-ball decision lines must survive the high-rate card/lock
 # traffic, which used to eat the whole per-epoch record budget (no easter-window
 # line ever reached the log).
 assert 'BOOL priority = [event hasPrefix:@"easter-window "];' in s
 assert 'if (!priority && ++records > 1200) return;' in s
-print('PASS: 0.0.121 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.122 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
