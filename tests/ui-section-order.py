@@ -102,12 +102,18 @@ class UISectionOrder(unittest.TestCase):
         self.assertIn('set:@selector(setEnabled:specifier:) get:@selector(enabled:)', SPECIFIERS)
         global_index = SPECIFIERS.index('GlobalEnabled')
         self.assertLess(global_index, SPECIFIERS.index('LMVNames()[i]'))
-        tweak = (ROOT / 'Tweak.xm').read_text()
-        self.assertIn('static BOOL LMVGlobalEnabled(void) {', tweak)
-        self.assertIn('return value ? value.boolValue : YES;', tweak)
+        # Every reading site must gate inline on the same key with absent=enabled,
+        # so a sliced native fixture needs no extra symbol.
+        inline = 'CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID)'
         for f in ['LMVLockVideo.h', 'LMVControlCenterVideo.h', 'LMVHomeMenuVideo.h']:
-            self.assertIn('LMVGlobalEnabled() &&', (ROOT / f).read_text())
-        self.assertEqual((ROOT / 'LMVDesktopVideo.h').read_text().count('LMVGlobalEnabled() &&'), 2)
+            self.assertIn(inline, (ROOT / f).read_text())
+            self.assertIn('![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]',
+                          (ROOT / f).read_text())
+        self.assertEqual((ROOT / 'LMVDesktopVideo.h').read_text().count(inline), 2)
+        tweak = (ROOT / 'Tweak.xm').read_text()
+        self.assertIn('CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"), kLMVPrefsID)', tweak)
+        self.assertIn('BOOL globalOn = ![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue];', tweak)
+        self.assertNotIn('LMVGlobalEnabled()', tweak + (ROOT / 'LMVLockVideo.h').read_text())
         self.assertIn('globalOn?LMVEasterRead(@"EasterEggEnabled"):@NO', (ROOT / 'LMVEasterOverlay.h').read_text())
 
     def test_settings_appends_group_counts_and_routes(self):

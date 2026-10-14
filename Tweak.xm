@@ -15,15 +15,6 @@
 
 #define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-// 0.0.114: single master gate shared by every channel (five targets, control
-// centre, desktop, home-menu and the floating egg). The key is read straight
-// from our own domain and an ABSENT key means ENABLED, so an existing
-// installation keeps exactly the behaviour it already had; only an explicit NO
-// stops the whole tweak. Read it fresh: it can change at any time from Settings.
-static BOOL LMVGlobalEnabled(void) {
-    NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"), kLMVPrefsID);
-    return value ? value.boolValue : YES;
-}
 static NSHashTable<UIView *> *LMVCells;
 static NSHashTable<UIView *> *LMVActionPresenters;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
@@ -731,7 +722,12 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    BOOL globalOn = LMVGlobalEnabled();
+    // 0.0.114: master switch for the whole tweak, read inline so sliced test
+    // fixtures need no extra symbol. Absent or non-number means ENABLED, so an
+    // upgrade never changes an existing configuration; only an explicit NO
+    // stops every channel.
+    id globalValue = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"), kLMVPrefsID);
+    BOOL globalOn = ![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue];
     for (NSString *target in LMVTargets()) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);

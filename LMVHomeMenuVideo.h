@@ -239,8 +239,10 @@ static void LMVHomeMenuVideoRefresh(BOOL reload) {
     if(reload || !LMVHomeMenuPrefsKnown) {
         LMVHomeMenuPrefsKnown=YES;
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("HomeMenuBackgroundEnabled"),kLMVPrefsID);
-        // 0.0.114: master switch.
-        LMVHomeMenuEnabled=LMVGlobalEnabled() && [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
+        // 0.0.114: master switch, inline (see LMVLockVideo.h).
+        id globalValue=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
+        LMVHomeMenuEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&
+            [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
         LMVHomeMenuPath=LMVCCSelectedPath(@"HomeMenuVideo");
         LMVHomeMenuRevision=LMVLockVideoRevision(LMVHomeMenuPath);
     }
