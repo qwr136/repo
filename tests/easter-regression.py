@@ -122,7 +122,13 @@ assert '通知中心沿用现有显示行为。' in image
 assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
 assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
 assert 'index.section != LMVEasterImageSection() || index.row != 1' in image
-assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
+assert 'slider.minimumValue = 12; slider.maximumValue = 128' in image
+# 0.0.117: the live preview is drawn at the real bubble size and both of its
+# size constraints are updated by the slider.
+assert 'previewWidth' in image and 'previewHeight' in image
+assert 'constraintEqualToConstant:LMVEasterSize()' in image
+assert 'for (NSLayoutConstraint *constraint in self.previewSizeConstraints) constraint.constant = size;' in image
+assert 'fmax(12, fmin(128, size))' in (root / 'LMVEasterGeometry.h').read_text()
 assert 'LMVEasterTargets' not in image and 'VideoOpacity' not in image
 assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterBoundedSize' in (root / 'LMVEasterGeometry.h').read_text()
 assert 'VideoOpacityEnabled' in panel and 'opacityChanged:' in panel

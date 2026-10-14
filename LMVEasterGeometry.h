@@ -1,7 +1,8 @@
 #pragma once
 #include <math.h>
 static inline double LMVEasterBoundedSize(double size) {
-    return isfinite(size) ? fmax(32, fmin(128, size)) : 64;
+    // 0.0.117: the user needs a smaller bubble; keep the same upper bound.
+    return isfinite(size) ? fmax(12, fmin(128, size)) : 64;
 }
 typedef struct { double x, y, width, height; } LMVEasterRect;
 static inline LMVEasterRect LMVEasterCenterArea(LMVEasterRect safe, double size) {

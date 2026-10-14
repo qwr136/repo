@@ -123,7 +123,7 @@ static void LMVDiagnostic(NSString *event) {
             static NSUInteger records=0;
             static unsigned long lastEpoch=0;
             if (lastEpoch != epoch) { records=0; lastEpoch=epoch; }
-            // 0.0.116: the card and lock channels emit ~10-150 records per second,
+            // 0.0.117: the card and lock channels emit ~10-150 records per second,
             // so a fixed per-epoch budget silently dropped the rare floating-ball
             // decisions (no easter-window line ever reached the log, which made
             // "the ball disappeared" undiagnosable). Easter decisions are tiny and
@@ -141,7 +141,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.116 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.117 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -212,12 +212,15 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
     });
 }
 
-// One playback chain per semantic category + selected file, never per card.
-// Immutable AVAsset/preview preparation can share by file; player/clock/output
-// and retained live frame are strictly independent across the three categories.
+// One playback chain per SELECTED FILE, never per card.
+// 0.0.117 user policy: when Message/Options/Clear select the SAME video they
+// share one player, clock, output and retained frame; a category whose selected
+// video differs keeps its own independent chain. The target is still validated
+// (only the three card categories may register here) but it no longer
+// participates in the key, so identical selections collapse onto one decoder.
 static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
     if (!path.length || ![@[@"Message",@"Options",@"Clear"] containsObject:target ?: @""]) return nil;
-    return [target stringByAppendingFormat:@"\n%@",path];
+    return path;
 }
 @interface LMVSharedSource : NSObject <AVPlayerItemOutputPullDelegate>
 @property(nonatomic, strong) AVPlayer *player;
@@ -644,8 +647,13 @@ static void LMVPrepareAssets(void) {
     if (!LMVInitialized || !LMVLaunchReady) return;
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
     for(LMVSharedSource *source in LMVSharedSources.allValues) {
-        if(!LMVEnabled[source.ownerTarget].boolValue ||
-           ![LMVPaths[source.ownerTarget] isEqualToString:source.path]) LMVRetireSource(source);
+        // 0.0.117: a shared source stays while ANY enabled category still
+        // selects this exact file; retirement follows real demand, not the
+        // category that happened to create it first.
+        BOOL wanted=NO;
+        for(NSString *candidate in LMVTargets())
+            if(LMVEnabled[candidate].boolValue && [LMVPaths[candidate] isEqualToString:source.path]){wanted=YES;break;}
+        if(!wanted) LMVRetireSource(source);
     }
     for (NSString *path in LMVSources.allKeys) {
         if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; LMVInvalidateSourcesForPath(path); [LMVRevisions removeObjectForKey:path]; }
@@ -718,7 +726,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.116 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.117 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -728,7 +736,7 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    // 0.0.116: master switch for the whole tweak, read inline so sliced test
+    // 0.0.117: master switch for the whole tweak, read inline so sliced test
     // fixtures need no extra symbol. Absent or non-number means ENABLED, so an
     // upgrade never changes an existing configuration; only an explicit NO
     // stops every channel.

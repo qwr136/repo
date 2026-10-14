@@ -66,6 +66,16 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     });
 }
 @implementation LMVEasterPanel
+
+// 0.0.117: while the panel is open this window becomes KEY, so UIKit asks ITS
+// root view controller for the supported orientations. A plain UIViewController
+// answers portrait-only, which locks the whole scene (SpringBoard included) and
+// left the floating ball where it was when the phone turned landscape with the
+// rotation lock off. All-but-upside-down matches the other floating system
+// surfaces; layout follows the root view bounds, so the ball moves with it.
+- (BOOL)shouldAutorotate { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAllButUpsideDown; }
+
 - (instancetype)init {
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) {

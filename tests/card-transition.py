@@ -226,12 +226,14 @@ static void configure(void) {
     LMVPaths=[@{@"Message":@"movie"} mutableCopy];
     LMVRevisions=[@{@"movie":@"r1",@"movie2":@"r2"} mutableCopy];
     LMVSharedSources=[NSMutableDictionary new];
-    for (NSString *path in @[@"movie",@"movie2"]) for (NSString *target in LMVTargets()) {
+    // 0.0.117: the registry key is the SELECTED FILE, so one chain per file; the
+    // three categories share it while they select the same video.
+    for (NSString *path in @[@"movie",@"movie2"]) {
         LMVSharedSource *source=[LMVSharedSource new];source.identifier=LMVSharedSources.count+1;
-        source.path=path;source.ownerTarget=target;source.registryKey=LMVSourceRegistryKey(path,target);
+        source.path=path;source.ownerTarget=@"Message";source.registryKey=LMVSourceRegistryKey(path,@"Message");
         assert(source.registryKey);LMVSharedSources[source.registryKey]=source;
     }
-    assert(LMVSharedSources.count==6);
+    assert(LMVSharedSources.count==2);
     LMVCells=[NSHashTable weakObjectsHashTable];
     snapshot=[LMVFrameSnapshot new];
     unsigned char pixels[]={90,140,200,255};
@@ -539,16 +541,27 @@ static void testIndependentVisibleConsumers(void) {
   NSDictionary *one=objc_getAssociatedObject(cards[0],&LMVStatesKey),*two=objc_getAssociatedObject(cards[1],&LMVStatesKey);
   assert(((LMVVideoState *)one[target]).source==((LMVVideoState *)two[target]).source);
  }
+ // 0.0.117: Message/Options/Clear all select "movie", so ONE chain feeds them.
  LMVSharedSource *message=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Message")];
  LMVSharedSource *options=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Options")],*clear=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Clear")];
- assert(message!=options && options!=clear && message!=clear);
+ assert(message && message==options && message==clear && LMVSharedSources.count==2);
+ for(NSString *t in LMVTargets())for(UIView *cell in owners[t])
+   assert(((LMVVideoState *)((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[t]).source==message);
  UIView *first=owners[@"Message"][0],*second=owners[@"Message"][1];
- first.hidden=YES;LMVReconcileCardSources(first);assert(message.playing && options.playing && clear.playing);
- second.hidden=YES;LMVReconcileCardSources(second);assert(!message.playing && options.playing && clear.playing);
- first.hidden=NO;LMVReconcileCardSources(first);assert(message.playing);
+ first.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
+ second.hidden=YES;LMVReconcileCardSources(second);assert(message.playing); // Options/Clear cards still visible
+ for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
+ assert(!message.playing); // the LAST visible consumer of this file retired it
+ for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
+ assert(message.playing);
+ first.hidden=NO;LMVReconcileCardSources(first);
  LMVVideoState *v=((NSDictionary *)objc_getAssociatedObject(first,&LMVStatesKey))[@"Message"];
  assert(v.source==message);v.anchor.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
- v.overlay.hidden=YES;LMVReconcileCardSources(first);assert(!message.playing);
+ v.overlay.hidden=YES;LMVReconcileCardSources(first);assert(message.playing); // two more cards consume it
+ for(UIView *cell in owners[@"Message"]){v=((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[@"Message"];if(v)v.overlay.hidden=YES;}
+ for(NSString *t in @[@"Options",@"Clear"])for(UIView *cell in owners[t])cell.hidden=YES;
+ for(NSString *t in LMVTargets())for(UIView *cell in owners[t])LMVReconcileCardSources(cell);
+ assert(!message.playing);
  // Target disable/clear-selection must tear down only its own real bindings.
  v.overlay.hidden=NO;
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
@@ -564,30 +577,38 @@ static void testIndependentVisibleConsumers(void) {
  clockNow+=.101;LMVUpdate(mixed);
  NSDictionary *mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
  LMVVideoState *ms=mixedStates[@"Message"],*os=mixedStates[@"Options"],*cs=mixedStates[@"Clear"];
- assert(ms && os && cs && ms.source==message && os.source==options && cs.source==clear);
+ assert(ms && os && cs && ms.source==message && os.source==message && cs.source==message);
  UIView *messageOverlay=ms.overlay,*optionsOverlay=os.overlay,*clearOverlay=cs.overlay;
  CGRect mf=m.frame,of=((UIView *)materials[@"Options"]).frame,cf=((UIView *)materials[@"Clear"]).frame;
  LMVEnabled[@"Message"]=@NO;
  for(UIView *cell in owners[@"Message"])LMVUpdate(cell);
  LMVUpdate(mixed);mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
- assert(!mixedStates[@"Message"] && !messageOverlay.superview && !message.playing);
- assert(mixedStates[@"Options"]==os && mixedStates[@"Clear"]==cs && options.playing && clear.playing);
+ // 0.0.117: disabling ONE category drops only its own overlays; the shared file
+ // keeps playing because Options/Clear still consume it.
+ assert(!mixedStates[@"Message"] && !messageOverlay.superview && message.playing);
+ assert(mixedStates[@"Options"]==os && mixedStates[@"Clear"]==cs);
  assert(os.overlay==optionsOverlay && cs.overlay==clearOverlay);
  assert(near(m.alpha,.73) && CGRectEqualToRect(m.frame,mf) && !ms.originals.count);
  LMVEnabled[@"Message"]=@YES;clockNow+=.101;LMVUpdate(mixed);
  mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);ms=mixedStates[@"Message"];
- assert(ms && ms.source==message && message.playing && options.playing && clear.playing);
+ assert(ms && ms.source==message && message.playing);
  [LMVPaths removeObjectForKey:@"Options"];
  for(UIView *cell in owners[@"Options"])LMVUpdate(cell);
  LMVUpdate(mixed);mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
- assert(!mixedStates[@"Options"] && !optionsOverlay.superview && !options.playing);
- assert(mixedStates[@"Message"]==ms && mixedStates[@"Clear"]==cs && message.playing && clear.playing);
+ assert(!mixedStates[@"Options"] && !optionsOverlay.superview && message.playing);
+ assert(mixedStates[@"Message"]==ms && mixedStates[@"Clear"]==cs);
  assert(cs.overlay==clearOverlay && near(((UIView *)materials[@"Options"]).alpha,.73));
  assert(near(((UIView *)materials[@"Clear"]).alpha,.73) && CGRectEqualToRect(((UIView *)materials[@"Options"]).frame,of));
  assert(CGRectEqualToRect(((UIView *)materials[@"Clear"]).frame,cf) && !os.originals.count && !cs.originals.count);
+ // 0.0.117: a category that selects a DIFFERENT file keeps its own chain.
+ [LMVPaths setObject:@"movie2" forKey:@"Options"];
+ mixed.hidden=NO;LMVReconcileCardSources(mixed);mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
+ LMVVideoState *os2=mixedStates[@"Options"];
+ LMVSharedSource *other=LMVSharedSources[LMVSourceRegistryKey(@"movie2",@"Options")];
+ assert(other && other!=message && os2 && os2.source==other);
  mixed.hidden=YES;LMVReconcileCardSources(mixed);
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
- assert(!message.playing && !options.playing && !clear.playing);
+ assert(!message.playing);
  [CATransaction commit];
 }
 int main(void) { @autoreleasepool {

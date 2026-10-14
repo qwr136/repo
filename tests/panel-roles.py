@@ -18,7 +18,8 @@ assert 'pushViewController:[LMVEasterImageSettings new]' in video
 assert '显示场景与图片旋转' in video
 assert 'loadPreview' not in image and 'UIImage *preview' not in image
 assert 'picker.showsThumbnails = NO' in video
-assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
+assert 'slider.minimumValue = 12; slider.maximumValue = 128' in image
+assert 'constraintEqualToConstant:LMVEasterSize()' in image and 'previewSizeConstraints' in image
 assert 'if (self.close) self.close();' in image
 assert 'self.navigationController.viewControllers.count > 1' in image and 'popViewControllerAnimated:YES' in image
 assert 'else [self dismissViewControllerAnimated:YES completion:nil];' in image

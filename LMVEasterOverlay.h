@@ -48,10 +48,6 @@
 @property(nonatomic) CGFloat keyboardTop;
 @property(nonatomic) NSUInteger generation, frame;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
-// 0.0.116: first moment the host probe reported nothing. A scene transition
-// (Notification Centre closing, app switch, recording HUD) can blank every
-// probe for a moment, and the ball used to disappear on that single frame.
-@property(nonatomic) CFTimeInterval hostMissingSince;
 @property(nonatomic) CGPoint normalized;
 // Cache only physical probes, never permission/scope decisions. Notifications
 // invalidate them; a bounded default-mode audit catches silent tree replacement.
@@ -71,6 +67,16 @@
 @implementation LMVEasterRoot
 - (void)viewDidLoad { [super viewDidLoad]; self.view.backgroundColor = UIColor.clearColor; }
 - (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; [self.manager layout]; }
+
+// 0.0.117: while the panel is open this window becomes KEY, so UIKit asks ITS
+// root view controller for the supported orientations. A plain UIViewController
+// answers portrait-only, which locks the whole scene (SpringBoard included) and
+// left the floating ball where it was when the phone turned landscape with the
+// rotation lock off. All-but-upside-down matches the other floating system
+// surfaces; layout follows the root view bounds, so the ball moves with it.
+- (BOOL)shouldAutorotate { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAllButUpsideDown; }
+
 @end
 
 static BOOL LMVEasterKnownWindow(UIWindow *window, NSArray<NSString *> *names) {
@@ -505,8 +511,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         if(LMVEasterNCWindowExposed(window) && (!ncHost || window.windowLevel>ncHost.windowLevel))ncHost=window;
         if(LMVEasterCCWindowExposed(window) && (!ccHost || window.windowLevel>ccHost.windowLevel))ccHost=window;
         BOOL keyHome=window.isKeyWindow || (self.window.isKeyWindow && self.foreignKey==window);
+        // 0.0.117: an exposed Home window that still holds KEY proves no
+        // application took the foreground, so it is a valid desktop host even
+        // when the frontmost-application probe is unavailable or reports the
+        // Notification Centre / a recorder. An app that really came forward owns
+        // the key window, so this cannot show the ball over an app.
         if(LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window) &&
-           (foreground==1 || (foreground==0 && keyHome)))homeHost=window;
+           (foreground==1 || keyHome))homeHost=window;
     }
     // Probe roots plus the physical NC/CC surfaces, never the scrolling module
     // or floating panel descendants. Failed/hidden hosts are probed as well.
@@ -529,44 +540,22 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL authenticated=self.authenticatedSession;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;
-    // 0.0.114: while the display is being RECORDED the system rearranges its
-    // windows and scenes (recording indicator, recording control strip,
-    // broadcast pickers), so every probe below can misfire for the whole
-    // session and the ball simply vanished with no diagnostic at all. The ball
-    // must stay while recording: keep what is already presented and record the
-    // underlying reason instead of hiding. Outside a capture this is exactly
-    // the previous behaviour.
-    BOOL captured=LMVEasterScreenCaptured();
-    BOOL presented=self.window && !self.window.hidden && self.bubbleImage.image!=nil && self.decoded.frames.count;
+    // 0.0.117 user policy: a surface that may not present the ball loses it
+    // IMMEDIATELY - no grace period and no capture exception. The 0.0.116
+    // "host vanished for one frame" regression is handled where it belongs, by
+    // judging the Home window itself (below) instead of lingering on screen.
     if(!host){
-        CFTimeInterval now=CACurrentMediaTime();
-        if(self.hostMissingSince<=0)self.hostMissingSince=now;
-        CFTimeInterval missing=now-self.hostMissingSince;
-        NSString *detail=[NSString stringWithFormat:@"fg=%ld nc=%d cc=%d home=%d captured=%d for=%.1f",
-            (long)foreground,ncHost!=nil,ccHost!=nil,homeHost!=nil,captured,missing];
-        // 0.0.116 device log: the ball was presented on SBCoverSheetWindow and,
-        // 3.7 s later when Notification Centre had closed, every probe reported
-        // nothing and it was hidden on that single frame ("not-visible-or-
-        // locked"). A scene transition blanks these probes for a moment, so keep
-        // the presented window over a short gap and keep re-probing; while the
-        // display is captured it is never hidden at all. A host that stays
-        // missing still tears down exactly as before.
-        if(captured || (presented && missing<2.0)) {
-            [self reportWindow:[NSString stringWithFormat:@"host-missing-keep %@",detail]];
-            return;
-        }
         [self hide];
-        [self reportWindow:[NSString stringWithFormat:@"%@ %@",@"home-nc-cc:not-visible-or-locked",detail]];
+        [self reportWindow:[NSString stringWithFormat:@"%@ fg=%ld nc=%d cc=%d home=%d captured=%d",
+            @"home-nc-cc:not-visible-or-locked",(long)foreground,ncHost!=nil,ccHost!=nil,homeHost!=nil,LMVEasterScreenCaptured()]];
         return;
     }
-    self.hostMissingSince=0;
     CGFloat level=0;UIWindow *blockedWindow=nil;
     BOOL safetyClear=LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow);
     LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
         ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
     if(displayScene==LMVEasterDisplayNone) {
         NSString *reason=blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked";
-        if(captured && presented){[self reportWindow:[@"captured-keep " stringByAppendingString:reason]];return;}
         [self hide]; [self reportWindow:reason];return;
     }
     if(self.displayScene!=displayScene) { [self hide]; self.displayScene=displayScene; }

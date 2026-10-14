@@ -24,6 +24,8 @@ static CGFloat LMVEasterImageRotationSpeed(void) {
 @property(nonatomic, copy) NSString *previewSelection;
 @property(nonatomic, strong) LMVEasterImage *previewDecoded;
 @property(nonatomic, strong) UIImageView *previewView;
+// 0.0.117: width/height of the preview, driven by the size slider.
+@property(nonatomic, strong) NSArray<NSLayoutConstraint *> *previewSizeConstraints;
 @property(nonatomic, strong) UILabel *previewLabel;
 @property(nonatomic, strong) NSTimer *previewTimer;
 @property(nonatomic, weak) PHPickerViewController *imagePicker;
@@ -40,6 +42,16 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     });
 }
 @implementation LMVEasterImageSettings
+
+// 0.0.117: while the panel is open this window becomes KEY, so UIKit asks ITS
+// root view controller for the supported orientations. A plain UIViewController
+// answers portrait-only, which locks the whole scene (SpringBoard included) and
+// left the floating ball where it was when the phone turned landscape with the
+// rotation lock off. All-but-upside-down matches the other floating system
+// surfaces; layout follows the root view bounds, so the ball moves with it.
+- (BOOL)shouldAutorotate { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAllButUpsideDown; }
+
 - (instancetype)init {
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self, LMVEasterImageSettingsChanged, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
@@ -153,15 +165,20 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
         UILabel *label = [UILabel new]; label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1]; label.textColor = UIColor.secondaryLabelColor;
         label.textAlignment = NSTextAlignmentCenter; label.translatesAutoresizingMaskIntoConstraints = NO;
         [cell.contentView addSubview:preview]; [cell.contentView addSubview:label];
+        // 0.0.117: the preview is drawn at the ACTUAL bubble size and these two
+        // constraints are updated live by the size slider, so dragging it shows
+        // the real change instead of a fixed 140pt sample.
+        NSLayoutConstraint *previewWidth=[preview.widthAnchor constraintEqualToConstant:LMVEasterSize()];
+        NSLayoutConstraint *previewHeight=[preview.heightAnchor constraintEqualToConstant:LMVEasterSize()];
         [NSLayoutConstraint activateConstraints:@[
             [preview.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:12],
             [preview.centerXAnchor constraintEqualToAnchor:cell.contentView.centerXAnchor],
-            [preview.widthAnchor constraintEqualToConstant:140], [preview.heightAnchor constraintEqualToConstant:140],
+            previewWidth, previewHeight,
             [label.topAnchor constraintEqualToAnchor:preview.bottomAnchor constant:6],
             [label.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:12],
             [label.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-12]
         ]];
-        self.previewView = preview; self.previewLabel = label;
+        self.previewView = preview; self.previewLabel = label; self.previewSizeConstraints = @[previewWidth, previewHeight];
         preview.image = self.previewFrame < self.previewDecoded.frames.count ? self.previewDecoded.frames[self.previewFrame] : nil;
         label.text = self.previewLoading ? @"正在载入当前素材…" : (self.previewDecoded ? @"当前小彩蛋素材" : (self.previewSelection.length ? @"当前素材不可用" : @"尚未选择图片 / GIF"));
         return cell;
@@ -171,7 +188,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     } else {
         cell.textLabel.text = @"悬浮图标大小"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", LMVEasterSize()]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
         UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
-        slider.minimumValue = 32; slider.maximumValue = 128; slider.value = LMVEasterSize(); slider.accessibilityLabel = @"悬浮图标大小";
+        slider.minimumValue = 12; slider.maximumValue = 128; slider.value = LMVEasterSize(); slider.accessibilityLabel = @"悬浮图标大小";
         [slider addTarget:self action:@selector(sizeChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
     }
     return cell;
@@ -200,10 +217,13 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 }
 - (void)sizeChanged:(UISlider *)slider {
     self.settingsTracking = slider.isTracking;
-    CGFloat size = MAX(32, MIN(128, round(slider.value))); LMVEasterSet(@"EasterEggSize", @(size));
+    CGFloat size = MAX(12, MIN(128, round(slider.value))); LMVEasterSet(@"EasterEggSize", @(size));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:2 inSection:LMVEasterImageSection()]];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", size];
-    if (!slider.isTracking) [self.tableView reloadData];
+    // 0.0.117: resize the live preview with the slider, without rebuilding the cell
+    // (a reload mid-drag would drop the slider's tracking state).
+    for (NSLayoutConstraint *constraint in self.previewSizeConstraints) constraint.constant = size;
+    if (!self.settingsTracking) [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES]; if (index.section != LMVEasterImageSection() || index.row != 1 || self.busy || self.presentedViewController) return;

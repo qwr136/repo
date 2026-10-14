@@ -34,7 +34,12 @@ assert 'source.ownerTarget=target' in source
 registry=function(s,'static NSString *LMVSourceRegistryKey(NSString *path, NSString *target)')
 assert '@"Message"' in registry and '@"Options"' in registry and '@"Clear"' in registry
 assert 'containsObject:target ?: @""' in registry
-assert '[target stringByAppendingFormat:@"\\n%@",path]' in registry
+# 0.0.117 user policy: the registry key is the SELECTED FILE, so the three card
+# categories share one chain while they select the same video and stay
+# independent when they select different ones.
+assert 'return path;' in registry
+assert 'stringByAppendingFormat' not in registry
+assert 'ownerTarget]' not in registry
 # No early hook, singleton, global layer/view mutation or second decoder path.
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','%hook UIView','%hook CALayer','AVAudioSession','prerollAtRate','idleTimerDisabled']:
     assert forbidden not in s+h+l,forbidden

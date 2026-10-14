@@ -26,7 +26,12 @@ publish = function('static void LMVPublishFrame(LMVSharedSource *source, CMTime 
 assert 'LMVSourceForPath' not in s
 assert 'containsObject:target ?: @""' in registry
 assert all('@"'+target+'"' in registry for target in ('Message','Options','Clear'))
-assert '[target stringByAppendingFormat:@"\\n%@",path]' in registry
+# 0.0.117 user policy: the registry key is the SELECTED FILE, so the three card
+# categories share one chain while they select the same video and stay
+# independent when they select different ones.
+assert 'return path;' in registry
+assert 'stringByAppendingFormat' not in registry
+assert not re.search(r'ownerTarget\s*\]', registry)
 assert 'LMVSharedSources[registryKey]' in factory and 'source.ownerTarget=target' in factory
 assert 'LMVEnabled[target].boolValue' in warm_sources and '[LMVPaths[target] isEqualToString:path]' in warm_sources
 assert 'LMVSourceForTarget(path,target)' in warm_sources
@@ -187,10 +192,30 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVWarmSourcesForPath(path);assert(!LMVSharedSources.count);
     LMVAssets[path]=asset;[LMVDiskPending addObject:LMVFrameKey(path,@"rev1")];
     LMVWarmSourcesForPath(path);assert(!LMVSharedSources.count);
-    [LMVDiskPending removeAllObjects];LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==3);
+    // 0.0.117 user policy: the chain is keyed by the SELECTED FILE. With all
+    // three categories on the same file, warming creates exactly ONE shared
+    // player/output/reader that all three consume.
+    [LMVDiskPending removeAllObjects];LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
+    LMVSharedSource *sharedSource=LMVSourceForTarget(path,@"Message");
+    for(NSString *target in LMVTargets()){
+        assert([LMVSourceRegistryKey(path,target) isEqualToString:path]);
+        for(int card=0;card<200;card++)assert(LMVSourceForTarget(path,target)==sharedSource);
+    }
+    assert(LMVSharedSources.count==1 && sharedSource.ownerTarget);
+    LMVRetireSource(sharedSource);assert(!LMVSharedSources.count);
+    // The independence coverage below needs three DIFFERENT files.
+    NSString *pathB=[path stringByAppendingString:@".b.mov"],*pathC=[path stringByAppendingString:@".c.mov"];
+    makeMovie([NSURL fileURLWithPath:pathB]);makeMovie([NSURL fileURLWithPath:pathC]);
+    for(NSString *extra in @[pathB,pathC]){
+        LMVAssets[extra]=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:extra] options:nil];
+        LMVRevisions[extra]=@"rev1";LMVFrameCache[LMVFrameKey(extra,@"rev1")]=shared;
+    }
+    LMVPaths[@"Options"]=pathB;LMVPaths[@"Clear"]=pathC;
+    LMVWarmSourcesForPath(pathB);LMVWarmSourcesForPath(pathC);
+    assert(LMVSharedSources.count==3);
     LMVSharedSource *message=LMVSourceForTarget(path,@"Message");
-    LMVSharedSource *options=LMVSourceForTarget(path,@"Options");
-    LMVSharedSource *clear=LMVSourceForTarget(path,@"Clear");
+    LMVSharedSource *options=LMVSourceForTarget(pathB,@"Options");
+    LMVSharedSource *clear=LMVSourceForTarget(pathC,@"Clear");
     NSArray<LMVSharedSource *> *sources=@[message,options,clear];
     for(LMVSharedSource *source in sources) {
         source.playing=YES;source.restoreOnStart=YES;source.restoringTime=YES;source.lastProgressAt=100;
@@ -201,8 +226,8 @@ int main(int argc, const char **argv) { @autoreleasepool {
     }
     for(NSUInteger i=0;i<sources.count;i++) {
         LMVSharedSource *source=sources[i];NSString *target=LMVTargets()[i];
-        assert([source.ownerTarget isEqual:target]);
-        assert(([source.registryKey isEqual:[NSString stringWithFormat:@"%@\n%@",target,path]]));
+        // 0.0.117: the key IS the selected file (no target prefix).
+        assert([source.registryKey isEqualToString:source.path] && [source.ownerTarget isEqual:target] && [source.path isEqual:LMVPaths[target]]);
         assert(LMVSharedSources[source.registryKey]==source && source.asset==asset);
         assert(source.player && source.player.currentItem && source.output && source.endObserver);
         assert(!source.playing && source.player.rate==0 && !source.reader && !source.pendingSample);
@@ -213,9 +238,10 @@ int main(int argc, const char **argv) { @autoreleasepool {
             assert(source.player!=other.player && source.player.currentItem!=other.player.currentItem && source.output!=other.output);
         }
         // Repeated requests represent hundreds of cards, never hundreds of players.
-        for(int card=0;card<200;card++)assert(LMVSourceForTarget(path,target)==source);
+        for(int card=0;card<200;card++)assert(LMVSourceForTarget(source.path,target)==source);
     }
-    LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==3);
+    LMVWarmSourcesForPath(path);LMVWarmSourcesForPath(pathB);LMVWarmSourcesForPath(pathC);
+    assert(LMVSharedSources.count==3);
     AVPlayer *messagePlayer=message.player;AVPlayerItem *messageItem=message.player.currentItem;
     AVPlayerItemVideoOutput *messageOutput=message.output;
     assert(waitUntil(^BOOL {
@@ -299,27 +325,36 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVSharedSource *rebuilt=LMVSourceForTarget(path,@"Message");
     assert(rebuilt!=message && rebuilt.player && rebuilt.lastImage==latest.image);
     assert(CMTimeCompare(rebuilt.lastTime,latest.time)==0 && rebuilt.restoreOnStart);
-    assert(LMVSourceForTarget(path,@"Options")==options && LMVSourceForTarget(path,@"Clear")==clear);
+    assert(LMVSourceForTarget(pathB,@"Options")==options && LMVSourceForTarget(pathC,@"Clear")==clear);
     // Path invalidation must remove every target-owned chain, not just Message.
     NSString *other=[path stringByAppendingString:@".other"];
     LMVAssets[other]=asset;LMVRevisions[other]=@"rev-other";
     LMVSharedSource *unrelated=LMVSourceForTarget(other,@"Message");unrelated.playing=YES;
-    LMVInvalidateSourcesForPath(path);dispatch_sync(LMVFrameQueue,^{});
+    for(NSString *invalidatePath in @[path,pathB,pathC])LMVInvalidateSourcesForPath(invalidatePath);
+    dispatch_sync(LMVFrameQueue,^{});
     assert(LMVSharedSources.count==1 && LMVSharedSources[unrelated.registryKey]==unrelated && unrelated.playing);
     for(LMVSharedSource *old in @[message,options,clear,rebuilt])
         assert(!old.playing && !old.player && !old.output && !old.reader && !old.readerOutput && !old.pendingSample && !old.endObserver);
-    LMVInvalidateSourcesForPath(path);LMVRetireSource(message);dispatch_sync(LMVFrameQueue,^{});
+    for(NSString *invalidatePath in @[path,pathB,pathC])LMVInvalidateSourcesForPath(invalidatePath);
+    LMVRetireSource(message);dispatch_sync(LMVFrameQueue,^{});
     assert(LMVSharedSources.count==1 && unrelated.playing);
     LMVInvalidateSourcesForPath(other);dispatch_sync(LMVFrameQueue,^{});assert(!LMVSharedSources.count);
     // Prewarm obeys both target enable and exact target selection.
+    // 0.0.117: warming follows real demand per FILE. Options is disabled and
+    // Clear selects another file, so only the file Message still selects warms;
+    // a category joining the SAME file maps onto that one chain instead of adding
+    // a second player, and a genuinely different file gets its own.
     LMVEnabled[@"Options"]=@NO;LMVPaths[@"Clear"]=other;
     LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
     assert(LMVSharedSources[LMVSourceRegistryKey(path,@"Message")]);
-    assert(!LMVSharedSources[LMVSourceRegistryKey(path,@"Options")] && !LMVSharedSources[LMVSourceRegistryKey(path,@"Clear")]);
-    LMVEnabled[@"Options"]=@YES;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==2);
-    LMVPaths[@"Clear"]=path;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==3);
+    assert(LMVSourceRegistryKey(path,@"Clear")==LMVSourceRegistryKey(path,@"Message"));
+    assert(LMVSourceForTarget(path,@"Options")==LMVSourceForTarget(path,@"Message"));
+    LMVEnabled[@"Options"]=@YES;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
+    LMVPaths[@"Clear"]=path;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
+    LMVWarmSourcesForPath(other);assert(LMVSharedSources.count==2);
     for(LMVSharedSource *source in LMVSharedSources.allValues)assert(!source.playing && source.player.rate==0);
-    LMVInvalidateSourcesForPath(path);dispatch_sync(LMVFrameQueue,^{});assert(!LMVSharedSources.count);
+    for(NSString *invalidatePath in @[path,pathB,pathC])LMVInvalidateSourcesForPath(invalidatePath);
+    dispatch_sync(LMVFrameQueue,^{});assert(!LMVSharedSources.count);
     puts("PASS: exact production three-target factory/prewarm/player/item/output/reader/sample and frame/time isolation; 600 card requests reuse only 3 players; real AVPlayer clocks advance; Message pause preserves frame/time without pausing Options/Clear; retained warm resume has no extra seek; cold restore remains one seek; asset/disk-ready and enabled/selected prewarm; all-path invalidation; idempotent retirement (macOS AVFoundation, NOT device test)");
 } return 0; }
 '''

@@ -37,14 +37,11 @@ assert '!LMVEasterCaptureName(NSStringFromClass(window.class)) &&' in blocking
 assert 'LMVEasterScreenCaptured' in overlay and 'isCaptured' in overlay
 # 0.0.114: while the display is captured a policy misfire must not hide a ball
 # that is already presented; the underlying reason is still recorded.
-assert 'BOOL captured=LMVEasterScreenCaptured();' in apply
-assert 'BOOL presented=self.window && !self.window.hidden && self.bubbleImage.image!=nil && self.decoded.frames.count;' in apply
-# A scene transition may blank every host probe for a moment: keep presenting over
-# a short gap (and always while captured) instead of hiding on that single frame.
-assert 'if(captured || (presented && missing<2.0))' in apply
-assert '"host-missing-keep %@"' in apply
-assert 'if(captured && presented){[self reportWindow:[@"captured-keep " stringByAppendingString:reason]];return;}' in apply
-assert 'self.hostMissingSince=0;' in apply and 'CFTimeInterval missing=now-self.hostMissingSince;' in apply
+# 0.0.117 user policy: a surface that may not present the ball loses it at once.
+assert 'hostMissingSince' not in overlay
+assert 'host-missing-keep' not in overlay and 'captured-keep' not in overlay
+assert "(foreground==1 || keyHome))homeHost=window;" in apply
+assert 'the frontmost-application probe is unavailable' in apply
 assert 'hide:window-scene' in apply
 import re
 executable=re.sub(r'//[^\n]*|/\*.*?\*/','',priority+blocking,flags=re.S)

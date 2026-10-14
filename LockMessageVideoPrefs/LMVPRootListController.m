@@ -62,7 +62,7 @@ static void LMVNotify(void) {
     PSSpecifier *globalGroup = [PSSpecifier groupSpecifierWithName:@"总开关"];
     [globalGroup setProperty:@"关闭后所有通道与悬浮球立即停止；各单项开关的设置会保留。" forKey:@"footerText"];
     [_specifiers addObject:globalGroup];
-    PSSpecifier *global = [PSSpecifier preferenceSpecifierNamed:@"启用全部视频背景与悬浮球" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    PSSpecifier *global = [PSSpecifier preferenceSpecifierNamed:@"启用全局开关" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [global setProperty:@"GlobalEnabled" forKey:@"key"];
     [global setProperty:@YES forKey:@"default"];
     [_specifiers addObject:global];

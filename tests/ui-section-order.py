@@ -156,7 +156,8 @@ class UISectionOrder(unittest.TestCase):
         self.assertIn('eggImage.buttonAction = @selector(openEaster:);', SPECIFIERS)
 
     def test_shared_picker_delete_routing_unchanged(self):
-        self.assertEqual(digest(PICKER), 'e722efe1f11c5b993514208602bde7d970edd79bc2008c9912d5fc8890cc122e')
+        # 0.0.117: orientation support is added to the picker (rotation follow).
+        self.assertEqual(digest(PICKER), '06ba152c89e64e9228dd743b9db17ba8333f351a820f2f6da745e60b994e3684')
         self.assertEqual(digest(DELETION), '03f620c758b6a5099b20ce02a56c981ec030df979fb663171931ffe6f24117db')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
