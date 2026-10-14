@@ -2,6 +2,8 @@
 #import "LMVEasterPanel.h"
 #import "LMVEasterGeometry.h"
 #import "LMVEasterDisplayPolicy.h"
+// 0.0.122: corner radius + panel size, shared with the settings page.
+#import "LMVEasterPanelAppearance.h"
 #import <notify.h>
 #import <objc/message.h>
 #import <string.h>
@@ -46,6 +48,10 @@
 @property(nonatomic, strong) NSTimer *visibilityTimer;
 @property(nonatomic, weak) UIWindow *foreignKey, *hostWindow;
 @property(nonatomic) CGFloat keyboardTop;
+// 0.0.122: the panel is draggable by its title bar; the offset is kept for the
+// session so reopening it (or rotating) leaves it where the user put it, and it
+// is re-clamped on every layout so it can never leave the screen.
+@property(nonatomic) CGPoint panelOffset;
 @property(nonatomic) NSUInteger generation, frame;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
 @property(nonatomic) CGPoint normalized;
@@ -631,15 +637,45 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (self.panel) {
         CGRect bounds = UIEdgeInsetsInsetRect(self.window.rootViewController.view.bounds, self.window.rootViewController.view.safeAreaInsets);
         CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height * .65));
-        CGFloat y = CGRectGetMidY(bounds) - height / 2;
+        // 0.0.122: optional user width/height. Off by default, so an untouched
+        // install keeps exactly the automatic size it had before.
+        CGSize sized = LMVEasterResolvedPanelSize(LMVEasterRead(@"EasterPanelSizeEnabled"),
+            LMVEasterRead(@"EasterPanelWidthScale"), LMVEasterRead(@"EasterPanelHeightScale"), CGSizeMake(width, height));
+        width = MIN(MAX(0, sized.width), MAX(0, bounds.size.width)); height = MAX(0, sized.height);
+        // 0.0.122: dragging is re-clamped here, so a panel dragged to the edge stays
+        // fully on screen even after a rotation or a size change.
+        CGFloat centeredX = CGRectGetMidX(bounds) - width / 2;
+        CGFloat centeredY = CGRectGetMidY(bounds) - height / 2;
+        CGFloat maxOffsetX = MAX(0, (bounds.size.width - width) / 2);
+        CGFloat minOffsetY = CGRectGetMinY(bounds) - centeredY;
+        CGFloat maxOffsetY = CGRectGetMaxY(bounds) - height - centeredY;
+        self.panelOffset = CGPointMake(LMVEasterPanelClamp(self.panelOffset.x, -maxOffsetX, maxOffsetX),
+            LMVEasterPanelClamp(self.panelOffset.y, minOffsetY, MAX(minOffsetY, maxOffsetY)));
+        CGFloat x = centeredX + self.panelOffset.x;
+        CGFloat y = centeredY + self.panelOffset.y;
         if (self.keyboardTop > 0) {
             // Keep the panel (and its contained prompt) above the keyboard.
             CGFloat limit = self.keyboardTop - 8;
             if (y + height > limit) { y = MAX(CGRectGetMinY(bounds), limit - height); height = MAX(0, MIN(height, limit - y)); }
         }
-        CGRect panelFrame=CGRectMake(CGRectGetMidX(bounds) - width / 2, y, width, height);
+        // Corner radius follows the setting live, so dragging its slider shows the
+        // change on the panel the user is looking at.
+        CGFloat corner = LMVEasterResolvedPanelCorner(LMVEasterRead(@"EasterPanelCornerEnabled"),
+            LMVEasterRead(@"EasterPanelCorner"), 20.0);
+        if (self.panel.view.layer.cornerRadius != corner) self.panel.view.layer.cornerRadius = corner;
+        CGRect panelFrame=CGRectMake(x, y, width, height);
         if(!CGRectEqualToRect(self.panel.view.frame,panelFrame))self.panel.view.frame=panelFrame;
     }
+}
+// 0.0.122: move the whole panel by its title bar. Only the offset is stored; the
+// final frame is recomputed (and clamped to the screen) by -layout.
+- (void)dragPanel:(UIPanGestureRecognizer *)pan {
+    if (!self.panel) return;
+    UIView *space = self.window.rootViewController.view;
+    CGPoint translation = [pan translationInView:space];
+    self.panelOffset = CGPointMake(self.panelOffset.x + translation.x, self.panelOffset.y + translation.y);
+    [pan setTranslation:CGPointZero inView:space];
+    [self layout];
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
     CGPoint translation = [pan translationInView:self.window.rootViewController.view]; CGRect area = [self dragArea];
@@ -673,7 +709,15 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [self.panel beginAppearanceTransition:YES animated:NO];
     [root.view addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
     [self.panel endAppearanceTransition];
-    self.panel.view.layer.cornerRadius = 20; self.panel.view.layer.cornerCurve = kCACornerCurveContinuous; self.panel.view.clipsToBounds = YES; self.window.panel = self.panel.view; [self layout];
+    self.panel.view.layer.cornerRadius = LMVEasterResolvedPanelCorner(LMVEasterRead(@"EasterPanelCornerEnabled"),
+        LMVEasterRead(@"EasterPanelCorner"), 20.0);
+    self.panel.view.layer.cornerCurve = kCACornerCurveContinuous; self.panel.view.clipsToBounds = YES;
+    // 0.0.122: dragging lives on the TITLE BAR, so the panel can be moved without
+    // stealing the table's own scrolling gesture.
+    UIPanGestureRecognizer *panelDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)];
+    panelDrag.maximumNumberOfTouches = 1;
+    [self.panel.navigationBar addGestureRecognizer:panelDrag];
+    self.window.panel = self.panel.view; [self layout];
     // Own key while the panel is open so contained rename/switch prompts get a keyboard.
     if (!self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
 }

@@ -13,7 +13,13 @@ assert '[weakSelf visibilityTick]' in s and '[weakSelf refresh]' not in s
 assert 'invalidatePhysicalSnapshot' in refresh and 'PhysicalCheckNeeded' in tick
 assert all(word not in tick for word in ('connectedScenes','CFPreferences','lstat','VisibleDrawing','[self layout]'))
 assert all(word not in drag for word in ('refresh','LMVRequestSafeUpdate','stringWithFormat','VisibleDrawing'))
-assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout and 'cornerRadius' not in layout
+assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout
+# 0.0.122: the panel's corner radius and its dragged offset are resolved in this
+# same geometry pass - from the shared appearance rules, never hard-coded, and
+# with the offset clamped so the panel can never leave the screen.
+assert 'LMVEasterResolvedPanelCorner(LMVEasterRead(@"EasterPanelCornerEnabled")' in layout
+assert 'LMVEasterResolvedPanelSize(LMVEasterRead(@"EasterPanelSizeEnabled")' in layout
+assert 'LMVEasterPanelClamp(self.panelOffset.x' in layout
 assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' not in helpers and 'area/full>=0.30' in helpers
 assert 'weakSecurity || strongSecurity || modal ||' in helpers
 assert 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in s
