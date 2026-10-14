@@ -104,23 +104,27 @@ static BOOL LMVCardExposed(UIView *view) {
     LMVCardExposureEvidence *e=LMVCardEvidence(view);
     UIWindow *window=view.window;
     if (!LMVCardAttached(view,window)) return NO;
-    if (LMVCardExposureInTree(view,window,NO)) {
-        e.transferred=NO; e.exposed=YES; e.probeArmed=NO; e.probeUntil=0;
-        return YES;
-    }
-    if (e.transferred) return NO;
-    // A withdrawn hidden window's lingering snapshot must not keep playing.
-    // Hidden MODEL state is compatible only with an exposed presentation tree
-    // during motion in this already attached window, not an unconditional bypass.
-    if (window.hidden && (!e.exposed || !LMVCardPresentationMotion(view))) return NO;
-    BOOL exposed=LMVCardExposureInTree(view,window,YES);
-    if (exposed) e.exposed=YES;
+    BOOL modelExposed=LMVCardExposureInTree(view,window,NO);
+    if(e.transferred && !modelExposed)return NO;
+    if(modelExposed)e.transferred=NO;
+    // The actually committed child snapshot, when present, is the authority:
+    // model bounds may already be on screen before entrance, or remain there
+    // while the panel is visibly being withdrawn. Do not OR those two states.
+    CALayer *sample=view.layer.presentationLayer;BOOL hasSample=NO;NSUInteger depth=0;
+    if(sample && sample.modelLayer==view.layer)for(CALayer *node=sample;node && ++depth<=48;node=node.superlayer)
+        if(node.modelLayer==window.layer){hasSample=YES;break;}
+    BOOL exposed;
+    if(hasSample) {
+        if(window.hidden && !LMVCardPresentationMotion(view))return NO;
+        exposed=LMVCardExposureInTree(view,window,YES);
+    } else exposed=modelExposed;
+    if(exposed){e.exposed=YES;e.probeArmed=NO;e.probeUntil=0;}
     return exposed;
 }
 static BOOL LMVCardCanProbe(UIView *view) {
     LMVCardExposureEvidence *e=LMVCardEvidence(view);
     UIWindow *window=view.window;
-    if (!LMVCardAttached(view,window) || e.transferred || window.hidden) return NO;
+    if (!LMVCardAttached(view,window) || e.transferred) return NO;
     BOOL moving=LMVCardPresentationMotion(view);
     if (!moving) { e.probeArmed=NO; e.probeUntil=0; return NO; }
     // A cold link can observe the next committed CA sample, but never starts a
@@ -139,14 +143,15 @@ static BOOL LMVCardStateAttached(UIView *owner, LMVVideoState *state) {
 static BOOL LMVCardStateVisible(UIView *owner, LMVVideoState *state, NSString *target) {
     return LMVEnabled[target].boolValue && LMVPaths[target].length &&
         [state.path isEqualToString:LMVPaths[target]] && LMVCardStateAttached(owner,state) &&
-        LMVVisible(owner) && LMVVisible(state.anchor) && LMVVisible(state.overlay);
+        LMVNotificationCenterSurface(owner) && LMVVisible(state.overlay);
 }
 static BOOL LMVCardColdProbe(UIView *owner, NSDictionary *states) {
-    // Only a selected Message attached to its real card owner can bootstrap a
-    // presentation-only transition. Options/Clear keep their existing discovery.
-    LMVVideoState *state=states[@"Message"];
-    return LMVMessageCell(owner) && LMVEnabled[@"Message"].boolValue &&
-        LMVPaths[@"Message"].length && [state.path isEqualToString:LMVPaths[@"Message"]] &&
-        LMVNotificationCenterSurface(owner) && LMVCardStateAttached(owner,state) &&
-        LMVCardCanProbe(owner);
+    if(!LMVNotificationCenterSurface(owner))return NO;
+    for(NSString *target in @[@"Message",@"Options",@"Clear"]) {
+        LMVVideoState *state=states[target];
+        if(LMVEnabled[target].boolValue && LMVPaths[target].length &&
+           [state.path isEqualToString:LMVPaths[target]] && LMVCardStateAttached(owner,state) &&
+           LMVCardCanProbe(state.overlay))return YES;
+    }
+    return NO;
 }

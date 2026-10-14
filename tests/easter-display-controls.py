@@ -14,7 +14,9 @@ rotation=policy[policy.index('static void LMVEasterUpdateRotation('):]
 assert all(k in apply for k in ('EasterEggEnabled','EasterEggShowOnLockScreen','EasterEggShowOnControlCenter',
     'EasterEggShowOnDesktop','EasterEggRotationEnabled','EasterEggRotationSpeed'))
 assert 'LMVEasterDisplayControlsFromValues' in apply and 'CFPreferencesAppSynchronize' in apply
-assert 'legacyAllows,safetyClear)' in apply and 'LMVEasterVisibleDrawing' in apply and 'LMVEasterBlockingWindow' in apply
+assert 'legacyAllows,safetyClear)' in apply and 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in apply
+blocking=s[s.index('static BOOL LMVEasterBlockingWindow'):s.index('static void LMVEasterDarwin')]
+assert 'LMVEasterVisibleDrawing' in blocking and 'LMVEasterBlockingWindow' in blocking
 assert apply.index('LMVEasterDisplayPolicy(') < apply.index('self.window.hidden = NO')
 assert s.count('[[LMVEasterWindow alloc]')==1
 assert 'self.bubble = [[UIView alloc]' in apply and 'self.bubbleImage = [[UIImageView alloc]' in apply

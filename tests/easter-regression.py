@@ -78,7 +78,9 @@ assert 'count > 60' in media and 'kCGImageSourceThumbnailMaxPixelSize:@160' in m
 assert '8 * 1024 * 1024' in media and '20 * 1024 * 1024' in media
 assert 'totalDuration>60.0' in media and 'LMVEasterPreviewImage' not in media
 assert 'LMVEasterVisibleDrawing' in overlay and 'area/full>=0.30' in overlay
-assert 'MIN(host.windowLevel+1,UIWindowLevelAlert - 1)' in overlay and 'UISceneActivationStateUnattached' in overlay
+assert 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in overlay and 'UISceneActivationStateUnattached' in overlay
+assert 'LMVEasterBoundedPriorityLevel' in overlay and 'window==own' in overlay
+assert 'MIN(host.windowLevel+1,UIWindowLevelAlert - 1)' not in overlay
 assert 'requireGestureRecognizerToFail:pan' in overlay
 assert 'UIGestureRecognizerStateEnded' in overlay and 'EasterEggX' in overlay
 assert 'safeAreaInsets' in overlay and 'LMVEasterCenterArea(safeRect, LMVEasterSize())' in overlay
@@ -87,7 +89,9 @@ assert '- (BOOL)canBecomeKeyWindow { return self.panel != nil && !self.hidden; }
 assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
-assert 'UIWindowLevelAlert - 1' in overlay and 'window.windowLevel >= UIWindowLevelAlert' in overlay
+assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' in overlay
+assert '(visible && alert && [controller isKindOfClass:alert])' in overlay
+assert 'classSecurity && (drawing || substantive || foreground)' in overlay
 assert 'LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated)' in overlay
 assert 'LMVEasterCCWindowExposed(window)' in overlay and 'foreground==1' in overlay
 assert 'LMVEasterNCWindowExposed(window)' in overlay and 'authenticatedSession' in overlay

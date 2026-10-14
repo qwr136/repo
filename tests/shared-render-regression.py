@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.108')==1
+assert (root/'control').read_text().count('Version: 0.0.109')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.108'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.109'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -21,15 +21,19 @@ assert 'if (!CGRectEqualToRect(state.overlay.frame,desiredFrame))' in s
 assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in s
 for forbidden in ['[AVPlayerLayer','AVAudioSession','prerollAtRate','idleTimerDisabled','CFPreferencesSetAppValue']:
     assert forbidden not in s, forbidden
-# Unique-path source creation is unchanged; no player/reader on LMVVideoState.
+# One chain per (target,path), shared immutable assets; no card-local player/reader.
 state=s.split('@interface LMVVideoState : NSObject',1)[1].split('@end',1)[0]
 assert 'AVPlayer' not in state and 'AVAssetReader' not in state
 assert 'LMVSharedSources[registryKey]=source' in s
-assert 'return LMVSourceForTarget(path,nil);' in s
+assert 'LMVSourceForPath' not in s
+assert 'source.ownerTarget=target' in s
 assert 'LockScreen' not in s and 'LMVLayoutLockOverlay' not in s
 assert '#import "LMVDesktopVideo.h"' in s
 registry=s.split('static NSString *LMVSourceRegistryKey',1)[1].split('@interface LMVSharedSource',1)[0]
 assert 'Desktop' not in registry  # Desktop has its own player instance, never the message source cache.
+assert 'containsObject:target ?: @""' in registry
+assert all('@"'+target+'"' in registry for target in ('Message','Options','Clear'))
+assert '[target stringByAppendingFormat:@"\\n%@",path]' in registry
 assert not (root/'LMVLockBackground.h').exists()
 assert 'LMVWallpaperFrameCache' not in s
 consumer=s.split('static BOOL LMVSourceHasConsumer',1)[1].split('static void LMVReleasePlayer',1)[0]
@@ -59,7 +63,7 @@ assert target(0,0,5)==0
 release=s.split('static void LMVReleasePlayer(LMVVideoState *state) {',1)[1].split('static void LMVPrepareAssets',1)[0]
 assert 'contents=nil' not in release and 'removeFromSuperlayer' not in release
 update=s.split('static void LMVUpdate(UIView *cell) {',1)[1].split('%hook NCNotificationListCell',1)[0]
-assert update.index('state.layer.contents=(__bridge id)cached.image') < update.index('state.source=LMVSourceForPath(path)') < update.index('LMVStartSource(state.source)')
+assert update.index('state.layer.contents=(__bridge id)cached.image') < update.index('state.source=LMVSourceForTarget(path,target)') < update.index('LMVStartSource(state.source)')
 assert 'cached.image && (!state.layer.contents || revisionChanged)' in update
 assert 'if (!rendered && old.image) return;' in s
 assert 'LMVPreparePreview(path,revision,playbackAsset)' in s
@@ -86,4 +90,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.108 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.109 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')

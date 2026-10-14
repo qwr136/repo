@@ -87,7 +87,7 @@ for contract in ('LMVInitialized', 'LMVLaunchReady', 'NSThread.isMainThread',
                  'LMVMessageCell', 'Message', 'LMVEnabled', 'LMVPaths'):
     assert contract in prime, 'Prime gate missing: ' + contract
 for forbidden in ('LMVMessageMaterial', 'LMVActionHosts', 'LMVReplaceBackground',
-                  'LMVSourceForPath', 'LMVCachedFrame', 'subviews'):
+                  'LMVSourceForTarget', 'LMVCachedFrame', 'subviews'):
     assert forbidden not in geometry, 'Geometry must remain O(1): ' + forbidden
 hook = TEXT.split('%hook NCNotificationListCell', 1)[1].split('%end', 1)[0]
 for name in ('layoutSubviews', 'didMoveToWindow'):
@@ -168,6 +168,8 @@ support = r'''
 @interface LMVSharedSource : NSObject
 @property(nonatomic) NSUInteger identifier;
 @property(nonatomic) BOOL playing;
+@property(nonatomic) CGImageRef lastImage;
+@property(nonatomic,copy) NSString *path, *registryKey, *ownerTarget;
 @end
 @implementation LMVSharedSource @end
 @interface LMVFrameSnapshot : NSObject
@@ -201,7 +203,11 @@ static BOOL LMVVisible(UIView *view) {
     return CGRectIntersectsRect([view convertRect:view.bounds toView:view.window],view.window.bounds);
 }
 static LMVFrameSnapshot *LMVCachedFrame(NSString *path, NSString *revision) { cacheReads++; return snapshot; }
-static LMVSharedSource *LMVSourceForPath(NSString *path) { sourceRequests++; return LMVSharedSources[path]; }
+static NSString *LMVSourceRegistryKey(NSString *path, NSString *target);
+static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
+    sourceRequests++; NSString *key=LMVSourceRegistryKey(path,target);
+    return key ? LMVSharedSources[key] : nil;
+}
 static void LMVStartSource(LMVSharedSource *source) { source.playing=YES; }
 static void LMVStopSource(LMVSharedSource *source) { source.playing=NO; }
 static void LMVSyncDisplayLink(void) {}
@@ -217,8 +223,13 @@ static void configure(void) {
     LMVEnabled=[@{@"Message":@YES,@"Options":@NO,@"Clear":@NO} mutableCopy];
     LMVPaths=[@{@"Message":@"movie"} mutableCopy];
     LMVRevisions=[@{@"movie":@"r1",@"movie2":@"r2"} mutableCopy];
-    LMVSharedSource *source=[LMVSharedSource new];source.identifier=1;
-    LMVSharedSources=[@{@"movie":source,@"movie2":[LMVSharedSource new]} mutableCopy];
+    LMVSharedSources=[NSMutableDictionary new];
+    for (NSString *path in @[@"movie",@"movie2"]) for (NSString *target in LMVTargets()) {
+        LMVSharedSource *source=[LMVSharedSource new];source.identifier=LMVSharedSources.count+1;
+        source.path=path;source.ownerTarget=target;source.registryKey=LMVSourceRegistryKey(path,target);
+        assert(source.registryKey);LMVSharedSources[source.registryKey]=source;
+    }
+    assert(LMVSharedSources.count==6);
     LMVCells=[NSHashTable weakObjectsHashTable];
     snapshot=[LMVFrameSnapshot new];
     unsigned char pixels[]={90,140,200,255};
@@ -275,10 +286,12 @@ static void testEntry(BOOL alphaZero) {
     LMVVideoState *s=state(cell);UIView *overlay=s.overlay;CALayer *layer=s.layer;
     LMVOriginalLease *lease=s.originals.firstObject;
     assert(near(lease.baselineOpacity,alphaZero?0:.73));
-    assert(!s.active && !s.source); // cache is seeded before visibility/playback
+    // Hidden/zero-alpha ORIGINAL sibling does not hide our video surface.
+    assert(s.active && s.source==LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Message")]);
     m.hidden=NO;m.alpha=.73;clockNow+=.02;LMVUpdate(cell);bound(cell,m);
     assert(state(cell)==s && s.overlay==overlay && s.layer==layer && s.originals.firstObject==lease);
-    assert(s.source==LMVSharedSources[@"movie"] && near(lease.baselineOpacity,.73));
+    assert(s.source==LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Message")] && near(lease.baselineOpacity,.73));
+    assert([s.source.ownerTarget isEqual:@"Message"]);
     LMVSharedSource *source=s.source;NSUInteger updates=fullUpdates,reads=cacheReads,allocations=viewAllocations,requests=sourceRequests;
     NSUInteger walks=subtreeReads;
     for(int n=0;n<50;n++) {
@@ -288,7 +301,8 @@ static void testEntry(BOOL alphaZero) {
         assert(CGRectEqualToRect(layer.frame,overlay.bounds));
     }
     assert(fullUpdates==updates && cacheReads==reads && viewAllocations==allocations);
-    assert(sourceRequests==requests && subtreeReads==walks);
+    assert(sourceRequests==requests); // No new source on stable visibility checks.
+    assert(subtreeReads-walks<=250); // Actual attachment/exposure ancestry queries are bounded.
     assert(state(cell)==s && s.overlay==overlay && s.layer==layer && s.source==source && s.originals.firstObject==lease);
     bound(cell,m);
     // Transient ancestor/anchor hiding, alpha and viewport loss retain leases.
@@ -477,9 +491,39 @@ static void testAllTargetReplacementPolicy(void) {
         [CATransaction commit];
     }
 }
+static void testIndependentVisibleConsumers(void) {
+ configure();for(NSString *t in LMVTargets()){LMVEnabled[t]=@YES;LMVPaths[t]=@"movie";}
+ UIWindow *window=[UIWindow new];NSMutableDictionary *owners=[NSMutableDictionary new];
+ for(NSString *target in LMVTargets()) {
+  NSMutableArray *cards=[NSMutableArray new];owners[target]=cards;
+  for(int n=0;n<2;n++) {
+   UIView *wrapper;MTMaterialView *material;NCNotificationListCell *cell=card(window,&wrapper,&material);
+   LMVVideoState *v=[LMVVideoState new];v.path=@"movie";v.anchor=material;v.host=wrapper;
+   v.overlay=view(UIView.class,material.frame);v.overlay.userInteractionEnabled=NO;[wrapper addSubview:v.overlay];
+   v.layer=[CALayer layer];[v.overlay.layer addSublayer:v.layer];
+   objc_setAssociatedObject(cell,&LMVStatesKey,[@{target:v} mutableCopy],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+   [cards addObject:cell];LMVReconcileCardSources(cell);assert(v.active && v.source.playing);
+  }
+  NSDictionary *one=objc_getAssociatedObject(cards[0],&LMVStatesKey),*two=objc_getAssociatedObject(cards[1],&LMVStatesKey);
+  assert(((LMVVideoState *)one[target]).source==((LMVVideoState *)two[target]).source);
+ }
+ LMVSharedSource *message=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Message")];
+ LMVSharedSource *options=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Options")],*clear=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Clear")];
+ assert(message!=options && options!=clear && message!=clear);
+ UIView *first=owners[@"Message"][0],*second=owners[@"Message"][1];
+ first.hidden=YES;LMVReconcileCardSources(first);assert(message.playing && options.playing && clear.playing);
+ second.hidden=YES;LMVReconcileCardSources(second);assert(!message.playing && options.playing && clear.playing);
+ first.hidden=NO;LMVReconcileCardSources(first);assert(message.playing);
+ LMVVideoState *v=((NSDictionary *)objc_getAssociatedObject(first,&LMVStatesKey))[@"Message"];
+ assert(v.source==message);v.anchor.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
+ v.overlay.hidden=YES;LMVReconcileCardSources(first);assert(!message.playing);
+ for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
+ assert(!message.playing && !options.playing && !clear.playing);
+ [CATransaction commit];
+}
 int main(void) { @autoreleasepool {
     assert(NSThread.isMainThread);
-    testEntry(NO);testEntry(YES);testReplacement();testIsolation();testPrimeGatesAndReuse();testAllTargetReplacementPolicy();
+    testEntry(NO);testEntry(YES);testReplacement();testIsolation();testPrimeGatesAndReuse();testAllTargetReplacementPolicy();testIndependentVisibleConsumers();
     [CATransaction flush];
     puts("PASS native: actual Tweak.xm update/discovery/prime/geometry + lease headers; hidden/alpha0 cached entry, 50 stable layouts, hierarchy visibility scope, <100ms replacement, reparent/overlay repair, path/disable/detach/reuse restore, labels/nested/owned overlay/header isolation, action throttle and launch/main-thread gates");
 } return 0; }
@@ -505,7 +549,8 @@ card_attached=card_header[card_header.index('static BOOL LMVCardLayerAttached'):
 card_state=card_header[card_header.index('static BOOL LMVCardStateAttached'):card_header.index('static BOOL LMVCardColdProbe')]
 # This suite freezes its explicit visibility double; execute the new exact
 # ownership/target consumer helper. Presentation exposure runs in its own suite.
-fragments = [prefix, support, objc_type('LMVVideoState'), rect_string,
+fragments = [prefix, support, function('static NSString *LMVSourceRegistryKey(NSString *path, NSString *target)'),
+             objc_type('LMVVideoState'), rect_string,
              '#import "LMVBackgroundDiscovery.h"', card_attached, card_state, consumer, release]
 fragments += [PRODUCTION[x] for x in SIGNATURES[:2]]
 if candidate:
@@ -513,7 +558,7 @@ if candidate:
 fragments += [PRODUCTION[x] for x in SIGNATURES[2:5]]
 fragments += ['#import "LMVActionDiscovery.h"']
 fragments += [PRODUCTION[x] for x in SIGNATURES[5:8]]
-fragments += [actual_update, prime, action_prime, queue_stubs, reuse, helpers, scenarios]
+fragments += [actual_update, function('static void LMVReconcileCardSources(UIView *cell)'), prime, action_prime, queue_stubs, reuse, helpers, scenarios]
 with tempfile.TemporaryDirectory(prefix='lmv-card-transition-') as temporary:
     source = Path(temporary) / 'card-transition.mm'
     binary = Path(temporary) / 'card-transition'

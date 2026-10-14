@@ -14,7 +14,10 @@ assert 'invalidatePhysicalSnapshot' in refresh and 'PhysicalCheckNeeded' in tick
 assert all(word not in tick for word in ('connectedScenes','CFPreferences','lstat','VisibleDrawing','[self layout]'))
 assert all(word not in drag for word in ('refresh','LMVRequestSafeUpdate','stringWithFormat','VisibleDrawing'))
 assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout and 'cornerRadius' not in layout
-assert 'window.windowLevel >= UIWindowLevelAlert && substantive' in helpers and 'area/full>=0.30' in helpers
+assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' in helpers and 'area/full>=0.30' in helpers
+assert 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in s
+assert 'window==own' in helpers and 'LMVEasterBoundedPriorityLevel' in helpers
+assert 'valueWithNonretainedObject:window' in helpers and 'UIWindowDidBecomeVisibleNotification' in s
 assert 'self.bubble = [[UIView alloc]' in s and 'self.bubbleImage = [[UIImageView alloc]' in s
 assert 'self.bubbleImage.userInteractionEnabled = NO' in s
 assert 'LMVEasterUpdateRotation(self.bubbleImage.layer' in s
@@ -31,6 +34,7 @@ preamble=r'''
 #import <objc/message.h>
 #import <string.h>
 #include <assert.h>
+#include <math.h>
 static const CGFloat UIWindowLevelAlert = 2000;
 @class UIWindow;
 @interface UIScreen : NSObject

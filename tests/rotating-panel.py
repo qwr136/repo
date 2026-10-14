@@ -44,7 +44,10 @@ assert hide.index('self.window.hidden = YES') < hide.index('[self syncRotation]'
 assert 'self.authenticatedSession=NO; [self hide]' in blank
 assert 'LMVEasterUpdateRotation(_bubbleImage.layer,NO,NO,NO,45)' in dealloc
 assert '[self.timer invalidate]' in dealloc and '[self.visibilityTimer invalidate]' in dealloc
-assert 'legacyAllows,safetyClear)' in apply and 'LMVEasterVisibleDrawing' in apply and 'LMVEasterBlockingWindow' in apply
+assert 'legacyAllows,safetyClear)' in apply and 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in apply
+priority = overlay[overlay.index('static BOOL LMVEasterBlockingWindow('):overlay.index('static void LMVEasterDarwin(')]
+assert 'LMVEasterVisibleDrawing' in priority and 'LMVEasterBlockingWindow(window,0)' in priority
+assert all(word not in apply for word in ('makeKeyWindow', 'resignKeyWindow'))
 assert apply.index('LMVEasterDisplayPolicy(') < apply.index('self.window.hidden = NO')
 assert 'self.bubbleImage.userInteractionEnabled = NO' in apply and '[self.bubble addSubview:self.bubbleImage]' in apply
 assert all(word not in overlay for word in ('self.bubble.layer', 'self.window.layer', 'removeAllAnimations'))

@@ -98,6 +98,14 @@ int main(void){@autoreleasepool{
  LMVOriginalLease *lease=[LMVOriginalLease new];lease.layer=anchor.layer;lease.method=LMVOriginalSuppressDrawing;lease.baselineOpacity=.7;
  [LMVOriginalLeases() setObject:lease forKey:anchor.layer];anchor.layer.opacity=0;snapshot(w);
  assert(LMVCardStateVisible(card,state,@"Message"));
+ // The system material can be hidden while OUR sibling video is genuinely
+ // exposed. Anchor attachment is mandatory; its drawing state is not a gate.
+ anchor.hidden=YES;snapshot(w);
+ for(NSString *target in @[@"Message",@"Options",@"Clear"])assert(LMVCardStateVisible(card,state,target));
+ anchor.hidden=NO;snapshot(w);
+ // Model still onscreen, but committed presentation panel withdrawn: pause.
+ ((SampleLayer *)sliding.layer).sample.position=CGPointMake(195,-844+422);
+ assert(!LMVCardStateVisible(card,state,@"Message"));snapshot(w);
  sliding.clipsToBounds=YES;sliding.frame=CGRectMake(0,0,390,30);snapshot(w);assert(!LMVCardStateVisible(card,state,@"Message"));
  sliding.frame=CGRectMake(0,0,390,844);snapshot(w);screenBlank=1;assert(!LMVCardStateVisible(card,state,@"Message"));screenBlank=0;
  LMVEnabled[@"Message"]=@NO;assert(!LMVCardStateVisible(card,state,@"Message"));LMVEnabled[@"Message"]=@YES;

@@ -39,7 +39,8 @@ static dispatch_queue_t LMVDiskQueue;
 static NSMutableSet<NSString *> *LMVDiskPending, *LMVDiskAttempted, *LMVDiskWriting;
 static NSMutableDictionary<NSString *, NSNumber *> *LMVDiskEpochs, *LMVDiskSavedTimes;
 static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset);
-static LMVSharedSource *LMVSourceForPath(NSString *path);
+static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target);
+static void LMVWarmSourcesForPath(NSString *path);
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
 static int LMVBlankToken = -1;
@@ -129,7 +130,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.108 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.109 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -199,11 +200,12 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
     });
 }
 
-// Remaining notification/action sources share one immutable file asset and
-// one playback chain per selected path; removed background targets are rejected.
+// One playback chain per semantic category + selected file, never per card.
+// Immutable AVAsset/preview preparation can share by file; player/clock/output
+// and retained live frame are strictly independent across the three categories.
 static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
-    if (!path.length || (target && ![@[@"Message",@"Options",@"Clear"] containsObject:target])) return nil;
-    return path;
+    if (!path.length || ![@[@"Message",@"Options",@"Clear"] containsObject:target ?: @""]) return nil;
+    return [target stringByAppendingFormat:@"\n%@",path];
 }
 @interface LMVSharedSource : NSObject <AVPlayerItemOutputPullDelegate>
 @property(nonatomic, strong) AVPlayer *player;
@@ -303,7 +305,7 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
                     // A late disk response cannot replace a newer live published frame.
                     if (image && !LMVFrameCache[key].rendered) LMVCacheFrame(path,revision,image,time,YES);
                     if (!LMVFrameCache[key].image && LMVAssets[path]) LMVPreparePreview(path,revision,LMVAssets[path]);
-                    if (LMVAssets[path]) LMVSourceForPath(path);
+                    if (LMVAssets[path]) LMVWarmSourcesForPath(path);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
                 }
                 if (image) CGImageRelease(image);
@@ -379,7 +381,7 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
     source.lastTime=kCMTimeInvalid; source.readerOffset=kCMTimeZero; source.readerLastTarget=kCMTimeInvalid;
     static NSUInteger nextIdentifier=0; source.identifier=++nextIdentifier;
     source.registryKey=registryKey;
-    source.ownerTarget=[registryKey isEqualToString:path] ? @"MessageFamily" : target;
+    source.ownerTarget=target;
     source.revision=LMVRevisions[path];
     LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);
     if (snapshot.image) {
@@ -409,8 +411,11 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
     }];
     return source;
 }
-static LMVSharedSource *LMVSourceForPath(NSString *path) {
-    return LMVSourceForTarget(path,nil);
+static void LMVWarmSourcesForPath(NSString *path) {
+    if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
+    for(NSString *target in LMVTargets())
+        if(LMVEnabled[target].boolValue && [LMVPaths[target] isEqualToString:path])
+            LMVSourceForTarget(path,target);
 }
 // This helper runs only on the one serial frame queue. Owns exactly one held sample.
 static CVPixelBufferRef LMVReadSharedBuffer(LMVSharedSource *source, CMTime *displayTime, BOOL hasPublishedImage) {
@@ -566,7 +571,7 @@ static void LMVStartSource(LMVSharedSource *source) {
                     } else source.restoreOnStart=CMTIME_IS_NUMERIC(source.lastTime);
                 });
             }];
-        } else if (!source.restoringTime) [source.player play];
+        } else if (!source.restoringTime) [source.player playImmediatelyAtRate:1.0];
     }
 }
 static void LMVStopSource(LMVSharedSource *source) {
@@ -621,12 +626,18 @@ static void LMVInvalidateSourcesForPath(NSString *path) {
 static void LMVPrepareAssets(void) {
     if (!LMVInitialized || !LMVLaunchReady) return;
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
+    for(LMVSharedSource *source in LMVSharedSources.allValues) {
+        if(!LMVEnabled[source.ownerTarget].boolValue ||
+           ![LMVPaths[source.ownerTarget] isEqualToString:source.path]) LMVRetireSource(source);
+    }
     for (NSString *path in LMVSources.allKeys) {
         if (![wanted containsObject:path]) { [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];  [LMVReadyAssets removeObject:path]; LMVInvalidateSourcesForPath(path); [LMVRevisions removeObjectForKey:path]; }
     }
     for (NSString *path in wanted) {
         NSString *revision = LMVFileRevision(path);
-        if (LMVSources[path] && [LMVRevisions[path] isEqualToString:revision]) continue;
+        if (LMVSources[path] && [LMVRevisions[path] isEqualToString:revision]) {
+            LMVWarmSourcesForPath(path);continue;
+        }
         // Same URL does not imply the same file. Invalidate composition,
         // prewarm decoder and time epoch together.
                 [LMVSources removeObjectForKey:path]; [LMVAssets removeObjectForKey:path];
@@ -676,7 +687,7 @@ static void LMVPrepareAssets(void) {
                 LMVAssets[path] = playbackAsset;
                 [LMVReadyAssets addObject:path];
                 LMVPreparePreview(path,revision,playbackAsset);
-                LMVSourceForPath(path); // prepare the paused playback chain off the swipe event
+                LMVWarmSourcesForPath(path); // paused independent category chains prepared off the swipe event
                 for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
             });
             });
@@ -690,7 +701,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.108 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.109 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -911,6 +922,14 @@ static void LMVUpdate(UIView *cell) {
     if ((missing || refreshActions) && (!last || now - last.doubleValue >= 0.1)) {
         objc_setAssociatedObject(cell, &LMVDiscoveryKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if(actionsSelected) LMVActionHosts(cell, hosts, 0);
+        for(NSString *target in @[@"Options",@"Clear"]) {
+            LMVVideoState *bound=states[target];
+            // Discovery can see model-hidden original material while the owned
+            // sibling video is still presented. Do not throw away that live,
+            // exact owner binding just because the material search found none.
+            if(![hosts objectForKey:target] && LMVCardStateVisible(cell,bound,target))
+                [hosts setObject:bound.anchor forKey:target];
+        }
     }
     // Expansion can replace the message material just after the last action
     // search. A missing message binding must not wait for that 100ms throttle.
@@ -943,7 +962,8 @@ static void LMVUpdate(UIView *cell) {
         BOOL anchorVisible = visible && LMVVisible(anchor);
         if (anchorVisible) state.visibilityLossSince = 0;
         else if (state && !state.visibilityLossSince) state.visibilityLossSince = now;
-        if (!anchorVisible && (!state.visibilityLossSince || now - state.visibilityLossSince >= 0.18)) LMVReleasePlayer(state);
+        BOOL surfaceVisible=state && LMVCardStateVisible(cell,state,target);
+        if (!anchorVisible && !surfaceVisible && (!state.visibilityLossSince || now - state.visibilityLossSince >= 0.18)) LMVReleasePlayer(state);
         if (!state) {
             // The material remains underneath until a real decoded frame is available.
             state = [LMVVideoState new]; state.path = path;
@@ -952,7 +972,7 @@ static void LMVUpdate(UIView *cell) {
             state.overlay.clipsToBounds = YES;
                     states[target] = state;
         }
-        if (state.source && LMVSharedSources[path] != state.source) LMVReleasePlayer(state);
+        if (state.source && LMVSharedSources[LMVSourceRegistryKey(path,target)] != state.source) LMVReleasePlayer(state);
         BOOL revisionChanged=LMVRevisions[path] && ![state.revision isEqualToString:LMVRevisions[path]];
         if (revisionChanged) {
             LMVReleasePlayer(state);
@@ -1021,11 +1041,35 @@ static void LMVUpdate(UIView *cell) {
         if (reportGeometry) LMVDiagnostic([NSString stringWithFormat:@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height]);
         if (anchorVisible) state.lastVisible = now;
         // Owned content, geometry, opacity and corners are assigned before startup.
-        if (!state.source && state.active) { state.source=LMVSourceForPath(path); reportGeometry=state.source!=nil; }
+        if (!state.source && state.active) { state.source=LMVSourceForTarget(path,target); reportGeometry=state.source!=nil; }
+        // Use this category's retained live frame, not another category's latest
+        // same-file cache position, whenever a card joins its shared source.
+        if(state.source.lastImage && state.layer.contents!=(__bridge id)state.source.lastImage) {
+            [CATransaction begin];[CATransaction setDisableActions:YES];
+            state.layer.contents=(__bridge id)state.source.lastImage;[CATransaction commit];
+        }
         if (state.active && state.source) LMVStartSource(state.source);
         else if (state.source && !LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
     }
     LMVSyncDisplayLink();
+}
+// O(existing bindings): visibility transitions do not wait for a default-mode
+// timer, full preference refresh, or material-discovery maintenance interval.
+static void LMVReconcileCardSources(UIView *cell) {
+    if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
+    NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+    BOOL changed=NO,allowed=LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0;
+    for(NSString *target in states) {
+        LMVVideoState *state=states[target];
+        BOOL active=allowed && LMVCardStateVisible(cell,state,target);
+        if(state.active!=active){changed=YES;state.active=active;}
+        if(active) {
+            if(!state.source){state.source=LMVSourceForTarget(state.path,target);changed=YES;}
+            if(state.source)LMVStartSource(state.source);
+            state.lastVisible=CACurrentMediaTime();
+        } else if(state.source && !LMVSourceHasConsumer(state.source))LMVStopSource(state.source);
+    }
+    if(changed)LMVSyncDisplayLink();
 }
 static BOOL LMVPrimeMessageCard(UIView *cell) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVPreferencesDirty ||
@@ -1050,7 +1094,7 @@ static BOOL LMVPrimeMessageCard(UIView *cell) {
     priming=YES;
     @try {
         if (needsBinding) LMVUpdate(cell);
-        else LMVLayoutCardSurface(state,anchor,state.host);
+        else {LMVLayoutCardSurface(state,anchor,state.host);LMVReconcileCardSources(cell);}
     } @finally { priming=NO; }
     return needsBinding;
 }
@@ -1131,6 +1175,7 @@ static void LMVPrimeActionBackgrounds(UIView *presenter) {
         BOOL selected=LMVEnabled[target].boolValue && LMVPaths[target] && [state.path isEqualToString:LMVPaths[target]];
         LMVMaintainOriginalBackground(state,owner,target,selected);
     }
+    LMVReconcileCardSources(owner);
 }
 %hook PLActionButtonsPresentingView
 - (void)layoutSubviews {
@@ -1203,6 +1248,7 @@ static void LMVSyncDisplayLink(void) {
         for (UIView *cell in LMVCells.allObjects) {
             NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
             BOOL exposed=LMVVisible(cell);
+            for(NSString *target in states) if(LMVCardStateVisible(cell,states[target],target)){exposed=YES;break;}
             if (!exposed && !LMVCardColdProbe(cell,states)) continue;
             // Observe readiness even before a source/overlay/frame exists.
             for (NSString *target in LMVTargets()) {
@@ -1236,7 +1282,7 @@ static void LMVSyncDisplayLink(void) {
         BOOL cellVisible=LMVVisible(cell), changed=NO;
         for (NSString *target in states) {
             LMVVideoState *state=states[target];
-            BOOL active=cellVisible && LMVOpacityEnabled && LMVOpacity>0.0 &&
+            BOOL active=LMVOpacityEnabled && LMVOpacity>0.0 &&
                 LMVCardStateVisible(cell,state,target);
             if (LMVDiagnosticsEnabled.load() && now-state.exposureDiagnosticAt>=.5) {
                 state.exposureDiagnosticAt=now;

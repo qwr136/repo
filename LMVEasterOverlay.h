@@ -220,19 +220,85 @@ static BOOL LMVEasterScopePolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,u
     if(nc)return ncAllowed;
     return !locked && (cc || home);
 }
+// Ordinary transparent/tiny drawing HUDs have no foreground controls. Do not
+// infer that from a vendor class name (especially a name containing Gesture).
+static BOOL LMVEasterVisibleForeground(UIView *view,UIWindow *window,NSUInteger depth,
+                                      NSUInteger *budget,BOOL *drawing,BOOL *modal) {
+    if(!view || !*budget || depth>7 || view.hidden || view.alpha<.01)return NO;
+    --*budget;
+    CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
+    if(CGRectIsNull(rect) || CGRectIsEmpty(rect) || CGRectIsInfinite(rect))return NO;
+    if(view.layer.contents || (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor)>.05) ||
+       [view isKindOfClass:UIVisualEffectView.class])*drawing=YES;
+    BOOL foreground=NO;
+    for(NSString *name in @[@"UIControl",@"UIAlertView",@"UIActionSheet"]) {
+        Class cls=NSClassFromString(name);
+        if(cls && [view isKindOfClass:cls]) {
+            foreground=YES;if(![name isEqualToString:@"UIControl"])*modal=YES;
+        }
+    }
+    for(UIView *child in view.subviews)
+        if(LMVEasterVisibleForeground(child,window,depth+1,budget,drawing,modal))foreground=YES;
+    return foreground;
+}
+static BOOL LMVEasterPriorityWindowVisible(UIWindow *window) {
+    UIView *root=window.rootViewController.viewIfLoaded;
+    return window && !window.hidden && isfinite(window.alpha) && window.alpha>=.01 &&
+        (!root || (!root.hidden && isfinite(root.alpha) && root.alpha>=.01)) &&
+        window.screen==UIScreen.mainScreen && !CGRectIsEmpty(window.bounds) &&
+        !CGRectIsNull(window.bounds) && !CGRectIsInfinite(window.bounds);
+}
 static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
-    if (window.hidden || window.alpha<0.01 || window.screen!=UIScreen.mainScreen) return NO;
-    UIViewController *controller=window.rootViewController;
-    while (controller.presentedViewController) controller=controller.presentedViewController;
-    BOOL visibleSecurity = NO; NSUInteger budget = 96;
-    BOOL substantive = LMVEasterVisibleDrawing(controller.viewIfLoaded, window, 0, &budget, &visibleSecurity);
-    // Persistent camera/widget/wallpaper windows are not permission dialogs.
-    // A security-named window/controller counts only if it visibly draws; a
-    // visible security view found in the bounded traversal counts directly.
-    BOOL classSecurity = LMVEasterSecurityName(NSStringFromClass(window.class)) ||
-        (controller.viewIfLoaded.window == window && LMVEasterSecurityName(NSStringFromClass(controller.class)));
-    return visibleSecurity || (classSecurity && substantive) ||
-        (window.windowLevel >= UIWindowLevelAlert && substantive);
+    (void)level; // Security is never waived just because the bubble is higher.
+    if(!LMVEasterPriorityWindowVisible(window))return NO;
+    BOOL trusted=LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow",@"SBControlCenterWindow",@"SBHomeScreenWindow"]);
+    NSUInteger depth=0,drawingBudget=96,foregroundBudget=96;
+    for(UIViewController *controller=window.rootViewController;controller && depth++<16;
+        controller=controller.presentedViewController) {
+        UIView *root=controller.viewIfLoaded;
+        BOOL security=NO,drawing=NO,modal=NO;
+        BOOL substantive=LMVEasterVisibleDrawing(root,window,0,&drawingBudget,&security);
+        BOOL foreground=LMVEasterVisibleForeground(root,window,0,&foregroundBudget,&drawing,&modal);
+        BOOL classSecurity=LMVEasterSecurityName(NSStringFromClass(window.class)) ||
+            (root.window==window && LMVEasterSecurityName(NSStringFromClass(controller.class)));
+        Class alert=NSClassFromString(@"UIAlertController");
+        CGRect rect=root?[root convertRect:root.bounds toView:window]:CGRectZero;
+        CGRect exposed=CGRectIntersection(rect,window.bounds);
+        BOOL visible=root && !root.hidden && root.alpha>=.01 && !CGRectIsNull(exposed) &&
+            !CGRectIsEmpty(exposed) && !CGRectIsInfinite(exposed);
+        if(security || modal || (classSecurity && (drawing || substantive || foreground)) ||
+           (visible && alert && [controller isKindOfClass:alert]) ||
+           (!trusted && window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)))return YES;
+    }
+    return NO;
+}
+// Leave integer headroom even on CGFloat=float; never use UINT_MAX/CGFLOAT_MAX
+// or let an unrepresentable +1 silently tie a foreign window. Extreme finite
+// levels fail closed; malformed NaN/infinity cannot poison the running maximum.
+static BOOL LMVEasterBoundedPriorityLevel(CGFloat highest,CGFloat *level) {
+    const CGFloat limit=0x1p24-2;
+    if(!isfinite(highest) || highest>limit || highest < -limit)return NO;
+    CGFloat next=highest+1;
+    if(!isfinite(next) || next<=highest)return NO;
+    *level=next;return YES;
+}
+static BOOL LMVEasterOverlayPriority(NSArray<UIWindow *> *windows,UIWindow *own,
+                                    CGFloat *level,UIWindow **blockedWindow) {
+    CGFloat highest=0;
+    if(blockedWindow)*blockedWindow=nil;
+    for(UIWindow *window in windows) {
+        if(window==own || !LMVEasterPriorityWindowVisible(window))continue;
+        if(LMVEasterBlockingWindow(window,0)) {
+            if(blockedWindow)*blockedWindow=window;return NO;
+        }
+        CGFloat candidate=window.windowLevel;
+        if(!isfinite(candidate))continue;
+        if(!LMVEasterBoundedPriorityLevel(candidate,level)) {
+            if(blockedWindow)*blockedWindow=window;return NO;
+        }
+        highest=MAX(highest,candidate);
+    }
+    return LMVEasterBoundedPriorityLevel(highest,level);
 }
 static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterManager *manager = (__bridge LMVEasterManager *)observer;
@@ -399,20 +465,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;
     if(!host){[self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
-    NSArray *trusted=@[@"SBCoverSheetWindow",@"SBControlCenterWindow",@"SBHomeScreenWindow"];
-    CGFloat level=MIN(host.windowLevel+1,UIWindowLevelAlert - 1);
-    BOOL safetyClear=YES;UIWindow *blockedWindow=nil;
-    for (UIWindow *window in windows) {
-        if (window == self.window || window.hidden || window.alpha < 0.01) continue;
-        // Inspect trusted CoverSheet for actual visible authentication UI too;
-        // being locked by itself is not a security dialog or a hide condition.
-        BOOL trustedWindow=LMVEasterKnownWindow(window,trusted);
-        BOOL security=NO;NSUInteger securityBudget=64;
-        if (trustedWindow) LMVEasterVisibleDrawing(window.rootViewController.viewIfLoaded,window,0,&securityBudget,&security);
-        if (security || (!trustedWindow && LMVEasterBlockingWindow(window,level))) {
-            safetyClear=NO;blockedWindow=window;break;
-        }
-    }
+    CGFloat level=0;UIWindow *blockedWindow=nil;
+    BOOL safetyClear=LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow);
     LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
         ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
     if(displayScene==LMVEasterDisplayNone) {
