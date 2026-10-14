@@ -1,5 +1,16 @@
 # 锁屏消息视频
 
+## 0.0.116：宿主探测瞬断不再让浮球消失（真机日志定位）
+
+精确基线115 `88194d8`。只动浮球这条线，其余不动。
+
+- 真机依据（115 日志，pid=5367）：6294.423 `easter-window home-nc-cc host=SBCoverSheetWindow level=10000012`（球挂在 NC 窗口、层级在录屏窗 10000011 之上），随后 6299.135 `easter-window home-nc-cc:not-visible-or-locked` —— 球在 NC 收起、回到桌面那一瞬被隐藏。原因是**宿主探测（nc/cc/home 三路）在场景切换时同时返回空**，旧逻辑一帧就隐藏；日志里没有 `blocked`，说明与安全拦截无关（113/114 的按类名豁免方向不对）。
+- 修复：宿主为空时不再立刻隐藏。①录屏进行中（`UIScreen.isCaptured`）永不因宿主缺失隐藏；②否则只要浮球**当前呈现**且宿主缺失**不足 2 秒**，保持原样并继续探测，记录 `host-missing-keep fg=… nc=… cc=… home=… captured=… for=…`；③宿主持续缺失超过 2 秒才按原逻辑隐藏（日志仍为 `home-nc-cc:not-visible-or-locked`，并附上 `fg/nc/cc/home/captured/for` 字段，下一次可直接判定是哪一路探测为空）。
+- 诊断字段：策略分支的 `blocked …`/`not-visible-or-locked` 也带同一组字段；`easter-window` 记录在 115 起已不计入 1200 条配额。
+- 未录屏、宿主正常时行为与 115 一致；关闭总开关/小彩蛋仍立即隐藏。
+
+新增回归：宿主瞬断保活（`captured || (presented && missing<2.0)`）、`hostMissingSince` 复位、诊断字段与策略分支 captured-keep 的源码契约。CI 非原生部分不替代真机录屏实测。
+
 ## 0.0.115：录屏期间浮球保活 + 浮球日志不再被挤掉
 
 精确基线114 `77ee7d4`。只动浮球这条线，其余（三类卡片、总开关、整页背景、CC/桌面/长按菜单、声音、排序、720、素材库）不动。

@@ -48,6 +48,10 @@
 @property(nonatomic) CGFloat keyboardTop;
 @property(nonatomic) NSUInteger generation, frame;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
+// 0.0.116: first moment the host probe reported nothing. A scene transition
+// (Notification Centre closing, app switch, recording HUD) can blank every
+// probe for a moment, and the ball used to disappear on that single frame.
+@property(nonatomic) CFTimeInterval hostMissingSince;
 @property(nonatomic) CGPoint normalized;
 // Cache only physical probes, never permission/scope decisions. Notifications
 // invalidate them; a bounded default-mode audit catches silent tree replacement.
@@ -532,18 +536,37 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // must stay while recording: keep what is already presented and record the
     // underlying reason instead of hiding. Outside a capture this is exactly
     // the previous behaviour.
-    BOOL keepOnCapture=LMVEasterScreenCaptured() && self.window && !self.window.hidden &&
-        self.bubbleImage.image!=nil && self.decoded.frames.count;
+    BOOL captured=LMVEasterScreenCaptured();
+    BOOL presented=self.window && !self.window.hidden && self.bubbleImage.image!=nil && self.decoded.frames.count;
     if(!host){
-        if(keepOnCapture){[self reportWindow:@"captured-keep host-missing"];return;}
-        [self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
+        CFTimeInterval now=CACurrentMediaTime();
+        if(self.hostMissingSince<=0)self.hostMissingSince=now;
+        CFTimeInterval missing=now-self.hostMissingSince;
+        NSString *detail=[NSString stringWithFormat:@"fg=%ld nc=%d cc=%d home=%d captured=%d for=%.1f",
+            (long)foreground,ncHost!=nil,ccHost!=nil,homeHost!=nil,captured,missing];
+        // 0.0.116 device log: the ball was presented on SBCoverSheetWindow and,
+        // 3.7 s later when Notification Centre had closed, every probe reported
+        // nothing and it was hidden on that single frame ("not-visible-or-
+        // locked"). A scene transition blanks these probes for a moment, so keep
+        // the presented window over a short gap and keep re-probing; while the
+        // display is captured it is never hidden at all. A host that stays
+        // missing still tears down exactly as before.
+        if(captured || (presented && missing<2.0)) {
+            [self reportWindow:[NSString stringWithFormat:@"host-missing-keep %@",detail]];
+            return;
+        }
+        [self hide];
+        [self reportWindow:[NSString stringWithFormat:@"%@ %@",@"home-nc-cc:not-visible-or-locked",detail]];
+        return;
+    }
+    self.hostMissingSince=0;
     CGFloat level=0;UIWindow *blockedWindow=nil;
     BOOL safetyClear=LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow);
     LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
         ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
     if(displayScene==LMVEasterDisplayNone) {
         NSString *reason=blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked";
-        if(keepOnCapture){[self reportWindow:[@"captured-keep " stringByAppendingString:reason]];return;}
+        if(captured && presented){[self reportWindow:[@"captured-keep " stringByAppendingString:reason]];return;}
         [self hide]; [self reportWindow:reason];return;
     }
     if(self.displayScene!=displayScene) { [self hide]; self.displayScene=displayScene; }

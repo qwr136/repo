@@ -123,7 +123,7 @@ static void LMVDiagnostic(NSString *event) {
             static NSUInteger records=0;
             static unsigned long lastEpoch=0;
             if (lastEpoch != epoch) { records=0; lastEpoch=epoch; }
-            // 0.0.115: the card and lock channels emit ~10-150 records per second,
+            // 0.0.116: the card and lock channels emit ~10-150 records per second,
             // so a fixed per-epoch budget silently dropped the rare floating-ball
             // decisions (no easter-window line ever reached the log, which made
             // "the ball disappeared" undiagnosable). Easter decisions are tiny and
@@ -141,7 +141,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.115 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.116 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -718,7 +718,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.115 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.116 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -728,7 +728,7 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    // 0.0.115: master switch for the whole tweak, read inline so sliced test
+    // 0.0.116: master switch for the whole tweak, read inline so sliced test
     // fixtures need no extra symbol. Absent or non-number means ENABLED, so an
     // upgrade never changes an existing configuration; only an explicit NO
     // stops every channel.
