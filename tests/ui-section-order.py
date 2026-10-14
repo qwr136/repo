@@ -128,21 +128,20 @@ class UISectionOrder(unittest.TestCase):
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
-            'reachabilityGroup', 'reachability',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 40)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 38)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 4)
-        self.assertEqual(40 + (len(TARGETS) + 3) * 2, 56)
+        self.assertEqual(38 + (len(TARGETS) + 3) * 2, 54)
         self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 14)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines() if 'setProperty:' in x or '.buttonAction =' in x)
-        self.assertEqual(digest('\n'.join(props)), '92e4f6ec8aeff5e7e1dca4caa6d36c881f17073b128bbc049019cec07d64c410')
+        self.assertEqual(digest('\n'.join(props)), '4acd335e442129a99e2c9982df95b9d6a9829d2f3986eb8041e8837a8d12a3ed')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)
