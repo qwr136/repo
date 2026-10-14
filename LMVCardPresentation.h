@@ -17,7 +17,7 @@ static LMVCardExposureEvidence *LMVCardEvidence(UIView *view) {
         objc_setAssociatedObject(view,&LMVCardExposureKey,e,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     UIWindow *window=view.window;
-    if (e.observed && e.window!=window) {
+    if (e.observed && e.window && e.window!=window) {
         // A presentation snapshot from the previous window is not admission.
         e.transferred=YES; e.exposed=NO; e.probeArmed=NO; e.probeUntil=0;
     }
@@ -36,7 +36,11 @@ static BOOL LMVCardLayerAttached(CALayer *layer,CALayer *root) {
     return NO;
 }
 static BOOL LMVCardAttached(UIView *view, UIWindow *window) {
-    if (!view || !window || view.window!=window || !LMVCardLayerAttached(view.layer,window.layer)) return NO;
+    if (!view || !window || view.window!=window) return NO;
+    // A UIWindow can host UIKit's card tree through an internal render/portal
+    // root. UIView.window + live superview ownership is the public scope proof;
+    // direct reachability to window.layer is not that ownership contract.
+    if(view!=window && !view.layer.superlayer)return NO;
     NSUInteger depth=0;
     // UIKit can insert transform/material containers between two UIView backing
     // layers. Equality to superview.layer was never a UIKit attachment contract.
@@ -57,6 +61,35 @@ static CGFloat LMVCardExposureAlpha(UIView *view, CALayer *layer, BOOL presentat
         view.layer.opacity==0.0f && layer.opacity==0.0f) return lease.baselineOpacity;
     return layer.opacity;
 }
+// Only for a MODEL CA tree bridged outside window.layer. Never override a
+// complete presentation sample which positively says hidden/clipped/offscreen.
+static BOOL LMVCardUIKitExposure(UIView *view,UIWindow *window) {
+    if(!LMVCardAttached(view,window) || window.hidden)return NO;
+    CGRect rect=[view convertRect:view.bounds toView:window];
+    if(!LMVCardRectValid(rect))return NO;
+    CGFloat alpha=1;NSUInteger depth=0;
+    for(UIView *node=view;node && ++depth<=32;node=node.superview) {
+        if(node.hidden || node.layer.hidden)return NO;
+        alpha*=LMVOriginalVisibilityAlpha(node);
+        if(!isfinite(alpha) || alpha<.01)return NO;
+        if(node.clipsToBounds || node.layer.masksToBounds || node==window) {
+            rect=CGRectIntersection(rect,[node convertRect:node.bounds toView:window]);
+            if(!LMVCardRectValid(rect))return NO;
+        }
+        if(node==window)break;
+    }
+    // Intermediate private CA layers still veto genuine hidden/alpha-zero
+    // or masked state: do not reinterpret a protected rendering subtree.
+    depth=0;
+    for(CALayer *layer=view.layer;layer && ++depth<=48;layer=layer.superlayer) {
+        if(layer.hidden || !isfinite(layer.opacity))return NO;
+        UIView *backing=nil;
+        for(UIView *node=view;node;node=node.superview){if(node.layer==layer){backing=node;break;}if(node==window)break;}
+        if(!backing && (layer.opacity<.01 || layer.masksToBounds || layer.mask))return NO;
+        if(layer==window.layer)break;
+    }
+    return LMVCardRectValid(CGRectIntersection(rect,LMVVideoWindowViewport(window)));
+}
 static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentation) {
     if (!LMVCardAttached(view,window)) return NO;
     CALayer *space=presentation ? view.layer.presentationLayer : view.layer;
@@ -69,7 +102,8 @@ static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentat
         for(CALayer *node=space;node && ++depth<=48;node=node.superlayer)
             if(node.modelLayer==window.layer){root=node;break;}
     }
-    if(!root || !LMVCardLayerAttached(space,root))return NO;
+    if(!root || !LMVCardLayerAttached(space,root))
+        return presentation?NO:LMVCardUIKitExposure(view,window);
     CGRect rect=[space convertRect:space.bounds toLayer:root];
     if (!LMVCardRectValid(rect)) return NO;
     CGFloat alpha=1;NSUInteger depth=0;
@@ -91,14 +125,6 @@ static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentat
     }
     rect=CGRectIntersection(rect,LMVVideoWindowViewport(window));
     return LMVCardRectValid(rect);
-}
-static BOOL LMVCardPresentationMotion(UIView *view) {
-    // Only this attached ancestor chain; no subtree/window discovery per frame.
-    for (UIView *node=view; node; node=node.superview) {
-        if (node.layer.animationKeys.count) return YES;
-        if (node==view.window) break;
-    }
-    return NO;
 }
 static BOOL LMVCardExposed(UIView *view) {
     LMVCardExposureEvidence *e=LMVCardEvidence(view);
@@ -127,10 +153,10 @@ static BOOL LMVCardCanProbe(UIView *view) {
     LMVCardExposureEvidence *e=LMVCardEvidence(view);
     UIWindow *window=view.window;
     if (!LMVCardAttached(view,window) || e.transferred) return NO;
-    BOOL moving=LMVCardPresentationMotion(view);
-    if (!moving) { e.probeArmed=NO; e.probeUntil=0; return NO; }
-    // A cold link can observe the next committed CA sample, but never starts a
-    // decoder until actual exposure is proven. One bounded probe per animation.
+    // A real attached card can enter via interactive layout with NO animationKeys.
+    // Give each new attachment one bounded .6s observation period. This starts
+    // visibility scheduling, NOT the decoder; real exposure is still required.
+    // Do not re-arm on every failed tick and create permanent offscreen work.
     if (!e.probeArmed) { e.probeArmed=YES; e.probeUntil=CACurrentMediaTime()+0.6; }
     return CACurrentMediaTime()<e.probeUntil;
 }

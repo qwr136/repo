@@ -1,5 +1,18 @@
 # 锁屏消息视频
 
+## 0.0.111：三类可见消费兼容、原系统背景保留、独立开关与录屏浮球
+
+精确基线110 `c4f57bc4215e2bb29a4f184861bfbb2c2690cc52`，94files逐blob核验。用户最新要求优先三类视频真正播放；其它已正常背景/声音/桌面/设置/720等冻结。
+
+同次110日志 `session=1 pid=30536` 97538.347～97561.066，共334事件：三类enabled/selected/assetready=1，8条同窗NC discovery scope=1但visible=0；两次Options/Clear也发现candidate。无card-exposure/sourcephase/firstpublished，提示应先查绑定准入和显示链调度，尚不能据此判定decoder坏或唯一根因。原displaylink/original/loadsource事件会去重，bind日志先检查后赋值从不输出，111修正这些诊断盲区，任何绑定/缺父时也可限流记录门槛，不依赖tick已启动。
+
+- 仅三类可见判定：UIView.window+实时owner/anchor/host归属严格保留，放松“所有系统backing必须直连window.layer”的不受UIKit契约保证的条件。仅模型树通过内部render/portal根桥接而没有window.layer祖先时，使用公开UIView同窗坐标、实际hidden/alpha/clips校验；完整呈现快照若明确撤回/hidden/clip仍拒绝，不用model强行复活。离屏卡片初次进入真实窗口不再当作旧窗口转移；新附着无animationKeys仍有一次有界.6s曝光观察，但未实际可见前不启动解码。真实foreign/detach/blank仍停止。
+- 按用户明确新政策：消息、选项、清除开启时只叠加自己的video overlay，不隐藏系统材质、不置opacity0、不detach原绘制层；升级/绑定维护会恢复旧自有租约。关闭Message只移除Message叠加层和停止Message源；Options/Clear各自同理，不影响其它类别或整页NC，原系统背景一直保留。文本/按钮原层不改。
+- VideoOpacityEnabled控制是否使用自定义alpha：关闭时自有视频alpha1且继续播放，开启时仅调整三个视频overlay alpha；真正alpha0不消费不可见视频，原系统背景保留。修掉99已有“透明度调节开关关闭却兼任三类播放总开关”的错误语义。
+- 录屏浮球：监听UIScreenCapturedDidChangeNotification开始/结束即重查真实层级；double CGFloat允许高于24位float人为上限的实际录屏窗口+1，仍有可表示数值边界、不竞赛自身、不改其它窗。屏幕blank排队回调读取最新notify值，拒过时blank误隐藏。普通录屏指示不阻挡，密码/权限/真实系统UIAlert仍保护；录屏是否实际触发旧上限尚未知，当前日志只有正常NC球体显示和收回，不声称已设备验证。
+
+同类卡片共享一个类别播放器，三类各自独立；原AVPlayer/reader/cache转换继续复用110成功native代码，不再盲换decoder。新增回归验证portal模型根、无动画冷曝光、系统背景全部属性/层次稳定、关闭一类其它仍playing、透明度调节关闭仍active、录屏高窗层级和陈旧blank保护。CI/native并非设备合成/录屏实测；交付包需要同次111真机检验。以下历史说明保留。
+
 ## 0.0.110：回查三类停播、独立可见声音、手势弹窗优先级与桌面保帧
 
 基线正式109 `4b0589cbd8f6fb6a78dcdc7b9501b0246a120767`，91files与交付源码ZIP逐blob核验。保留108已真机成功的LMVLockVideo.h通知整页几何，CC/Menu视频布局不变。独立110分支，不改main/109。

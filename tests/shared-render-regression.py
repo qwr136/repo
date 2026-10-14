@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.110')==1
+assert (root/'control').read_text().count('Version: 0.0.111')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.110'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.111'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -18,7 +18,9 @@ assert '@finally { if (workBuffer) CVPixelBufferRelease(workBuffer); }' in s
 assert 'state.layer.contents=(__bridge id)image' in s
 assert 'CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host]' in s
 assert 'if (!CGRectEqualToRect(state.overlay.frame,desiredFrame))' in s
-assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in s
+assert 'CGFloat desiredOpacity=LMVCardOpacity()' in s
+assert 'LMVOpacityEnabled && isfinite(LMVOpacity)' in s
+assert 'LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0' not in s
 for forbidden in ['[AVPlayerLayer','AVAudioSession','prerollAtRate','idleTimerDisabled','CFPreferencesSetAppValue']:
     assert forbidden not in s, forbidden
 # One chain per (target,path), shared immutable assets; no card-local player/reader.
@@ -91,4 +93,4 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.110 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
+print('PASS: 0.0.111 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')

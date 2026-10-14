@@ -45,7 +45,12 @@ int main(void) {
     for(int i=0;i<10000;i++) assert(LMVEasterBoundedPriorityLevel(1000000,&out) && out==1000001);
     assert(LMVEasterBoundedPriorityLevel(0x1p24-2,&out) && out==0x1p24-1);
     out=42;
-    assert(!LMVEasterBoundedPriorityLevel(0x1p24-1,&out) && out==42);
+    if(sizeof(CGFloat)>sizeof(float)) {
+        assert(LMVEasterBoundedPriorityLevel(0x1p24,&out) && out==0x1p24+1);
+        assert(LMVEasterBoundedPriorityLevel(1000000000,&out) && out==1000000001);
+        assert(LMVEasterBoundedPriorityLevel(0x1p48-2,&out) && out==0x1p48-1);
+        out=42;assert(!LMVEasterBoundedPriorityLevel(0x1p48-1,&out) && out==42);
+    } else assert(!LMVEasterBoundedPriorityLevel(0x1p24-1,&out) && out==42);
     assert(!LMVEasterBoundedPriorityLevel(NAN,&out) && out==42);
     assert(!LMVEasterBoundedPriorityLevel(INFINITY,&out) && out==42);
     assert(!LMVEasterBoundedPriorityLevel(-INFINITY,&out) && out==42);
@@ -135,8 +140,12 @@ int main(void) { @autoreleasepool {
     for(NSNumber *bad in @[@(NAN),@(INFINITY),@(-INFINITY)]) {
         UIWindow *w=hud(bad.doubleValue);allowed(@[home,w,own],own,1001);
     }
-    UIWindow *huge=hud(0x1p24-1);denied(@[home,huge,own],own,huge);
-    UIWindow *limit=hud(0x1p24-2);allowed(@[home,limit,own],own,0x1p24-1);
+    UIWindow *huge=hud(0x1p24-1);allowed(@[home,huge,own],own,0x1p24);
+    UIWindow *limit=hud(0x1p48-2);allowed(@[home,limit,own],own,0x1p48-1);
+    UIWindow *unrepresentable=hud(0x1p48-1);denied(@[home,unrepresentable,own],own,unrepresentable);
+    UIWindow *recording=[SBRecordingIndicatorWindow new];recording.windowLevel=1000000000;
+    rootView(recording,recording.rootViewController.viewIfLoaded);
+    allowed(@[home,recording,own],own,1000000001);recording.hidden=YES;allowed(@[home,recording,own],own,1001);
     // A gesture-containing security class gets NO special allowance, and a
     // small visible drawing is enough even without 30% area.
     UIWindow *auth=[GestureAuthenticationWindow new];auth.windowLevel=100000;

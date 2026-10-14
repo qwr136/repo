@@ -38,12 +38,18 @@ assert '[target stringByAppendingFormat:@"\\n%@",path]' in registry
 # No early hook, singleton, global layer/view mutation or second decoder path.
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','%hook UIView','%hook CALayer','AVAudioSession','prerollAtRate','idleTimerDisabled']:
     assert forbidden not in s+h+l,forbidden
-# Suppression depends on enable+selection+scope only: decoder failure and alpha0
-# have no effect on replacement, including cold absence of a preview frame.
+# Message/Options/Clear only add an owned overlay: even cold/error/alpha0/OFF
+# must leave the system background intact. Legacy leases are restored on upgrade.
 replace=function(h,'static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope)')
 for forbidden in ['state.active','state.source','LMVReadyAssets','LMVOpacity','cached','lastImage']:
     assert forbidden not in replace,forbidden
-assert 'LMVOriginalDetach' in replace
+preserved=replace.split('containsObject:target]',1)[1].split('return;',1)[0]
+for target in ('Message','Options','Clear'):
+    assert '@"'+target+'"' in replace.split('containsObject:target]',1)[0]
+assert 'LMVRestoreBackground(state)' in preserved
+for forbidden in ('LMVAcquireOriginal','LMVOriginalCandidates','maintain]', 'removeFromSuperlayer', 'opacity=', 'opacity =', 'hidden='):
+    assert forbidden not in preserved,forbidden
+assert 'state.originalAnchor=nil' in preserved and 'state.originalScope=nil' in preserved
 branch=function(h,'static void LMVOriginalCandidateBranch(UIView *view, BOOL wallpaper, NSUInteger depth, NSMutableArray *candidates, NSUInteger *remaining)')
 # Nil contents/color alone is not proof that a delegate-backed material is empty.
 # Preserve the independent safe-drawleaf path; the no-sublayer backing suppresses.
@@ -77,7 +83,17 @@ update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LockScreen' not in update and 'LMVLockBackground.h' not in s
 update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LMVReplaceBackground(state, anchor, host, target, originalInScope)' in update
-assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in function(s,'static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *host)')
+opacity=function(s,'static CGFloat LMVCardOpacity(void)')
+import re
+opacity_code=re.sub(r'\s+','',opacity)
+assert 'LMVOpacityEnabled' in opacity_code and ':1.0;' in opacity_code
+assert 'LMVOpacity' in opacity_code.split('?',1)[1].split(':',1)[0]
+assert 'CGFloat desiredOpacity=LMVCardOpacity()' in function(s,'static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *host)')
+for signature in ('static void LMVUpdate(UIView *cell)', 'static void LMVReconcileCardSources(UIView *cell)',
+                  'static void LMVSyncDisplayLink(void)', '- (void)tick:(CADisplayLink *)link'):
+    gate=function(s,signature)
+    assert 'LMVCardOpacity()' in gate,signature
+    assert 'LMVOpacityEnabled && LMVOpacity' not in gate,signature
 reuse=s.split('- (void)prepareForReuse {',1)[1].split('%end',1)[0]
 assert 'LMVPause(state)' in reuse
 assert 'LMVRestoreBackground(state)' in function(s,'static void LMVPause(LMVVideoState *state)')

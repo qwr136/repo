@@ -143,6 +143,16 @@ static void LMVRestoreBackground(LMVVideoState *state) {
 }
 static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *scope, NSString *target, BOOL inScope) {
     if (!state) return;
+    // .111 user policy: cards ADD their own video surface; keep all original
+    // material pixels/layers untouched. Release a previous owned suppression
+    // once when upgrading/rebinding; never acquire a new background lease.
+    if([@[@"Message",@"Options",@"Clear"] containsObject:target]) {
+        if(state.originals.count)LMVRestoreBackground(state);
+        state.originalAnchor=nil;state.originalScope=nil;
+        NSString *diagnostic=[NSString stringWithFormat:@"original target=%@ preserved=1",target];
+        if(![state.originalDiagnostic isEqualToString:diagnostic]){state.originalDiagnostic=diagnostic;LMVDiagnostic(diagnostic);}
+        return;
+    }
     if (!inScope || !anchor || !scope || state.originalAnchor != anchor || state.originalScope != scope) {
         LMVRestoreBackground(state);
         if (!inScope || !anchor || !scope) return;
@@ -194,6 +204,7 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
 // Stable layouts only inspect owned leases; no global or per-frame discovery.
 static void LMVMaintainOriginalBackground(LMVVideoState *state, UIView *owner, NSString *target, BOOL selected) {
     if (!state.originals.count) return;
+    if([@[@"Message",@"Options",@"Clear"] containsObject:target]){LMVRestoreBackground(state);return;}
     if (!selected || !owner.window || LMVOriginalBackgroundNeedsMaintenance(state)) {
         UIView *anchor = state.originalAnchor, *scope = state.originalScope;
         LMVReplaceBackground(state, anchor, scope, target,

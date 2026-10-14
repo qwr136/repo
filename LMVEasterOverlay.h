@@ -274,7 +274,10 @@ static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
 // or let an unrepresentable +1 silently tie a foreign window. Extreme finite
 // levels fail closed; malformed NaN/infinity cannot poison the running maximum.
 static BOOL LMVEasterBoundedPriorityLevel(CGFloat highest,CGFloat *level) {
-    const CGFloat limit=0x1p24-2;
+    // iOS CGFloat is double. The old universal 24-bit float cap falsely
+    // rejected high recording/gesture windows and actively hid our overlay.
+    // Keep exact +1 headroom for each actual scalar representation.
+    const CGFloat limit=sizeof(CGFloat)>sizeof(float)?0x1p48-2:0x1p24-2;
     if(!isfinite(highest) || highest>limit || highest < -limit)return NO;
     CGFloat next=highest+1;
     if(!isfinite(next) || next<=highest)return NO;
@@ -300,9 +303,11 @@ static BOOL LMVEasterOverlayPriority(NSArray<UIWindow *> *windows,UIWindow *own,
 }
 static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterManager *manager = (__bridge LMVEasterManager *)observer;
-    uint64_t blank=0;
-    BOOL blanked=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK && blank;
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Screen/recording transitions can queue multiple state notifications.
+        // Apply the CURRENT blank value, not an obsolete captured value.
+        uint64_t blank=0;
+        BOOL blanked=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK && blank;
         if (blanked) [manager recordScreenBlank];
         [manager refresh];
     });
@@ -315,7 +320,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         id x = LMVEasterRead(@"EasterEggX"), y = LMVEasterRead(@"EasterEggY");
         if ([x isKindOfClass:NSNumber.class] && [y isKindOfClass:NSNumber.class] && isfinite([x doubleValue]) && isfinite([y doubleValue])) _normalized = CGPointMake(MAX(0, MIN(1, [x doubleValue])), MAX(0, MIN(1, [y doubleValue])));
         for (NSString *name in @[@"com.minis.lockmessagevideo/preferencesChanged", @"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self, LMVEasterDarwin, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        for (NSString *name in @[UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeHiddenNotification, UIWindowDidBecomeKeyNotification, UISceneDidActivateNotification, UISceneWillDeactivateNotification, UIApplicationDidBecomeActiveNotification, UIApplicationDidReceiveMemoryWarningNotification]) {
+        for (NSString *name in @[UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeHiddenNotification, UIWindowDidBecomeKeyNotification, UIScreenCapturedDidChangeNotification, UISceneDidActivateNotification, UISceneWillDeactivateNotification, UIApplicationDidBecomeActiveNotification, UIApplicationDidReceiveMemoryWarningNotification]) {
             [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(changed:) name:name object:nil];
         }
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];

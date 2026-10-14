@@ -43,6 +43,11 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target);
 static void LMVWarmSourcesForPath(NSString *path);
 static CGFloat LMVOpacity = 0.55;
 static BOOL LMVOpacityEnabled = YES;
+static CGFloat LMVCardOpacity(void) {
+    // This switch controls CUSTOM alpha, not whether the video background exists.
+    // Off -> full opacity. BackgroundEnabled owns overlay existence separately.
+    return LMVOpacityEnabled && isfinite(LMVOpacity)?MAX(0.0,MIN(1.0,LMVOpacity)):1.0;
+}
 static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey, LMVMaintenanceKey;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
@@ -130,7 +135,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.110 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.111 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -707,7 +712,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.110 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.111 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -737,7 +742,8 @@ static void LMVLoadPreferences(void) {
     LMVOpacityEnabled = !opacityEnabled || opacityEnabled.boolValue;
     NSNumber *opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);
     if (!opacity) opacity = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("MessageBackgroundOpacity"), kLMVPrefsID);
-    // Off means fully transparent; keep the historical enabled default.
+    // Custom-alpha OFF means the video uses full opacity; BackgroundEnabled
+    // separately controls whether its owned overlay exists at all.
     LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, opacity.floatValue)) : 0.55;
     LMVPrepareAssets();
 }
@@ -765,6 +771,22 @@ static BOOL LMVNotificationCenterSurface(UIView *view) {
 static BOOL LMVVisible(UIView *view) {
     if (!LMVPlaybackAllowed() || !LMVNotificationCenterSurface(view)) return NO;
     return LMVCardExposed(view);
+}
+static char LMVCardPipelineAuditKey;
+static void LMVCardPipelineAudit(UIView *owner,LMVVideoState *state,NSString *target,UIView *anchor,NSString *stage) {
+    if(!LMVDiagnosticsEnabled.load())return;
+    NSMutableDictionary *records=objc_getAssociatedObject(owner,&LMVCardPipelineAuditKey);
+    if(!records){records=[NSMutableDictionary new];objc_setAssociatedObject(owner,&LMVCardPipelineAuditKey,records,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    NSString *key=[target stringByAppendingString:stage];CFTimeInterval now=CACurrentMediaTime();
+    unsigned long epoch=LMVDiagnosticEpoch.load();NSArray *old=records[key];
+    if(old && [old[0] unsignedLongValue]==epoch && now-[old[1] doubleValue]<.5)return;
+    records[key]=@[@(epoch),@(now)];UIView *surface=state.overlay;UIWindow *window=owner.window;
+    uint64_t blank=1;int blankStatus=LMVBlankToken<0?-1:notify_get_state(LMVBlankToken,&blank);
+    BOOL ownerModel=LMVCardExposureInTree(owner,window,NO),surfaceModel=LMVCardExposureInTree(surface,window,NO);
+    BOOL surfaceShown=LMVCardExposureInTree(surface,window,YES);
+    NSString *line=[NSString stringWithFormat:@"card-pipeline target=%@ stage=%@ owner=%p anchor=%p state=%d scope=%d gate=%d blankStatus=%d blank=%llu alphaEnabled=%d alpha=%.3f ownerVisible=%d ownerCAWindow=%d ownerModel=%d ownerShown=%d anchorParent=%d attached=%d surfaceModel=%d surfaceShown=%d surfaceVisible=%d surfaceCAWindow=%d surfaceHidden=%d surfaceOpacity=%.3f surfaceSize=%.1fx%.1f active=%d source=%lu requested=%d published=%lu",
+        target,stage,(__bridge void *)owner,(__bridge void *)anchor,state!=nil,LMVNotificationCenterSurface(owner),LMVPlaybackAllowed(),blankStatus,(unsigned long long)blank,LMVOpacityEnabled,LMVOpacity,LMVVisible(owner),LMVCardLayerAttached(owner.layer,window.layer),ownerModel,LMVCardExposureInTree(owner,window,YES),anchor.superview!=nil,LMVCardStateAttached(owner,state),surfaceModel,surfaceShown,LMVVisible(surface),LMVCardLayerAttached(surface.layer,window.layer),surface.hidden,surface.alpha,surface.bounds.size.width,surface.bounds.size.height,state.active,(unsigned long)state.source.identifier,state.source.playing,(unsigned long)state.source.published];
+    LMVDiagnostic(line);
 }
 static BOOL LMVActionBranch(UIView *view) {
     // Grouped notification actions use this presenter even when the concrete
@@ -866,7 +888,7 @@ static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *h
     state.overlay.layer.mask=nil;
     if (!CGRectEqualToRect(state.layer.frame,state.overlay.bounds)) state.layer.frame=state.overlay.bounds;
     if (state.layer.hidden) state.layer.hidden=NO;
-    CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0;
+    CGFloat desiredOpacity=LMVCardOpacity();
     if (state.overlay.alpha!=desiredOpacity) state.overlay.alpha=desiredOpacity;
     [CATransaction commit];
 }
@@ -961,6 +983,7 @@ static void LMVUpdate(UIView *cell) {
             if (!LMVEnabled[target].boolValue || !path) continue;
         }
         if (!anchor || !anchor.superview) {
+            LMVCardPipelineAudit(cell,state,target,anchor,@"no-anchor-parent");
             if (state && !state.detachedSince) state.detachedSince = now;
             if (state && state.overlay.superview && state.detachedSince && now - state.detachedSince < 0.18) continue;
             LMVPause(state); [state.overlay removeFromSuperview]; state.anchor = nil; continue;
@@ -1043,12 +1066,12 @@ static void LMVUpdate(UIView *cell) {
         if (!playbackAllowed && state.originals.count && cell.window &&
             state.originalAnchor == anchor && state.originalScope == host) originalInScope = YES;
         LMVReplaceBackground(state, anchor, host, target, originalInScope);
-        state.active=playbackAllowed && LMVOpacityEnabled && LMVOpacity>0.0 &&
+        state.active=playbackAllowed && LMVCardOpacity()>0.0 &&
             LMVCardStateVisible(cell,state,target);
-        if (reportGeometry) LMVDiagnostic([NSString stringWithFormat:@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height]);
         if (anchorVisible) state.lastVisible = now;
         // Owned content, geometry, opacity and corners are assigned before startup.
         if (!state.source && state.active) { state.source=LMVSourceForTarget(path,target); reportGeometry=state.source!=nil; }
+        if (reportGeometry) LMVDiagnostic([NSString stringWithFormat:@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height]);
         // Use this category's retained live frame, not another category's latest
         // same-file cache position, whenever a card joins its shared source.
         if(state.source.lastImage && state.layer.contents!=(__bridge id)state.source.lastImage) {
@@ -1057,6 +1080,7 @@ static void LMVUpdate(UIView *cell) {
         }
         if (state.active && state.source) LMVStartSource(state.source);
         else if (state.source && !LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
+        LMVCardPipelineAudit(cell,state,target,anchor,@"bound");
     }
     LMVSyncDisplayLink();
 }
@@ -1065,7 +1089,7 @@ static void LMVUpdate(UIView *cell) {
 static void LMVReconcileCardSources(UIView *cell) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
     NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
-    BOOL changed=NO,allowed=LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0;
+    BOOL changed=NO,allowed=LMVPlaybackAllowed() && LMVCardOpacity()>0;
     for(NSString *target in states) {
         LMVVideoState *state=states[target];
         BOOL active=allowed && LMVCardStateVisible(cell,state,target);
@@ -1302,7 +1326,7 @@ static void LMVSuspend(void) {
 static void LMVSyncDisplayLink(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     BOOL needed=NO;
-    if (LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0) {
+    if (LMVPlaybackAllowed() && LMVCardOpacity()>0) {
         for (UIView *cell in LMVCells.allObjects) {
             NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
             BOOL exposed=LMVVisible(cell);
@@ -1315,8 +1339,12 @@ static void LMVSyncDisplayLink(void) {
             if (needed) break;
         }
     }
-    static NSInteger lastNeeded=-1;
-    if (lastNeeded!=(NSInteger)needed) { lastNeeded=needed; LMVDiagnostic([NSString stringWithFormat:@"displaylink-needed=%d cells=%lu alpha-enabled=%d alpha=%.3f",needed,(unsigned long)LMVCells.count,LMVOpacityEnabled,LMVOpacity]); }
+    static NSInteger lastNeeded=-1;static unsigned long lastAuditEpoch=0;
+    unsigned long epoch=LMVDiagnosticEpoch.load();
+    if (lastNeeded!=(NSInteger)needed || (LMVDiagnosticsEnabled.load() && lastAuditEpoch!=epoch)) {
+        lastNeeded=needed;lastAuditEpoch=epoch;
+        LMVDiagnostic([NSString stringWithFormat:@"displaylink-needed=%d cells=%lu alpha-enabled=%d alpha=%.3f link=%d",needed,(unsigned long)LMVCells.count,LMVOpacityEnabled,LMVOpacity,LMVLink!=nil]);
+    }
     if (!needed) {
         // Stopping frame scheduling pauses sources and retains exact displayed frames.
         for (LMVSharedSource *source in LMVSharedSources.allValues) LMVStopSource(source); [LMVLink invalidate]; LMVLink=nil; return; }
@@ -1340,7 +1368,7 @@ static void LMVSyncDisplayLink(void) {
         BOOL cellVisible=LMVVisible(cell), changed=NO;
         for (NSString *target in states) {
             LMVVideoState *state=states[target];
-            BOOL active=LMVOpacityEnabled && LMVOpacity>0.0 &&
+            BOOL active=LMVCardOpacity()>0.0 &&
                 LMVCardStateVisible(cell,state,target);
             if (LMVDiagnosticsEnabled.load() && now-state.exposureDiagnosticAt>=.5) {
                 state.exposureDiagnosticAt=now;

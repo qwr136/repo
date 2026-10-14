@@ -44,6 +44,18 @@ pre+=r'''
 static NSMutableDictionary<NSString *,NSNumber *> *LMVEnabled;
 static NSMutableDictionary<NSString *,NSString *> *LMVPaths;
 static CGRect LMVVideoWindowViewport(UIWindow *window){return window.bounds;}
+// Public UIView conversion is independent of an internal CA portal root.
+@interface UIView(LMVFixtureCoordinates)
+- (CGRect)convertRect:(CGRect)rect toView:(UIView *)other;
+@end
+@implementation UIView(LMVFixtureCoordinates)
+- (CGRect)convertRect:(CGRect)rect toView:(UIView *)other {
+    CGPoint a=CGPointZero,b=CGPointZero;
+    for(UIView *n=self;n && n!=self.window;n=n.superview){a.x+=n.frame.origin.x;a.y+=n.frame.origin.y;}
+    for(UIView *n=other;n && n!=other.window;n=n.superview){b.x+=n.frame.origin.x;b.y+=n.frame.origin.y;}
+    return CGRectOffset(rect,a.x-b.x,a.y-b.y);
+}
+@end
 static BOOL LMVVisible(UIView *view);
 static BOOL LMVMessageCell(UIView *view){return [view isKindOfClass:NCNotificationListCell.class];}
 static BOOL LMVNotificationCenterSurface(UIView *view);
@@ -70,6 +82,19 @@ int main(void){@autoreleasepool{
  state.layer=[CALayer layer];[overlay.layer addSublayer:state.layer];
  LMVEnabled=[@{@"Message":@YES} mutableCopy];LMVPaths=[@{@"Message":@"movie"} mutableCopy];
  assert(LMVCardStateVisible(card,state,@"Message"));snapshot(w);
+ // 111 compatibility regression: UIKit owner stays attached while an internal
+ // CA render root is bridged separately from window.layer. 110 rejected this
+ // before checking public view exposure. No fallback for a detached UIView.
+ ((SampleLayer *)w.layer).sample=nil;((SampleLayer *)sliding.layer).sample=nil;
+ ((SampleLayer *)card.layer).sample=nil;((SampleLayer *)anchor.layer).sample=nil;((SampleLayer *)overlay.layer).sample=nil;
+ SampleLayer *portal=[SampleLayer layer];portal.bounds=w.bounds;portal.anchorPoint=CGPointZero;
+ [sliding.layer removeFromSuperlayer];[portal addSublayer:sliding.layer];
+ assert(!LMVCardLayerAttached(card.layer,w.layer) && LMVCardAttached(card,w));
+ for(NSString *t in @[@"Message",@"Options",@"Clear"]){LMVEnabled[t]=@YES;LMVPaths[t]=@"movie";assert(LMVCardStateVisible(card,state,t));}
+ portal.hidden=YES;assert(!LMVCardStateVisible(card,state,@"Message"));portal.hidden=NO;
+ portal.opacity=0;assert(!LMVCardStateVisible(card,state,@"Message"));portal.opacity=1;
+ card.frame=CGRectMake(0,1200,390,150);assert(!LMVCardStateVisible(card,state,@"Message"));card.frame=CGRectMake(0,60,390,150);
+ [portal removeFromSuperlayer];[w.layer addSublayer:sliding.layer];snapshot(w);
  // REPRO 107: UIKit has an intermediate layer although UIView ownership is
  // unchanged. Old superlayer==superview.layer returns NO for ALL three targets.
  SampleLayer *bridge=[SampleLayer layer];bridge.anchorPoint=CGPointZero;bridge.position=CGPointZero;bridge.bounds=w.bounds;

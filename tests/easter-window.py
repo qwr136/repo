@@ -19,6 +19,9 @@ assert 'if(security || modal ||' in helpers
 assert 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in s
 assert 'window==own' in helpers and 'LMVEasterBoundedPriorityLevel' in helpers
 assert 'valueWithNonretainedObject:window' in helpers and 'UIWindowDidBecomeVisibleNotification' in s
+assert 'UIScreenCapturedDidChangeNotification' in s
+blank=s[s.index('static void LMVEasterDarwin'):s.index('@implementation LMVEasterManager')]
+assert blank.index('dispatch_async')<blank.index('notify_get_state')
 assert 'self.bubble = [[UIView alloc]' in s and 'self.bubbleImage = [[UIImageView alloc]' in s
 assert 'self.bubbleImage.userInteractionEnabled = NO' in s
 assert 'LMVEasterUpdateRotation(self.bubbleImage.layer' in s
