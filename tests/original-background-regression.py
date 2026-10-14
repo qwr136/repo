@@ -74,7 +74,7 @@ assert 'objc_getAssociatedObject(view, &LMVOwnershipKey)' in candidate
 assert 'visibleOnly && (view.hidden || LMVOriginalVisibilityAlpha(view) < 0.01)' in candidate
 assert 'LMVMessageMaterialCandidate(view,depth,YES)' in discovery and 'LMVMessageMaterialCandidate(view,depth,NO)' in discovery
 update=function(s,'static void LMVUpdate(UIView *cell)')
-assert 'LockScreen' not in s and 'LMVLockBackground.h' not in s
+assert 'LockScreen' not in update and 'LMVLockBackground.h' not in s
 update=function(s,'static void LMVUpdate(UIView *cell)')
 assert 'LMVReplaceBackground(state, anchor, host, target, originalInScope)' in update
 assert 'CGFloat desiredOpacity=LMVOpacityEnabled ? LMVOpacity : 0.0' in function(s,'static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *host)')

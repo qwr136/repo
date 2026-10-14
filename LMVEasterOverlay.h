@@ -251,7 +251,6 @@ static BOOL LMVEasterPriorityWindowVisible(UIWindow *window) {
 static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
     (void)level; // Security is never waived just because the bubble is higher.
     if(!LMVEasterPriorityWindowVisible(window))return NO;
-    BOOL trusted=LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow",@"SBControlCenterWindow",@"SBHomeScreenWindow"]);
     NSUInteger depth=0,drawingBudget=96,foregroundBudget=96;
     for(UIViewController *controller=window.rootViewController;controller && depth++<16;
         controller=controller.presentedViewController) {
@@ -267,8 +266,7 @@ static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
         BOOL visible=root && !root.hidden && root.alpha>=.01 && !CGRectIsNull(exposed) &&
             !CGRectIsEmpty(exposed) && !CGRectIsInfinite(exposed);
         if(security || modal || (classSecurity && (drawing || substantive || foreground)) ||
-           (visible && alert && [controller isKindOfClass:alert]) ||
-           (!trusted && window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)))return YES;
+           (visible && alert && [controller isKindOfClass:alert]))return YES;
     }
     return NO;
 }

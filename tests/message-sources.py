@@ -87,7 +87,8 @@ production = ('@interface LMVFrameSnapshot : NSObject' + snapshot
     + function('static void LMVCacheFrame(NSString *path, NSString *revision, CGImageRef image, CMTime time, BOOL rendered)')
     + registry + '@interface LMVSharedSource : NSObject' + source_class
     + factory + warm_sources + read_buffer + publish
-    + function('static void LMVStartSource(LMVSharedSource *source)') + stop + retire + invalidate)
+    + function('static void LMVStartSource(LMVSharedSource *source)')
+    + function('static BOOL LMVSourceNeedsReaderRecovery(LMVSharedSource *source,CFTimeInterval now)') + stop + retire + invalidate)
 tests = r'''
 // Instrument the factory-owned AVPlayers without substituting their items,
 // outputs, class or clocks. Forward every seek to AVFoundation unchanged.
@@ -191,6 +192,13 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVSharedSource *options=LMVSourceForTarget(path,@"Options");
     LMVSharedSource *clear=LMVSourceForTarget(path,@"Clear");
     NSArray<LMVSharedSource *> *sources=@[message,options,clear];
+    for(LMVSharedSource *source in sources) {
+        source.playing=YES;source.restoreOnStart=YES;source.restoringTime=YES;source.lastProgressAt=100;
+        assert(!LMVSourceNeedsReaderRecovery(source,100.1));
+        assert(LMVSourceNeedsReaderRecovery(source,101)); // both restore flags cannot deadlock fallback
+        source.frameBusy=YES;assert(!LMVSourceNeedsReaderRecovery(source,110));source.frameBusy=NO;
+        source.playing=NO;source.restoringTime=NO;
+    }
     for(NSUInteger i=0;i<sources.count;i++) {
         LMVSharedSource *source=sources[i];NSString *target=LMVTargets()[i];
         assert([source.ownerTarget isEqual:target]);

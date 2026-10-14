@@ -1,5 +1,23 @@
 # 锁屏消息视频
 
+## 0.0.110：回查三类停播、独立可见声音、手势弹窗优先级与桌面保帧
+
+基线正式109 `4b0589cbd8f6fb6a78dcdc7b9501b0246a120767`，91files与交付源码ZIP逐blob核验。保留108已真机成功的LMVLockVideo.h通知整页几何，CC/Menu视频布局不变。独立110分支，不改main/109。
+
+### 旧版三类静止的源码原因（不等于真机唯一根因）
+- 079/082认可attached NCNotification祖先，107～109收窄为CoverSheet/NotificationCenter而删掉NC owner证据；真实NCNotificationListCell若挂在其它普通UIWindow，scope=0导致active/source不启动。110恢复精确NCNotificationListCell类型身份，不把任意App窗口变成通知中心，原Secure/CC排除和samewindow归属保留。回归现在执行生产scope，不再用模拟CoverSheet-window谓词替代。
+- 呈现曝光混用了model UIView clipsToBounds；model已裁剪而显示快照未裁剪时可能误判看不见。110呈现分支只用本树masksToBounds；window model hidden不再凭UIView animationKeys拒绝完整真实曝光，实际samplehidden/clip/opacity/撤回照旧拒绝。不盲删modelLayer归属校验。
+- 缓存有效PTS+item失败/Unknown/seek长期未完成，restoreOnStart/restoringTime旧门槛会同时挡正常启动和reader fallback。110已请求的独立source使用有界no-progress恢复，失败直接恢复、不ready/seek超时可转既有reader，保lastframe/time、代际拒旧完成。并非整套decoder重写，三类仍独立，同类卡片复用1源。无真机109日志，不能认定三个原因都在用户设备同时触发。
+
+### 用户新增声音音量（不是画面大小）
+主设置/悬浮窗口每种Message/Options/Clear/LockScreen/Desktop/HomeMenu及CC深/浅素材下增加独立声音开关和0～100%音量。默认OFF、音量50%，normalized keys TargetSoundEnabled/TargetVolume。视频视觉composition仍video-only，独立audio-only源按真实可见消费，隐藏/frozen/熄屏/关闭暂停。Ambient+MixWithOthers，不duck或独占，不接管外部音乐remote command，不在pause时setActive:NO。音频无轨道的素材不会凭空发声。iOS与其它音乐App实际混音/权限仍需真机验收，macOS只可验证策略和独立音轨生命周期。
+
+### 浮球与快速桌面转场
+109最高level+1只对透明/小HUD生效，普通第三方手势弹窗只要有controls/实质绘制仍被当成block而主动hide。110移除这项generic highlevel blocker，使球也在这些普通弹窗之上；明确密码/认证/隐私/授权/权限和UIAlertController/UIActionSheet安全模态仍隐藏，不猜鱿鱼class绕过安全名。实际鱿鱼未提供classdump/版本，不能宣称真机兼容已通过。
+桌面已拥有Home-only宿主通过原子holdCurrentFrame暂停保帧，不先setVisible:NO使render隐藏再setFrozen:YES；临时零尺寸不清自有layerframe/租约，exactparent/window/原content归属仍严格，真正off/blank/lock/detach/replace/error恢复。快速进入退出App不新建player，稳定layout去重保持。
+
+新增原生回归覆盖scope/两个树裁剪不同步/缓存超时、八类audio-only可见pause和默认静音、250次快速转场hiddenwrite/lease测量及UI路由。编译、native/doubles不能代替用户设备合成/后台音乐/鱿鱼/CPU验证。安装后注销一次，保留设置素材。以下历史发布说明保留。
+
 ## 0.0.109：消息/选项/清除各类独立播放器、可见即播与悬浮球优先级
 
 准确基线108 `d85a89672e48104be84ab4553e2f3ceb7a058173`，90文件与成功交付ZIP逐blob核验。用户已真机验收通知中心整页下拉背景成功，因此冻结LMVLockVideo.h/Playback和Desktop/CC/HomeMenu，不动已成功路径。

@@ -38,13 +38,14 @@ class UISectionOrder(unittest.TestCase):
         self.assertEqual(actual, [5, 6, 7, 8, 9])
         total = re.search(r'numberOfSectionsInTableView:.*?\{ return (LMVEaster\w+Section)\(\) \+ 1;', PANEL).group(1)
         self.assertEqual(section(total) + 1, 10)
-        for line in ['if (section == LMVEasterControlCenterSection()) return 3;',
-                     'if (section == LMVEasterHomeMenuSection()) return 2;',
+        for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
+                     'if (section == LMVEasterControlCenterSection()) return 7;',
+                     'if (section == LMVEasterHomeMenuSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
-        rows = [3 if i == actual[0] else 1 if i in (actual[2], actual[4]) else 2 for i in range(10)]
-        self.assertEqual(rows, [2, 2, 2, 2, 2, 3, 2, 1, 2, 1])
-        self.assertEqual(sum(rows), 19)
+        rows = [4 if i < 5 or i == actual[1] else 7 if i == actual[0] else 1 if i in (actual[2], actual[4]) else 2 for i in range(10)]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 35)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -72,9 +73,15 @@ class UISectionOrder(unittest.TestCase):
     def test_panel_selection_cells_import_defaults_unchanged(self):
         cells = PANEL[PANEL.index('- (UITableViewCell *)tableView:'):PANEL.index('- (void)toggle:')]
         selection = PANEL[PANEL.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:'):]
-        self.assertEqual(digest(cells), '9fe3724d491aea26e6e818db22d0bc23b4946422660d4bfe009d0a3447cd71c4')
+        # Remove only the newly inserted audio block and normalize the moved CC
+        # light material's display index; all original cells retain their hash.
+        audio_start = cells.index('    NSString *audioTarget = LMVEasterAudioTarget(')
+        audio_end = cells.index('    if (index.section == LMVEasterImportSection())', audio_start)
+        old_cells = cells[:audio_start] + cells[audio_end:]
+        old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
+        self.assertEqual(digest(old_cells), '9fe3724d491aea26e6e818db22d0bc23b4946422660d4bfe009d0a3447cd71c4')
         self.assertEqual(digest(selection), 'e694bb5e12fb3a1209f893373ee1bb3ae820b2a3b8e740264d72d2608f88e119')
-        self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 2 ? @"ControlCenterLightVideo" : nil)', PANEL)
+        self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',
                      'picker.apply = ^(NSString *relative, NSString *name) { LMVEasterSet(key, relative);',
@@ -101,12 +108,21 @@ class UISectionOrder(unittest.TestCase):
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
         self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 36)
+        self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
+        for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu')]:
+            self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
+        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 4)
+        self.assertEqual(36 + (len(TARGETS) + 3) * 2, 52)
         self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 14)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines() if 'setProperty:' in x or '.buttonAction =' in x)
         self.assertEqual(digest('\n'.join(props)), '6a8316248f720d7bfeacf41f76828b56ca6dfe62c488dca50445a9ebdc560626')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
-        self.assertEqual(digest(handlers), '00c0c8d02105a428ccde4072426beeebc5b825bee4952a10e3e66a6cafd360df')
+        volume_start = handlers.index('- (id)volume:')
+        volume_end = handlers.index('- (id)opacity:', volume_start)
+        old_handlers = handlers[:volume_start] + handlers[volume_end:]
+        old_handlers = old_handlers.replace(': [specifier propertyForKey:@"audioVolumeKey"];', ': nil;')
+        self.assertEqual(digest(old_handlers), '00c0c8d02105a428ccde4072426beeebc5b825bee4952a10e3e66a6cafd360df')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu')]:
             self.assertIn(f'- (void){action}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}', handlers)

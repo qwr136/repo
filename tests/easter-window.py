@@ -14,7 +14,8 @@ assert 'invalidatePhysicalSnapshot' in refresh and 'PhysicalCheckNeeded' in tick
 assert all(word not in tick for word in ('connectedScenes','CFPreferences','lstat','VisibleDrawing','[self layout]'))
 assert all(word not in drag for word in ('refresh','LMVRequestSafeUpdate','stringWithFormat','VisibleDrawing'))
 assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout and 'cornerRadius' not in layout
-assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' in helpers and 'area/full>=0.30' in helpers
+assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' not in helpers and 'area/full>=0.30' in helpers
+assert 'if(security || modal ||' in helpers
 assert 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in s
 assert 'window==own' in helpers and 'LMVEasterBoundedPriorityLevel' in helpers
 assert 'valueWithNonretainedObject:window' in helpers and 'UIWindowDidBecomeVisibleNotification' in s
@@ -205,7 +206,8 @@ int main(void) { @autoreleasepool {
     UIWindow *emptyAuth=[AuthenticationWindow new];emptyAuth.windowLevel=100;assert(!LMVEasterBlockingWindow(emptyAuth,1200));
     solid(emptyAuth.rootViewController.viewIfLoaded);assert(LMVEasterBlockingWindow(emptyAuth,1200));
     UIWindow *alert=[UIWindow new];alert.windowLevel=2000;solid(alert.rootViewController.viewIfLoaded);
-    assert(LMVEasterBlockingWindow(alert,1200));alert.hidden=YES;assert(!LMVEasterBlockingWindow(alert,1200));alert.hidden=NO;
+    assert(!LMVEasterBlockingWindow(alert,1200)); // generic painted plugin popup, not UIAlertController
+    alert.hidden=YES;assert(!LMVEasterBlockingWindow(alert,1200));alert.hidden=NO;
     alert.rootViewController.viewIfLoaded.alpha=0;assert(!LMVEasterBlockingWindow(alert,1200));
     UIWindow *auth=[UIWindow new];auth.windowLevel=100;
     AuthenticationView *view=[AuthenticationView new];view.window=auth;auth.rootViewController.viewIfLoaded=view;

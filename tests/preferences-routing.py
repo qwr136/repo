@@ -41,8 +41,11 @@ assert 'forKey:@"footerText"' in cc_section
 for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
     assert f'@"切换{title}模式素材"' in cc_section
     assert f'controlCenter{mode}.buttonAction = @selector(switchControlCenter{mode}:);' in cc_section
-for forbidden in ('Opacity', 'Blur', 'Audio', 'PSSliderCell', 'ControlCenterDarkBackgroundEnabled', 'ControlCenterLightBackgroundEnabled'):
+for forbidden in ('Opacity', 'Blur', 'PSSliderCell', 'ControlCenterDarkBackgroundEnabled', 'ControlCenterLightBackgroundEnabled'):
     assert forbidden not in cc_section
+for mode in ('Dark', 'Light'):
+    assert f'[self appendAudioForTarget:@"ControlCenter{mode}"' in cc_section
+assert '[self appendAudioForTarget:@"HomeMenu"' in source
 import_callback = source[source.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
 import_targets = re.findall(r'@"([^"]+)"', re.search(r'for \(NSString \*target in @\[(.*?)\]\)', import_callback).group(1))
 assert import_targets == ['Message', 'Options', 'Clear']

@@ -33,6 +33,8 @@ if 'NSArray *gestureRecognizers;' not in pre:
 if '- (void)insertSubview:(UIView *)view atIndex:' not in pre:
  pre=pre.replace('- (void)addSubview:(UIView *)view;', '- (void)addSubview:(UIView *)view;\n- (void)insertSubview:(UIView *)view atIndex:(NSInteger)index;')
  pre=pre.replace('- (void)layoutSubviews {}', '- (void)insertSubview:(UIView *)view atIndex:(NSInteger)index {[view removeFromSuperview];[self.subviews insertObject:view atIndex:(NSUInteger)index];view.superview=self;[self.layer insertSublayer:view.layer atIndex:(unsigned)index];}\n- (void)layoutSubviews {}')
+pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated;', '- (void)viewWillDisappear:(BOOL)animated;\n- (void)viewDidDisappear:(BOOL)animated;')
+pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}', '- (void)viewWillDisappear:(BOOL)animated {self.disappearances++;}\n- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}')
 pre=pre.replace('@interface UIWindow:UIView\n', '@interface UIWindow:UIView\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window;\n')
 pre=pre.replace('- (UIWindow *)window {return self;}','- (UIWindow *)window {return self;}\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window {return [self.layer convertRect:rect toLayer:window.layer];}')
 pre=pre.replace('@interface UIApplication:NSObject\n','@interface UIApplication:NSObject\n@property(nonatomic,strong) id frontmost;\n- (id)_frontmostApplication;\n')
@@ -59,6 +61,33 @@ pre=pre.replace('- (void)layoutInBounds:(CGRect)bounds {self.renderLayer.frame=b
 pre=pre.replace('- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;', '- (void)setVisible:(BOOL)visible {self.visibleCalls++;self.wantsPlayback=visible;')
 pre=pre.replace('- (void)setFrozen:(BOOL)frozen {_frozen=frozen;', '- (void)setFrozen:(BOOL)frozen {self.frozenCalls++;_frozen=frozen;')
 pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)resumeIfNeeded {self.resumeCalls++;}\n')
+# Typed public atomic hold API supplied by shared Playback; do not simulate it
+# through setVisible:NO + setFrozen:YES (that intermediate hidden write is tested).
+pre=pre.replace('- (void)resumeIfNeeded;', '- (void)resumeIfNeeded;\n- (void)holdCurrentFrame:(BOOL)hold;')
+pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)holdCurrentFrame:(BOOL)hold {self.holdCalls++;_frozen=hold;self.wantsPlayback=!hold;self.posterOnlyVisible=NO;self.renderLayer.hidden=self.error!=nil || !self.posterLayer.contents;if(!hold)[self resumeIfNeeded];}\n')
+pre=pre.replace('visibleCalls,frozenCalls,resumeCalls;', 'visibleCalls,frozenCalls,resumeCalls,holdCalls;')
+pre=pre.replace('@implementation UIView\n', r'''
+static BOOL watchFastTransitions;
+static __weak UIView *watchedHost,*watchedContent;
+static NSUInteger fastHostHiddenWrites,fastRenderHiddenWrites,fastLeaseRestores;
+@implementation UIView
+- (void)setHidden:(BOOL)hidden {
+    if(watchFastTransitions && self==watchedHost && hidden)fastHostHiddenWrites++;
+    if(watchFastTransitions && self==watchedContent && !hidden)fastLeaseRestores++;
+    _hidden=hidden;self.layer.hidden=hidden;
+}
+''')
+pre=pre.replace('@implementation LMVLockVideoPlayback\n', r'''
+@interface MeasuredDesktopLayer:CALayer @end
+@implementation MeasuredDesktopLayer
+- (void)setHidden:(BOOL)hidden {
+    if(watchFastTransitions && hidden)fastRenderHiddenWrites++;
+    [super setHidden:hidden];
+}
+@end
+@implementation LMVLockVideoPlayback
+''')
+pre=pre.replace('_renderLayer=[CALayer layer];', '_renderLayer=[MeasuredDesktopLayer layer];')
 pre+=r'''
 static NSUInteger fullDesktopPolicies;
 static NSDictionary *testPrefs;
@@ -145,6 +174,21 @@ int main(void){@autoreleasepool {
  // tearing it down, so the launch animation never flashes the system wallpaper.
  TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";UIApplication.sharedApplication.frontmost=app;[m update];
  assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);UIApplication.sharedApplication.frontmost=nil;[m update];assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ // Measured fast enter/exit: no intermediate setHidden:YES on render/host,
+ // no background lease release, and one retained player through transient zero bounds.
+ watchFastTransitions=YES;watchedHost=m.host;watchedContent=wallPixels;
+ CALayer *retainedRender=m.playback.renderLayer;id retainedPlayer=m.playback.player;
+ CGRect fullBounds=wall.bounds;
+ for(int cycle=0;cycle<250;cycle++) {
+  UIApplication.sharedApplication.frontmost=app;record.visible=NO;[m update];
+  wall.bounds=CGRectZero;[m syncGeometry];[m update];
+  assert(m.host.superview==wall && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);
+  wall.bounds=fullBounds;record.visible=YES;UIApplication.sharedApplication.frontmost=nil;[m update];
+  assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);
+  assert(m.playback.renderLayer==retainedRender && m.playback.player==retainedPlayer);
+ }
+ watchFastTransitions=NO;
+ assert(fastHostHiddenWrites==0 && fastRenderHiddenWrites==0 && fastLeaseRestores==0);
  // App-to-Home lifecycle/geometry can temporarily make every newly discovered
  // container unavailable while the old Home-only surface is still attached.
  // Keep its original content lease even beyond the removed 0.6 s deadline.

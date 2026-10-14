@@ -155,8 +155,8 @@ int main(void) { @autoreleasepool {
     UIWindow *sheet=hud(100);UIActionSheet *sheetView=[UIActionSheet new];sheetView.bounds=CGRectMake(0,0,40,40);child(sheet,sheetView);
     denied(@[home,sheet,own],own,sheet);
     UIWindow *control=hud(10000);UIControl *button=[UIControl new];button.bounds=CGRectMake(0,0,30,20);child(control,button);
-    denied(@[home,control,own],own,control);button.hidden=YES;allowed(@[home,control,own],own,10001);
-    UIWindow *opaque=hud(10000);solid(opaque.rootViewController.viewIfLoaded);denied(@[home,opaque,own],own,opaque);
+    allowed(@[home,control,own],own,10001);button.hidden=YES;allowed(@[home,control,own],own,10001);
+    UIWindow *opaque=hud(10000);solid(opaque.rootViewController.viewIfLoaded);allowed(@[home,opaque,own],own,10001);
     // Trusted hosts still hide real authentication and presented alerts.
     home.rootViewController.presentedViewController=alert;
     denied(@[home,own],own,home);home.rootViewController.presentedViewController=nil;

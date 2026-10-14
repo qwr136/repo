@@ -28,7 +28,8 @@ assert 'LMVDiskPending containsObject:key' in preview
 source=function('static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
 assert 'LMVDiskPending' in source and 'source.lastTime=snapshot.time' in source
 assert 'LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);' in source
-assert 'LMVWallpaperFrameCache' not in s and 'LockScreen' not in s
+assert 'LMVWallpaperFrameCache' not in s and 'LockScreen' not in source
+assert 'LMVAudioConsume(@"LockScreen"' in s
 assert 'LMVSharedSources[source.registryKey]==source' in function('static void LMVRetireSource(LMVSharedSource *source)')
 initial=source.split('LMVSharedSources[registryKey]=source',1)[0]
 assert 'seekToTime:' not in initial  # end-of-movie observer retains its existing loop seek

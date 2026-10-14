@@ -69,6 +69,8 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 // `setVisible:NO` additionally hides renderLayer, which is what revealed the
 // system wallpaper for the whole app-launch transition.
 - (void)setFrozen:(BOOL)frozen;
+// Atomic Home transition: pause/retain or resume without a hidden intermediate state.
+- (void)holdCurrentFrame:(BOOL)hold;
 - (void)layoutInBounds:(CGRect)bounds;
 - (void)clear;
 @end
@@ -181,6 +183,12 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     _frozen=frozen;
     if (frozen) [self.player pause];
     [self updatePresentation];
+}
+- (void)holdCurrentFrame:(BOOL)hold {
+    BOOL changed=_frozen!=hold || self.wantsPlayback==hold || self.posterOnlyVisible;
+    _frozen=hold;self.wantsPlayback=!hold;self.posterOnlyVisible=NO;
+    if(hold)[self.player pause];else [self resumeIfNeeded];
+    if(changed)[self updatePresentation];
 }
 - (void)updatePresentation {
     BOOL ready=self.player && self.playerLayer.readyForDisplay && !self.error;

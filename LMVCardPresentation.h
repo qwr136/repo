@@ -83,7 +83,7 @@ static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentat
         if(layer.hidden || (!presentation && backing.hidden))return NO;
         alpha*=backing?LMVCardExposureAlpha(backing,layer,presentation):layer.opacity;
         if (!isfinite(alpha) || alpha<0.01) return NO;
-        if (layer.masksToBounds || backing.clipsToBounds || layer==root) {
+        if (layer.masksToBounds || (!presentation && backing.clipsToBounds) || layer==root) {
             rect=CGRectIntersection(rect,[layer convertRect:layer.bounds toLayer:root]);
             if (!LMVCardRectValid(rect)) return NO;
         }
@@ -115,7 +115,9 @@ static BOOL LMVCardExposed(UIView *view) {
         if(node.modelLayer==window.layer){hasSample=YES;break;}
     BOOL exposed;
     if(hasSample) {
-        if(window.hidden && !LMVCardPresentationMotion(view))return NO;
+        // Hidden MODEL window is not a veto on an actually exposed snapshot
+        // (NC Reachability/interactive portal). Snapshot hidden/opacity/clip
+        // below still reject a truly withdrawn window with no geometry cache.
         exposed=LMVCardExposureInTree(view,window,YES);
     } else exposed=modelExposed;
     if(exposed){e.exposed=YES;e.probeArmed=NO;e.probeUntil=0;}

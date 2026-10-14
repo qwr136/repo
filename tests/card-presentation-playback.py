@@ -46,12 +46,14 @@ static NSMutableDictionary<NSString *,NSString *> *LMVPaths;
 static CGRect LMVVideoWindowViewport(UIWindow *window){return window.bounds;}
 static BOOL LMVVisible(UIView *view);
 static BOOL LMVMessageCell(UIView *view){return [view isKindOfClass:NCNotificationListCell.class];}
-static BOOL LMVNotificationCenterSurface(UIView *view){return [view.window isKindOfClass:SBCoverSheetWindow.class];}
+static BOOL LMVNotificationCenterSurface(UIView *view);
 static CGFloat LMVOriginalVisibilityAlpha(UIView *view){
  LMVOriginalLease *lease=[LMVOriginalLeases() objectForKey:view.layer];
  return lease && !lease.retired && lease.method==LMVOriginalSuppressDrawing && view.layer.opacity==0 ? lease.baselineOpacity:view.alpha;
 }
 '''
+scope=s[s.index('static BOOL LMVNotificationCenterSurface(UIView *view) {'):s.index('#import "LMVCardPresentation.h"')]
+pre+=scope
 main=r'''
 static SampleLayer *snapshot(UIView *v){
  SampleLayer *p=[SampleLayer layer];p.source=v.layer;p.bounds=v.layer.bounds;p.anchorPoint=v.layer.anchorPoint;p.position=v.layer.position;
@@ -106,14 +108,19 @@ int main(void){@autoreleasepool{
  // Model still onscreen, but committed presentation panel withdrawn: pause.
  ((SampleLayer *)sliding.layer).sample.position=CGPointMake(195,-844+422);
  assert(!LMVCardStateVisible(card,state,@"Message"));snapshot(w);
- sliding.clipsToBounds=YES;sliding.frame=CGRectMake(0,0,390,30);snapshot(w);assert(!LMVCardStateVisible(card,state,@"Message"));
+ sliding.frame=CGRectMake(0,0,390,30);sliding.clipsToBounds=NO;snapshot(w);sliding.clipsToBounds=YES;
+ assert(LMVCardStateVisible(card,state,@"Message")); // committed tree still does NOT clip
+ ((SampleLayer *)sliding.layer).sample.masksToBounds=YES;assert(!LMVCardStateVisible(card,state,@"Message"));
  sliding.frame=CGRectMake(0,0,390,844);snapshot(w);screenBlank=1;assert(!LMVCardStateVisible(card,state,@"Message"));screenBlank=0;
  LMVEnabled[@"Message"]=@NO;assert(!LMVCardStateVisible(card,state,@"Message"));LMVEnabled[@"Message"]=@YES;
- w.hidden=YES;snapshot(w);assert(!LMVCardStateVisible(card,state,@"Message"));w.hidden=NO;snapshot(w);
+ snapshot(w);w.hidden=YES;assert(LMVCardStateVisible(card,state,@"Message"));
+ ((SampleLayer *)w.layer).sample.hidden=YES;assert(!LMVCardStateVisible(card,state,@"Message"));w.hidden=NO;snapshot(w);
  // Move to another NC window: cached sample of old tree is not admission.
  assert(LMVCardExposed(card));SBCoverSheetWindow *other=[SBCoverSheetWindow new];[card removeFromSuperview];[other addSubview:card];card.frame=CGRectMake(0,1000,390,150);
  assert(!LMVCardExposed(card));card.frame=CGRectMake(0,0,390,150);assert(LMVCardExposed(card));
- UIWindow *app=[UIWindow new];[app addSubview:card];assert(!LMVVisible(card));
+ UIWindow *app=[UIWindow new];UIView *ordinary=[UIView new];[app addSubview:ordinary];assert(!LMVVisible(ordinary));
+ [app addSubview:card];card.frame=CGRectMake(0,0,390,150);assert(LMVNotificationCenterSurface(card));
+ for(NSString *target in @[@"Message",@"Options",@"Clear"])assert(LMVCardStateVisible(card,state,target));
  puts("PASS actual production Message consumer gate: overall NC model-offscreen/presentation-visible,500 stable,parent sample hidden,lease opacity baseline,clip,blank,disable,withdraw,window transfer/app rejection; not decode/device pixels");
 }return 0;}
 '''

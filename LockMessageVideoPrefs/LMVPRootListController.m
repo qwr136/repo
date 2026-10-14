@@ -34,6 +34,24 @@ static void LMVNotify(void) {
     [super viewDidLoad];
     self.title = @"背景视频";
 }
+- (void)appendAudioForTarget:(NSString *)target title:(NSString *)title {
+    NSString *volumeKey = [target stringByAppendingString:@"Volume"];
+    PSSpecifier *sound = [PSSpecifier preferenceSpecifierNamed:[title stringByAppendingString:@"声音"] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [sound setProperty:[target stringByAppendingString:@"SoundEnabled"] forKey:@"key"];
+    [sound setProperty:@NO forKey:@"default"];
+    [sound setProperty:volumeKey forKey:@"audioVolumeKey"];
+    [_specifiers addObject:sound];
+    PSSpecifier *volume = [PSSpecifier preferenceSpecifierNamed:[title isEqualToString:@"播放"] ? @"声音音量（%）" : [title stringByAppendingString:@"音量（%）"] target:self set:@selector(setVolume:specifier:) get:@selector(volume:) detail:nil cell:PSSliderCell edit:nil];
+    [volume setProperty:volumeKey forKey:@"key"];
+    [volume setProperty:@0.0 forKey:@"min"];
+    [volume setProperty:@100.0 forKey:@"max"];
+    // Defaults/preferences are normalized; only this slider's display is percent.
+    [volume setProperty:@0.5 forKey:@"default"];
+    [volume setProperty:@YES forKey:@"showValue"];
+    [volume setProperty:[volumeKey stringByAppendingString:@"Slider"] forKey:@"id"];
+    [volume setProperty:[self enabled:sound] forKey:@"enabled"];
+    [_specifiers addObject:volume];
+}
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
     _specifiers = [NSMutableArray new];
@@ -48,6 +66,7 @@ static void LMVNotify(void) {
         PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:titles[i] target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
         choose.buttonAction = actions[i];
         [_specifiers addObject:choose];
+        [self appendAudioForTarget:LMVTargets()[i] title:@"播放"];
     }
     PSSpecifier *controlCenter = [PSSpecifier groupSpecifierWithName:@"控制中心背景"];
     [controlCenter setProperty:@"按系统深浅色模式自动选择素材；未选择对应模式素材时保留系统背景。" forKey:@"footerText"];
@@ -59,9 +78,11 @@ static void LMVNotify(void) {
     PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换深色模式素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterDark.buttonAction = @selector(switchControlCenterDark:);
     [_specifiers addObject:controlCenterDark];
+    [self appendAudioForTarget:@"ControlCenterDark" title:@"深色模式"];
     PSSpecifier *controlCenterLight = [PSSpecifier preferenceSpecifierNamed:@"切换浅色模式素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
     [_specifiers addObject:controlCenterLight];
+    [self appendAudioForTarget:@"ControlCenterLight" title:@"浅色模式"];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];
     PSSpecifier *homeMenuEnabled = [PSSpecifier preferenceSpecifierNamed:@"桌面长按菜单视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"];
@@ -71,6 +92,7 @@ static void LMVNotify(void) {
     homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);
     [homeMenuMaterial setProperty:@"HomeMenuMaterial" forKey:@"id"];
     [_specifiers addObject:homeMenuMaterial];
+    [self appendAudioForTarget:@"HomeMenu" title:@"播放"];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -153,7 +175,7 @@ static void LMVNotify(void) {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotify();
     NSString *key = [specifier propertyForKey:@"key"];
-    NSString *sliderKey = [key isEqualToString:@"VideoOpacityEnabled"] ? @"VideoOpacity" : nil;
+    NSString *sliderKey = [key isEqualToString:@"VideoOpacityEnabled"] ? @"VideoOpacity" : [specifier propertyForKey:@"audioVolumeKey"];
     if (sliderKey) {
         for (PSSpecifier *slider in _specifiers) {
             if ([[slider propertyForKey:@"key"] isEqualToString:sliderKey]) {
@@ -163,6 +185,18 @@ static void LMVNotify(void) {
             }
         }
     }
+}
+- (id)volume:(PSSpecifier *)specifier {
+    id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
+    double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.5;
+    double volume = isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5;
+    return @(volume * 100.0);
+}
+- (void)setVolume:(id)value specifier:(PSSpecifier *)specifier {
+    double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] / 100.0 : 0.5;
+    double volume = isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5;
+    CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@(volume), kLMVPrefsID);
+    LMVNotify();
 }
 - (id)opacity:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);

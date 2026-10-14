@@ -27,6 +27,12 @@ for ui in (prefs, panel):
     assert 'ControlCenterBackgroundEnabled' in ui
     assert 'ControlCenterDarkBackgroundEnabled' not in ui and 'ControlCenterLightBackgroundEnabled' not in ui
 assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]' in panel
+# Audio is inserted inside existing video sections, never in image/rotation controls.
+assert 'LMVEasterAudioTarget(index.section, index.row)' in panel
+assert '[sound setProperty:@NO forKey:@"default"]' in prefs
+assert '[volume setProperty:@0.5 forKey:@"default"]' in prefs
+assert 'SoundEnabled' in prefs + panel and 'volumeChanged:' in panel
+assert 'SoundEnabled' not in image and 'setVolume:' not in image
 for target in ('LockScreen', 'Desktop'):
     assert f'@"{target}":@""' in panel and f'@"{target}": @""' in prefs
     assert f'@selector(switch{target}:)' in prefs
@@ -89,7 +95,7 @@ assert '- (BOOL)canBecomeKeyWindow { return self.panel != nil && !self.hidden; }
 assert 'restoreKey' in overlay and 'becomeFirstResponder' not in overlay
 hit_start = overlay.index('- (UIView *)hitTest:')
 assert 'return nil;' in overlay[hit_start:overlay.index('@end', hit_start)]
-assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' in overlay
+assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' not in overlay
 assert '(visible && alert && [controller isKindOfClass:alert])' in overlay
 assert 'classSecurity && (drawing || substantive || foreground)' in overlay
 assert 'LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated)' in overlay

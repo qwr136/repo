@@ -33,8 +33,11 @@ assert len(targets) + 5 == 10  # Existing eight sections + HomeMenu + image disp
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', video) is not None
 assert 'LMVEasterControlCenterSection() + 1' in video and 'LMVEasterOpacitySection() + 1' in video
 assert 'LMVEasterImportSection() + 1' in video and 'LMVEasterHomeMenuSection() + 1' in video
-assert 'section == LMVEasterControlCenterSection()) return 3' in video
-assert 'section == LMVEasterHomeMenuSection()) return 2' in video
+assert 'section >= 0 && section < LMVEasterTargets().count) return 4' in video
+assert 'section == LMVEasterControlCenterSection()) return 7' in video
+assert 'section == LMVEasterHomeMenuSection()) return 4' in video
+assert 'LMVEasterAudioTarget(index.section, index.row)' in video
+assert '@selector(soundChanged:)' in video and '@selector(volumeChanged:)' in video
 assert 'section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2' in video
 assert 'if (section < LMVEasterTargets().count) return LMVEasterTitles()[section]' in video
 assert 'ControlCenterBackgroundEnabled' in video

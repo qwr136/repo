@@ -79,7 +79,21 @@ static void LMVDesktopVideoSuspend(void);
         self.accessibilityElementsHidden=YES;self.opaque=NO;self.clipsToBounds=YES;self.backgroundColor=UIColor.clearColor;}
     return self;
 }
-- (void)layoutSubviews {[super layoutSubviews];[self.playback layoutInBounds:self.bounds];}
+- (void)setFrame:(CGRect)frame {
+    if(self.superview && !LMVLockVideoRectValid(frame) && LMVLockVideoRectValid(self.frame))return;
+    [super setFrame:frame];
+}
+- (void)setBounds:(CGRect)bounds {
+    if(self.superview && !LMVLockVideoRectValid(bounds) && LMVLockVideoRectValid(self.bounds))return;
+    [super setBounds:bounds];
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    // UIKit can deliver zero bounds between reparent/layout transactions. Do
+    // not collapse the retained render surface; the next valid layout repairs it.
+    if(LMVLockVideoRectValid(self.bounds) && !CGRectEqualToRect(self.playback.renderLayer.frame,self.bounds))
+        [self.playback layoutInBounds:self.bounds];
+}
 @end
 // Mirror the reference's contentView hiding only for an explicit Home target.
 // Backing layers always stay attached; only restore an attribute we own.
@@ -100,7 +114,10 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) LMVDesktopVideoHost *host;
 @property(nonatomic,strong) LMVDesktopContentLease *lease;
-@property(nonatomic,weak) UIView *container;
+@property(nonatomic,weak) UIView *container,*attachedContent,*explicitSource;
+@property(nonatomic,weak) UIWindow *attachmentWindow,*explicitWindow;
+@property(nonatomic,weak) UIViewController *attachmentController;
+@property(nonatomic) BOOL wallpaperAttachment;
 @property(nonatomic,strong) NSTimer *timer;
 @property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
@@ -233,6 +250,25 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     calls=0;slow=0;maxSeconds=0;windowStart=now;
     return report;
 }
+// Retention is not discovery: only an exact, still-attached Home ownership
+// acquired while visible may survive a lifecycle/geometry transition.
+static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
+    UIView *container=manager.container;UIWindow *window=container.window;
+    if(!container || manager.host.superview!=container || !window || window.screen!=UIScreen.mainScreen ||
+       LMVLockVideoClass(window,@"SBCoverSheetWindow"))return NO;
+    if(manager.wallpaperAttachment) {
+        if((window!=manager.attachmentWindow && !LMVDesktopHomeWindow(window)) || LMVDesktopExplicitWallpaper!=container ||
+           LMVDesktopWallpaperContent(container)!=manager.attachedContent)return NO;
+    } else {
+        UIViewController *owner=manager.attachmentController;
+        if(!owner || owner.viewIfLoaded!=container)return NO;
+        if(LMVLockVideoClass(owner,@"PBUIPosterHomeViewController")) {
+            if(window!=manager.attachmentWindow || !LMVDesktopPureContent(container,manager.host))return NO;
+        } else if(!LMVDesktopHomeWindow(window))return NO;
+    }
+    return !manager.lease || (manager.lease.parent==container && manager.lease.content==manager.attachedContent &&
+        manager.lease.content.superview==container);
+}
 @implementation LMVDesktopVideoManager
 - (instancetype)init {
     if (!NSThread.isMainThread || (!LMVLaunchReady && !LMVDesktopUIAvailable)) return nil;
@@ -309,15 +345,18 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     BOOL screenKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
     if (!screenKnown || blank || !lockKnown) self.authenticatedSession=NO;
-    UIView *homeRoot=nil;UIViewController *poster=nil;BOOL homeConfirmed=NO;
+    UIView *homeRoot=nil;UIViewController *poster=nil,*homeOwner=nil;BOOL homeConfirmed=NO;
     for (UIViewController *controller in LMVDesktopControllers.allObjects) {
         if (!LMVDesktopControllerEligible(controller))continue;
         if (LMVLockVideoClass(controller,@"PBUIPosterHomeViewController")) {poster=controller;continue;}
         LMVDesktopControllerRecord *record=objc_getAssociatedObject(controller,&LMVDesktopControllerRecordKey);
         if (record.known && record.visible) homeConfirmed=YES;
-        if (!homeRoot || LMVLockVideoClass(controller,@"SBHomeScreenViewController")) homeRoot=controller.viewIfLoaded;
+        if (!homeRoot || LMVLockVideoClass(controller,@"SBHomeScreenViewController")) {homeRoot=controller.viewIfLoaded;homeOwner=controller;}
     }
     UIView *wallpaper=LMVDesktopExplicitWallpaper;
+    BOOL displacedWallpaper=wallpaper && wallpaper==self.explicitSource && wallpaper.window!=self.explicitWindow &&
+        !LMVDesktopHomeWindow(wallpaper.window);
+    if(displacedWallpaper)wallpaper=nil; // Do not reacquire the same background in an app window.
     UIView *content=wallpaper && LMVDesktopGeometryVisible(wallpaper)?LMVDesktopWallpaperContent(wallpaper):nil;
     BOOL wallpaperValid=content!=nil;
     if (LMVLockVideoClass(wallpaper.window,@"SBCoverSheetWindow")) {wallpaperValid=NO;content=nil;}
@@ -326,6 +365,12 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     // legacy SBFWallpaperView, with the same background-only scope requirement.
     if (!wallpaperValid && poster && LMVDesktopGeometryVisible(poster.viewIfLoaded)) {
         container=poster.viewIfLoaded;content=nil;
+    }
+    // A zero-size/hidden wallpaper during app landing is not evidence that the
+    // fallback Home root replaced it. Keep the exact owned target and its lease;
+    // only a real identity/content replacement may switch the host.
+    if(!wallpaperValid && self.wallpaperAttachment && LMVDesktopOwnedAttachment(self)) {
+        container=self.container;content=self.attachedContent;wallpaperValid=YES;
     }
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover):CGRectZero;
     NSInteger foreground=LMVDesktopForeground();
@@ -338,7 +383,9 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession && foreground>=0 &&
         (foreground==1 || homeConfirmed) && !unknownCover;
     BOOL configured=self.enabled && self.path.length && self.revision.length;
-    BOOL visible=configured && container && LMVDesktopGeometryVisible(container) && environment;
+    LMVDesktopControllerRecord *ownerRecord=objc_getAssociatedObject(self.attachmentController,&LMVDesktopControllerRecordKey);
+    BOOL lifecycleAway=!locked && container==self.container && ownerRecord.known && !ownerRecord.visible;
+    BOOL visible=configured && !self.playback.error && !lifecycleAway && container && LMVDesktopGeometryVisible(container) && environment;
     // A currently locked state outside an authenticated NC pull is a real lock.
     if (locked && CGRectIsEmpty(cover))visible=NO;
     // 0.0.91: an application reaching the foreground must NOT tear the surface
@@ -360,8 +407,11 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     if (!visible && self.host.superview!=nil && !definitiveAway) {
         if (self.holdSince<=0) self.holdSince=holdNow;
     } else self.holdSince=0;
-    BOOL retainedAttachment=self.container && self.host.superview==self.container &&
-        (!self.lease || (self.lease.parent==self.container && self.lease.content.superview==self.container));
+    BOOL retainedAttachment=LMVDesktopOwnedAttachment(self);
+    // An owned explicit wallpaper moved to an unrelated window is not a new
+    // acquisition. Home-root reparenting is permitted only to another real Home.
+    if(container==self.container && self.wallpaperAttachment && container.window!=self.attachmentWindow &&
+       !LMVDesktopHomeWindow(container.window))visible=NO;
     // The existing Home-only attachment is the scope proof. A fixed 0.6 s
     // expiry could restore the wallpaper before a long app-return/Reachability
     // transition finished. Hold it paused until exposure returns or a definitive
@@ -371,7 +421,10 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
             [self.lease restore];self.lease=nil;[self.host removeFromSuperview];
         }
-        self.container=container;
+        self.container=container;self.attachedContent=content;self.attachmentWindow=container.window;
+        if(wallpaperValid){self.explicitSource=container;self.explicitWindow=container.window;}
+        self.wallpaperAttachment=wallpaperValid;
+        self.attachmentController=homeOwner ?: poster;
         if (content && content.superview==container) {
             NSUInteger back=[container.subviews indexOfObjectIdenticalTo:content],own=[container.subviews indexOfObjectIdenticalTo:self.host];
             if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:content];}
@@ -413,10 +466,11 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
             if(self.playback.wantsPlayback || !self.playback.frozen) {
-                [self.playback setVisible:NO];[self.playback setFrozen:YES];
+                [self.playback holdCurrentFrame:YES];
             }
         } else if(play) {
-            if(!self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible)
+            if(self.playback.frozen)[self.playback holdCurrentFrame:NO];
+            else if(!self.playback.wantsPlayback || self.playback.posterOnlyVisible)
                 [self.playback setVisible:YES];
             else [self.playback resumeIfNeeded];
         } else if(self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible)
@@ -576,20 +630,28 @@ static void LMVDesktopLifecycle(UIViewController *controller,NSInteger visible) 
     UIView *root=controller.viewIfLoaded;
     BOOL changed=record.root!=root;record.root=root;
     if(visible>=0){changed|=!record.known || record.visible!=(visible!=0);record.known=YES;record.visible=visible!=0;}
-    if(changed)LMVDesktopRequestUpdate();
+    if(changed) {
+        // Pause/resume the already-owned Home surface on the lifecycle turn,
+        // not one maintenance tick later. The coalesced callback still reads
+        // current records/foreground; it never captures an obsolete visible bit.
+        if(visible>=0 && LMVLaunchReady && LMVDesktopVideo && !LMVDesktopVideo.suspended &&
+           LMVDesktopVideo.attachmentController==controller)[LMVDesktopVideo update];
+        LMVDesktopRequestUpdate();
+    }
 }
 
 static void (*LMVDesktopOriginalLoad)(id,SEL),(*LMVDesktopOriginalLayout)(id,SEL);
-static void (*LMVDesktopOriginalWillAppear)(id,SEL,BOOL),(*LMVDesktopOriginalDidAppear)(id,SEL,BOOL),(*LMVDesktopOriginalDidDisappear)(id,SEL,BOOL);
+static void (*LMVDesktopOriginalWillAppear)(id,SEL,BOOL),(*LMVDesktopOriginalDidAppear)(id,SEL,BOOL),(*LMVDesktopOriginalWillDisappear)(id,SEL,BOOL),(*LMVDesktopOriginalDidDisappear)(id,SEL,BOOL);
 static void (*LMVIconOriginalLoad)(id,SEL),(*LMVIconOriginalLayout)(id,SEL);
-static void (*LMVIconOriginalWillAppear)(id,SEL,BOOL),(*LMVIconOriginalDidAppear)(id,SEL,BOOL),(*LMVIconOriginalDidDisappear)(id,SEL,BOOL);
+static void (*LMVIconOriginalWillAppear)(id,SEL,BOOL),(*LMVIconOriginalDidAppear)(id,SEL,BOOL),(*LMVIconOriginalWillDisappear)(id,SEL,BOOL),(*LMVIconOriginalDidDisappear)(id,SEL,BOOL);
 static void (*LMVPosterHomeOriginalLoad)(id,SEL),(*LMVPosterHomeOriginalLayout)(id,SEL);
-static void (*LMVPosterHomeOriginalWillAppear)(id,SEL,BOOL),(*LMVPosterHomeOriginalDidAppear)(id,SEL,BOOL),(*LMVPosterHomeOriginalDidDisappear)(id,SEL,BOOL);
+static void (*LMVPosterHomeOriginalWillAppear)(id,SEL,BOOL),(*LMVPosterHomeOriginalDidAppear)(id,SEL,BOOL),(*LMVPosterHomeOriginalWillDisappear)(id,SEL,BOOL),(*LMVPosterHomeOriginalDidDisappear)(id,SEL,BOOL);
 #define LMV_DESKTOP_CALLBACKS(prefix) \
 static void prefix##HookLoad(id value,SEL selector){prefix##OriginalLoad(value,selector);LMVDesktopLifecycle(value,-1);} \
 static void prefix##HookLayout(id value,SEL selector){prefix##OriginalLayout(value,selector);LMVDesktopLifecycle(value,-1);LMVDesktopHostReady(value);} \
 static void prefix##HookWillAppear(id value,SEL selector,BOOL animated){prefix##OriginalWillAppear(value,selector,animated);LMVDesktopLifecycle(value,1);LMVDesktopHostReady(value);} \
 static void prefix##HookDidAppear(id value,SEL selector,BOOL animated){prefix##OriginalDidAppear(value,selector,animated);LMVDesktopLifecycle(value,1);LMVDesktopHostReady(value);} \
+static void prefix##HookWillDisappear(id value,SEL selector,BOOL animated){prefix##OriginalWillDisappear(value,selector,animated);LMVDesktopLifecycle(value,0);} \
 static void prefix##HookDidDisappear(id value,SEL selector,BOOL animated){prefix##OriginalDidDisappear(value,selector,animated);LMVDesktopLifecycle(value,0);}
 LMV_DESKTOP_CALLBACKS(LMVDesktop)
 LMV_DESKTOP_CALLBACKS(LMVIcon)
@@ -626,6 +688,7 @@ static void LMVDesktopVideoInstallHooks(void) {
         LMV_DESKTOP_INSTALL(cls,@"viewDidLayoutSubviews",NO,prefix##HookLayout,prefix##OriginalLayout); \
         LMV_DESKTOP_INSTALL(cls,@"viewWillAppear:",YES,prefix##HookWillAppear,prefix##OriginalWillAppear); \
         LMV_DESKTOP_INSTALL(cls,@"viewDidAppear:",YES,prefix##HookDidAppear,prefix##OriginalDidAppear); \
+        LMV_DESKTOP_INSTALL(cls,@"viewWillDisappear:",YES,prefix##HookWillDisappear,prefix##OriginalWillDisappear); \
         LMV_DESKTOP_INSTALL(cls,@"viewDidDisappear:",YES,prefix##HookDidDisappear,prefix##OriginalDidDisappear); \
     } \
 } while(0)

@@ -7,7 +7,7 @@
 
 // Image import and display controls stay on their own settings page.
 @interface LMVEasterPanel : UITableViewController <PHPickerViewControllerDelegate>
-@property(nonatomic) BOOL busy, opacityTracking, panelVisible;
+@property(nonatomic) BOOL busy, opacityTracking, volumeTracking, panelVisible;
 @property(nonatomic) NSUInteger catalogGeneration;
 @property(nonatomic, copy) NSDictionary *names;
 @property(nonatomic, strong) LMVEasterPhotoFlow *photoFlow;
@@ -29,13 +29,40 @@ static NSInteger LMVEasterDisplaySection(void) { return LMVEasterHomeMenuSection
 static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }
 static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
 static NSString *LMVEasterControlCenterKey(NSInteger row) {
-    return row == 1 ? @"ControlCenterDarkVideo" : (row == 2 ? @"ControlCenterLightVideo" : nil);
+    return row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil);
+}
+// Audio tags are target indices, never section indices (CC has two targets).
+static NSArray *LMVEasterAudioTargets(void) {
+    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu"];
+}
+static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
+    if (section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)) return LMVEasterTargets()[section];
+    if (section == LMVEasterHomeMenuSection() && (row == 2 || row == 3)) return @"HomeMenu";
+    if (section == LMVEasterControlCenterSection()) {
+        if (row == 2 || row == 3) return @"ControlCenterDark";
+        if (row == 5 || row == 6) return @"ControlCenterLight";
+    }
+    return nil;
+}
+static BOOL LMVEasterAudioVolumeRow(NSInteger section, NSInteger row) {
+    return LMVEasterAudioTarget(section, row) && (row == 3 || row == 6);
+}
+static NSString *LMVEasterAudioTargetForTag(NSInteger tag) {
+    return tag >= 0 && tag < LMVEasterAudioTargets().count ? LMVEasterAudioTargets()[tag] : nil;
+}
+static double LMVEasterAudioVolume(id value) {
+    double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.5;
+    return isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5;
+}
+static BOOL LMVEasterAudioEnabled(NSString *target) {
+    id value = LMVEasterRead([target stringByAppendingString:@"SoundEnabled"]);
+    return [value isKindOfClass:NSNumber.class] ? [value boolValue] : NO;
 }
 static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterPanel *panel = (__bridge LMVEasterPanel *)observer;
     dispatch_async(dispatch_get_main_queue(), ^{
         CFPreferencesAppSynchronize(LMVEasterPrefs);
-        if (panel.isViewLoaded && !panel.opacityTracking) { [panel.tableView reloadData]; [panel loadNames]; }
+        if (panel.isViewLoaded && !panel.opacityTracking && !panel.volumeTracking) { [panel.tableView reloadData]; [panel loadNames]; }
     });
 }
 @implementation LMVEasterPanel
@@ -110,8 +137,9 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImportSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == LMVEasterControlCenterSection()) return 3;
-    if (section == LMVEasterHomeMenuSection()) return 2;
+    if (section >= 0 && section < LMVEasterTargets().count) return 4;
+    if (section == LMVEasterControlCenterSection()) return 7;
+    if (section == LMVEasterHomeMenuSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row > 0 ? 60 : 44; }
@@ -135,6 +163,32 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    NSString *audioTarget = LMVEasterAudioTarget(index.section, index.row);
+    if (audioTarget) {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        NSInteger tag = [LMVEasterAudioTargets() indexOfObject:audioTarget];
+        if (!LMVEasterAudioVolumeRow(index.section, index.row)) {
+            cell.textLabel.text = @"播放声音";
+            UISwitch *toggle = [UISwitch new]; toggle.tag = tag; toggle.on = LMVEasterAudioEnabled(audioTarget);
+            [toggle addTarget:self action:@selector(soundChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else {
+            UISlider *slider = [UISlider new]; slider.tag = tag;
+            slider.minimumValue = 0; slider.maximumValue = 1;
+            slider.value = LMVEasterAudioVolume(LMVEasterRead([audioTarget stringByAppendingString:@"Volume"]));
+            slider.enabled = LMVEasterAudioEnabled(audioTarget);
+            slider.accessibilityLabel = @"声音音量";
+            slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", slider.value * 100.0];
+            cell.textLabel.text = [@"音量 " stringByAppendingString:slider.accessibilityValue];
+            [slider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+            slider.translatesAutoresizingMaskIntoConstraints = NO; [cell.contentView addSubview:slider];
+            [NSLayoutConstraint activateConstraints:@[
+                [slider.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:120],
+                [slider.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+                [slider.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor]
+            ]];
+        }
+        return cell;
+    }
     if (index.section == LMVEasterImportSection()) {
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入视频（原片）";
         cell.imageView.image = [UIImage systemImageNamed:@"square.and.arrow.down"];
@@ -171,7 +225,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(LMVEasterControlCenterKey(index.row));
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.row - 1) : @"未选择";
+            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.row == 1 ? 0 : 1) : @"未选择";
             cell.detailTextLabel.numberOfLines = 2;
         }
         return cell;
@@ -222,6 +276,26 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
+}
+- (void)soundChanged:(UISwitch *)toggle {
+    NSString *target = LMVEasterAudioTargetForTag(toggle.tag);
+    if (!target) return;
+    LMVEasterSet([target stringByAppendingString:@"SoundEnabled"], @(toggle.on));
+    [self.tableView reloadData];
+}
+- (void)volumeChanged:(UISlider *)slider {
+    NSString *target = LMVEasterAudioTargetForTag(slider.tag);
+    if (!target) return;
+    double volume = LMVEasterAudioVolume(@(slider.value));
+    self.volumeTracking = slider.isTracking;
+    LMVEasterSet([target stringByAppendingString:@"Volume"], @(volume));
+    slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
+    for (UIView *view = slider.superview; view; view = view.superview) {
+        if ([view isKindOfClass:UITableViewCell.class]) {
+            ((UITableViewCell *)view).textLabel.text = [@"音量 " stringByAppendingString:slider.accessibilityValue]; break;
+        }
+    }
+    if (!slider.isTracking) { self.volumeTracking = NO; [self.tableView reloadData]; }
 }
 - (void)opacityChanged:(UISlider *)slider {
     self.opacityTracking = slider.isTracking;

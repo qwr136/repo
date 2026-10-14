@@ -130,7 +130,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.109 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.110 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -142,6 +142,7 @@ static void LMVDiagnostic(NSString *event) {
 #import "LMVDesktopVideo.h"
 #import "LMVControlCenterVideo.h"
 #import "LMVHomeMenuVideo.h"
+#import "LMVMediaAudio.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -605,6 +606,11 @@ static void LMVReleasePlayer(LMVVideoState *state) {
     state.source=nil; state.active=NO;
     if (!LMVSourceHasConsumer(source)) LMVStopSource(source);
 }
+static BOOL LMVSourceNeedsReaderRecovery(LMVSharedSource *source,CFTimeInterval now) {
+    if(!source || !source.playing || source.readerMode || source.frameBusy)return NO;
+    CFTimeInterval limit=source.published?3.0:.75;
+    return source.player.currentItem.status==AVPlayerItemStatusFailed || now-source.lastProgressAt>=limit;
+}
 static void LMVRetireSource(LMVSharedSource *source) {
     if (!source) return;
     LMVStopSource(source); source.generation++;
@@ -701,7 +707,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.109 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.110 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -744,7 +750,8 @@ static BOOL LMVNotificationCenterSurface(UIView *view) {
     if ([attachedWindowName containsString:@"ControlCenter"] || [attachedWindowName containsString:@"Secure"]) return NO;
     for (UIView *node = view; node; node = node.superview) {
         NSString *name = NSStringFromClass(node.class);
-        if ([name containsString:@"NotificationCenter"] || [name containsString:@"CoverSheet"]) return YES;
+        Class card=NSClassFromString(@"NCNotificationListCell");
+        if((card && [node isKindOfClass:card]) || [name containsString:@"NotificationCenter"] || [name containsString:@"CoverSheet"]) return YES;
     }
     NSString *windowName = NSStringFromClass(view.window.class);
     if ([windowName containsString:@"CoverSheet"] || [windowName containsString:@"NotificationCenter"]) return YES;
@@ -939,7 +946,7 @@ static void LMVUpdate(UIView *cell) {
     }
     if (LMVDiagnosticsEnabled.load()) {
     static char discoveryDiagnosticKey;
-    NSMutableString *discovery=[NSMutableString stringWithFormat:@"discovery visible=%d",visible];
+    NSMutableString *discovery=[NSMutableString stringWithFormat:@"discovery visible=%d scope=%d ownerClass=%@ windowClass=%@ controllerClass=%@",visible,LMVNotificationCenterSurface(cell),NSStringFromClass(cell.class),cell.window?NSStringFromClass(cell.window.class):@"none",cell.window.rootViewController?NSStringFromClass(cell.window.rootViewController.class):@"none"];
     for (NSString *target in LMVTargets()) [discovery appendFormat:@" %@ enabled=%d selected=%d assetready=%d host=%d",target,LMVEnabled[target].boolValue,LMVPaths[target]!=nil,LMVReadyAssets && [LMVReadyAssets containsObject:LMVPaths[target] ?: @""],[hosts objectForKey:target]!=nil];
     NSString *previous=objc_getAssociatedObject(cell,&discoveryDiagnosticKey);
     if (![previous isEqualToString:discovery]) { objc_setAssociatedObject(cell,&discoveryDiagnosticKey,[discovery copy],OBJC_ASSOCIATION_RETAIN_NONATOMIC); LMVDiagnostic(discovery); }
@@ -1193,6 +1200,56 @@ static void LMVPrimeActionBackgrounds(UIView *presenter) {
     LMVRequestCardUpdate((UIView *)self,YES);
 }
 %end
+static NSTimer *LMVAudioTimer;
+static BOOL LMVAudioLayerExposed(CALayer *layer,UIWindow *window) {
+    if(!layer || !window || window.hidden || !layer.superlayer || layer.hidden)return NO;
+    CALayer *paint=layer.presentationLayer ?: layer,*root=window.layer.presentationLayer ?: window.layer;
+    CGRect rect=[paint convertRect:paint.bounds toLayer:root];CGFloat opacity=1;NSUInteger depth=0;
+    for(CALayer *node=paint;node && ++depth<=48;node=node.superlayer) {
+        if(node.hidden)return NO;opacity*=node.opacity;if(!isfinite(opacity) || opacity<.01)return NO;
+        if(node.masksToBounds)rect=CGRectIntersection(rect,[node convertRect:node.bounds toLayer:root]);
+        if(node==root)break;
+    }
+    return !CGRectIsEmpty(CGRectIntersection(rect,LMVVideoWindowViewport(window)));
+}
+static void LMVSyncAudioVisibility(void) {
+    if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
+    if(!LMVPlaybackAllowed()){LMVAudioPauseAll();return;}
+    for(NSString *target in LMVTargets()) {
+        LMVSharedSource *source=nil;BOOL exposed=NO;
+        for(UIView *cell in LMVCells.allObjects) {
+            LMVVideoState *state=((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[target];
+            if(state.active && state.source && state.layer.contents && LMVCardStateVisible(cell,state,target))
+                {source=state.source;exposed=YES;break;}
+        }
+        LMVAudioConsume(target,source.path,source.revision,exposed,source?source.lastTime:kCMTimeZero);
+    }
+    LMVLockVideoPlayback *lock=LMVLockVideo.playback;
+    BOOL lockVisible=lock.wantsPlayback && !lock.frozen && !LMVLockVideo.host.hidden &&
+        LMVAudioLayerExposed(lock.renderLayer,LMVLockVideo.host.window);
+    LMVAudioConsume(@"LockScreen",lock.path,lock.revision,lockVisible,lock.player.currentTime);
+    LMVLockVideoPlayback *desktop=LMVDesktopVideo.playback;
+    BOOL desktopVisible=desktop.wantsPlayback && !desktop.frozen && !LMVDesktopVideo.host.hidden &&
+        LMVAudioLayerExposed(desktop.renderLayer,LMVDesktopVideo.host.window);
+    LMVAudioConsume(@"Desktop",desktop.path,desktop.revision,desktopVisible,desktop.player.currentTime);
+    LMVLockVideoPlayback *cc=LMVControlCenterVideo.playback;
+    BOOL ccVisible=LMVControlCenterVideo.presented && cc.wantsPlayback && !cc.frozen &&
+        LMVAudioLayerExposed(cc.renderLayer,LMVControlCenterVideo.material.window);
+    BOOL dark=LMVControlCenterVideo.style==UIUserInterfaceStyleDark;
+    LMVAudioConsume(@"ControlCenterDark",cc.path,cc.revision,ccVisible && dark,cc.player.currentTime);
+    LMVAudioConsume(@"ControlCenterLight",cc.path,cc.revision,ccVisible && !dark,cc.player.currentTime);
+    LMVLockVideoPlayback *menu=LMVHomeMenuVideo.playback;
+    BOOL menuVisible=menu.wantsPlayback && !LMVHomeMenuVideo.host.hidden &&
+        LMVAudioLayerExposed(menu.renderLayer,LMVHomeMenuVideo.host.window);
+    LMVAudioConsume(@"HomeMenu",menu.path,menu.revision,menuVisible,menu.player.currentTime);
+}
+static void LMVReloadAudioControls(void) {
+    LMVAudioReload();
+    if(LMVAudioAnyEnabled() && !LMVAudioTimer) {
+        LMVAudioTimer=[NSTimer timerWithTimeInterval:.10 repeats:YES block:^(NSTimer *timer){LMVSyncAudioVisibility();}];
+        [NSRunLoop.mainRunLoop addTimer:LMVAudioTimer forMode:NSRunLoopCommonModes];
+    } else if(!LMVAudioAnyEnabled()) {[LMVAudioTimer invalidate];LMVAudioTimer=nil;LMVAudioPauseAll();}
+}
 static void LMVReleaseAllPlayers(void) {
     // Keep one paused player/time and one last decoded CGImage per file, not per card.
     [LMVLink invalidate]; LMVLink=nil;
@@ -1208,7 +1265,7 @@ static void LMVRefresh(BOOL reload) {
     if (reload) {
         // Revision-aware preparation preserves matching players, clocks and layers.
         // Unrelated imports must not tear down a working selected shared source.
-        LMVLoadPreferences();
+        LMVLoadPreferences();LMVReloadAudioControls();
     }
     [LMVDirtyCards removeAllObjects];[LMVDirtyPresenters removeAllObjects];
     LMVLockVideoRefresh(reload);
@@ -1235,6 +1292,7 @@ static void LMVRefresh(BOOL reload) {
 - (void)tick:(CADisplayLink *)link;
 @end
 static void LMVSuspend(void) {
+    LMVAudioPauseAll();
     LMVLockVideoSuspend();
     LMVDesktopVideoSuspend();
     LMVCCSuspend();
@@ -1320,8 +1378,10 @@ static void LMVSyncDisplayLink(void) {
         }
         // A persistent AVPlayer-output stall switches explicitly to a shared,
         // video-only AVAssetReader. Never attach an AVPlayerLayer to a card.
-        CFTimeInterval stallLimit=source.published ? 3.0 : 0.75;
-        if (!source.readerMode && !source.restoringTime && !source.restoreOnStart && !source.frameBusy && (item.status==AVPlayerItemStatusFailed || now-source.lastProgressAt>=stallLimit)) {
+        if (LMVSourceNeedsReaderRecovery(source,now)) {
+            // Cached restore must not veto recovery forever on failed/not-ready
+            // items or a seek completion that never arrives. Preserve its PTS for reader.
+            source.restoreOnStart=NO;source.restoringTime=NO;
             source.readerMode=YES; [source.player pause]; source.generation++;
             CMTime resume=CMTIME_IS_NUMERIC(source.lastTime)?source.lastTime:kCMTimeZero;
             dispatch_async(LMVFrameQueue, ^{ source.readerClock=CACurrentMediaTime(); source.readerOffset=resume; source.readerLastTarget=kCMTimeInvalid; });
