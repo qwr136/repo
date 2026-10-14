@@ -33,6 +33,10 @@ assert 'static BOOL LMVEasterCaptureName(NSString *name)' in overlay
 assert 'static BOOL LMVEasterCaptureWindow(UIWindow *window)' in overlay
 assert 'LMVEasterSecurityName(viewName) && !LMVEasterCaptureName(viewName)' in overlay
 assert '!LMVEasterCaptureWindow(window) && LMVEasterBlockingWindow(window,0)' in priority
+# 0.0.118: an unrepresentable window level is skipped, never a blocker, and the
+# recorded desktop keeps its host.
+assert 'if(!LMVEasterBoundedPriorityLevel(candidate,level))continue;' in priority
+assert '(foreground==1 || keyHome || LMVEasterScreenCaptured()))homeHost=window;' in apply
 assert '!LMVEasterCaptureName(NSStringFromClass(window.class)) &&' in blocking
 assert 'LMVEasterScreenCaptured' in overlay and 'isCaptured' in overlay
 # 0.0.114: while the display is captured a policy misfire must not hide a ball
@@ -40,7 +44,7 @@ assert 'LMVEasterScreenCaptured' in overlay and 'isCaptured' in overlay
 # 0.0.117 user policy: a surface that may not present the ball loses it at once.
 assert 'hostMissingSince' not in overlay
 assert 'host-missing-keep' not in overlay and 'captured-keep' not in overlay
-assert "(foreground==1 || keyHome))homeHost=window;" in apply
+assert "(foreground==1 || keyHome || LMVEasterScreenCaptured()))homeHost=window;" in apply
 assert 'the frontmost-application probe is unavailable' in apply
 assert 'hide:window-scene' in apply
 import re
@@ -177,7 +181,11 @@ int main(void) { @autoreleasepool {
     }
     UIWindow *huge=hud(0x1p24-1);allowed(@[home,huge,own],own,0x1p24);
     UIWindow *limit=hud(0x1p48-2);allowed(@[home,limit,own],own,0x1p48-1);
-    UIWindow *unrepresentable=hud(0x1p48-1);denied(@[home,unrepresentable,own],own,unrepresentable);
+    // 0.0.118 device log: the recording touch visualiser reports windowLevel =
+    // DBL_MAX. It must not be a blocker and must not be a level competitor.
+    UIWindow *unrepresentable=hud(0x1p48-1);allowed(@[home,unrepresentable,own],own,1001);
+    UIWindow *touchVisualizer=hud(1.7976931348623157e308);allowed(@[home,touchVisualizer,own],own,1001);
+    touchVisualizer.hidden=NO;allowed(@[home,touchVisualizer,one,own],own,2501);
     UIWindow *recording=[SBRecordingIndicatorWindow new];recording.windowLevel=1000000000;
     rootView(recording,recording.rootViewController.viewIfLoaded);
     allowed(@[home,recording,own],own,1000000001);recording.hidden=YES;allowed(@[home,recording,own],own,1001);

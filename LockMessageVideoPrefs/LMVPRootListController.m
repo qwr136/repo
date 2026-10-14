@@ -134,6 +134,14 @@ static void LMVNotify(void) {
     [opacity setProperty:@"VideoOpacitySlider" forKey:@"id"];
     [opacity setProperty:[self enabled:opacityEnabled] forKey:@"enabled"];
     [_specifiers addObject:opacity];
+    // 0.0.118: desktop-only Reachability switch, immediately below the opacity area.
+    PSSpecifier *reachabilityGroup = [PSSpecifier groupSpecifierWithName:@"桌面便捷访问"];
+    [reachabilityGroup setProperty:@"只屏蔽桌面的便捷访问（降半屏）：锁屏与控制中心不受影响。开启后桌面下拉不会触发降半屏，桌面视频背景不会被顶下去。" forKey:@"footerText"];
+    [_specifiers addObject:reachabilityGroup];
+    PSSpecifier *reachability = [PSSpecifier preferenceSpecifierNamed:@"屏蔽桌面便捷访问" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [reachability setProperty:@"BlockDesktopReachability" forKey:@"key"];
+    [reachability setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:reachability];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材路径"]];
     PSSpecifier *open = [PSSpecifier preferenceSpecifierNamed:@"打开素材路径" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     open.buttonAction = @selector(openMaterialPath:);

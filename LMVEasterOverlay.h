@@ -352,9 +352,14 @@ static BOOL LMVEasterOverlayPriority(NSArray<UIWindow *> *windows,UIWindow *own,
         }
         CGFloat candidate=window.windowLevel;
         if(!isfinite(candidate))continue;
-        if(!LMVEasterBoundedPriorityLevel(candidate,level)) {
-            if(blockedWindow)*blockedWindow=window;return NO;
-        }
+        // 0.0.118 device log: iOS shows a touch visualiser while the screen is
+        // being RECORDED and its window reports windowLevel = DBL_MAX
+        // (_LNSceneTouchVisualizerWindow). Demanding +1 headroom for it failed
+        // closed and reported "blocked", which hid the floating ball for the whole
+        // recording. A level we cannot represent is simply not a level competitor
+        // and not a blocker: the final bounded computation below still keeps our
+        // own level finite.
+        if(!LMVEasterBoundedPriorityLevel(candidate,level))continue;
         highest=MAX(highest,candidate);
     }
     return LMVEasterBoundedPriorityLevel(highest,level);
@@ -516,8 +521,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         // when the frontmost-application probe is unavailable or reports the
         // Notification Centre / a recorder. An app that really came forward owns
         // the key window, so this cannot show the ball over an app.
+        // 0.0.118 device log: while the display is RECORDED the frontmost probe
+        // reports the recorder (fg=-1) and that window takes key, so the desktop
+        // lost its host and the ball vanished (nc=0 cc=0 home=0 captured=1). The
+        // user needs the ball visible in the recording, so an exposed Home window
+        // is a valid host while the display is captured.
         if(LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window) &&
-           (foreground==1 || keyHome))homeHost=window;
+           (foreground==1 || keyHome || LMVEasterScreenCaptured()))homeHost=window;
     }
     // Probe roots plus the physical NC/CC surfaces, never the scrolling module
     // or floating panel descendants. Failed/hidden hosts are probed as well.

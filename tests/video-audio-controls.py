@@ -224,7 +224,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==54);
+ assert(rows.count==56);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -279,7 +279,7 @@ int main(void) { @autoreleasepool {
   else if(section==7&&row==0)assert(p.navigationController.pushes==before+1);
   else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==9&&row==0));}
  }
- puts("PASS: exact production specifiers (54), all eight audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
+ puts("PASS: exact production specifiers (56), all eight audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
