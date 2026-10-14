@@ -1,5 +1,32 @@
 # 锁屏消息视频
 
+## 0.0.120：桌面视频不再闪（前台探针抖动）＋ 便捷访问改在触摸源头拦截
+
+精确基线119 `9925d82`。真机日志（0.0.119，pid=7792）：
+
+```
+12404.573 desktop-video visible=0 home=1 foreground=-1 env=0 teardown=12 hostHidden=1
+12405.134 desktop-video visible=1 home=1 foreground=1  env=1 teardown=12 hostHidden=0
+12406.419 desktop-video visible=0 home=1 foreground=-1 env=0 teardown=13
+12407.969 desktop-video visible=1 home=1 foreground=1  env=1 teardown=13
+```
+
+### ① 桌面视频闪一下 / 黑一下 / 变回原壁纸
+
+`home=1`（Home 视图控制器当前可见）全程稳定，但 `foreground` 在 1 与 -1 之间来回跳（窗口列表里出现 `_LNSceneTouchVisualizerWindow`，说明当时在**录屏**——录屏会让 `_frontmostApplication` 指向录制进程），于是 `env` 跟着 0/1 跳，桌面视频被反复隐藏/显示，视觉上就是闪一下、黑一下、落回原壁纸。
+
+门控里 `foreground>=0 &&` 与 `(foreground==1 || homeConfirmed)` 是重复的，却把**旁证**变成了否决权。现在删掉它：**Home 视图可见是"就在桌面上"的直接证据，前台探针不得否决它**。App 真到前台时有其自己的窗口遮住画面，冻结路径仍保留最后一帧，行为与既有设计一致。
+
+### ② 「屏蔽桌面便捷访问」改在触摸源头拦截
+
+0.0.119 的日志显示扩宽到**完整窗口集合（38 个，含系统手势窗与触摸可视化窗）**后依然是 `recognizer=0`：SpringBoard 不通过任何窗口树或 `edges` 值暴露这个手势，`enabled` 这条路在 SpringBoard 上走不通。
+
+改为在**触摸源头**拦截：底部边缘手势无论由哪个类实现，**都起始于屏幕底部条带**——这一步纯几何判定，不需要私有类名、不猜 `edges`。桌面规则成立时把这些触摸**丢弃**（不交给手势状态机），便捷访问就不会启动。
+
+- 作用域极窄：只在**底部条带内**、只在**桌面规则成立时**、且只在 **SpringBoard**（filter plist 只注入 `com.apple.springboard` 一个 bundle，有测试锁定）。左/右边缘手势（返回、控制中心）与底部上滑回主屏（另一套识别器）不受影响。
+- 关闭开关时发布的判定为 NO → 一个触摸都不会被吞，行为与之前完全一致。
+- 诊断：`reachability touch-guard=installed ... bottom-strip=20pt`；每次吞掉触摸限流 1 秒记一条 `reachability swallow count=N y=...`，可直接确认拦截是否生效。
+
 ## 0.0.119：修好「屏蔽桌面便捷访问」（0.0.118 装上是哑的）
 
 精确基线118 `f4882a7`。真机日志一行定性：

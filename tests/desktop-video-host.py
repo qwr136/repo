@@ -15,6 +15,16 @@ assert 'if (diagnostics)' in h
 assert 'static void LMVDesktopRequestUpdate' in h and '- (void)syncGeometry' in h
 assert 'LMVRequestSafeUpdate' not in h, 'Desktop hooks must not trigger global full passes'
 assert 'BOOL geometryChanged=' in h and 'if(!content.hidden)' in h
+
+# 0.0.120 device log: on the plain home screen `home=1` held steady while
+# `foreground` flip-flopped between 1 and -1, so `env` followed it and the desktop
+# video was hidden and re-shown about once a second - the reported "flashes / goes
+# black / falls back to the original wallpaper". A confirmed Home view is direct
+# evidence that the desktop is on display and must not be vetoable by the
+# circumstantial frontmost-application probe.
+assert 'foreground>=0 &&' not in h
+assert 'BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession &&' in h
+assert '(foreground==1 || homeConfirmed) && !unknownCover;' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')

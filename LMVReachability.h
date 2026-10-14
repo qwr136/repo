@@ -80,6 +80,25 @@ static NSArray<UIWindow *> *LMVReachabilityWindows(void) {
                 [seen addObject:window]; [windows addObject:window];
             }
     }
+    // The system GESTURE window is not in either list on SpringBoard. Ask the
+    // application and every scene for it directly (dynamic selectors: nothing is
+    // guessed, a miss simply adds nothing).
+    for (NSString *name in @[@"_systemGestureWindow", @"systemGestureWindow"]) {
+        SEL selector = NSSelectorFromString(name);
+        if ([UIApplication.sharedApplication respondsToSelector:selector]) {
+            id value = ((id (*)(id, SEL))objc_msgSend)(UIApplication.sharedApplication, selector);
+            if ([value isKindOfClass:UIWindow.class] && ![seen containsObject:value]) {
+                [seen addObject:value]; [windows addObject:value];
+            }
+        }
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene respondsToSelector:selector]) continue;
+            id value = ((id (*)(id, SEL))objc_msgSend)(scene, selector);
+            if ([value isKindOfClass:UIWindow.class] && ![seen containsObject:value]) {
+                [seen addObject:value]; [windows addObject:value];
+            }
+        }
+    }
     return windows;
 }
 // Collects every recognizer whose `edges` includes the bottom edge. A private
@@ -121,6 +140,18 @@ static NSString *LMVReachabilityWindowNames(void) {
     return [NSString stringWithFormat:@"windows=%lu %@", (unsigned long)windows.count,
             [head componentsJoinedByString:@","]];
 }
+// ---------------------------------------------------------------------------
+// The desktop gate, published for the touch path below. It is recomputed once per
+// pass so a touch never has to walk the window list.
+static volatile BOOL LMVReachabilityDesktopBlocked = NO;
+static NSInteger LMVReachabilityInSpringBoard(void) {
+    static NSInteger cached = -1;
+    if (cached < 0) {
+        NSString *identifier = NSBundle.mainBundle.bundleIdentifier;
+        cached = [identifier isEqualToString:@"com.apple.springboard"] ? 1 : 0;
+    }
+    return cached;
+}
 static BOOL LMVReachabilitySurfaceUp(NSArray<NSString *> *windowClasses, NSArray<NSString *> *controllerClasses) {
     for (UIWindow *window in LMVReachabilityWindows()) {
         if (window.hidden || !isfinite(window.alpha) || window.alpha < .01) continue;
@@ -147,6 +178,9 @@ static void LMVReachabilityApply(void) {
     BOOL cc = LMVReachabilitySurfaceUp(@[@"SBControlCenterWindow"], @[@"ControlCenter"]);
     BOOL blocked = LMVReachabilityDeskBlocked(enabled, blankKnown, blank, lockKnown, locked,
         LMVReachabilityForeground(), nc, cc);
+    // Publish the decision for the touch path (below). It never walks the window
+    // list itself, so this must run before the guard can matter.
+    LMVReachabilityDesktopBlocked = blocked;
     UIGestureRecognizer *recognizer = LMVReachabilityEdgeRecognizer();
     // Re-searched every pass: never cache a recognizer SpringBoard may rebuild.
     if (recognizer && recognizer.enabled == blocked) recognizer.enabled = !blocked;
@@ -185,4 +219,79 @@ static void LMVReachabilityRestore(void) {
         if (!recognizer) recognizer = fallback;
         if (recognizer && !recognizer.enabled) recognizer.enabled = YES;
     }
+}
+
+// ---------------------------------------------------------------------------
+// 0.0.119 device log: `windows=38 SBSystemApertureWindow,_LNSceneTouchVisualizer-
+// Window,UITextEffectsWindow,SBStatusBarReusePoolWindow,_SBWallpaperSecureWindow,
+// SBHomeScreenWindow ... recognizer=0`. SpringBoard exposes the Reachability
+// gesture through no window tree and no `edges` value reachable with public API,
+// so toggling `enabled` can never work there.
+//
+// The feature therefore guards the gesture at its SOURCE: a bottom-edge pan -
+// whatever class implements it - BEGINS inside the bottom strip of the screen.
+// That identifies it by pure geometry, with no private class name and no `edges`
+// guesswork. While the desktop rule holds, the touches are dropped before the
+// recogniser sees them, so Reachability never starts.
+//
+// Scope is deliberately narrow: only bottom-strip touches, only while the desktop
+// rule holds, and only in SpringBoard (this tweak's filter plist injects
+// com.apple.springboard and nothing else). Left/right edge pans (back gestures,
+// Control Centre) and the home-indicator swipe (a different recogniser family,
+// and it does not begin in the bottom strip as an edge pan) are untouched.
+static void LMVReachabilityReportSwallow(CGFloat y) {
+    static NSInteger swallowed = 0;
+    static CFTimeInterval lastReport = 0;
+    ++swallowed;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - lastReport < 1.0) return;
+    lastReport = now;
+    LMVDiagnostic([NSString stringWithFormat:
+        @"reachability swallow count=%ld y=%.0f (desktop Reachability stopped at the touch source)",
+        (long)swallowed, y]);
+}
+static BOOL LMVReachabilityShouldSwallow(UIGestureRecognizer *recognizer, NSSet<UITouch *> *touches) {
+    if (LMVReachabilityInSpringBoard() != 1 || !LMVReachabilityDesktopBlocked) return NO;
+    if (![recognizer isKindOfClass:UIScreenEdgePanGestureRecognizer.class]) return NO;
+    UIView *view = recognizer.view;
+    UITouch *touch = [touches anyObject];
+    if (!view || ![touch isKindOfClass:UITouch.class]) return NO;
+    CGPoint point = [touch locationInView:view];
+    CGRect bounds = view.bounds;
+    if (!isfinite(point.y) || !isfinite(bounds.size.height)) return NO;
+    // The bottom strip is what makes the pan an EDGE pan; 20 pt is the system's
+    // own edge band.
+    return point.y >= bounds.size.height - 20.0;
+}
+@interface UIScreenEdgePanGestureRecognizer (LMVReachabilityGuard)
+- (void)lmv_reachabilityTouchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event;
+@end
+@implementation UIScreenEdgePanGestureRecognizer (LMVReachabilityGuard)
+- (void)lmv_reachabilityTouchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (LMVReachabilityShouldSwallow(self, touches)) {
+        UITouch *touch = [touches anyObject];
+        LMVReachabilityReportSwallow(touch ? [touch locationInView:self.view].y : 0);
+        return; // not calling through: the state machine never sees the touch
+    }
+    [self lmv_reachabilityTouchesBegan:touches withEvent:event];
+}
+@end
+static void LMVReachabilityInstallTouchGuard(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        SEL original = NSSelectorFromString(@"touchesBegan:withEvent:");
+        SEL replacement = NSSelectorFromString(@"lmv_reachabilityTouchesBegan:withEvent:");
+        Class cls = UIScreenEdgePanGestureRecognizer.class;
+        Method existing = class_getInstanceMethod(cls, original);
+        Method added = class_getInstanceMethod(cls, replacement);
+        if (!existing || !added) {
+            LMVDiagnostic(@"reachability touch-guard=failed selector=touchesBegan:withEvent:");
+            return;
+        }
+        if (class_addMethod(cls, original, method_getImplementation(added), method_getTypeEncoding(added)))
+            class_replaceMethod(cls, replacement, method_getImplementation(existing), method_getTypeEncoding(existing));
+        else
+            method_exchangeImplementations(existing, added);
+        LMVDiagnostic(@"reachability touch-guard=installed selector=touchesBegan:withEvent: bottom-strip=20pt");
+    });
 }

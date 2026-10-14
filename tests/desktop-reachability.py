@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""0.0.118/0.0.119 "屏蔽桌面便捷访问" - desktop-only Reachability block.
+"""0.0.118-0.0.120 "屏蔽桌面便捷访问" - desktop-only Reachability block.
 
 Linux runs the pure gate as C plus source contracts. The recognizer search and
 UIKit wiring need macOS and are asserted as source contracts here; they are not
@@ -70,6 +70,34 @@ assert 'LMVReachabilityWindowNames()' in header
 assert 'windows=%lu %@' in header
 # Toggle report: names the exact recognizer it changed (no unrelated edge pan).
 assert 'target=%@ edges=%lu' in header
+
+# ---- 0.0.120: the gesture is guarded at its TOUCH SOURCE ----------------------
+# The 0.0.119 device log still reported recognizer=0 with the COMPLETE application
+# window set (38 windows, including the system gesture and touch-visualiser
+# windows), so toggling `enabled` can never work on SpringBoard. A bottom-edge pan
+# - whatever class implements it - begins inside the bottom strip of the screen,
+# which identifies it by geometry alone: no private class name, no `edges` guess.
+assert 'static BOOL LMVReachabilityShouldSwallow(' in header
+assert 'static volatile BOOL LMVReachabilityDesktopBlocked = NO;' in header
+assert 'LMVReachabilityDesktopBlocked = blocked;' in header, 'the gate is published for the touch path'
+assert 'if (LMVReachabilityInSpringBoard() != 1 || !LMVReachabilityDesktopBlocked) return NO;' in header
+assert '@interface UIScreenEdgePanGestureRecognizer (LMVReachabilityGuard)' in header
+assert 'point.y >= bounds.size.height - 20.0' in header, 'bottom strip only; other edges untouched'
+assert 'if (!view || ![touch isKindOfClass:UITouch.class]) return NO;' in header
+assert 'return; // not calling through: the state machine never sees the touch' in header
+assert 'static void LMVReachabilityInstallTouchGuard(void)' in header
+assert 'method_exchangeImplementations(existing, added)' in header
+assert 'reachability touch-guard=%s' not in header and 'reachability touch-guard=installed' in header
+assert 'reachability swallow count=%ld y=%.0f' in header
+assert 'LMVReachabilityInstallTouchGuard();' in tweak
+# SpringBoard-only scope: the filter plist injects exactly one bundle.
+filter_plist = (root / 'layout/Library/MobileSubstrate/DynamicLibraries/LockMessageVideo.plist').read_text()
+assert '<string>com.apple.springboard</string>' in filter_plist
+assert filter_plist.count('<string>') == 1
+# The windows search may PROBE a private selector name, but only to APPEND a window;
+# every decision still comes from public API, and a miss adds nothing.
+assert '_systemGestureWindow' in header
+assert 'a miss simply adds nothing' in header
 # Restore uses the SAME widened search, otherwise a fallback recognizer would stay
 # disabled after the switch is turned off.
 restore_src = header[header.index('static void LMVReachabilityRestore(void)'):]
