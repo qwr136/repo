@@ -152,6 +152,8 @@ static BOOL LMVEasterPublishImage(NSString *relative, id expectedOld, BOOL (^cur
     return YES;
 }
 static NSString *LMVEasterImportWithPublication(NSURL *source, BOOL movie, id expectedOld, BOOL (^current)(void), NSError **outError);
+// Shared header: the original-video entry is used by SpringBoard, not Prefs.
+static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) __attribute__((unused));
 static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) {
     return LMVEasterImportWithPublication(source, movie, nil, nil, outError);
 }
