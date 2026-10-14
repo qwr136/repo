@@ -17,7 +17,8 @@ resign=s[start:s.index('        %init;',start)]
 block=resign[resign.index('dispatch_async'):resign.index('\n        }];')].strip()
 assert screen.index('dispatch_async')<screen.index('notify_get_state')
 assert 'LMVDesktopVideoScreenChanged()' in screen
-assert 'if (!LMVPlaybackAllowed()) LMVSuspend();' in block and 'LMVReleaseAllPlayers();LMVRequestSafeUpdate();' in block
+assert 'if (!LMVPlaybackAllowed()) LMVSuspend();' in block and 'LMVSyncDisplayLink();LMVRequestSafeUpdate();' in block
+assert 'LMVReleaseAllPlayers();' not in block
 if platform.system()!='Darwin':
  print('PASS screen/resign event source contracts; SKIP actual queued handler execution requires Foundation')
  raise SystemExit(0)
@@ -34,14 +35,14 @@ static int LMVBlankToken=1;
 static uint64_t testBlank;
 static int notify_get_state(int token,uint64_t *out){*out=testBlank;return 0;}
 static BOOL LMVInitialized=YES,LMVLaunchReady=YES;
-static NSUInteger blanked,suspended,unlocked,prepared,requests,messagePaused,menuPaused;
+static NSUInteger blanked,suspended,unlocked,prepared,requests,messageReconciled,menuPaused;
 static BOOL LMVPlaybackAllowed(void){return !testBlank;}
 static void LMVDesktopVideoScreenBlank(void){blanked++;}
 static void LMVDesktopVideoScreenChanged(void){unlocked++;}
 static void LMVSuspend(void){suspended++;}
 static void LMVPrepareAssets(void){prepared++;}
 static void LMVRequestSafeUpdate(void){requests++;}
-static void LMVReleaseAllPlayers(void){messagePaused++;}
+static void LMVSyncDisplayLink(void){messageReconciled++;}
 static void LMVHomeMenuVideoSuspend(void){menuPaused++;}
 '''
 main=r'''
@@ -51,8 +52,8 @@ int main(void){@autoreleasepool{
  assert(!blanked && !suspended && unlocked==1 && prepared==1 && requests==1);
  testBlank=0;LMVScreenNotification(NULL,NULL,NULL,NULL,NULL);testBlank=1;turn();
  assert(blanked==1 && suspended==1 && unlocked==1);
- testBlank=0;resign();turn();assert(suspended==1 && messagePaused==1 && menuPaused==1);
- testBlank=1;resign();turn();assert(suspended==2 && messagePaused==1);
+ testBlank=0;resign();turn();assert(suspended==1 && messageReconciled==1 && menuPaused==1);
+ testBlank=1;resign();turn();assert(suspended==2 && messageReconciled==1);
  LMVLaunchReady=NO;LMVScreenNotification(NULL,NULL,NULL,NULL,NULL);turn();assert(suspended==2);
  puts("PASS production screen/resign handlers: obsolete queued blank cannot cover newly unlocked Home, latest actual blank suspends, exposed CC not suspended solely by SpringBoard inactive; no UIKit device claim");
 }return 0;}

@@ -30,7 +30,7 @@ for target in ('LockScreen', 'Desktop'):
     assert video.count(f'@"{target}":@""') == 2  # Label and picker both start unselected.
     assert target + 'Opacity' not in video
 assert len(targets) + 5 == 10  # Existing eight sections + HomeMenu + image display entry.
-assert 'return LMVEasterDisplaySection() + 1;' in video
+assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', video) is not None
 assert 'LMVEasterControlCenterSection() + 1' in video and 'LMVEasterOpacitySection() + 1' in video
 assert 'LMVEasterImportSection() + 1' in video and 'LMVEasterHomeMenuSection() + 1' in video
 assert 'section == LMVEasterControlCenterSection()) return 3' in video
@@ -41,7 +41,7 @@ assert 'ControlCenterBackgroundEnabled' in video
 assert 'ControlCenterDarkVideo' in video and 'ControlCenterLightVideo' in video
 assert '切换深色模式素材' in video and '切换浅色模式素材' in video
 assert 'toggle.tag = LMVEasterOpacitySection();' in video
-assert 'toggle.tag > LMVEasterHomeMenuSection()' in video
+assert 'toggle.tag > LMVEasterOpacitySection()' in video
 assert 'else if (toggle.tag == LMVEasterHomeMenuSection()) key = @"HomeMenuBackgroundEnabled";' in video
 assert 'else if (toggle.tag < LMVEasterTargets().count)' in video and 'else return;' in video
 assert 'toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];' in video

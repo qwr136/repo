@@ -60,7 +60,10 @@ assert 'before.superlayer' in l and 'after.superlayer' in l
 assert 'layer.contents =' not in l and 'layer.mask =' not in l
 visibility=function(s,'static BOOL LMVVisible(UIView *view)')
 discovery=function(s,'static UIView *LMVMessageMaterial(UIView *view, NSUInteger depth)')
-assert 'LMVOriginalVisibilityAlpha(ancestor)' in visibility
+card=(r/'LMVCardPresentation.h').read_text()
+assert 'LMVCardExposed(view)' in visibility and 'LMVPlaybackAllowed()' in visibility
+assert 'LMVOriginalVisibilityAlpha(view)' in card and 'lease.baselineOpacity' in card
+assert 'LMVOriginalSuppressDrawing' in card and 'layer.opacity==0.0f' in card
 candidate=function(s,'static UIView *LMVMessageMaterialCandidate(UIView *view, NSUInteger depth, BOOL visibleOnly)')
 assert 'objc_getAssociatedObject(view, &LMVOwnershipKey)' in candidate
 assert 'visibleOnly && (view.hidden || LMVOriginalVisibilityAlpha(view) < 0.01)' in candidate

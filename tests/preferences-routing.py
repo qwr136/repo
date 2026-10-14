@@ -30,7 +30,7 @@ for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'
 assert '[enabled setProperty:@NO forKey:@"default"]' in source
 assert '[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"]' in source
 cc_start = source.index('PSSpecifier *controlCenter = [PSSpecifier groupSpecifierWithName:@"控制中心背景"];')
-cc_end = source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];', cc_start)
+cc_end = source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];', cc_start)
 cc_section = source[cc_start:cc_end]
 assert cc_start > source.index('for (NSUInteger i = 0; i < LMVTargets().count; i++)')
 assert cc_section.count('cell:PSSwitchCell') == 1 and cc_section.count('cell:PSButtonCell') == 2
@@ -47,13 +47,18 @@ import_callback = source[source.index('- (void)picker:(PHPickerViewController *)
 import_targets = re.findall(r'@"([^"]+)"', re.search(r'for \(NSString \*target in @\[(.*?)\]\)', import_callback).group(1))
 assert import_targets == ['Message', 'Options', 'Clear']
 assert 'ControlCenter' not in import_callback and 'LockScreen' not in import_callback and 'Desktop' not in import_callback and 'HomeMenu' not in import_callback
-home_section = source[source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];'):source.index('NSArray *titles =')]
-assert home_section.count('cell:PSSwitchCell') == 2 and home_section.count('cell:PSButtonCell') == 2
+home_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];')
+display_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋显示设置"]];')
+home_section = source[home_start:display_start]
+assert cc_start < home_start < display_start
+assert home_section.count('cell:PSSwitchCell') == 1 and home_section.count('cell:PSButtonCell') == 1
 assert '[homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"]' in home_section
 assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
 assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
 assert '桌面长按菜单视频背景' in home_section and '切换长按菜单素材' in home_section
-assert '图片 / GIF、图标大小与显示设置' in home_section
+display_section=source[display_start:source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];')]
+assert '显示场景与图片旋转' in display_section and 'openEaster:' in display_section
+assert 'EasterEggImageSettings' in display_section
 assert 'forKey:@"buttonAction"' not in source and 'forKey:@"action"' not in source
 assert 'if (!selected && !legacyMessage) CFPreferencesSetAppValue' in import_callback
 for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:

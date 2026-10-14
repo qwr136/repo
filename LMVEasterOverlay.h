@@ -261,7 +261,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     return self;
 }
 - (void)dealloc {
-    LMVEasterUpdateRotation(self.bubbleImage.layer,NO,NO,NO,45);
+    // Stop only the owned image-layer animation even if the panel is still open.
+    LMVEasterUpdateRotation(_bubbleImage.layer,NO,NO,NO,45);
     [self.timer invalidate]; [self.visibilityTimer invalidate]; [NSNotificationCenter.defaultCenter removeObserver:self];
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self);
 }
@@ -282,8 +283,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)recordScreenBlank { self.authenticatedSession=NO; [self hide]; }
 - (void)syncRotation {
-    LMVEasterUpdateRotation(self.bubbleImage.layer,self.window && !self.window.hidden && self.bubbleImage.image!=nil,
-        self.panel!=nil,self.displayControls.enabled && self.displayControls.rotationEnabled,self.displayControls.rotationSpeed);
+    // The panel is a sibling, not a rotation/visibility gate for the image leaf.
+    BOOL visible=self.window && !self.window.hidden && self.window.alpha>=0.01 &&
+        self.bubble && !self.bubble.hidden && self.bubble.alpha>=0.01 &&
+        self.bubbleImage && !self.bubbleImage.hidden && self.bubbleImage.alpha>=0.01 && self.bubbleImage.image!=nil;
+    LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,
+        self.displayControls.enabled && self.displayControls.rotationEnabled,self.displayControls.rotationSpeed);
 }
 - (void)hide {
     // Hide first so closePanel cannot briefly restart rotation while tearing down.

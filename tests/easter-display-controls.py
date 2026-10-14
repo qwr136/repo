@@ -122,7 +122,9 @@ main+=r'''
     [image addAnimation:unrelated forKey:@"other-effect"];image.additions=0;
     LMVEasterUpdateRotation(image,YES,NO,NO,45);assert(![image animationForKey:LMVEasterRotationAnimationKey]);
     LMVEasterUpdateRotation(image,NO,NO,YES,45);assert(image.additions==0);
-    LMVEasterUpdateRotation(image,YES,YES,YES,45);assert(image.additions==0);
+    LMVEasterUpdateRotation(image,YES,YES,YES,45);assert(image.additions==1);
+    CFTimeInterval panelBegin=[image animationForKey:LMVEasterRotationAnimationKey].beginTime;
+    LMVEasterUpdateRotation(image,YES,NO,YES,45);assert(image.additions==1 && [image animationForKey:LMVEasterRotationAnimationKey].beginTime==panelBegin);
     LMVEasterUpdateRotation(image,YES,NO,YES,45);
     CABasicAnimation *animation=(id)[image animationForKey:LMVEasterRotationAnimationKey];
     assert(animation && [animation.keyPath isEqualToString:@"transform.rotation.z"]);
@@ -135,10 +137,11 @@ main+=r'''
     assert([image animationForKey:LMVEasterRotationAnimationKey].duration==2 && image.additions==2);
     LMVEasterUpdateRotation(image,YES,NO,YES,5);
     assert([image animationForKey:LMVEasterRotationAnimationKey].duration==72 && image.additions==3);
-    for(NSUInteger action=0;action<4;action++) {
+    for(NSUInteger action=0;action<3;action++) {
         LMVEasterUpdateRotation(image,YES,NO,YES,45);assert([image animationForKey:LMVEasterRotationAnimationKey]);
-        // preference OFF, screen blank/scope exit/image replacement, panel open, master OFF
-        LMVEasterUpdateRotation(image,action!=1,action==2,action!=0 && action!=3,45);
+        // preference OFF, screen blank/scope exit/image replacement, master OFF;
+        // panel open now deliberately keeps rotation and phase.
+        LMVEasterUpdateRotation(image,action!=1,YES,action==1,45);
         assert(![image animationForKey:LMVEasterRotationAnimationKey]);
         NSUInteger removed=image.removals;
         LMVEasterUpdateRotation(image,NO,YES,NO,45);assert(image.removals==removed);

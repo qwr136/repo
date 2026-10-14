@@ -3,7 +3,7 @@ name: build-deb
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, fix/0.0.104-roothide ]
+    branches: [ main, master, fix/0.0.107-roothide ]
     paths-ignore:
       - 'Packages/**'
       - 'Release/**'
@@ -47,6 +47,10 @@ jobs:
           check python3 tests/lock-video-host.py
           check python3 tests/lock-top-strip.py
           check python3 tests/lock-final-mask.py
+          check python3 tests/lock-opacity-compositing.py
+          check python3 tests/card-presentation-playback.py
+          check python3 tests/ui-section-order.py
+          check python3 tests/rotating-panel.py
           check python3 tests/lock-reachability.py
           check python3 tests/desktop-video-host.py
           check python3 tests/video-poster-store.py

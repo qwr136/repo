@@ -63,6 +63,7 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 - (BOOL)isDescendantOfView:(UIView *)view;
 - (void)addSubview:(UIView *)view;
 - (void)insertSubview:(UIView *)view aboveSubview:(UIView *)sibling;
+- (void)insertSubview:(UIView *)view atIndex:(NSInteger)index;
 - (void)removeFromSuperview;
 - (void)layoutSubviews;
 @end
@@ -77,6 +78,7 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 - (UIWindow *)window {return self.superview.window;}
 - (void)addSubview:(UIView *)view {[view removeFromSuperview];[self.subviews addObject:view];view.superview=self;[self.layer addSublayer:view.layer];}
 - (void)insertSubview:(UIView *)view aboveSubview:(UIView *)sibling {assert(sibling.superview==self);[view removeFromSuperview];NSUInteger n=[self.subviews indexOfObjectIdenticalTo:sibling];assert(n!=NSNotFound);[self.subviews insertObject:view atIndex:n+1];view.superview=self;[self.layer insertSublayer:view.layer above:sibling.layer];}
+- (void)insertSubview:(UIView *)view atIndex:(NSInteger)index {[view removeFromSuperview];[self.subviews insertObject:view atIndex:(NSUInteger)index];view.superview=self;[self.layer insertSublayer:view.layer atIndex:(unsigned)index];}
 - (void)removeFromSuperview {[self.superview.subviews removeObjectIdenticalTo:self];[self.layer removeFromSuperlayer];self.superview=nil;}
 - (void)layoutSubviews {}
 @end

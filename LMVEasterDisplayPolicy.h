@@ -42,24 +42,41 @@ static LMVEasterDisplayScene LMVEasterDisplayPolicy(LMVEasterDisplayControls con
     return home && !locked && legacyAllows && controls.showOnDesktop ? LMVEasterDisplayDesktop : LMVEasterDisplayNone;
 }
 static NSString * const LMVEasterRotationAnimationKey = @"com.minis.lockmessagevideo.easter.rotation";
+// The helper owns a linear, infinitely repeated turn with an explicit start in
+// the image layer's LOCAL clock. Evaluate that turn before changing its speed;
+// this also works offscreen when QuartzCore has no presentation layer to sample.
+static double LMVEasterRotationPhaseAtTime(CABasicAnimation *animation,CFTimeInterval now) {
+    if (!animation || ![animation.fromValue isKindOfClass:NSNumber.class] ||
+        ![animation.toValue isKindOfClass:NSNumber.class] || !isfinite(animation.duration) || animation.duration<=0) return 0;
+    double from=[animation.fromValue doubleValue],to=[animation.toValue doubleValue];
+    double elapsed=(now-animation.beginTime)*animation.speed+animation.timeOffset;
+    if (!isfinite(from) || !isfinite(to) || !isfinite(elapsed)) return 0;
+    double progress=fmod(fmax(0,elapsed),animation.duration)/animation.duration;
+    double phase=fmod(from+(to-from)*progress,2.0*M_PI);
+    return phase<0 ? phase+2.0*M_PI : phase;
+}
 // Operate ONLY on the image view's own layer, never its hit/drag container.
-// Stable visibility audits do not restart the animation. No timer/display link,
-// no model transform, no removeAllAnimations (GIF/other effects stay independent).
+// Stable visibility audits and panel transitions do not restart the animation.
+// No timer/display link, model transform or removeAllAnimations (GIF stays independent).
 static void LMVEasterUpdateRotation(CALayer *imageLayer,BOOL visible,BOOL panelOpen,BOOL enabled,double speed) {
     if (!imageLayer) return;
+    // Panel presence is not image visibility; keep the argument for existing callers.
+    (void)panelOpen;
     CAAnimation *existing=[imageLayer animationForKey:LMVEasterRotationAnimationKey];
-    if (!visible || panelOpen || !enabled) {
+    if (!visible || !enabled) {
         if (existing) [imageLayer removeAnimationForKey:LMVEasterRotationAnimationKey];
         return;
     }
     speed=LMVEasterRotationSpeed(@(speed));
     CFTimeInterval duration=360.0/speed;
-    if ([existing isKindOfClass:CABasicAnimation.class] &&
-        [((CABasicAnimation *)existing).keyPath isEqualToString:@"transform.rotation.z"] &&
-        fabs(existing.duration-duration)<0.000001 && existing.repeatCount==HUGE_VALF) return;
+    CABasicAnimation *rotation=[existing isKindOfClass:CABasicAnimation.class] &&
+        [((CABasicAnimation *)existing).keyPath isEqualToString:@"transform.rotation.z"] ? (CABasicAnimation *)existing : nil;
+    if (rotation && fabs(rotation.duration-duration)<0.000001 && rotation.repeatCount==HUGE_VALF) return;
+    CFTimeInterval now=[imageLayer convertTime:CACurrentMediaTime() fromLayer:nil];
+    double phase=LMVEasterRotationPhaseAtTime(rotation,now);
     CABasicAnimation *animation=[CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
-    animation.fromValue=@0; animation.toValue=@(2.0*M_PI);
-    animation.duration=duration; animation.repeatCount=HUGE_VALF;
+    animation.fromValue=@(phase); animation.toValue=@(phase+2.0*M_PI);
+    animation.beginTime=now; animation.duration=duration; animation.repeatCount=HUGE_VALF;
     animation.timingFunction=[CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
     [imageLayer addAnimation:animation forKey:LMVEasterRotationAnimationKey];
 }

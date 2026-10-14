@@ -22,12 +22,12 @@ static NSMutableArray<LMVMaterialPrompt *> *LMVEasterPendingImportPrompts;
 static NSString * const LMVEasterImportResultReady = @"LMVEasterImportResultReady";
 static NSArray *LMVEasterTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
 static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]; }
+// Keep the five original targets first; HomeMenu/display follow both CC modes.
 static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterTargets().count; }
-static NSInteger LMVEasterOpacitySection(void) { return LMVEasterControlCenterSection() + 1; }
-static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
-// Append new sections; keep the original five targets, CC, opacity and import indices.
-static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterImportSection() + 1; }
+static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterControlCenterSection() + 1; }
 static NSInteger LMVEasterDisplaySection(void) { return LMVEasterHomeMenuSection() + 1; }
+static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }
+static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
 static NSString *LMVEasterControlCenterKey(NSInteger row) {
     return row == 1 ? @"ControlCenterDarkVideo" : (row == 2 ? @"ControlCenterLightVideo" : nil);
 }
@@ -108,7 +108,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         });
     });
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterDisplaySection() + 1; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImportSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == LMVEasterControlCenterSection()) return 3;
     if (section == LMVEasterHomeMenuSection()) return 2;
@@ -214,7 +214,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     return cell;
 }
 - (void)toggle:(UISwitch *)toggle {
-    if (toggle.tag < 0 || toggle.tag > LMVEasterHomeMenuSection()) return;
+    if (toggle.tag < 0 || toggle.tag > LMVEasterOpacitySection()) return;
     NSString *key;
     if (toggle.tag == LMVEasterControlCenterSection()) key = @"ControlCenterBackgroundEnabled";
     else if (toggle.tag == LMVEasterOpacitySection()) key = @"VideoOpacityEnabled";

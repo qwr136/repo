@@ -129,7 +129,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.104 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.107 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -335,6 +335,7 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
     [_layer removeFromSuperlayer];
 }
 @end
+static BOOL LMVCardStateVisible(UIView *owner, LMVVideoState *state, NSString *target);
 #import "LMVBackgroundDiscovery.h"
 
 static BOOL LMVPlaybackAllowed(void) {
@@ -581,7 +582,11 @@ static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
     if (!source) return NO;
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
-        for (LMVVideoState *state in states.allValues) if (state.source==source && state.active && state.overlay.superview) return YES;
+        for (NSString *target in states) {
+            LMVVideoState *state=states[target];
+            if (state.source==source && state.active && state.overlay.superview &&
+                LMVCardStateVisible(cell,state,target)) return YES;
+        }
     }
     return NO;
 }
@@ -683,7 +688,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.104 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.107 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -717,18 +722,16 @@ static void LMVLoadPreferences(void) {
     LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, opacity.floatValue)) : 0.55;
     LMVPrepareAssets();
 }
-static CGRect LMVRectInView(UIView *view, UIView *ancestor) {
-    CALayer *source = view.layer.presentationLayer;
-    CALayer *destination = ancestor.layer.presentationLayer;
-    if (source && destination) return [source convertRect:source.bounds toLayer:destination];
-    return [view convertRect:view.bounds toView:ancestor];
-}
+static BOOL LMVMessageCell(UIView *cell);
 static BOOL LMVNotificationCenterSurface(UIView *view) {
-    if (!view.window || view.window.hidden) return NO;
+    // Scope is attached model ownership, not a model hidden visibility veto.
+    // Exposure (including window/ancestor presentation state) is checked below.
+    if (!view.window || !([view isDescendantOfView:view.window] || view==view.window)) return NO;
+    NSString *attachedWindowName=NSStringFromClass(view.window.class);
+    if ([attachedWindowName containsString:@"ControlCenter"] || [attachedWindowName containsString:@"Secure"]) return NO;
     for (UIView *node = view; node; node = node.superview) {
         NSString *name = NSStringFromClass(node.class);
-        if ([name containsString:@"SBCoverSheet"] || [name containsString:@"NCNotification"] ||
-            [name containsString:@"NotificationCenter"] || [name containsString:@"CoverSheet"]) return YES;
+        if ([name containsString:@"NotificationCenter"] || [name containsString:@"CoverSheet"]) return YES;
     }
     NSString *windowName = NSStringFromClass(view.window.class);
     if ([windowName containsString:@"CoverSheet"] || [windowName containsString:@"NotificationCenter"]) return YES;
@@ -738,16 +741,10 @@ static BOOL LMVNotificationCenterSurface(UIView *view) {
     }
     return NO;
 }
+#import "LMVCardPresentation.h"
 static BOOL LMVVisible(UIView *view) {
-    if (!LMVNotificationCenterSurface(view)) return NO;
-    if (!view.window || view.window.hidden || view.bounds.size.width < 1 || view.bounds.size.height < 1) return NO;
-    for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
-        if (ancestor.hidden || LMVOriginalVisibilityAlpha(ancestor) < 0.01) return NO;
-        if (ancestor.clipsToBounds && !CGRectIntersectsRect(LMVRectInView(view, ancestor), (ancestor.layer.presentationLayer ?: ancestor.layer).bounds)) return NO;
-    }
-    uint64_t blank = 0;
-    if (LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK && blank) return NO;
-    return CGRectIntersectsRect(LMVRectInView(view, view.window), LMVVideoWindowViewport(view.window));
+    if (!LMVPlaybackAllowed() || !LMVNotificationCenterSurface(view)) return NO;
+    return LMVCardExposed(view);
 }
 static BOOL LMVActionBranch(UIView *view) {
     // Grouped notification actions use this presenter even when the concrete
@@ -1017,7 +1014,8 @@ static void LMVUpdate(UIView *cell) {
         if (!playbackAllowed && state.originals.count && cell.window &&
             state.originalAnchor == anchor && state.originalScope == host) originalInScope = YES;
         LMVReplaceBackground(state, anchor, host, target, originalInScope);
-        state.active=playbackAllowed && anchorVisible && LMVOpacityEnabled && LMVOpacity>0.0;
+        state.active=playbackAllowed && LMVOpacityEnabled && LMVOpacity>0.0 &&
+            LMVCardStateVisible(cell,state,target);
         if (reportGeometry) LMVDiagnostic([NSString stringWithFormat:@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height]);
         if (anchorVisible) state.lastVisible = now;
         // Owned content, geometry, opacity and corners are assigned before startup.
@@ -1201,7 +1199,9 @@ static void LMVSyncDisplayLink(void) {
     BOOL needed=NO;
     if (LMVPlaybackAllowed() && LMVOpacityEnabled && LMVOpacity>0) {
         for (UIView *cell in LMVCells.allObjects) {
-            if (!LMVVisible(cell)) continue;
+            NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
+            BOOL exposed=LMVVisible(cell);
+            if (!exposed && !LMVCardColdProbe(cell,states)) continue;
             // Observe readiness even before a source/overlay/frame exists.
             for (NSString *target in LMVTargets()) {
                 if (LMVEnabled[target].boolValue && LMVPaths[target]) { needed=YES; break; }
@@ -1232,8 +1232,10 @@ static void LMVSyncDisplayLink(void) {
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         BOOL cellVisible=LMVVisible(cell), changed=NO;
-        for (LMVVideoState *state in states.allValues) {
-            BOOL active=cellVisible && state.anchor && LMVVisible(state.anchor) && state.overlay.superview && LMVOpacityEnabled && LMVOpacity>0.0;
+        for (NSString *target in states) {
+            LMVVideoState *state=states[target];
+            BOOL active=cellVisible && LMVOpacityEnabled && LMVOpacity>0.0 &&
+                LMVCardStateVisible(cell,state,target);
             if (active!=state.active) changed=YES;
             state.active=active;
         }
@@ -1352,7 +1354,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
                     // NC/CC/Home surface vanished. Let each channel's scope and
                     // current screen state decide, not an application-state latch.
                     LMVHomeMenuVideoSuspend();
-                    LMVReleaseAllPlayers();LMVRequestSafeUpdate();
+                    LMVSyncDisplayLink();LMVRequestSafeUpdate();
                 }
             });
         }];

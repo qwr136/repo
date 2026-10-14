@@ -39,11 +39,11 @@ prefs_import = prefs[prefs.index('- (void)picker:(PHPickerViewController *)picke
 assert 'for (NSString *target in @[@"Message", @"Options", @"Clear"])' in prefs_import
 assert 'ControlCenter' not in prefs_import and 'LockScreen' not in prefs_import and 'Desktop' not in prefs_import
 assert 'static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterTargets().count; }' in panel
-assert 'static NSInteger LMVEasterOpacitySection(void) { return LMVEasterControlCenterSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }' in panel
 assert 'static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }' in panel
-assert 'static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterImportSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterControlCenterSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
-assert 'return LMVEasterDisplaySection() + 1;' in panel
+assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', panel) is not None
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
 assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu"]' in delete
