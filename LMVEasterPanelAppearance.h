@@ -21,29 +21,29 @@ static inline NSArray<NSString *> *LMVEasterPanelAppearanceKeys(void) {
 }
 // A non-finite input resolves to `low`: a corrupt/absent value must never
 // produce a larger panel or corner than the user could have asked for.
-static CGFloat LMVEasterPanelClamp(CGFloat value, CGFloat low, CGFloat high) {
+static inline CGFloat LMVEasterPanelClamp(CGFloat value, CGFloat low, CGFloat high) {
     if (!isfinite(value)) return low;
     return fmax(low, fmin(high, value));
 }
-static BOOL LMVEasterPanelToggle(id value, BOOL fallback) {
+static inline BOOL LMVEasterPanelToggle(id value, BOOL fallback) {
     return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;
 }
-static CGFloat LMVEasterPanelCornerValue(id value) {
+static inline CGFloat LMVEasterPanelCornerValue(id value) {
     double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : LMVEasterPanelCornerFallback;
     return round(LMVEasterPanelClamp((CGFloat)raw, LMVEasterPanelCornerMin, LMVEasterPanelCornerMax));
 }
-static CGFloat LMVEasterPanelScaleValue(id value) {
+static inline CGFloat LMVEasterPanelScaleValue(id value) {
     double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 1.0;
     return round(LMVEasterPanelClamp((CGFloat)raw, LMVEasterPanelScaleMin, LMVEasterPanelScaleMax) * 100.0) / 100.0;
 }
 // Resolved corner radius. `fallbackCorner` is the value the panel used before this
 // feature existed, applied whenever the toggle is off (or never set).
-static CGFloat LMVEasterResolvedPanelCorner(id enabled, id corner, CGFloat fallbackCorner) {
+static inline CGFloat LMVEasterResolvedPanelCorner(id enabled, id corner, CGFloat fallbackCorner) {
     return LMVEasterPanelToggle(enabled, YES) ? LMVEasterPanelCornerValue(corner) : fallbackCorner;
 }
 // Resolved panel size. Sizing is OFF by default, so an untouched install keeps the
 // automatic width/height computed from the screen.
-static CGSize LMVEasterResolvedPanelSize(id enabled, id widthScale, id heightScale, CGSize automatic) {
+static inline CGSize LMVEasterResolvedPanelSize(id enabled, id widthScale, id heightScale, CGSize automatic) {
     if (!LMVEasterPanelToggle(enabled, NO)) return automatic;
     return CGSizeMake(automatic.width * LMVEasterPanelScaleValue(widthScale),
                       automatic.height * LMVEasterPanelScaleValue(heightScale));

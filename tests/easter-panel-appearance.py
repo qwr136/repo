@@ -72,6 +72,12 @@ for selector in ('panelCornerToggled:', 'panelCornerChanged:', 'panelSizeToggled
 assert '#define LMVEasterPanelCornerFallback 20.0' in header
 assert '#define LMVEasterPanelCornerMin 0.0' in header and '#define LMVEasterPanelCornerMax 60.0' in header
 assert '#define LMVEasterPanelScaleMin 0.5' in header and '#define LMVEasterPanelScaleMax 1.5' in header
+# This header is included by BOTH compile units (SpringBoard tweak and the Prefs
+# bundle) and each uses only part of it, so every helper must be static inline:
+# a plain static function trips -Wunused-function in the other unit.
+import re as _re2
+assert not _re2.findall(r'^static (?!inline)\S+ \*?(\w+)\(', header, _re2.M), \
+    'every helper in this shared header must be static inline'
 assert 'LMVEasterPanelToggle(enabled, YES)' in header, 'corner defaults to on'
 assert 'LMVEasterPanelToggle(enabled, NO)' in header, 'custom size defaults to off'
 # Both entry points reach this one page, so both get the controls.
