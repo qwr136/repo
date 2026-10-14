@@ -1,5 +1,16 @@
 # 锁屏消息视频
 
+## 0.0.114：设置页顶部总开关
+
+精确基线113 `e24d04d`。113 已被真机日志确认：`card-pipeline` 变为 `attached=1 ownerModel=1 surfaceVisible=1 active=1 source=1 requested=1`，`published` 持续增长，`card-exposure ... playing=1`，三类卡片通道恢复正常；本轮只加总开关，其它逻辑不动。
+
+- 设置页最顶部新增「总开关」分组与一行「启用全部视频背景与悬浮球」（`GlobalEnabled`）。
+- 生效范围：五个目标（消息/选项/清除/锁屏/桌面）、控制中心、桌面长按菜单，以及悬浮球（小彩蛋）。关闭后各通道与悬浮球立即停止，各单项开关的取值保留，重新打开即恢复原配置。
+- 缺省策略：prefs 里**没有这个键时按“启用”处理**（tweak 侧 `LMVGlobalEnabled()` 与设置页 `default=YES` 一致），所以升级到本版不会改变任何已有配置；只有显式写入 `false` 才会整体停用。
+- 实现点：`Tweak.xm` 的 `LMVGlobalEnabled()` 为唯一判定源，卡片通道在 `LMVLoadPreferences` 里与单项开关取与，锁屏/控制中心/桌面（两处）/长按菜单四处读取点同样取与，小彩蛋在 `apply` 里把总开关并入 `EasterEggEnabled`。设置页沿用既有 `setEnabled:`/`enabled:` 读写与 `preferencesChanged` 刷新链，关闭后无需注销即可立刻生效。
+
+原生/静态回归新增：设置页首行必须是总开关且 `default=YES`、`GlobalEnabled` 行必须排在第一个目标分组之前、四个通道源码都必须取与总开关（桌面两处）、小彩蛋必须并入总开关；设置页顺序与属性表哈希同步更新。CI 的非原生部分不替代真机 UI 实测。
+
 ## 0.0.113：卡片附着契约（真机日志定位）、录屏期间浮球保活
 
 精确基线112 `8f6f4ff`，只继续修这两处，其余不动。

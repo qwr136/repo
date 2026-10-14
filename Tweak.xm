@@ -15,6 +15,15 @@
 
 #define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
+// 0.0.114: single master gate shared by every channel (five targets, control
+// centre, desktop, home-menu and the floating egg). The key is read straight
+// from our own domain and an ABSENT key means ENABLED, so an existing
+// installation keeps exactly the behaviour it already had; only an explicit NO
+// stops the whole tweak. Read it fresh: it can change at any time from Settings.
+static BOOL LMVGlobalEnabled(void) {
+    NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"), kLMVPrefsID);
+    return value ? value.boolValue : YES;
+}
 static NSHashTable<UIView *> *LMVCells;
 static NSHashTable<UIView *> *LMVActionPresenters;
 static NSMutableDictionary<NSString *, NSString *> *LMVPaths;
@@ -135,7 +144,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.113 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.114 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -712,7 +721,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.113 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.114 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -722,10 +731,11 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
+    BOOL globalOn = LMVGlobalEnabled();
     for (NSString *target in LMVTargets()) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
-        LMVEnabled[target] = @([enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
+        LMVEnabled[target] = @(globalOn && [enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
         NSString *videoKey = [target stringByAppendingString:@"Video"];
         NSString *relative = (__bridge_transfer NSString *)CFPreferencesCopyAppValue((__bridge CFStringRef)videoKey, kLMVPrefsID);
         // Always resolve through the semantic source table; never pass a nil source name.

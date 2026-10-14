@@ -299,7 +299,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 }
 - (void)primePoster {
     id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
-    self.enabled=[enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
+    // 0.0.114: master switch.
+    self.enabled=LMVGlobalEnabled() && [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
     NSString *path=self.enabled?LMVDesktopSelectedPath():nil,*revision=LMVLockVideoRevision(path);
     if ((self.path || path) && (![self.path isEqualToString:path] || ![self.revision isEqualToString:revision])) {
         [self.lease restore];self.lease=nil;[self.playback clear];self.earlyPosterAttempt=nil;
@@ -531,7 +532,7 @@ static void LMVDesktopPrimeEarly(void) {
     if(!LMVDesktopSeed)LMVDesktopSeed=[LMVDesktopPosterSeed new];
     LMVDesktopPosterSeed *seed=LMVDesktopSeed;
     id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
-    NSString *path=([enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue])?LMVDesktopSelectedPath():nil;
+    NSString *path=(LMVGlobalEnabled() && [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue])?LMVDesktopSelectedPath():nil;
     NSString *revision=LMVLockVideoRevision(path);
     BOOL samePath=seed.path==path || [seed.path isEqualToString:path];
     BOOL sameRevision=seed.revision==revision || [seed.revision isEqualToString:revision];

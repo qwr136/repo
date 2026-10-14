@@ -417,7 +417,8 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     self.suspended=NO;
     if(reload) {
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("ControlCenterBackgroundEnabled"),kLMVPrefsID);
-        self.enabled=[enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
+        // 0.0.114: master switch.
+        self.enabled=LMVGlobalEnabled() && [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
         self.darkPath=LMVCCSelectedPath(@"ControlCenterDarkVideo");self.lightPath=LMVCCSelectedPath(@"ControlCenterLightVideo");
     }
     [self update];

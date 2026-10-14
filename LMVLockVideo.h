@@ -573,7 +573,8 @@ static BOOL LMVLockVideoScreenAllowed(void) {
 - (void)refresh:(BOOL)reload {
     if (reload) {
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("LockScreenBackgroundEnabled"),kLMVPrefsID);
-        self.enabled=[enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
+        // 0.0.114: the master switch gates this channel too (absent = enabled).
+        self.enabled=LMVGlobalEnabled() && [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue];
         self.path=self.enabled?LMVLockVideoSelectedPath():nil;
         self.revision=LMVLockVideoRevision(self.path);self.lastRevisionCheck=CACurrentMediaTime();
         [self.playback selectPath:self.path revision:self.revision];

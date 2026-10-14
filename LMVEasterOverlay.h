@@ -465,7 +465,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)apply {
     CFPreferencesAppSynchronize(LMVEasterPrefs);
-    self.displayControls=LMVEasterDisplayControlsFromValues(LMVEasterRead(@"EasterEggEnabled"),
+    // 0.0.114: the Settings master switch gates the floating egg as well; an
+    // absent key means enabled, so an existing installation is unaffected.
+    id global=LMVEasterRead(@"GlobalEnabled");
+    BOOL globalOn=([global isKindOfClass:NSNumber.class] ? [global boolValue] : YES);
+    self.displayControls=LMVEasterDisplayControlsFromValues(globalOn?LMVEasterRead(@"EasterEggEnabled"):@NO,
         LMVEasterRead(@"EasterEggShowOnLockScreen"),LMVEasterRead(@"EasterEggShowOnControlCenter"),
         LMVEasterRead(@"EasterEggShowOnDesktop"),LMVEasterRead(@"EasterEggRotationEnabled"),LMVEasterRead(@"EasterEggRotationSpeed"));
     if (!self.displayControls.enabled) {

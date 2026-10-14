@@ -92,13 +92,32 @@ class UISectionOrder(unittest.TestCase):
         self.assertEqual(len({section('LMVEaster' + n + 'Section') for n in
                              ['ControlCenter', 'HomeMenu', 'Display', 'Opacity', 'Import']}), 5)
 
+    def test_settings_top_group_is_the_global_master_switch(self):
+        # 0.0.114: the master switch is the FIRST row and defaults to ON, so an
+        # absent key keeps every channel enabled after an upgrade.
+        self.assertTrue(SPECIFIERS.startswith('- (NSArray *)specifiers {'))
+        self.assertIn('[_specifiers addObject:globalGroup];\n    PSSpecifier *global =', SPECIFIERS)
+        self.assertIn('[global setProperty:@"GlobalEnabled" forKey:@"key"];', SPECIFIERS)
+        self.assertIn('[global setProperty:@YES forKey:@"default"];', SPECIFIERS)
+        self.assertIn('set:@selector(setEnabled:specifier:) get:@selector(enabled:)', SPECIFIERS)
+        global_index = SPECIFIERS.index('GlobalEnabled')
+        self.assertLess(global_index, SPECIFIERS.index('LMVNames()[i]'))
+        tweak = (ROOT / 'Tweak.xm').read_text()
+        self.assertIn('static BOOL LMVGlobalEnabled(void) {', tweak)
+        self.assertIn('return value ? value.boolValue : YES;', tweak)
+        for f in ['LMVLockVideo.h', 'LMVControlCenterVideo.h', 'LMVHomeMenuVideo.h']:
+            self.assertIn('LMVGlobalEnabled() &&', (ROOT / f).read_text())
+        self.assertEqual((ROOT / 'LMVDesktopVideo.h').read_text().count('LMVGlobalEnabled() &&'), 2)
+        self.assertIn('globalOn?LMVEasterRead(@"EasterEggEnabled"):@NO', (ROOT / 'LMVEasterOverlay.h').read_text())
+
     def test_settings_appends_group_counts_and_routes(self):
         appends = re.findall(r'\[_specifiers addObject:(.+)\];', SPECIFIERS)
         sequence = []
         for item in appends:
             group = re.search(r'groupSpecifierWithName:@"(.*?)"', item)
             sequence.append('group:' + group.group(1) if group else 'targets-group' if 'LMVNames()[i]' in item else item)
-        self.assertEqual(sequence, ['targets-group', 'enabled', 'choose',
+        self.assertEqual(sequence, ['globalGroup', 'global',
+            'targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
@@ -107,16 +126,16 @@ class UISectionOrder(unittest.TestCase):
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 36)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 38)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 4)
-        self.assertEqual(36 + (len(TARGETS) + 3) * 2, 52)
+        self.assertEqual(38 + (len(TARGETS) + 3) * 2, 54)
         self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 14)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines() if 'setProperty:' in x or '.buttonAction =' in x)
-        self.assertEqual(digest('\n'.join(props)), '6a8316248f720d7bfeacf41f76828b56ca6dfe62c488dca50445a9ebdc560626')
+        self.assertEqual(digest('\n'.join(props)), '4acd335e442129a99e2c9982df95b9d6a9829d2f3986eb8041e8837a8d12a3ed')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)
