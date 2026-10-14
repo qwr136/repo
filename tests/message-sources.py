@@ -358,7 +358,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVSourceForTarget(path,@"Message");LMVSourceForTarget(other,@"Clear");
     assert(LMVSourceForTarget(path,@"Message")!=LMVSourceForTarget(other,@"Clear"));
     for(LMVSharedSource *source in LMVSharedSources.allValues)assert(!source.playing && source.player.rate==0);
-    for(NSString *invalidatePath in @[path,pathB,pathC])LMVInvalidateSourcesForPath(invalidatePath);
+    for(NSString *invalidatePath in @[path,pathB,pathC,other])LMVInvalidateSourcesForPath(invalidatePath);
     dispatch_sync(LMVFrameQueue,^{});assert(!LMVSharedSources.count);
     puts("PASS: exact production three-target factory/prewarm/player/item/output/reader/sample and frame/time isolation; 600 card requests reuse only 3 players; real AVPlayer clocks advance; Message pause preserves frame/time without pausing Options/Clear; retained warm resume has no extra seek; cold restore remains one seek; asset/disk-ready and enabled/selected prewarm; all-path invalidation; idempotent retirement (macOS AVFoundation, NOT device test)");
 } return 0; }
