@@ -267,6 +267,25 @@ int main(void){@autoreleasepool{
  [manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);record.visible=YES;[manager update];assert(manager.playback.wantsPlayback);
  manager.screenAllowed=NO;[manager update];assert(!manager.host.superview && !manager.link);manager.screenAllowed=YES;
  manager.enabled=NO;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);manager.enabled=YES;
+ // .102 same-owner empty layout recovery never crosses true withdrawal,
+ // unknown/private getter rejection, physical offscreen, disable or screen-off.
+ [clock removeFromSuperview];SBUIBackgroundView *ownedBack=[SBUIBackgroundView new];[sliding addSubview:ownedBack];[sliding addSubview:clock];
+ sliding.frame=CGRectMake(0,0,390,422);ownedBack.frame=sliding.bounds;[manager update];assert(manager.host.superview==sliding);
+ cover.frame=CGRectMake(0,0,390,0);[manager update];assert(manager.playback.wantsPlayback && !manager.host.hidden);
+ assert(CGRectEqualToRect(CGPathGetBoundingBox(manager.host.clipLayer.path),sliding.bounds));
+ sliding.hidden=YES;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);sliding.hidden=NO;
+ [manager update];assert(!manager.host.superview); // no empty-root cold attach
+ cover.frame=CGRectMake(0,0,390,844);[manager update];cover.frame=CGRectMake(0,0,390,0);
+ window.screenOffset=CGPointMake(0,844);[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);window.screenOffset=CGPointZero;
+ cover.frame=CGRectMake(0,0,390,844);[manager update];cover.frame=CGRectMake(0,0,390,0);
+ cover.slideableContentView=nil;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);cover.slideableContentView=sliding;
+ cover.frame=CGRectMake(0,0,390,844);[manager update];cover.frame=CGRectMake(0,0,390,0);
+ manager.screenAllowed=NO;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);manager.screenAllowed=YES;
+ cover.frame=CGRectMake(0,0,390,844);[manager update];cover.frame=CGRectMake(0,0,390,0);
+ manager.enabled=NO;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);manager.enabled=YES;
+ cover.frame=CGRectMake(0,0,390,844);sliding.frame=CGRectMake(0,0,390,844);ownedBack.frame=sliding.bounds;[manager update];
+ cover.frame=CGRectMake(0,0,390,0);record.visible=NO;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);record.visible=YES;
+ cover.frame=CGRectMake(0,0,390,844);[ownedBack removeFromSuperview];[manager update];assertSystemTree(cover,original);
  // New root/window moves only the plugin host. Old and new system trees survive.
  SBCoverSheetWindow *second=[SBCoverSheetWindow new];CSCoverSheetView *newCover=[CSCoverSheetView new];SBUIBackgroundView *newBack=[SBUIBackgroundView new];UIView *newSliding=[UIView new];
  [second addSubview:newCover];[newCover addSubview:newBack];[newCover addSubview:newSliding];newCover.slideableContentView=newSliding;

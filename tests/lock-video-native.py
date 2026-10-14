@@ -9,7 +9,8 @@ assert 'addMutableTrackWithMediaType:AVMediaTypeVideo' in h
 assert 'LMVCacheFrame' not in h and 'AVAudioSession' not in h
 assert 'removeAllItems' in h and 'disableLooping' in h and 'replacePlayerLayer' in h
 assert 'BOOL retainedPlayer=self.player && self.playerLayer.player==self.player && self.everReady && !self.error;' in h
-assert 'self.playerLayer.hidden=!(ready || retainedPlayer);' in h
+assert 'BOOL playerHidden=!(ready || retainedPlayer);' in h
+assert 'if (changed && self.didChange)' in h
 assert '- (void)resumeIfNeeded' in h
 assert 'forKeyPath:@"timeControlStatus"' in h
 assert 'self.frozen || self.posterOnlyVisible' in h
@@ -100,6 +101,13 @@ int main(int argc,const char **argv) {@autoreleasepool {
  assert(until(^BOOL{return !p.loading && p.player && p.looper && p.posterLayer.contents;},15));assert(!p.error && p.buildCount==1);
  assert(p.playerLayer.player==p.player && p.templateItem.asset!=asset && p.player.muted && p.player.volume==0 && !p.player.allowsExternalPlayback);
  assert([p.templateItem.asset tracksWithMediaType:AVMediaTypeAudio].count==0);
+ // Stable presentation updates must not feed a manager refresh loop. These are
+ // real production calls with a real AVQueuePlayer/CALayer graph, not a timing claim.
+ p.wantsPlayback=NO;[p.player pause];spin(.05);[p updatePresentation];
+ __block NSUInteger notifications=0;p.didChange=^{notifications++;};
+ for(int n=0;n<500;n++){[p updatePresentation];[p layoutInBounds:surface.bounds];}
+ assert(notifications==0);
+ p.didChange=nil;[p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));
  AVQueuePlayer *first=p.player;AVPlayerLooper *loop=p.looper;AVPlayerLayer *firstLayer=p.playerLayer;
  for(int n=0;n<50;n++){[p selectPath:mixed revision:rev];[p layoutInBounds:CGRectMake(0,0,390+n,844)];}
  assert(p.player==first && p.looper==loop && p.playerLayer==firstLayer && p.buildCount==1);

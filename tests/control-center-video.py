@@ -19,6 +19,9 @@ assert 'record.cachedMaterial' in h and 'if(diagnostics)' in h
 assert '[LMVControlCenterVideo refresh:NO]' in h
 assert '[self.playback resumeIfNeeded]' in h
 assert 'LMVCCBackgroundViewport' in h
+assert 'LMVCCAncestorSlot' in h and 'LMVCCEffectiveCoverage' in h
+assert 'extentPlayer' not in h and 'LMVCCMaterialLease' in h
+assert 'if(!LMVCCPresentationAllows(record))continue;' in h
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
 # Use the same UIKit input doubles as existing lock tests. All behavior under
 # test below comes directly from the production CC header.
@@ -108,6 +111,8 @@ pre=pre.replace('@interface TestPlayer:NSObject', '@interface TestPlayer:NSObjec
 pre=pre.replace('@property NSUInteger builds,clears,posterPrepareCalls,posterPathReads;', '@property NSUInteger builds,clears,posterPrepareCalls,posterPathReads,resumeCalls;')
 pre=pre.replace('- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;[self updatePresentation];}', '- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;self.player.rate=visible?1:0;[self updatePresentation];}\n- (void)resumeIfNeeded {self.resumeCalls++;if(self.wantsPlayback && !self.frozen && !self.error)self.player.rate=1;}')
 pre+=r'''
+@interface SBControlCenterWindow:UIWindow @end
+@implementation SBControlCenterWindow @end
 @interface MTMaterialView:UIView @end
 @implementation MTMaterialView @end
 @interface CCUIScrollView:UIScrollView @end
@@ -334,6 +339,33 @@ int main(void){@autoreleasepool {
  // always recover, and stops once the feature is off.
  assert(manager.timer!=nil);
  manager.enabled=NO;[manager update];assert(!manager.playback.renderLayer.superlayer && !manager.playback.wantsPlayback && manager.timer==nil);manager.enabled=YES;[manager update];assert(manager.timer!=nil);
+ // Effective compositing regression, not a bounding-box-only check. Both Home
+ // and application content underneath must not leak through a clipping CC root.
+ SBControlCenterWindow *ccWindow=[SBControlCenterWindow new];UIView *ccRoot=[UIView new];[ccWindow addSubview:ccRoot];
+ MTMaterialView *ccMaterial=[MTMaterialView new];UIControl *ccButtons=[UIControl new];[ccRoot addSubview:ccMaterial];[ccRoot addSubview:ccButtons];
+ CCUIModularControlCenterOverlayViewController *halfCC=[CCUIModularControlCenterOverlayViewController new];halfCC.viewIfLoaded=ccRoot;halfCC.traitCollection=cc.traitCollection;ccWindow.rootViewController=halfCC;
+ [LMVCCControllers removeAllObjects];LMVCCLifecycle(halfCC,1);
+ LMVControlCenterVideoManager *halfManager=[LMVControlCenterVideoManager new];halfManager.enabled=YES;halfManager.darkPath=@"half.mov";halfManager.lightPath=@"half.mov";[halfManager update];
+ NSUInteger halfBuild=halfManager.playback.builds;TestPlayer *halfPlayer=halfManager.playback.player;
+ CALayer *halfLive=halfManager.playback.renderLayer,*halfPlayerLayer=halfManager.playback.playerLayer;
+ ccRoot.clipsToBounds=YES;ccRoot.layer.masksToBounds=YES;
+ for(int underlying=0;underlying<2;underlying++)for(int n=0;n<=60;n++) {
+  CGFloat y=422.0*n/60.0,height=844-y;ccWindow.screenOffset=CGPointMake(0,y);
+  ccRoot.frame=CGRectMake(0,0,390,height-8);ccMaterial.frame=CGRectMake(0,0,390,height);[halfManager update];[halfManager syncGeometry];
+  CGRect viewport=LMVVideoWindowViewport(ccWindow);
+  CGRect actual=LMVCCEffectiveCoverage(halfManager.extentContainer,halfLive.frame,ccWindow,NO);
+  assert(CGRectContainsRect(actual,viewport) && halfLive.superlayer==ccWindow.layer && ccMaterial.hidden);
+  assert([ccWindow.layer.sublayers indexOfObjectIdenticalTo:halfLive]+1==[ccWindow.layer.sublayers indexOfObjectIdenticalTo:ccRoot.layer]);
+  assert(ccButtons.layer.superlayer==ccRoot.layer && ccRoot.layer.superlayer==ccWindow.layer && ccMaterial.layer.superlayer==ccRoot.layer);
+  assert(halfManager.playback.player==halfPlayer && halfManager.playback.playerLayer==halfPlayerLayer && halfManager.playback.builds==halfBuild);
+ }
+ LMVCCLifecycle(halfCC,0);[halfManager update];assert(!halfLive.superlayer && !ccMaterial.hidden && !halfManager.materialLease && !halfManager.geometryLink);
+ LMVCCLifecycle(halfCC,1);[halfManager update];assert(ccMaterial.hidden);halfManager.enabled=NO;[halfManager update];assert(!ccMaterial.hidden && !halfLive.superlayer);
+ halfManager.enabled=YES;[halfManager update];assert(ccMaterial.hidden);[halfManager suspend];assert(!ccMaterial.hidden && !halfLive.superlayer);
+ // Foreground material contents forbid suppression/promotion, and arbitrary app
+ // windows can never become the expanded CC background host.
+ [ccMaterial addSubview:[UILabel new]];halfManager.suspended=NO;[halfManager update];assert(!halfManager.materialLease && !ccMaterial.hidden);
+ [halfManager suspend];[LMVCCControllers removeAllObjects];[LMVCCControllers addObject:cc];
  // Actual runtime hooks forward original args once; double/BOOL ABI checked.
  const char *types[]={@encode(double),@encode(BOOL)};assert(LMVCCHookMatches(cc.class,@selector(setTransitionProgress:interactive:),types,2));
  const char *wrong[]={@encode(float),@encode(BOOL)};assert(!LMVCCHookMatches(cc.class,@selector(setTransitionProgress:interactive:),wrong,2));

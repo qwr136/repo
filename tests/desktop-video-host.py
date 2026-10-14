@@ -12,6 +12,9 @@ assert 'sharedWallpaperView' not in h  # Ambiguous Lock/Home source must not be 
 assert 'BOOL appForeground=!definitiveAway && !visible && retainedAttachment;' in h
 assert 'pixels && appForeground && retainedAttachment && self.lease' in h
 assert 'if (diagnostics)' in h
+assert 'static void LMVDesktopRequestUpdate' in h and '- (void)syncGeometry' in h
+assert 'LMVRequestSafeUpdate' not in h, 'Desktop hooks must not trigger global full passes'
+assert 'BOOL geometryChanged=' in h and 'if(!content.hidden)' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -49,7 +52,13 @@ pre=pre.replace('+ (instancetype)mainScreen {static UIScreen *s;', '+ (instancet
 pre=pre.replace('+ (instancetype)sharedApplication {static UIApplication *app;', '+ (instancetype)sharedApplication {appQueries++;NSCAssert(!forbidUIKit,@"UIApplication used during loader initialization");static UIApplication *app;')
 pre=pre.replace('- (instancetype)initWithFrame:(CGRect)rect {if((self=[super init]))', '- (instancetype)initWithFrame:(CGRect)rect {viewConstructions++;NSCAssert(!forbidUIKit,@"UIView created during loader initialization");if((self=[super init]))')
 pre=pre.replace('- (instancetype)init {if((self=[super init])){_renderLayer=', '- (instancetype)init {playbackConstructions++;NSCAssert(!forbidUIKit,@"Playback created during loader initialization");if((self=[super init])){_renderLayer=')
+pre=pre.replace('@property NSUInteger builds,clears,earlyReads;', '@property NSUInteger builds,clears,earlyReads,layoutCalls,visibleCalls,frozenCalls,resumeCalls;\n- (void)resumeIfNeeded;')
+pre=pre.replace('- (void)layoutInBounds:(CGRect)bounds {self.renderLayer.frame=bounds;}', '- (void)layoutInBounds:(CGRect)bounds {self.layoutCalls++;self.renderLayer.frame=bounds;}')
+pre=pre.replace('- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;', '- (void)setVisible:(BOOL)visible {self.visibleCalls++;self.wantsPlayback=visible;')
+pre=pre.replace('- (void)setFrozen:(BOOL)frozen {_frozen=frozen;', '- (void)setFrozen:(BOOL)frozen {self.frozenCalls++;_frozen=frozen;')
+pre=pre.replace('@implementation LMVLockVideoPlayback\n', '@implementation LMVLockVideoPlayback\n- (void)resumeIfNeeded {self.resumeCalls++;}\n')
 pre+=r'''
+static NSUInteger fullDesktopPolicies;
 static NSDictionary *testPrefs;
 static CFPropertyListRef testPreference(CFStringRef key,CFStringRef domain) {return CFBridgingRetain(testPrefs[(__bridge NSString *)key]);}
 #define CFPreferencesCopyAppValue testPreference
@@ -91,6 +100,7 @@ lock=(r/'LMVLockVideo.h').read_text()
 # Execute real discovery, geometry and ABI validators needed by Desktop.
 helpers=lock[lock.index('static BOOL LMVLockVideoRectValid'):lock.index('@interface LMVLockVideoHost')]
 abi=lock[lock.index('static BOOL LMVLockVideoHookMatches'):lock.index('static void LMVLockVideoInstallHooks')]
+h=h.replace('- (void)update {', '- (void)update {fullDesktopPolicies++;')
 main=r'''
 static void originalTree(UIView *parent,NSArray *expected) {
  NSMutableArray *actual=[NSMutableArray new];for(UIView *v in parent.subviews)if(![v isKindOfClass:LMVDesktopVideoHost.class])[actual addObject:v];
@@ -124,6 +134,9 @@ int main(void){@autoreleasepool {
  LMVDesktopVideoManager *m=[LMVDesktopVideoManager new];m.enabled=YES;m.path=@"movie";m.revision=@"rev1";
  m.playback.path=@"movie";m.playback.posterLayer.contents=(id)@"pixel";
  [m update];assert(m.host.superview==wall && [wall.subviews indexOfObject:m.host]==1 && wallPixels.hidden && m.playback.wantsPlayback);
+ NSUInteger stableLayouts=m.playback.layoutCalls,stableVisible=m.playback.visibleCalls,stableFrozen=m.playback.frozenCalls;
+ for(int n=0;n<500;n++){[m update];assert(m.host.superview==wall && wallPixels.hidden);}
+ assert(m.playback.layoutCalls==stableLayouts && m.playback.visibleCalls==stableVisible && m.playback.frozenCalls==stableFrozen);
  assert(m.host.alpha==1 && !m.host.userInteractionEnabled && m.host.accessibilityElementsHidden);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
  for(int n=0;n<100;n++){[m update];assert(m.host.superview==wall && wallPixels.hidden);originalTree(wall,wallOriginal);}
  // 0.0.91: the app transition freezes the Desktop surface in place instead of
@@ -209,7 +222,17 @@ int main(void){@autoreleasepool {
  assert(!LMVDesktopVideo.suspended && LMVDesktopVideo.authenticatedSession && LMVDesktopVideo.host.superview==wall && wallPixels.hidden && !LMVDesktopVideo.playback.renderLayer.hidden);
  LMVDesktopVideoScreenBlank();assert(LMVDesktopVideo.suspended && !wallPixels.hidden);
  LMVDesktopVideoScreenChanged();assert(!LMVDesktopVideo.suspended && !LMVDesktopVideo.host.hidden);
- sliding.frame=CGRectMake(0,-844,390,844);[LMVDesktopVideo suspend];[LMVDesktopVideo.host removeFromSuperview];
+ sliding.frame=CGRectMake(0,-844,390,844);[LMVDesktopVideo update];
+ // 500 after-original layouts: zero global refresh requests and no complete
+ // policy pass. The lightweight repair only writes when geometry actually moves.
+ LMVDesktopLifecycle(controller,1);[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
+ NSUInteger beforePolicy=fullDesktopPolicies,beforeGlobal=requests,beforeLayout=LMVDesktopVideo.playback.layoutCalls;
+ for(int n=0;n<500;n++){[controller viewDidLayoutSubviews];[wall layoutSubviews];}
+ [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
+ assert(fullDesktopPolicies==beforePolicy && requests==beforeGlobal && LMVDesktopVideo.playback.layoutCalls==beforeLayout);
+ CGRect boundsBefore=wall.bounds;wall.bounds=CGRectMake(0,0,390,800);[wall layoutSubviews];
+ assert(CGRectEqualToRect(LMVDesktopVideo.host.frame,wall.bounds) && fullDesktopPolicies==beforePolicy);wall.bounds=boundsBefore;[wall layoutSubviews];
+ [LMVDesktopVideo suspend];[LMVDesktopVideo.host removeFromSuperview];
  SBWallpaperController *publisher=[SBWallpaperController sharedInstance];publisher.homescreenWallpaperView=wall;publisher.lockscreenWallpaperView=[UIView new];LMVDesktopDiscover();assert(LMVDesktopExplicitWallpaper==wall && sharedCalls==before+1);
  publisher.lockscreenWallpaperView=wall;LMVDesktopDiscover();assert(!LMVDesktopExplicitWallpaper);publisher.lockscreenWallpaperView=[UIView new];
  [m suspend];[m.host removeFromSuperview];

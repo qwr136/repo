@@ -159,6 +159,24 @@ static UIView *LMVLockVideoContainer(UIView *root,UIView *content,UIView *own,UI
     }
     if (anchor) *anchor=nil;return nil;
 }
+// Only owned paint may bypass a non-clipping root's layout inset. Physical
+// viewport/ancestor clipping remain intersections; the observed panel bottom
+// still bounds the .100 half-screen path. No cached/full-root exposure is used.
+static CGRect LMVLockVideoOwnedPaintRect(CGRect containerRect,CGRect exposure,CGRect panel,CGRect viewport) {
+    if (!LMVLockVideoRectValid(containerRect) || !LMVLockVideoRectValid(exposure)) return CGRectZero;
+    CGFloat bottom=MIN(CGRectGetMaxY(exposure),CGRectGetMaxY(containerRect));
+    exposure.size.height=MAX(0,bottom-CGRectGetMinY(exposure));
+    CGRect owned=containerRect;
+    // A rectangular containing/contiguous band is safe; an L-shaped bounding
+    // box would invent paint beside the panel and must not be admitted.
+    if (LMVLockVideoRectValid(exposure) && (CGRectContainsRect(exposure,containerRect) ||
+        (fabs(CGRectGetMinX(exposure)-CGRectGetMinX(containerRect))<.01 &&
+         fabs(CGRectGetMaxX(exposure)-CGRectGetMaxX(containerRect))<.01 && !CGRectIsEmpty(CGRectIntersection(exposure,containerRect)))))
+        owned=CGRectUnion(containerRect,exposure);
+    if (LMVLockVideoRectValid(panel)) owned.size.height=MAX(0,MIN(CGRectGetMaxY(owned),CGRectGetMaxY(panel))-CGRectGetMinY(owned));
+    owned=CGRectIntersection(owned,viewport);
+    return LMVLockVideoRectValid(owned)?owned:CGRectZero;
+}
 static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *controllerRoot,UIView *backdrop,UIWindow *window,CGRect *hostFrame) {
     if (hostFrame) *hostFrame=CGRectZero;
     if (!content || !container || !controllerRoot || !window || ![content isDescendantOfView:controllerRoot]) return CGRectZero;
@@ -168,28 +186,21 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     CALayer *paint=ownsBackdrop?backdrop.layer.presentationLayer:nil;
     BOOL presented=space && contentSpace && root && panel && (!ownsBackdrop || paint);
     if (!presented) {space=container.layer;contentSpace=content.layer;root=window.layer;panel=controllerRoot.layer;paint=ownsBackdrop?backdrop.layer:nil;}
-    CGRect viewport=CGRectIntersection(LMVVideoWindowViewport(window),LMVLockVideoRectInTree(controllerRoot,window,panel,root));
-    CGRect admitted=CGRectIntersection(LMVLockVideoRectInTree(content,window,contentSpace,root),viewport);
-    if (!LMVLockVideoRectValid(admitted)) return CGRectZero;
-    // Only the selected leading content-owned paint can extend the mask. A
-    // wider backdrop containing the whole admitted panel is also one exact
-    // rectangle: requiring identical x edges left its exposed top strip bare.
-    // Keep the existing equal-width contiguous-band case; reject L-shaped unions.
-    if (ownsBackdrop && !backdrop.hidden && backdrop.alpha>.01) {
-        CGRect exposure=CGRectIntersection(LMVLockVideoRectInTree(backdrop,window,paint,root),LMVVideoWindowViewport(window));
-        // A non-clipping controller root can have a small top inset even though
-        // its owned background already paints above that inset. Preserve the
-        // admitted bottom edge (including the working NC half-screen boundary)
-        // while permitting only the observed top paint to close this strip.
-        if(LMVLockVideoRectValid(exposure)) {
-            CGFloat bottom=MIN(CGRectGetMaxY(exposure),CGRectGetMaxY(admitted));
-            exposure.size.height=MAX(0,bottom-CGRectGetMinY(exposure));
+    CGRect viewport=LMVVideoWindowViewport(window);
+    CGRect panelRect=LMVLockVideoRectInTree(controllerRoot,window,panel,root);
+    CGRect containerRect=LMVLockVideoRectInTree(content,window,contentSpace,root);
+    CGRect admitted=CGRectIntersection(containerRect,CGRectIntersection(viewport,panelRect));
+    // .102: union in CONTENT-OWNED paint space, never at a real clipping
+    // boundary or for the root-owned wallpaper fallback. The container and
+    // recognized backdrop must both be actually on screen right now.
+    if (ownsBackdrop && !content.hidden && content.alpha>.01 && !backdrop.hidden && backdrop.alpha>.01) {
+        CGRect exposure=LMVLockVideoRectInTree(backdrop,window,paint,root);
+        if (LMVLockVideoRectValid(CGRectIntersection(containerRect,exposure))) {
+            CGRect owned=LMVLockVideoOwnedPaintRect(containerRect,exposure,panelRect,viewport);
+            if (LMVLockVideoRectValid(owned)) admitted=owned;
         }
-        if (LMVLockVideoRectValid(exposure) && (CGRectContainsRect(exposure,admitted) ||
-            (fabs(CGRectGetMinX(exposure)-CGRectGetMinX(admitted))<.01 &&
-             fabs(CGRectGetMaxX(exposure)-CGRectGetMaxX(admitted))<.01 && !CGRectIsEmpty(CGRectIntersection(exposure,admitted)))))
-            admitted=CGRectIntersection(CGRectUnion(admitted,exposure),LMVVideoWindowViewport(window));
     }
+    if (!LMVLockVideoRectValid(admitted)) return CGRectZero;
     // Model/presentation differences must never enlarge this admitted on-screen
     // paint. In particular a model panel ahead of the animation is NOT desktop
     // exposure. No velocity prediction is used beyond this exact boundary.
@@ -449,9 +460,20 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             if (!root || !LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=UIScreen.mainScreen) continue;
             LMVLockControllerRecord *record=objc_getAssociatedObject(candidate,&LMVLockControllerRecordKey);
             if (!record) {record=[LMVLockControllerRecord new];objc_setAssociatedObject(candidate,&LMVLockControllerRecordKey,record,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
-            UIView *sliding=LMVLockVideoContent(root);CGRect exposed=LMVLockVideoVisibleRect(sliding,window);
+            UIView *sliding=LMVLockVideoContent(root);CGRect contentRect=LMVLockVideoVisibleRect(sliding,window);
             CGRect viewport=LMVVideoWindowViewport(window),panel=LMVLockVideoVisibleRect(root,window);
-            exposed=CGRectIntersection(exposed,panel);
+            CGRect exposed=CGRectIntersection(contentRect,panel);
+            UIView *backdrop=LMVLockVideoContentBackdrop(sliding);
+            BOOL ownedActive=sliding && !sliding.hidden && sliding.alpha>.01 && backdrop && !backdrop.hidden && backdrop.alpha>.01 &&
+                LMVLockVideoRectValid(CGRectIntersection(contentRect,LMVLockVideoVisibleRect(backdrop,window)));
+            // A non-clipping root can momentarily have empty layout bounds while
+            // this SAME attached owner/background still occupies the screen.
+            // Never cache its previous mask or grant this exception to a new,
+            // detached, unknown, withdrawn or genuinely off-screen content.
+            BOOL sameOwner=record.wasExposed && record.exposedContent==sliding && self.content==sliding &&
+                self.controller==candidate && self.host.superview==sliding;
+            if (ownedActive && (LMVLockVideoRectValid(exposed) || (sameOwner && !root.clipsToBounds)))
+                exposed=LMVLockVideoOwnedPaintRect(contentRect,LMVLockVideoVisibleRect(backdrop,window),panel,viewport);
             BOOL trueExposure=sliding && !sliding.hidden && sliding.alpha>.01 && LMVLockVideoRectValid(exposed);
             if (!trueExposure || record.exposedContent!=sliding) {record.wasExposed=NO;record.exposedContent=nil;}
             if (!trueExposure) continue;
@@ -461,7 +483,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             // geometry. Narrow slivers and lifecycle callbacks alone are not.
             CGFloat height=window.bounds.size.height;
             BOOL half=height>1 && exposed.size.width>=viewport.size.width*.90 && exposed.size.height>=height*.15 &&
-                (viewport.size.height<=height*.85 || panel.size.height<=height*.85 || exposed.size.height<=height*.85);
+                (viewport.size.height<=height*.85 || (LMVLockVideoRectValid(panel) && panel.size.height<=height*.85) || exposed.size.height<=height*.85);
             if (record.lifecycleKnown && !record.visible && !(record.wasExposed && record.exposedContent==sliding && half)) continue;
             record.wasExposed=YES;record.exposedContent=sliding;
             if (size>area) {best=candidate;content=sliding;area=size;}

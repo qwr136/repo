@@ -90,6 +90,9 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic) NSUInteger posterGeneration;
 @property(nonatomic) BOOL posterOnlyVisible;
 @property(nonatomic) BOOL frozen;
+@property(nonatomic) BOOL presentationValid,lastLoading,lastReady,lastWants,lastFrozen,lastPosterOnly;
+@property(nonatomic) NSUInteger lastPresentationGeneration;
+@property(nonatomic) uintptr_t lastPresentationPlayer,lastPresentationPoster,lastPresentationError;
 - (void)updatePresentation;
 - (void)replacePlayerLayer;
 @end
@@ -147,8 +150,13 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     [CATransaction commit];
 }
 - (void)layoutInBounds:(CGRect)bounds {
+    CGRect children=CGRectMake(0,0,bounds.size.width,bounds.size.height);
+    if(CGRectEqualToRect(self.renderLayer.frame,bounds) && CGRectEqualToRect(self.posterLayer.frame,children) &&
+       CGRectEqualToRect(self.playerLayer.frame,children))return;
     [CATransaction begin];[CATransaction setDisableActions:YES];
-    self.renderLayer.frame=bounds;self.posterLayer.frame=self.renderLayer.bounds;self.playerLayer.frame=self.renderLayer.bounds;
+    if(!CGRectEqualToRect(self.renderLayer.frame,bounds))self.renderLayer.frame=bounds;
+    if(!CGRectEqualToRect(self.posterLayer.frame,self.renderLayer.bounds))self.posterLayer.frame=self.renderLayer.bounds;
+    if(!CGRectEqualToRect(self.playerLayer.frame,self.renderLayer.bounds))self.playerLayer.frame=self.renderLayer.bounds;
     [CATransaction commit];
 }
 - (void)resumeIfNeeded {
@@ -181,15 +189,30 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     // `!ready` alone only blanks a surface that never displayed anything.
     BOOL retainedPlayer=self.player && self.playerLayer.player==self.player && self.everReady && !self.error;
     BOOL blank=!ready && !self.posterLayer.contents && !retainedPlayer;
+    BOOL playerHidden=!(ready || retainedPlayer);
+    BOOL posterHidden=(ready || retainedPlayer) || !self.posterLayer.contents || self.error!=nil;
+    BOOL renderHidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || blank;
+    uintptr_t player=(uintptr_t)(__bridge void *)self.player;
+    uintptr_t poster=(uintptr_t)(__bridge void *)self.posterLayer.contents;
+    uintptr_t error=(uintptr_t)(__bridge void *)self.error;
+    BOOL changed=!self.presentationValid || self.lastPresentationGeneration!=self.generation ||
+        self.lastPresentationPlayer!=player || self.lastPresentationPoster!=poster || self.lastPresentationError!=error ||
+        self.lastLoading!=self.loading || self.lastReady!=ready || self.lastWants!=self.wantsPlayback ||
+        self.lastFrozen!=self.frozen || self.lastPosterOnly!=self.posterOnlyVisible ||
+        self.playerLayer.hidden!=playerHidden || self.posterLayer.hidden!=posterHidden || self.renderLayer.hidden!=renderHidden;
+    if(!changed)return;
     [CATransaction begin];[CATransaction setDisableActions:YES];
-    // Keep the same already-rendered player surface through a transient readiness
-    // drop. Merely leaving renderLayer visible while hiding its video child still
-    // exposed a poster/black fill during app-return and Reachability transitions.
-    self.playerLayer.hidden=!(ready || retainedPlayer);
-    self.posterLayer.hidden=(ready || retainedPlayer) || !self.posterLayer.contents || self.error!=nil;
-    self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || blank;
+    if(self.playerLayer.hidden!=playerHidden)self.playerLayer.hidden=playerHidden;
+    if(self.posterLayer.hidden!=posterHidden)self.posterLayer.hidden=posterHidden;
+    if(self.renderLayer.hidden!=renderHidden)self.renderLayer.hidden=renderHidden;
     [CATransaction commit];
-    if (self.didChange) self.didChange();
+    self.presentationValid=YES;self.lastPresentationGeneration=self.generation;
+    self.lastPresentationPlayer=player;self.lastPresentationPoster=poster;self.lastPresentationError=error;
+    self.lastLoading=self.loading;self.lastReady=ready;self.lastWants=self.wantsPlayback;
+    self.lastFrozen=self.frozen;self.lastPosterOnly=self.posterOnlyVisible;
+    // KVO may report redundant status values. Only meaningful presentation
+    // changes reach a manager; setters don't create a self-refresh feedback loop.
+    if (changed && self.didChange) self.didChange();
 }
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
     if (context!=&LMVLockLayerReadyContext && context!=&LMVLockPlayerStatusContext && context!=&LMVLockPlayerTimeControlContext) {
