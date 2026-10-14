@@ -176,9 +176,8 @@ int main(void){@autoreleasepool{
  puts("PASS production HomeMenu: exact unlocked Home icon preview and active menu record, one independent live chain,500 stable layouts,real CA sibling transform/rounding,baseline redraw/close/cancel/reuse/disable/path/screen/App/foreign/unsafe rejection and typed original forwarding; no iOS device claim");
 }return 0;}
 '''
-# The production revision reader uses filesystem identity. Mock only the file
-# input, not selection/path/owner/layout/lease/decoder-consumer decisions.
-pre+='\nstatic NSString *LMVLockVideoRevision(NSString *path){return path.length?@"test-rev":nil;}\n'
+# Reuse the existing controlled revision input from the Lock test doubles.
+
 source=pre+rect+getters+home+foreground+path+h+main
 if os.environ.get('LMV_NATIVE_EXPORT_DIR'):
     out=Path(os.environ['LMV_NATIVE_EXPORT_DIR']);out.mkdir(parents=True,exist_ok=True)
