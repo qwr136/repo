@@ -840,11 +840,12 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         }
         CGFloat actualGap=actualShown && LMVLockVideoRectValid(shownHostRect) && LMVLockVideoRectValid(shownOwnerRect)?
             MAX(0,CGRectGetMinY(shownHostRect)-CGRectGetMinY(shownOwnerRect)):-1;
-        LMVLockVideoLog([NSString stringWithFormat:@"lock-actualgeometry t=%.6f attached=%d shownAvailable=%d modelHost=%@ shownHost=%@ shownOwner=%@ actualGapTop=%.2f actualBottom=%.2f ownerY=%.2f/%.2f hostY=%.2f/%.2f source=%p player=%p leases=%lu",
+        NSString *actualGeometry=[NSString stringWithFormat:@"lock-actualgeometry t=%.6f attached=%d shownAvailable=%d modelHost=%@ shownHost=%@ shownOwner=%@ actualGapTop=%.2f actualBottom=%.2f ownerY=%.2f/%.2f hostY=%.2f/%.2f source=%p player=%p leases=%lu",
             self.lastCompositeAt,panelAttached,actualShown,LMVLockVideoRectText(modelHost),LMVLockVideoRectText(shownHostRect),
             LMVLockVideoRectText(shownOwnerRect),actualGap,LMVLockVideoRectValid(shownHostRect)?CGRectGetMaxY(shownHostRect):-1,
             content.layer.position.y,shownOwner?shownOwner.position.y:-1,self.host.layer.position.y,shownHost?shownHost.position.y:-1,
-            (__bridge void *)container,(__bridge void *)self.playback.player,(unsigned long)self.paintLease.entries.count]);
+            (__bridge void *)container,(__bridge void *)self.playback.player,(unsigned long)self.paintLease.entries.count];
+        LMVLockVideoLog(actualGeometry);
         CAShapeLayer *mask=(CAShapeLayer *)(self.host.clipLayer.presentationLayer ?: self.host.clipLayer);
         NSString *state=[NSString stringWithFormat:@"lock-composite promoted=%d effective=%.3f chain=[%@] paint=[%@] maskModel=%@ maskShown=%@ render=h%d/o%.3f/p%.3f player=h%d/o%.3f/p%.3f",
             self.extentContainer!=nil,effective,chain,paint,
