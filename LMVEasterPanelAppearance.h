@@ -13,7 +13,9 @@
 #define LMVEasterPanelScaleMin 0.5
 #define LMVEasterPanelScaleMax 1.5
 
-static NSArray<NSString *> *LMVEasterPanelAppearanceKeys(void) {
+// static inline: the key list is consumed by the native test only; a plain
+// static function would trip -Wunused-function (warnings are errors here).
+static inline NSArray<NSString *> *LMVEasterPanelAppearanceKeys(void) {
     return @[@"EasterPanelCornerEnabled", @"EasterPanelCorner",
              @"EasterPanelSizeEnabled", @"EasterPanelWidthScale", @"EasterPanelHeightScale"];
 }
