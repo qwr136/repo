@@ -177,8 +177,8 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVRevisions[path]=@"rev1";
     LMVFrameSnapshot *shared=[LMVFrameSnapshot new];shared.image=poster();shared.time=CMTimeMake(1,4);shared.rendered=YES;
     LMVFrameCache[LMVFrameKey(path,@"rev1")]=shared;
-    for(id target in @[@"Desktop",@"LockScreen",@"unknown",@"",@"message",@"Options ",NSNull.null]) {
-        if(target==NSNull.null)target=nil;
+    for(id value in @[@"Desktop",@"LockScreen",@"unknown",@"",@"message",@"Options ",NSNull.null]) {
+        id target=value==NSNull.null?nil:value;
         assert(!LMVSourceRegistryKey(path,target) && !LMVSourceForTarget(path,target));
     }
     assert(!LMVSourceForTarget(nil,@"Message") && !LMVSourceForTarget(@"",@"Message"));
@@ -194,7 +194,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     for(NSUInteger i=0;i<sources.count;i++) {
         LMVSharedSource *source=sources[i];NSString *target=LMVTargets()[i];
         assert([source.ownerTarget isEqual:target]);
-        assert([source.registryKey isEqual:[NSString stringWithFormat:@"%@\n%@",target,path]]);
+        assert(([source.registryKey isEqual:[NSString stringWithFormat:@"%@\n%@",target,path]]));
         assert(LMVSharedSources[source.registryKey]==source && source.asset==asset);
         assert(source.player && source.player.currentItem && source.output && source.endObserver);
         assert(!source.playing && source.player.rate==0 && !source.reader && !source.pendingSample);
