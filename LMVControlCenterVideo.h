@@ -547,12 +547,12 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     }
     CGRect renderBounds=CGRectZero;UIView *renderHost=best?LMVCCRenderHost(best.viewIfLoaded,material,&renderBounds):nil;
     BOOL visible=best && material && renderHost && LMVLockVideoRectValid(renderBounds) && path.length && revision.length;
+    if(visible!=self.presented || self.playback.wantsPlayback!=visible)[self.playback setVisible:visible];
+    else if(visible)[self.playback resumeIfNeeded];
     if(visible) {
         [self layoutMaterial:material inRoot:best.viewIfLoaded];
         self.material=material;
     } else { [self withdrawExtent];if(self.playback.renderLayer.superlayer)[self.playback.renderLayer removeFromSuperlayer];self.material=nil; }
-    if(visible!=self.presented || self.playback.wantsPlayback!=visible)[self.playback setVisible:visible];
-    else if(visible)[self.playback resumeIfNeeded];
     // Track the presentation state so the next update can detect a hidden->visible
     // transition and re-seed the poster (see the 0.0.79 note above).
     self.presented=visible;

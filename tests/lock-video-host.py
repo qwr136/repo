@@ -269,7 +269,7 @@ int main(void){@autoreleasepool{
  manager.enabled=NO;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);manager.enabled=YES;
  // .102 same-owner empty layout recovery never crosses true withdrawal,
  // unknown/private getter rejection, physical offscreen, disable or screen-off.
- [clock removeFromSuperview];SBUIBackgroundView *ownedBack=[SBUIBackgroundView new];[sliding addSubview:ownedBack];[sliding addSubview:clock];
+ [clock removeFromSuperview];[button removeFromSuperview];SBUIBackgroundView *ownedBack=[SBUIBackgroundView new];[sliding addSubview:ownedBack];[sliding addSubview:clock];[sliding addSubview:button];
  sliding.frame=CGRectMake(0,0,390,422);ownedBack.frame=sliding.bounds;[manager update];assert(manager.host.superview==sliding);
  cover.frame=CGRectMake(0,0,390,0);[manager update];assert(manager.playback.wantsPlayback && !manager.host.hidden);
  assert(CGRectEqualToRect(CGPathGetBoundingBox(manager.host.clipLayer.path),sliding.bounds));

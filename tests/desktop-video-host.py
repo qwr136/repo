@@ -226,6 +226,7 @@ int main(void){@autoreleasepool {
  // 500 after-original layouts: zero global refresh requests and no complete
  // policy pass. The lightweight repair only writes when geometry actually moves.
  LMVDesktopLifecycle(controller,1);[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
+ LMVDesktopExplicitWallpaper=wall;[LMVDesktopVideo update];assert(LMVDesktopVideo.container==wall);
  NSUInteger beforePolicy=fullDesktopPolicies,beforeGlobal=requests,beforeLayout=LMVDesktopVideo.playback.layoutCalls;
  for(int n=0;n<500;n++){[controller viewDidLayoutSubviews];[wall layoutSubviews];}
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
