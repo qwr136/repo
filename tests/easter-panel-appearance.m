@@ -47,7 +47,7 @@ int main(void) {
     assert([keys containsObject:@"EasterPanelCornerEnabled"] && [keys containsObject:@"EasterPanelCorner"]);
     assert([keys containsObject:@"EasterPanelSizeEnabled"]);
     assert([keys containsObject:@"EasterPanelWidthScale"] && [keys containsObject:@"EasterPanelHeightScale"]);
-    for (NSString *key in keys) assert(![key hasPrefix:@"EasterEgg"], key);
+    for (NSString *key in keys) assert(![key hasPrefix:@"EasterEgg"]);
     printf("PASS actual production panel-appearance rules: 20pt default kept, corner 0..60, "
            "size off by default, 50%%..150%% scale, non-finite inputs bounded\n");
     return 0;
