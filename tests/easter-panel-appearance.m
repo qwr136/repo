@@ -14,11 +14,12 @@ int main(void) {
     assert(LMVEasterResolvedPanelCorner(@YES, nil, 20.0) == 20.0);
     assert(LMVEasterResolvedPanelCorner(@NO, @44, 20.0) == 20.0);
     assert(LMVEasterResolvedPanelCorner(@YES, @44, 20.0) == 44.0);
-    // Bounded on both sides, and a non-finite input cannot escape the range.
+    // Bounded on both sides; a non-finite input resolves to the LOW bound
+    // (conservative: never a bigger panel/corner than the user asked for).
     assert(LMVEasterResolvedPanelCorner(@YES, @(-5), 20.0) == 0.0);
     assert(LMVEasterResolvedPanelCorner(@YES, @999, 20.0) == 60.0);
     assert(LMVEasterResolvedPanelCorner(@YES, @(NAN), 20.0) == 0.0);
-    assert(LMVEasterResolvedPanelCorner(@YES, @(INFINITY), 20.0) == 60.0);
+    assert(LMVEasterResolvedPanelCorner(@YES, @(INFINITY), 20.0) == 0.0);
     assert(LMVEasterResolvedPanelCorner(@YES, @"not-a-number", 20.0) == 20.0);
 
     // Panel size: OFF by default, so the automatic size is returned untouched.
