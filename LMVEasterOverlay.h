@@ -398,7 +398,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.windowReason=reason;
     LMVEasterWindowDiagnostic(reason);
 }
-- (void)recordScreenBlank { self.authenticatedSession=NO; [self hide]; }
+- (void)recordScreenBlank {
+    // 0.0.114: a blank event used to tear the ball down with no diagnostic at
+    // all, which made the whole class of "the ball disappeared" reports
+    // undiagnosable. Record the reason first, then hide.
+    [self reportWindow:@"hide:screen-blank"];
+    self.authenticatedSession=NO; [self hide];
+}
 - (void)syncRotation {
     // The panel is a sibling, not a rotation/visibility gate for the image leaf.
     BOOL visible=self.window && !self.window.hidden && self.window.alpha>=0.01 &&
@@ -519,19 +525,36 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL authenticated=self.authenticatedSession;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;
-    if(!host){[self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
+    // 0.0.114: while the display is being RECORDED the system rearranges its
+    // windows and scenes (recording indicator, recording control strip,
+    // broadcast pickers), so every probe below can misfire for the whole
+    // session and the ball simply vanished with no diagnostic at all. The ball
+    // must stay while recording: keep what is already presented and record the
+    // underlying reason instead of hiding. Outside a capture this is exactly
+    // the previous behaviour.
+    BOOL keepOnCapture=LMVEasterScreenCaptured() && self.window && !self.window.hidden &&
+        self.bubbleImage.image!=nil && self.decoded.frames.count;
+    if(!host){
+        if(keepOnCapture){[self reportWindow:@"captured-keep host-missing"];return;}
+        [self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
     CGFloat level=0;UIWindow *blockedWindow=nil;
     BOOL safetyClear=LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow);
     LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
         ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
     if(displayScene==LMVEasterDisplayNone) {
-        [self hide]; [self reportWindow:blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked"];return;
+        NSString *reason=blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked";
+        if(keepOnCapture){[self reportWindow:[@"captured-keep " stringByAppendingString:reason]];return;}
+        [self hide]; [self reportWindow:reason];return;
     }
     if(self.displayScene!=displayScene) { [self hide]; self.displayScene=displayScene; }
     if(self.hostWindow && self.hostWindow!=host)[self closePanel];
     BOOL presentationChanged=self.window.hidden || self.hostWindow!=host || self.window.windowLevel!=level;
     self.hostWindow=host;
-    if (self.window && self.window.windowScene != host.windowScene) { [self hide]; self.window = nil; self.bubble = nil; self.bubbleImage = nil; }
+    if (self.window && self.window.windowScene != host.windowScene) {
+        // A scene change is a real teardown; say so instead of hiding silently.
+        [self reportWindow:[NSString stringWithFormat:@"hide:window-scene host=%@",NSStringFromClass(host.class)]];
+        [self hide]; self.window = nil; self.bubble = nil; self.bubbleImage = nil;
+    }
     if (!self.window) {
         self.window = [[LMVEasterWindow alloc] initWithWindowScene:host.windowScene];
         LMVEasterRoot *root = [LMVEasterRoot new]; root.manager = self;

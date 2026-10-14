@@ -35,6 +35,12 @@ assert 'LMVEasterSecurityName(viewName) && !LMVEasterCaptureName(viewName)' in o
 assert '!LMVEasterCaptureWindow(window) && LMVEasterBlockingWindow(window,0)' in priority
 assert '!LMVEasterCaptureName(NSStringFromClass(window.class)) &&' in blocking
 assert 'LMVEasterScreenCaptured' in overlay and 'isCaptured' in overlay
+# 0.0.114: while the display is captured a policy misfire must not hide a ball
+# that is already presented; the underlying reason is still recorded.
+assert 'BOOL keepOnCapture=LMVEasterScreenCaptured() && self.window && !self.window.hidden' in apply
+assert 'if(keepOnCapture){[self reportWindow:@"captured-keep host-missing"];return;}' in apply
+assert 'if(keepOnCapture){[self reportWindow:[@"captured-keep " stringByAppendingString:reason]];return;}' in apply
+assert 'hide:window-scene' in apply
 import re
 executable=re.sub(r'//[^\n]*|/\*.*?\*/','',priority+blocking,flags=re.S)
 assert all(name not in executable for name in ('UINT_MAX', 'CGFLOAT_MAX', 'Squid', 'Gesture'))

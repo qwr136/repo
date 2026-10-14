@@ -1,5 +1,16 @@
 # 锁屏消息视频
 
+## 0.0.115：录屏期间浮球保活 + 浮球日志不再被挤掉
+
+精确基线114 `77ee7d4`。只动浮球这条线，其余（三类卡片、总开关、整页背景、CC/桌面/长按菜单、声音、排序、720、素材库）不动。
+
+- 真机排查依据：0.0.114 的 shared-render.log 里**一条 `easter-window` 都没有**，说明两件事同时存在 —— ①浮球日志被高频通道挤掉了，②有几条隐藏路径根本不写日志。
+- 日志保留：`LMVDiagnostic` 每轮 1200 条上限会把浮球的记录丢光（卡片/锁屏通道每秒 10～150 条）。现在 `easter-window` 开头的记录**不计入配额**，任何一次浮球判定都必然落盘。
+- 不再静默隐藏：`recordScreenBlank`（熄屏/blank）现在先记录 `hide:screen-blank` 再隐藏；窗口场景切换记录 `hide:window-scene`。此前这两条都是无声消失，正是“球没了但日志什么都没有”的来源。
+- 录屏期间保活（用户要求）：录屏进行中（`UIScreen.isCaptured`）且浮球**已经呈现**时，宿主判定或安全判定即使误判也不再隐藏，只记录 `captured-keep host-missing` / `captured-keep blocked class=… ` / `captured-keep not-visible-or-locked`，浮球保持原样。未录屏时判定与 114 完全一致；关闭总开关/关闭小彩蛋仍然立即隐藏。
+
+新增回归：`recordScreenBlank` 必须先记录原因再隐藏（原生断言 reason=`hide:screen-blank`）、录屏保活三分支与场景切换上报的源码契约、`easter-window` 优先级配额。CI 非原生部分不替代真机录屏实测。
+
 ## 0.0.114：设置页顶部总开关
 
 精确基线113 `e24d04d`。113 已被真机日志确认：`card-pipeline` 变为 `attached=1 ownerModel=1 surfaceVisible=1 active=1 source=1 requested=1`，`published` 持续增长，`card-exposure ... playing=1`，三类卡片通道恢复正常；本轮只加总开关，其它逻辑不动。

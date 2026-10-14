@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 0.0.114')==1
+assert (root/'control').read_text().count('Version: 0.0.115')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.114'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='0.0.115'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -93,4 +93,9 @@ def put(key,image,rendered):
     cache[key]=(image,rendered)
 put('path|rev1','preview',False); put('path|rev1','last',True); put('path|rev1','first',False)
 assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
-print('PASS: 0.0.114 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
+# 0.0.115: the floating-ball decision lines must survive the high-rate card/lock
+# traffic, which used to eat the whole per-epoch record budget (no easter-window
+# line ever reached the log).
+assert 'BOOL priority = [event hasPrefix:@"easter-window "];' in s
+assert 'if (!priority && ++records > 1200) return;' in s
+print('PASS: 0.0.115 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')

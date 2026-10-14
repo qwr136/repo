@@ -41,7 +41,11 @@ assert all(word in sync for word in ('!self.window.hidden', '!self.bubble.hidden
 assert '[self syncRotation]' in opened and '[self syncRotation]' in closed
 assert 'self.displayScene==LMVEasterDisplayLockScreen' in opened
 assert hide.index('self.window.hidden = YES') < hide.index('[self syncRotation]') < hide.index('[self closePanel]')
+# 0.0.114: a blank teardown must also say WHY (it used to hide silently, which
+# made every "the ball disappeared" report undiagnosable).
 assert 'self.authenticatedSession=NO; [self hide]' in blank
+assert '[self reportWindow:@"hide:screen-blank"]' in blank
+assert blank.index('reportWindow') < blank.index('[self hide]')
 assert 'LMVEasterUpdateRotation(_bubbleImage.layer,NO,NO,NO,45)' in dealloc
 assert '[self.timer invalidate]' in dealloc and '[self.visibilityTimer invalidate]' in dealloc
 assert 'legacyAllows,safetyClear)' in apply and 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in apply
@@ -92,16 +96,20 @@ fixture = r'''
 @property LMVEasterDisplayControls displayControls;
 @property(strong) NSTimer *timer, *visibilityTimer;
 @property BOOL authenticatedSession;
+@property NSInteger reports;
+@property(strong) NSString *lastReason;
 - (void)syncRotation;
 - (void)hide;
 - (void)closePanel;
 - (void)recordScreenBlank;
+- (void)reportWindow:(NSString *)reason;
 @end
 @implementation RotationOwner
 // UIKit panel containment is out of scope; its production rotation wiring is
 // checked above. Only inputs/close containment are doubles; sync/hide/blank/
 // dealloc below are the exact production method bodies.
 - (void)closePanel { if (!self.panel) return; self.panel=nil; [self syncRotation]; }
+- (void)reportWindow:(NSString *)reason { self.reports++; self.lastReason=reason; }
 '''
 fixture += sync + hide + blank + dealloc + '@end\n'
 fixture += r'''
@@ -178,7 +186,7 @@ int main(void) { @autoreleasepool {
             case 6: owner.window.alpha=0; break;
             case 7: owner.bubble.alpha=0; break;
             case 8: owner.bubbleImage.alpha=0; break;
-            case 9: owner.authenticatedSession=YES; [owner recordScreenBlank]; assert(!owner.authenticatedSession && !owner.panel); break;
+            case 9: owner.authenticatedSession=YES; owner.reports=0; [owner recordScreenBlank]; assert(!owner.authenticatedSession && !owner.panel && owner.reports==1 && [owner.lastReason isEqualToString:@"hide:screen-blank"]); break;
         }
         [owner syncRotation]; assert(!turn(image));
         NSUInteger removed=image.removals; [owner syncRotation]; assert(image.removals==removed);
