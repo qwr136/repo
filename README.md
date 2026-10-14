@@ -1,5 +1,14 @@
 # 锁屏消息视频
 
+## 0.0.113：卡片附着契约（真机日志定位）、录屏期间浮球保活
+
+精确基线112 `8f6f4ff`，只继续修这两处，其余不动。
+
+- 三类卡片不播放（真机112日志定位）：`card-pipeline` 同一行出现 `ownerCAWindow=1`（图层链确实到达 window.layer）而 `attached=0 ownerModel=0 ownerShown=0`，且 overlay 尺寸/透明度正常（surfaceSize=295.3x108.7 surfaceHidden=0 surfaceOpacity=1.000）。说明失败在**附着判定**：旧 `LMVCardAttached` 要求一个 32 层以内的 superview 遍历必须终止在 window 对象上、且每层都报告同一个 window —— 真机 CoverSheet 内容经 portal/scene host 桥接，这个遍历不成立（中间层没有 window，或层数超预算），于是 owner/anchor/host/overlay 全部被判未附着，卡片永远不成为消费方。现在以 UIKit 自己的答案为准：`view.window` 非空时必须等于目标窗口；`view.window` 为空时只认“该 view 的 layer 确实在目标窗口的 layer 树内”这一渲染树证据。搬到别的窗口的卡片仍被拒绝，跨窗保护不变。112 的私有中间层不否决判定保留。
+- 录屏时悬浮球被隐藏（用户复报）：112 只按类名豁免采集指示面，仍可能被“隐私措辞”命中。现在录屏进行中（`UIScreen.isCaptured`）**必须**有结构性证据才允许拦下浮球——安全命名的窗口/控制器类、可见的前景控件（UIControl）、或 UIAlertView/UIActionSheet/UIAlertController；仅一个视图类名撞上隐私词不再隐藏浮球。未录屏时原判定完全不变。采集指示面本身继续只参与层级竞争（球仍在其之上）。
+
+原生回归新增：桥接层 `-window` 返回 nil 时按渲染树证据接受、真正搬到其它窗口仍拒绝（卡片附着）；录屏中纯隐私词视图不拦截、录屏中安全命名窗口带前景控件仍拦截（浮球优先级）。CI native/doubles 不等于真机合成与录屏实测。
+
 ## 0.0.112：三类卡片准入修正、录屏指示不再隐藏浮球
 
 精确基线111 `28f840e`，独立112分支，只改这两处，其余（整页背景、CC/桌面/长按菜单、声音音量、设置顺序、720、素材库/导入、录制浮球层级）一律不动。

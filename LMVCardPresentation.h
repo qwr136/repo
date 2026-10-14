@@ -36,21 +36,21 @@ static BOOL LMVCardLayerAttached(CALayer *layer,CALayer *root) {
     return NO;
 }
 static BOOL LMVCardAttached(UIView *view, UIWindow *window) {
-    if (!view || !window || view.window!=window) return NO;
-    // A UIWindow can host UIKit's card tree through an internal render/portal
-    // root. UIView.window + live superview ownership is the public scope proof;
-    // direct reachability to window.layer is not that ownership contract.
-    if(view!=window && !view.layer.superlayer)return NO;
-    NSUInteger depth=0;
-    // UIKit can insert transform/material containers between two UIView backing
-    // layers. Equality to superview.layer was never a UIKit attachment contract.
-    // Verify BOTH the attached UIView owner and the actual same-window CA ancestry.
-    for (UIView *node=view; node && ++depth<=32; node=node.superview) {
-        if (node.window!=window) return NO;
-        if (node==window) return YES;
-        if (!node.superview) return NO;
-    }
-    return NO;
+    if (!view || !window) return NO;
+    // 0.0.112 device log: ownerCAWindow=1 (the layer tree DOES reach
+    // window.layer) while attached=0/ownerModel=0 in the same audit line, for
+    // every card. The old body required a bounded superview walk to terminate on
+    // the window OBJECT and every rung to report the same window; real CoverSheet
+    // content is bridged through portal/scene-host rungs where that does not hold
+    // (a rung reports no window, or the walk is longer than the budget), so the
+    // whole card was rejected as detached and never became a consumer.
+    //
+    // UIKit's own answer is the contract: a non-nil view.window must BE our
+    // window. When UIKit reports no window, accept only a render-tree proof that
+    // the view really is inside this window's layer tree. A card moved to another
+    // window is still rejected.
+    if (view.window) return view.window==window;
+    return LMVCardLayerAttached(view.layer,window.layer);
 }
 static CGFloat LMVCardExposureAlpha(UIView *view, CALayer *layer, BOOL presentation) {
     if (!presentation) return LMVOriginalVisibilityAlpha(view);
@@ -175,9 +175,10 @@ static BOOL LMVCardStateAttached(UIView *owner, LMVVideoState *state) {
     UIView *anchor=state.anchor, *host=state.host;
     UIWindow *window=owner.window;
     return state && LMVCardAttached(owner,window) && LMVCardAttached(anchor,window) &&
-        LMVCardAttached(host,window) && [anchor isDescendantOfView:owner] &&
+        LMVCardAttached(host,window) && LMVCardAttached(state.overlay,window) &&
+        [anchor isDescendantOfView:owner] &&
         (host==anchor || host==anchor.superview) && state.overlay.superview==host &&
-        state.overlay.window==window && state.layer.superlayer==state.overlay.layer;
+        state.layer.superlayer==state.overlay.layer;
 }
 static BOOL LMVCardStateVisible(UIView *owner, LMVVideoState *state, NSString *target) {
     return LMVEnabled[target].boolValue && LMVPaths[target].length &&

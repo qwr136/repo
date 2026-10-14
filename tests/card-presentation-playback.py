@@ -14,6 +14,12 @@ assert 'if(backing && (layer.hidden || (!presentation && backing.hidden)))return
 assert 'alpha*=backing?LMVCardExposureAlpha(backing,layer,presentation):1.0;' in h
 assert 'if(layer.hidden || !isfinite(layer.opacity))return NO;' not in h
 assert '!backing && (layer.opacity<.01 || layer.masksToBounds || layer.mask)' not in h
+# 0.0.112: attachment follows UIKit's own window answer plus a render-tree proof,
+# not a bounded superview walk that real portal/scene rungs break (device log:
+# ownerCAWindow=1 while attached=0 for every card).
+assert 'if (view.window) return view.window==window;' in h
+assert 'return LMVCardLayerAttached(view.layer,window.layer);' in h
+assert 'LMVCardAttached(state.overlay,window)' in h and 'state.overlay.window==window' not in h
 assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=30' in s
 resign=s[s.index('addObserverForName:UIApplicationWillResignActiveNotification'):]
 assert 'LMVSyncDisplayLink();LMVRequestSafeUpdate();' in resign
@@ -65,6 +71,15 @@ static CGRect LMVVideoWindowViewport(UIWindow *window){return window.bounds;}
 static BOOL LMVVisible(UIView *view);
 static BOOL LMVMessageCell(UIView *view){return [view isKindOfClass:NCNotificationListCell.class];}
 static BOOL LMVNotificationCenterSurface(UIView *view);
+// 0.0.112: a bridged portal/scene rung that reports NO window, exactly like the
+// real CoverSheet content host. The old superview-walk contract failed here for
+// every card even though the layer tree reached window.layer.
+@interface PortalBridgeView:UIView
+@property(nonatomic,readonly) UIWindow *window;
+@end
+@implementation PortalBridgeView
+- (UIWindow *)window { return nil; }
+@end
 static CGFloat LMVOriginalVisibilityAlpha(UIView *view){
  LMVOriginalLease *lease=[LMVOriginalLeases() objectForKey:view.layer];
  return lease && !lease.retired && lease.method==LMVOriginalSuppressDrawing && view.layer.opacity==0 ? lease.baselineOpacity:view.alpha;
@@ -162,10 +177,21 @@ int main(void){@autoreleasepool{
  // Move to another NC window: cached sample of old tree is not admission.
  assert(LMVCardExposed(card));SBCoverSheetWindow *other=[SBCoverSheetWindow new];[card removeFromSuperview];[other addSubview:card];card.frame=CGRectMake(0,1000,390,150);
  assert(!LMVCardExposed(card));card.frame=CGRectMake(0,0,390,150);assert(LMVCardExposed(card));
+ // 0.0.112 device regression: UIKit reports no window inside a bridged rung while
+ // the render tree still reaches window.layer. Accepted by the new contract; the
+ // old walk returned NO for owner, anchor, host and overlay alike (attached=0).
+ PortalBridgeView *bridgeView=[PortalBridgeView new];bridgeView.frame=CGRectMake(0,0,390,844);
+ SBCoverSheetWindow *bridged=[SBCoverSheetWindow new];[bridged addSubview:bridgeView];[bridgeView addSubview:card];
+ card.frame=CGRectMake(0,60,390,150);
+ assert(card.window==nil && LMVCardLayerAttached(card.layer,bridged.layer) && LMVCardAttached(card,bridged));
+ assert(LMVCardLayerAttached(overlay.layer,bridged.layer) && LMVCardAttached(overlay,bridged));
+ SBCoverSheetWindow *foreign=[SBCoverSheetWindow new];[card removeFromSuperview];[foreign addSubview:card];
+ assert(card.window==foreign && !LMVCardAttached(card,bridged) && LMVCardAttached(card,foreign));
+ [card removeFromSuperview];[w addSubview:card];card.frame=CGRectMake(0,60,390,150);
  UIWindow *app=[UIWindow new];UIView *ordinary=[UIView new];[app addSubview:ordinary];assert(!LMVVisible(ordinary));
  [app addSubview:card];card.frame=CGRectMake(0,0,390,150);assert(LMVNotificationCenterSurface(card));
  for(NSString *target in @[@"Message",@"Options",@"Clear"])assert(LMVCardStateVisible(card,state,target));
- puts("PASS actual production Message consumer gate: overall NC model-offscreen/presentation-visible,500 stable,view-backed veto,private-rung non-veto (0.0.112),lease opacity baseline,clip,blank,disable,withdraw,window transfer/app rejection; not decode/device pixels");
+ puts("PASS actual production Message consumer gate: overall NC model-offscreen/presentation-visible,500 stable,view-backed veto,private-rung non-veto,bridged-window contract (0.0.112),lease opacity baseline,clip,blank,disable,withdraw,window transfer/app rejection; not decode/device pixels");
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as d:

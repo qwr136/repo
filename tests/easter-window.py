@@ -15,7 +15,7 @@ assert all(word not in tick for word in ('connectedScenes','CFPreferences','lsta
 assert all(word not in drag for word in ('refresh','LMVRequestSafeUpdate','stringWithFormat','VisibleDrawing'))
 assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout and 'cornerRadius' not in layout
 assert 'window.windowLevel >= UIWindowLevelAlert && (substantive || foreground)' not in helpers and 'area/full>=0.30' in helpers
-assert 'if(security || modal ||' in helpers
+assert 'weakSecurity || strongSecurity || modal ||' in helpers
 assert 'LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow)' in s
 assert 'window==own' in helpers and 'LMVEasterBoundedPriorityLevel' in helpers
 assert 'valueWithNonretainedObject:window' in helpers and 'UIWindowDidBecomeVisibleNotification' in s

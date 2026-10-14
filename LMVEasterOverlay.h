@@ -305,7 +305,14 @@ static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
         CGRect exposed=CGRectIntersection(rect,window.bounds);
         BOOL visible=root && !root.hidden && root.alpha>=.01 && !CGRectIsNull(exposed) &&
             !CGRectIsEmpty(exposed) && !CGRectIsInfinite(exposed);
-        if(security || modal || (classSecurity && (drawing || substantive || foreground)) ||
+        // 0.0.112: while the display is CAPTURED the recording/privacy indicator
+        // matches the privacy security words, so a bare name match may not hide
+        // the floating ball. Real prompts stay protected through their
+        // window/controller class, a visible foreground control, or an alert.
+        BOOL strongSecurity=(classSecurity && (drawing || substantive || foreground)) ||
+            (security && foreground);
+        BOOL weakSecurity=security && !LMVEasterScreenCaptured();
+        if(weakSecurity || strongSecurity || modal ||
            (visible && alert && [controller isKindOfClass:alert]))return YES;
     }
     return NO;

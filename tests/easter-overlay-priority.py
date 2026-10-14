@@ -22,7 +22,10 @@ assert apply.index('LMVEasterOverlayPriority(') < apply.index('LMVEasterDisplayP
 assert 'window==own' in priority and 'isfinite(candidate)' in priority
 assert 'LMVEasterBlockingWindow(window,0)' in priority
 assert 'LMVEasterVisibleDrawing' in blocking and 'LMVEasterVisibleForeground' in blocking
-assert 'if(security || modal ||' in blocking and 'classSecurity && (drawing || substantive || foreground)' in blocking
+assert 'classSecurity && (drawing || substantive || foreground)' in blocking
+assert 'weakSecurity=security && !LMVEasterScreenCaptured()' in blocking
+assert 'strongSecurity=(classSecurity && (drawing || substantive || foreground)) ||' in blocking
+assert 'if(weakSecurity || strongSecurity || modal ||' in blocking
 assert '(visible && alert && [controller isKindOfClass:alert])' in blocking
 # 0.0.112: a recording/capture indicator carries privacy wording but is not a
 # protected modal; it may set the level, never the block.
@@ -81,6 +84,16 @@ if '--emit-native' not in sys.argv:
 base = subprocess.check_output([sys.executable, str(root / 'tests/easter-window.py'), '--emit-native'], text=True)
 assert arithmetic in base and priority in base
 fixture = r'''
+// 0.0.112: the shared UIScreen double has no capture flag; declare it locally so
+// the captured branch of the ball policy executes natively too.
+static BOOL LMVCaptureFixture;
+@interface UIScreen (LMVCaptureFixture)
+@property(nonatomic) BOOL isCaptured;
+@end
+@implementation UIScreen (LMVCaptureFixture)
+- (BOOL)isCaptured { return LMVCaptureFixture; }
+- (void)setIsCaptured:(BOOL)value { LMVCaptureFixture=value; }
+@end
 @interface UIControl : UIView @end
 @implementation UIControl @end
 @interface UIAlertView : UIView @end
@@ -170,6 +183,17 @@ int main(void) { @autoreleasepool {
     // The same privacy wording without a capture word is still a real prompt.
     UIWindow *privacyPrompt=hud(3000000);PrivacyPromptView *privacy=[PrivacyPromptView new];privacy.bounds=CGRectMake(0,0,60,20);solid(privacy);child(privacyPrompt,privacy);
     denied(@[home,privacyPrompt,own],own,privacyPrompt);
+    // While the display is REALLY captured a bare name coincidence may not hide
+    // the ball, but a security-named window with a real foreground control still does.
+    UIScreen.mainScreen.isCaptured=YES;
+    allowed(@[home,privacyPrompt,own],own,3000001);
+    UIWindow *authCaptured=[GestureAuthenticationWindow new];authCaptured.windowLevel=3000000;
+    UIView *authCapturedRoot=[UIView new];authCapturedRoot.bounds=CGRectMake(0,0,60,20);solid(authCapturedRoot);
+    rootView(authCaptured,authCapturedRoot);
+    UIControl *authButton=[UIControl new];authButton.bounds=CGRectMake(0,0,40,20);solid(authButton);child(authCaptured,authButton);
+    denied(@[home,authCaptured,own],own,authCaptured);
+    UIScreen.mainScreen.isCaptured=NO;
+    denied(@[home,privacyPrompt,own],own,privacyPrompt);
     // A gesture-containing security class gets NO special allowance, and a
     // small visible drawing is enough even without 30% area.
     UIWindow *auth=[GestureAuthenticationWindow new];auth.windowLevel=100000;
@@ -199,7 +223,7 @@ int main(void) { @autoreleasepool {
     assert(!LMVEasterScopePolicy(YES,0,YES,0,NO,NO,NO,&authenticated)); // ordinary app
     assert(!LMVEasterScopePolicy(YES,1,YES,0,NO,YES,YES,&authenticated)); // blank
     assert(!LMVEasterScopePolicy(NO,0,YES,0,NO,YES,YES,&authenticated)); // unknown blank state
-    puts("PASS native: actual production priority/window helpers; multiple high transparent/tiny HUDs, 10000 stable own-excluded scans, foreign snapshot identity/level, withdrawal/nonfinite/bound, gesture-named security, permissions, small modal alert/action sheet/control, opaque high overlay, trusted host authentication; NOT SpringBoard compositing");
+    puts("PASS native: actual production priority/window helpers; multiple high transparent/tiny HUDs, 10000 stable own-excluded scans, foreign snapshot identity/level, withdrawal/nonfinite/bound, gesture-named security, permissions, small modal alert/action sheet/control, opaque high overlay, trusted host authentication, captured-screen privacy indicator non-block vs captured security control still blocking; NOT SpringBoard compositing");
 }return 0; }
 '''
 source = base + fixture
