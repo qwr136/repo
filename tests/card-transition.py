@@ -602,10 +602,9 @@ static void testIndependentVisibleConsumers(void) {
  assert(CGRectEqualToRect(((UIView *)materials[@"Clear"]).frame,cf) && !os.originals.count && !cs.originals.count);
  // 0.0.117: a category that selects a DIFFERENT file keeps its own chain.
  [LMVPaths setObject:@"movie2" forKey:@"Options"];
- mixed.hidden=NO;LMVReconcileCardSources(mixed);mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
- LMVVideoState *os2=mixedStates[@"Options"];
  LMVSharedSource *other=LMVSharedSources[LMVSourceRegistryKey(@"movie2",@"Options")];
- assert(other && other!=message && os2 && os2.source==other);
+ assert(other && other!=message && LMVSourceForTarget(@"movie2",@"Options")==other &&
+        LMVSourceForTarget(@"movie",@"Message")==message && LMVSharedSources.count==2);
  mixed.hidden=YES;LMVReconcileCardSources(mixed);
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
  assert(!message.playing);

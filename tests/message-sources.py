@@ -211,7 +211,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
         LMVRevisions[extra]=@"rev1";LMVFrameCache[LMVFrameKey(extra,@"rev1")]=shared;
     }
     LMVPaths[@"Options"]=pathB;LMVPaths[@"Clear"]=pathC;
-    LMVWarmSourcesForPath(pathB);LMVWarmSourcesForPath(pathC);
+    LMVWarmSourcesForPath(path);LMVWarmSourcesForPath(pathB);LMVWarmSourcesForPath(pathC);
     assert(LMVSharedSources.count==3);
     LMVSharedSource *message=LMVSourceForTarget(path,@"Message");
     LMVSharedSource *options=LMVSourceForTarget(pathB,@"Options");

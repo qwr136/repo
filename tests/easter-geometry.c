@@ -3,7 +3,8 @@
 #include "../LMVEasterGeometry.h"
 int main(void) {
     assert(LMVEasterBoundedSize(NAN) == 64 && LMVEasterBoundedSize(INFINITY) == 64);
-    assert(LMVEasterBoundedSize(0) == 32 && LMVEasterBoundedSize(999) == 128);
+    // 0.0.117: the user needs a smaller bubble (12pt minimum).
+    assert(LMVEasterBoundedSize(0) == 12 && LMVEasterBoundedSize(999) == 128);
     LMVEasterRect portrait = {8, 67, 374, 735}, landscape = {67, 8, 710, 327};
     for (int size = 32; size <= 128; size++) {
         assert(LMVEasterBoundedSize(size) == size);
