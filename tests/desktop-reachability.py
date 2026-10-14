@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""0.0.118 "屏蔽桌面便捷访问" - desktop-only Reachability block.
+"""0.0.118/0.0.119 "屏蔽桌面便捷访问" - desktop-only Reachability block.
 
 Linux runs the pure gate as C plus source contracts. The recognizer search and
 UIKit wiring need macOS and are asserted as source contracts here; they are not
@@ -48,6 +48,33 @@ assert opacity < reach < paths
 assert 'preferenceSpecifierNamed:@"屏蔽桌面便捷访问"' in settings
 assert '[reachability setProperty:@"BlockDesktopReachability" forKey:@"key"];' in settings
 assert '#[reachability setProperty:@NO forKey:@"default"];'.replace('#', '') in settings
+
+# ---- 0.0.119: the search must reach SpringBoard's SYSTEM GESTURE window --------
+# Device log: `reachability block=1 enabled=1 recognizer=0` - the switch was inert.
+# The scene-only walk never reached that window (the application owns it, not the
+# window scene), and the search insisted on one UIKit class. It now also asks the
+# application for its complete window list, accepting ANY recognizer that exposes
+# `edges` with the bottom bit, preferring a real screen-edge pan over the fallback.
+assert 'NSSelectorFromString(@"windows")' in header
+assert 'respondsToSelector:allWindows' in header, 'complete window set on SpringBoard'
+assert 'objc_msgSend)(UIApplication.sharedApplication, allWindows)' in header
+assert 'depth > 32' in header, 'the system gesture view may sit deep in the tree'
+assert 'respondsToSelector:edgesSelector' in header
+assert 'if (!(edges & UIRectEdgeBottom)) continue;' in header
+assert 'if (fallback && !*fallback) *fallback = recognizer;' in header
+assert header.count('return fallback;') == 1
+# Missing report: rate limited, and it names the windows that WERE reachable so a
+# single log pass locates the surface carrying the gesture.
+assert 'now - reportedMissingAt > 5.0' in header
+assert 'LMVReachabilityWindowNames()' in header
+assert 'windows=%lu %@' in header
+# Toggle report: names the exact recognizer it changed (no unrelated edge pan).
+assert 'target=%@ edges=%lu' in header
+# Restore uses the SAME widened search, otherwise a fallback recognizer would stay
+# disabled after the switch is turned off.
+restore_src = header[header.index('static void LMVReachabilityRestore(void)'):]
+assert 'LMVReachabilityEdgeRecognizerInView(window, 0, &fallback)' in restore_src
+assert 'if (!recognizer) recognizer = fallback;' in restore_src
 assert '只屏蔽桌面的便捷访问（降半屏）：锁屏与控制中心不受影响' in settings
 assert 'cell:PSSwitchCell' in settings[reach:paths]
 

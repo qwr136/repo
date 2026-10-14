@@ -1,5 +1,27 @@
 # 锁屏消息视频
 
+## 0.0.119：修好「屏蔽桌面便捷访问」（0.0.118 装上是哑的）
+
+精确基线118 `f4882a7`。真机日志一行定性：
+
+```
+10696.365 reachability block=1 enabled=1 recognizer=0 nc=0 cc=0
+```
+
+`block=1` 说明判定正确（桌面、已解锁、SpringBoard 前台），`enabled=1` 说明开关开着 —— 但 **`recognizer=0`：那个下边缘手势根本没找到**，于是什么都不做，降半屏照旧触发。原因有两层：
+
+- **窗口集合不全**：只遍历了 `UIWindowScene.windows`。SpringBoard 的便捷访问手势挂在**系统手势窗**（`_UISystemGestureWindow`）上，而这扇窗由 **application** 持有、不属于任何 window scene —— 之前的遍历永远到不了它。
+- **类判定太窄**：只认 `UIScreenEdgePanGestureRecognizer` 这一个类，私有子类若未继承它就漏掉。
+
+现在：窗口集合 = 各场景窗口 ∪ application 的完整窗口列表（`-windows` 已弃用，通过 `objc_msgSend` 动态调用，不触发弃用警告，本仓库警告即错误）；手势匹配改为**任何暴露 `edges` 且含下边缘位**的手势，其中真正的 `UIScreenEdgePanGestureRecognizer` 优先、私有子类作兜底；递归深度 8 → 32。关闭开关时的恢复走**同一套加宽搜索**，避免兜底手势被永久留在禁用状态。
+
+诊断补齐，一次日志即可收口：
+
+- 找不到时（限流 5 秒一次）输出 `reachability recognizer=missing windows=<数量> <窗口类名前6>`，直接看出可达的窗口集合。
+- 切换时输出 `reachability block=%d enabled=%d recognizer=%d nc=%d cc=%d target=<被操作的手势类名> edges=<位>`，证明动的是哪一个手势、没误伤其它边缘手势。
+
+判定规则、设置行位置与键（`BlockDesktopReachability`，默认关）、锁屏与控制中心不屏蔽，全部不变。浮球、视频通道一概未动。
+
 ## 0.0.118：录屏不再让球消失（极端层级窗口）＋新增「屏蔽桌面便捷访问」
 
 精确基线117 `d9a98e5`。真机日志（pid=6034）直接给出两个原因：

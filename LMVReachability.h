@@ -5,11 +5,14 @@
 // Implementation notes
 // --------------------
 // The Reachability trigger is a bottom-edge screen pan. This file never guesses a
-// private SpringBoard class name: it finds the actual UIScreenEdgePanGesture-
-// Recognizer whose edges include the bottom edge (the only such recognizer in
-// SpringBoard) and toggles its `enabled` flag, restoring it as soon as the
-// desktop rule stops holding. Every step is public API, so a wrong guess can only
-// make the feature inert - it can never permanently disable another gesture.
+// private SpringBoard class name: it finds the recognizer whose `edges` include
+// the bottom edge - preferring a real UIScreenEdgePanGestureRecognizer, falling
+// back to any private subclass that exposes `edges` - and toggles its `enabled`
+// flag, restoring it as soon as the desktop rule stops holding. The search covers
+// the application's complete window set, because SpringBoard's system gesture
+// window is owned by the application and is absent from the window scenes.
+// Every step is public API, so a wrong guess can only make the feature inert - it
+// can never permanently disable another gesture.
 //
 // The desktop rule itself is a pure function, so it is natively testable:
 // enabled AND screen known & not blank AND lock known & unlocked AND SpringBoard
@@ -51,35 +54,72 @@ static NSInteger LMVReachabilityForeground(void) {
     }
     return known && !unknown ? 1 : 0;
 }
-static NSMutableArray<UIWindow *> *LMVReachabilityWindows(void) {
+static NSArray<UIWindow *> *LMVReachabilityWindows(void) {
     NSMutableArray<UIWindow *> *windows = [NSMutableArray new];
+    NSMutableSet *seen = [NSMutableSet new];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         if (scene.activationState == UISceneActivationStateUnattached) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) if (window) [windows addObject:window];
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (!window || [seen containsObject:window]) continue;
+            [seen addObject:window]; [windows addObject:window];
+        }
+    }
+    // 0.0.119 device log: `reachability block=1 enabled=1 recognizer=0` - the
+    // feature was inert because the scene walk above never reached SpringBoard's
+    // Reachability gesture. It lives on the SYSTEM GESTURE window, which the
+    // APPLICATION owns rather than the window scene. `-windows` is deprecated for
+    // apps but is exactly the complete set here; it is called through
+    // objc_msgSend so no deprecation warning is raised (warnings are errors).
+    SEL allWindows = NSSelectorFromString(@"windows");
+    if ([UIApplication.sharedApplication respondsToSelector:allWindows]) {
+        id list = ((id (*)(id, SEL))objc_msgSend)(UIApplication.sharedApplication, allWindows);
+        if ([list isKindOfClass:NSArray.class])
+            for (UIWindow *window in (NSArray *)list) {
+                if (![window isKindOfClass:UIWindow.class] || [seen containsObject:window]) continue;
+                [seen addObject:window]; [windows addObject:window];
+            }
     }
     return windows;
 }
-static UIScreenEdgePanGestureRecognizer *LMVReachabilityEdgeRecognizerInView(UIView *view, NSUInteger depth) {
-    if (!view || depth > 8) return nil;
+// Collects every recognizer whose `edges` includes the bottom edge. A private
+// SpringBoard subclass is accepted as a FALLBACK even when it does not inherit
+// UIScreenEdgePanGestureRecognizer; a real one wins when both are present.
+static UIGestureRecognizer *LMVReachabilityEdgeRecognizerInView(UIView *view, NSUInteger depth,
+                                                              UIGestureRecognizer **fallback) {
+    if (!view || depth > 32) return nil;
+    SEL edgesSelector = NSSelectorFromString(@"edges");
     for (UIGestureRecognizer *recognizer in view.gestureRecognizers) {
-        if (![recognizer isKindOfClass:UIScreenEdgePanGestureRecognizer.class]) continue;
-        if (((UIScreenEdgePanGestureRecognizer *)recognizer).edges & UIRectEdgeBottom)
-            return (UIScreenEdgePanGestureRecognizer *)recognizer;
+        if (![recognizer respondsToSelector:edgesSelector]) continue;
+        UIRectEdge edges = ((UIRectEdge (*)(id, SEL))objc_msgSend)(recognizer, edgesSelector);
+        if (!(edges & UIRectEdgeBottom)) continue;
+        if ([recognizer isKindOfClass:UIScreenEdgePanGestureRecognizer.class]) return recognizer;
+        if (fallback && !*fallback) *fallback = recognizer;
     }
     for (UIView *child in view.subviews) {
-        UIScreenEdgePanGestureRecognizer *found = LMVReachabilityEdgeRecognizerInView(child, depth + 1);
+        UIGestureRecognizer *found = LMVReachabilityEdgeRecognizerInView(child, depth + 1, fallback);
         if (found) return found;
     }
     return nil;
 }
 // Bottom edge only: left/right edge pans (back gestures, CC pull) stay untouched.
-static UIScreenEdgePanGestureRecognizer *LMVReachabilityEdgeRecognizer(void) {
+static UIGestureRecognizer *LMVReachabilityEdgeRecognizer(void) {
+    UIGestureRecognizer *fallback = nil;
     for (UIWindow *window in LMVReachabilityWindows()) {
-        UIScreenEdgePanGestureRecognizer *found = LMVReachabilityEdgeRecognizerInView(window, 0);
+        UIGestureRecognizer *found = LMVReachabilityEdgeRecognizerInView(window, 0, &fallback);
         if (found) return found;
     }
-    return nil;
+    return fallback;
+}
+// Only for the missing-recognizer diagnostic: which windows were even reachable.
+static NSString *LMVReachabilityWindowNames(void) {
+    NSMutableOrderedSet<NSString *> *names = [NSMutableOrderedSet new];
+    NSArray<UIWindow *> *windows = LMVReachabilityWindows();
+    for (UIWindow *window in windows) [names addObject:NSStringFromClass(window.class)];
+    NSMutableArray<NSString *> *head = [NSMutableArray new];
+    for (NSUInteger index = 0; index < names.count && head.count < 6; index++) [head addObject:names[index]];
+    return [NSString stringWithFormat:@"windows=%lu %@", (unsigned long)windows.count,
+            [head componentsJoinedByString:@","]];
 }
 static BOOL LMVReachabilitySurfaceUp(NSArray<NSString *> *windowClasses, NSArray<NSString *> *controllerClasses) {
     for (UIWindow *window in LMVReachabilityWindows()) {
@@ -98,7 +138,7 @@ static BOOL LMVReachabilitySurfaceUp(NSArray<NSString *> *windowClasses, NSArray
 }
 static void LMVReachabilityApply(void) {
     static NSInteger lastBlocked = -1;
-    static BOOL reportedMissing = NO;
+    static CFTimeInterval reportedMissingAt = 0;
     BOOL enabled = LMVReachabilityEnabled();
     uint64_t blank = 1, locked = 1;
     BOOL blankKnown = LMVBlankToken >= 0 && notify_get_state(LMVBlankToken, &blank) == NOTIFY_STATUS_OK;
@@ -107,23 +147,42 @@ static void LMVReachabilityApply(void) {
     BOOL cc = LMVReachabilitySurfaceUp(@[@"SBControlCenterWindow"], @[@"ControlCenter"]);
     BOOL blocked = LMVReachabilityDeskBlocked(enabled, blankKnown, blank, lockKnown, locked,
         LMVReachabilityForeground(), nc, cc);
-    UIScreenEdgePanGestureRecognizer *recognizer = LMVReachabilityEdgeRecognizer();
+    UIGestureRecognizer *recognizer = LMVReachabilityEdgeRecognizer();
     // Re-searched every pass: never cache a recognizer SpringBoard may rebuild.
     if (recognizer && recognizer.enabled == blocked) recognizer.enabled = !blocked;
-    if (enabled && !recognizer && !reportedMissing) {
-        reportedMissing = YES;
-        LMVDiagnostic(@"reachability recognizer=missing enabled=1 (bottom-edge gesture not found; nothing changed)");
+    if (enabled && !recognizer) {
+        // Rate limited to one report per 5 s, and it says WHICH windows were seen
+        // so a single log pass is enough to find the surface that carries the
+        // gesture (device log showed the reachable set was too narrow).
+        CFTimeInterval now = CACurrentMediaTime();
+        if (now - reportedMissingAt > 5.0) {
+            reportedMissingAt = now;
+            LMVDiagnostic([NSString stringWithFormat:
+                @"reachability recognizer=missing %@ (bottom-edge gesture not found; nothing changed)",
+                LMVReachabilityWindowNames()]);
+        }
     }
     if ((NSInteger)blocked != lastBlocked) {
         lastBlocked = (NSInteger)blocked;
-        LMVDiagnostic([NSString stringWithFormat:@"reachability block=%d enabled=%d recognizer=%d nc=%d cc=%d",
-            blocked, enabled, recognizer != nil, nc, cc]);
+        UIRectEdge edges = 0;
+        if (recognizer) {
+            SEL edgesSelector = NSSelectorFromString(@"edges");
+            if ([recognizer respondsToSelector:edgesSelector])
+                edges = ((UIRectEdge (*)(id, SEL))objc_msgSend)(recognizer, edgesSelector);
+        }
+        // `target` names the exact recognizer being toggled, so a log pass proves
+        // which gesture was touched (and that no unrelated edge pan was).
+        LMVDiagnostic([NSString stringWithFormat:@"reachability block=%d enabled=%d recognizer=%d nc=%d cc=%d target=%@ edges=%lu",
+            blocked, enabled, recognizer != nil, nc, cc,
+            recognizer ? NSStringFromClass(recognizer.class) : @"none", (unsigned long)edges]);
     }
 }
 // Leaving the feature off must never leave the gesture disabled behind us.
 static void LMVReachabilityRestore(void) {
     for (UIWindow *window in LMVReachabilityWindows()) {
-        UIScreenEdgePanGestureRecognizer *recognizer = LMVReachabilityEdgeRecognizerInView(window, 0);
+        UIGestureRecognizer *fallback = nil;
+        UIGestureRecognizer *recognizer = LMVReachabilityEdgeRecognizerInView(window, 0, &fallback);
+        if (!recognizer) recognizer = fallback;
         if (recognizer && !recognizer.enabled) recognizer.enabled = YES;
     }
 }
