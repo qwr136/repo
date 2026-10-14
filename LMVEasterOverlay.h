@@ -1,6 +1,7 @@
 #pragma once
 #import "LMVEasterPanel.h"
 #import "LMVEasterGeometry.h"
+#import "LMVEasterDisplayPolicy.h"
 #import <notify.h>
 #import <objc/message.h>
 #import <string.h>
@@ -33,7 +34,11 @@
 
 @interface LMVEasterManager : NSObject
 @property(nonatomic, strong) LMVEasterWindow *window;
-@property(nonatomic, strong) UIImageView *bubble;
+// The hit/drag rectangle is never transformed; only this child draws/rotates.
+@property(nonatomic, strong) UIView *bubble;
+@property(nonatomic, strong) UIImageView *bubbleImage;
+@property(nonatomic) LMVEasterDisplayControls displayControls;
+@property(nonatomic) LMVEasterDisplayScene displayScene;
 @property(nonatomic, strong) UINavigationController *panel;
 @property(nonatomic, strong) LMVEasterImage *decoded;
 @property(nonatomic, strong) NSTimer *timer;
@@ -57,6 +62,7 @@
 - (void)layout;
 - (void)restoreKey;
 - (void)recordScreenBlank;
+- (void)syncRotation;
 @end
 @implementation LMVEasterRoot
 - (void)viewDidLoad { [super viewDidLoad]; self.view.backgroundColor = UIColor.clearColor; }
@@ -255,6 +261,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     return self;
 }
 - (void)dealloc {
+    LMVEasterUpdateRotation(self.bubbleImage.layer,NO,NO,NO,45);
     [self.timer invalidate]; [self.visibilityTimer invalidate]; [NSNotificationCenter.defaultCenter removeObserver:self];
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self);
 }
@@ -264,7 +271,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if ([notification.name isEqualToString:UIWindowDidBecomeKeyNotification] && [notification.object isKindOfClass:UIWindow.class])
         self.foreignKey = notification.object;
     if ([notification.name isEqualToString:UIApplicationDidReceiveMemoryWarningNotification]) {
-        self.generation++; self.decoded = nil; self.imageKey = nil; self.bubble.image = nil; [self.timer invalidate]; self.timer = nil;
+        [self hide]; self.generation++; self.decoded = nil; self.imageKey = nil; self.bubbleImage.image = nil;
     }
     dispatch_async(dispatch_get_main_queue(), ^{ [self refresh]; });
 }
@@ -274,9 +281,15 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     LMVEasterWindowDiagnostic(reason);
 }
 - (void)recordScreenBlank { self.authenticatedSession=NO; [self hide]; }
+- (void)syncRotation {
+    LMVEasterUpdateRotation(self.bubbleImage.layer,self.window && !self.window.hidden && self.bubbleImage.image!=nil,
+        self.panel!=nil,self.displayControls.enabled && self.displayControls.rotationEnabled,self.displayControls.rotationSpeed);
+}
 - (void)hide {
-    [self closePanel];
-    self.window.hidden = YES; [self.timer invalidate]; self.timer = nil;
+    // Hide first so closePanel cannot briefly restart rotation while tearing down.
+    self.window.hidden = YES;
+    [self syncRotation]; [self closePanel];
+    [self.timer invalidate]; self.timer = nil;
 }
 - (void)keyboard:(NSNotification *)notification {
     CGRect frame = [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
@@ -330,9 +343,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)apply {
     CFPreferencesAppSynchronize(LMVEasterPrefs);
-    if (![LMVEasterRead(@"EasterEggEnabled") boolValue]) {
+    self.displayControls=LMVEasterDisplayControlsFromValues(LMVEasterRead(@"EasterEggEnabled"),
+        LMVEasterRead(@"EasterEggShowOnLockScreen"),LMVEasterRead(@"EasterEggShowOnControlCenter"),
+        LMVEasterRead(@"EasterEggShowOnDesktop"),LMVEasterRead(@"EasterEggRotationEnabled"),LMVEasterRead(@"EasterEggRotationSpeed"));
+    if (!self.displayControls.enabled) {
         self.generation++; [self hide]; [self.visibilityTimer invalidate]; self.visibilityTimer=nil;
-        self.decoded = nil; self.imageKey = nil; self.bubble.image = nil; [self reportWindow:@"disabled"]; return;
+        self.decoded = nil; self.imageKey = nil; self.bubbleImage.image = nil; [self reportWindow:@"disabled"]; return;
     }
     if (!self.visibilityTimer) {
         __weak typeof(self) weakSelf=self;
@@ -375,14 +391,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.lastPhysicalCheck=CACurrentMediaTime();
     UIWindow *host=ccHost ?: ncHost ?: homeHost;
     BOOL authenticated=self.authenticatedSession;
-    BOOL allows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
+    BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;
-    if(!allows || !host){[self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
-    if(self.hostWindow && self.hostWindow!=host)[self closePanel];
+    if(!host){[self hide];[self reportWindow:@"home-nc-cc:not-visible-or-locked"];return;}
     NSArray *trusted=@[@"SBCoverSheetWindow",@"SBControlCenterWindow",@"SBHomeScreenWindow"];
     CGFloat level=MIN(host.windowLevel+1,UIWindowLevelAlert - 1);
-    BOOL presentationChanged=self.window.hidden || self.hostWindow!=host || self.window.windowLevel!=level;
-    self.hostWindow = host;
+    BOOL safetyClear=YES;UIWindow *blockedWindow=nil;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
         // Inspect trusted CoverSheet for actual visible authentication UI too;
@@ -391,16 +405,27 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         BOOL security=NO;NSUInteger securityBudget=64;
         if (trustedWindow) LMVEasterVisibleDrawing(window.rootViewController.viewIfLoaded,window,0,&securityBudget,&security);
         if (security || (!trustedWindow && LMVEasterBlockingWindow(window,level))) {
-            [self hide]; [self reportWindow:[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(window.class),window.windowLevel]]; return;
+            safetyClear=NO;blockedWindow=window;break;
         }
     }
-    if (self.window && self.window.windowScene != host.windowScene) { [self hide]; self.window = nil; self.bubble = nil; }
+    LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
+        ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
+    if(displayScene==LMVEasterDisplayNone) {
+        [self hide]; [self reportWindow:blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked"];return;
+    }
+    if(self.displayScene!=displayScene) { [self hide]; self.displayScene=displayScene; }
+    if(self.hostWindow && self.hostWindow!=host)[self closePanel];
+    BOOL presentationChanged=self.window.hidden || self.hostWindow!=host || self.window.windowLevel!=level;
+    self.hostWindow=host;
+    if (self.window && self.window.windowScene != host.windowScene) { [self hide]; self.window = nil; self.bubble = nil; self.bubbleImage = nil; }
     if (!self.window) {
         self.window = [[LMVEasterWindow alloc] initWithWindowScene:host.windowScene];
         LMVEasterRoot *root = [LMVEasterRoot new]; root.manager = self;
         self.window.rootViewController = root; self.window.backgroundColor = UIColor.clearColor;
-        self.bubble = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 64, 64)];
-        self.bubble.contentMode = UIViewContentModeScaleAspectFit; self.bubble.userInteractionEnabled = YES;
+        self.bubble = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 64, 64)];
+        self.bubbleImage = [[UIImageView alloc] initWithFrame:self.bubble.bounds];
+        self.bubbleImage.contentMode = UIViewContentModeScaleAspectFit; self.bubbleImage.userInteractionEnabled = NO;
+        [self.bubble addSubview:self.bubbleImage]; self.bubble.userInteractionEnabled = YES;
         self.bubble.isAccessibilityElement = YES; self.bubble.accessibilityLabel = @"小彩蛋"; self.bubble.accessibilityTraits = UIAccessibilityTraitButton;
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)];
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openPanel)]; [tap requireGestureRecognizerToFail:pan];
@@ -410,9 +435,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     NSString *path = LMVEasterImagePath(LMVEasterRead(@"EasterEggImage"));
     struct stat info; NSString *key = nil;
     if (path && lstat(path.fileSystemRepresentation, &info) == 0) key = [NSString stringWithFormat:@"%@:%llu:%lld:%lld:%ld", path, (unsigned long long)info.st_ino, (long long)info.st_size, (long long)info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec];
-    if (!key) { self.generation++; self.imageKey = nil; self.decoded = nil; self.bubble.image = nil; [self hide]; [self reportWindow:@"hide:image-selection-missing-or-invalid"]; return; }
+    if (!key) { self.generation++; self.imageKey = nil; self.decoded = nil; self.bubbleImage.image = nil; [self hide]; [self reportWindow:@"hide:image-selection-missing-or-invalid"]; return; }
     if (![self.imageKey isEqualToString:key]) {
-        self.imageKey = key; self.decoded = nil; self.frame = 0; self.bubble.image = nil; [self hide]; [self reportWindow:@"hide:image-decode-pending"];
+        self.imageKey = key; self.decoded = nil; self.frame = 0; self.bubbleImage.image = nil; [self hide]; [self reportWindow:@"hide:image-decode-pending"];
         NSUInteger generation = ++self.generation; __weak typeof(self) weakSelf = self;
         dispatch_async(LMVMaterialQueue(), ^{
             LMVEasterImage *decoded = LMVEasterDecode([NSURL fileURLWithPath:path], NULL);
@@ -426,7 +451,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
     if(presentationChanged || ![self.windowReason hasPrefix:@"home-nc-cc host="])
         [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
-    self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
+    self.window.hidden = NO; self.bubbleImage.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame]; [self syncRotation];
 }
 - (CGRect)dragArea {
     CGRect bounds = self.window.rootViewController.view.bounds;
@@ -440,6 +465,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (!self.window || !self.bubble) return;
     CGFloat size = LMVEasterSize();CGRect bubbleBounds=CGRectMake(0, 0, size, size);
     if(!CGRectEqualToRect(self.bubble.bounds,bubbleBounds))self.bubble.bounds=bubbleBounds;
+    if(!CGRectEqualToRect(self.bubbleImage.frame,bubbleBounds))self.bubbleImage.frame=bubbleBounds;
     CGRect area = [self dragArea];
     CGPoint center=CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
     if(!CGPointEqualToPoint(self.bubble.center,center))self.bubble.center=center;
@@ -473,15 +499,16 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         manager.timer = nil;
         if (manager.window.hidden || !manager.decoded.frames.count) return;
         manager.frame = (manager.frame + 1) % manager.decoded.frames.count;
-        manager.bubble.image = manager.decoded.frames[manager.frame]; [manager animateFrame];
+        manager.bubbleImage.image = manager.decoded.frames[manager.frame]; [manager animateFrame];
     }];
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
 }
 - (void)openPanel {
-    if (self.panel || self.window.hidden) return;
+    if (self.panel || self.window.hidden || self.displayScene==LMVEasterDisplayLockScreen) return;
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
     panel.close = ^{ [weakSelf closePanel]; };
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
+    [self syncRotation];
     UIViewController *root = self.window.rootViewController;
     [root addChildViewController:self.panel];
     [self.panel beginAppearanceTransition:YES animated:NO];
@@ -500,5 +527,6 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview];
     [self.panel removeFromParentViewController]; [self.panel endAppearanceTransition];
     self.panel = nil; self.window.panel = nil;
+    [self syncRotation];
 }
 @end

@@ -177,6 +177,17 @@ static CGRect LMVLockVideoOwnedPaintRect(CGRect containerRect,CGRect exposure,CG
     owned=CGRectIntersection(owned,viewport);
     return LMVLockVideoRectValid(owned)?owned:CGRectZero;
 }
+// Final mask stage, not the earlier exposure union. A currently verified
+// content-owned host must retain at least its container; physical clipping
+// remains an intersection. Root fallback/withdrawn/unknown hosts get no union.
+static CGRect LMVLockVideoFinalMask(CGRect local,CGRect container,CGRect physical,BOOL owned) {
+    if(!LMVLockVideoRectValid(container) || !LMVLockVideoRectValid(physical))return CGRectZero;
+    CGRect mask=local;
+    if(owned)mask=LMVLockVideoRectValid(local)?CGRectUnion(local,container):container;
+    if(!LMVLockVideoRectValid(mask))return CGRectZero;
+    mask=CGRectIntersection(mask,physical);
+    return LMVLockVideoRectValid(mask)?mask:CGRectZero;
+}
 static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *controllerRoot,UIView *backdrop,UIWindow *window,CGRect *hostFrame) {
     if (hostFrame) *hostFrame=CGRectZero;
     if (!content || !container || !controllerRoot || !window || ![content isDescendantOfView:controllerRoot]) return CGRectZero;
@@ -200,28 +211,53 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
             if (LMVLockVideoRectValid(owned)) admitted=owned;
         }
     }
-    if (!LMVLockVideoRectValid(admitted)) return CGRectZero;
-    // Model/presentation differences must never enlarge this admitted on-screen
-    // paint. In particular a model panel ahead of the animation is NOT desktop
-    // exposure. No velocity prediction is used beyond this exact boundary.
-    CGRect local=[space convertRect:admitted fromLayer:root];
-    if (!LMVLockVideoRectValid(local) || !LMVLockVideoRectValid(space.bounds)) return CGRectZero;
-    // The host inherits the parent's presentation transform; its frame must use
-    // that same parent's bounds, including animated bounds origins/sizes. Extend
-    // only for a genuinely exposed content backdrop outside non-clipping bounds.
-    CGRect frame=CGRectUnion(space.bounds,local);
-    if (hostFrame) *hostFrame=frame;
-    CGRect clip=CGRectIntersection(CGRectOffset(local,-frame.origin.x,-frame.origin.y),CGRectMake(0,0,frame.size.width,frame.size.height));
-    return LMVLockVideoRectValid(clip)?clip:CGRectZero;
+    NSUInteger backdropBudget=64;
+    BOOL rootBackdrop=!ownsBackdrop && backdrop && backdrop.superview==container &&
+        LMVLockVideoBackground(backdrop,0,&backdropBudget);
+    BOOL owned=(ownsBackdrop || rootBackdrop) && !content.hidden && content.alpha>.01 &&
+        !backdrop.hidden && backdrop.alpha>.01 && LMVLockVideoRectValid(containerRect);
+    if(!LMVLockVideoRectValid(admitted) && !owned)return CGRectZero;
+    // Union is applied to the FINAL owned-host mask, not just the earlier
+    // backdrop exposure calculation. A transient empty derived region can use
+    // the still-exposed attached container; physical offscreen still rejects.
+    CGRect local=LMVLockVideoRectValid(admitted)?[space convertRect:admitted fromLayer:root]:CGRectZero;
+    if (!LMVLockVideoRectValid(space.bounds)) return CGRectZero;
+    // This is the final mask operation discussed in the supplied patch notes.
+    // The container's own currently exposed bounds may extend farther than the
+    // calculated local mask. Preserve that owned paint instead of intersecting
+    // it away a second time. Do not grant a whole-window fallback.
+    CGRect physical=LMVVideoWindowViewport(window);
+    for(UIView *node=container;node && node!=window;node=node.superview) {
+        if(node.clipsToBounds || node.layer.masksToBounds) {
+            CALayer *clip=presented?node.layer.presentationLayer:node.layer;
+            if(!clip){physical=CGRectZero;break;}
+            physical=CGRectIntersection(physical,[clip convertRect:clip.bounds toLayer:root]);
+        }
+    }
+    // Retain the working half-screen/panel bottom. Only the top inset can be
+    // closed; a withdrawn panel must not paint the uncovered application below.
+    if(LMVLockVideoRectValid(panelRect) && LMVLockVideoRectValid(physical))
+        physical.size.height=MAX(0,MIN(CGRectGetMaxY(physical),CGRectGetMaxY(panelRect))-CGRectGetMinY(physical));
+    CGRect physicalLocal=LMVLockVideoRectValid(physical)?[space convertRect:physical fromLayer:root]:CGRectZero;
+    if(rootBackdrop && LMVLockVideoRectValid(containerRect) && LMVLockVideoRectValid(physicalLocal)) {
+        CGRect shown=[space convertRect:containerRect fromLayer:root];
+        physicalLocal.size.height=MAX(0,MIN(CGRectGetMaxY(physicalLocal),CGRectGetMaxY(shown))-CGRectGetMinY(physicalLocal));
+    }
+    CGRect mask=LMVLockVideoFinalMask(local,space.bounds,physicalLocal,owned);
+    if(!LMVLockVideoRectValid(mask))return CGRectZero;
+    CGRect frame=CGRectUnion(space.bounds,mask);
+    if(hostFrame)*hostFrame=frame;
+    return CGRectOffset(mask,-frame.origin.x,-frame.origin.y);
 }
 static inline CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow *window) {
     UIView *root=window.rootViewController.viewIfLoaded ?: container;
-    return LMVLockVideoGeometry(content,container,root,container==content?LMVLockVideoContentBackdrop(content):nil,window,NULL);
+    UIView *backdrop=container==content?LMVLockVideoContentBackdrop(content):LMVLockVideoBackgroundAnchor(container,nil);
+    return LMVLockVideoGeometry(content,container,root,backdrop,window,NULL);
 }
 
-// Geometry remains the .102 admitted content/backdrop region. .103 does not
-// widen it to a full window or add a new video/decoder. The new bounded checks
-// below address paint-order gaps and same-transaction mask timing separately.
+// .104 changes the final owned-container mask union as observed in the user
+// supplied0.1.3 binary, without new video/decoder/window. The .103 bounded paint
+// checks remain for separate z-order/system-redraw issues.
 static NSString *LMVLockVideoRectText(CGRect rect) {
     return LMVLockVideoRectValid(rect)?[NSString stringWithFormat:@"{{%.0f,%.0f},{%.0f,%.0f}}",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height]:@"(none)";
 }

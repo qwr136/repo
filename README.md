@@ -1,5 +1,29 @@
 # 锁屏消息视频
 
+## 0.0.104：参考0.1.3最终通知遮罩并集、彩蛋场景/旋转和图标菜单
+
+精确源码基线为103提交 `cdff0425b923fcf48789e382d194e713e4b10fff`，保留原生RootHide、102桌面低开销、正常控制中心及103三类原背景隐藏。没有拿普通rootless参考包替换整个工程。
+
+### 通知修复参考范围
+
+用户提供 `LockMessageVideo_0.1.3.deb`，SHA256 `86e3ac4a20c4af8ac6dceb895cdfa61ce372edd8f690676ec2e5a76ba9aee850`。与原0.0.99实际dylib相同尺寸/双UUID逐字节对照：arm64 `0x21c94`、arm64e `0x1ebe0` 的最终局部clip与容器bounds调用从CGRectIntersection改为CGRectUnion。只移植这项NC源码语义，不复制它其余模块补丁、头字段或签名。
+
+104最终遮罩使用已确认曝光宿主容器bounds与local区域并集（包括可见owner瞬时派生clip空），不是仅上游背景曝光并集。仍遵守实际screen/clip、partial入场底边、关闭/熄屏/未知/撤回的安全门槛，不能在收回后继续盖应用。只有有效通知宿主拥有这项并集，未知root不凭永存窗口出现而显示。用户报告参考包效果正常；104需要设备上同场景验收，不能只凭说明/二进制相似声称已验证。
+
+### 彩蛋显示与旋转
+
+- 小彩蛋总开关照旧。图片设置内增加锁屏、控制中心、桌面三个独立显示开关；缺省锁屏关，CC/桌面开，保持升级前默认。已解锁通知中心沿用原显示，不让普通App全局出现。
+- 真实锁屏显示须开启锁屏项且已曝光CoverSheet/屏幕状态可信；密码/认证/权限弹窗仍隐藏。锁屏彩蛋仅展示、拖动，不从锁屏打开素材管理或相册。
+- 图片旋转开关默认关；速度5…180度/秒，默认45（8秒一圈）。仅旋转图片子层CABasicAnimation，bubble命中/拖动尺寸不转；可见才跑，开面板/隐藏/熄屏/关闭停止。GIF与原动画保持，稳定审计不反复重建动画，无新增逐帧timer。
+
+### 桌面长按图标菜单视频背景
+
+- 独立HomeMenuBackgroundEnabled默认关、HomeMenuVideo默认未选。小彩蛋主设置和浮窗加开关/切换素材，原片素材库/catalog/rename/delete复用；删除选中素材只清该引用不改enable。
+- 仅SpringBoard已解锁Home图标作为sourcePreview的活动UIKit菜单，精确 `_UIContextMenuListView` / `_UIContextMenuPresentationController` 已核对公开iOS16 header与runtime ABI后安装Hook；未知类/方法/签名/前景/背景拒绝，不套猜测全局UIView Hook。
+- 独立video-only播放器，在已验证UIVisualEffect纯背景上方/菜单集合内容下方放自有宿主；真实视频首帧未到保留系统材质，不把海报冒充视频。关闭/消失/离Home/路径变/错误/熄屏恢复baseline；自有变换与同父材质匹配，不隐藏文字或按钮。
+
+本地源契约和macOS原生回归覆盖旧功能与新增开关/动画/菜单消费者。iOS私有层级随系统/其它插件变化，运行时gate跳过会保留系统背景；真机菜单/下拉/锁屏效果、CPU未验收时不报“完全解决”或性能数字。安装后注销一次，不清用户素材/偏好。以下历史说明保留。
+
 ## 0.0.103：顶部绘制层级/布局时序与三类原背景隐藏
 
 准确基线为已交付102、`6960b065f09dcf8bb4059e76c6b47fdf5aa0e762`。用户反馈其余行为已正常：冻结Desktop/CC/Playback/Easter和设置、素材、导入功能，不改102布局/并集/空mask/半屏关闭策略。

@@ -17,12 +17,12 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 10
+assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 11
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
-for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景')]:
+for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景')]:
     assert f'@"{target}": @"{title}"' in source
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
     assert f'@"{target}": @""' in source
@@ -46,14 +46,25 @@ for forbidden in ('Opacity', 'Blur', 'Audio', 'PSSliderCell', 'ControlCenterDark
 import_callback = source[source.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
 import_targets = re.findall(r'@"([^"]+)"', re.search(r'for \(NSString \*target in @\[(.*?)\]\)', import_callback).group(1))
 assert import_targets == ['Message', 'Options', 'Clear']
-assert 'ControlCenter' not in import_callback and 'LockScreen' not in import_callback and 'Desktop' not in import_callback
+assert 'ControlCenter' not in import_callback and 'LockScreen' not in import_callback and 'Desktop' not in import_callback and 'HomeMenu' not in import_callback
+home_section = source[source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];'):source.index('NSArray *titles =')]
+assert home_section.count('cell:PSSwitchCell') == 2 and home_section.count('cell:PSButtonCell') == 2
+assert '[homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"]' in home_section
+assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
+assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
+assert '桌面长按菜单视频背景' in home_section and '切换长按菜单素材' in home_section
+assert '图片 / GIF、图标大小与显示设置' in home_section
+assert 'forKey:@"buttonAction"' not in source and 'forKey:@"action"' not in source
 assert 'if (!selected && !legacyMessage) CFPreferencesSetAppValue' in import_callback
 for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
     representation=(root/'LockMessageVideoPrefs'/controller).read_text()
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
     assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation
 assert '消息、选项、清除视频透明度' in source
-assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight"] containsObject:target];' in source
+assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu"] containsObject:target];' in source
+assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
+allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotify(')]
+assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu']
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
 selection = source[source.index('- (void)selectFile:'):source.index('- (void)switchMessage:')]
@@ -73,7 +84,8 @@ end = source.index('\n- (id)enabled:', start)
 method = source[start:end]
 assert 'invoke(self, action, row);' in method
 assert method.index('invoke(self, action, row);') < method.index('[super tableView:')
-print('PASS: entry/principal class, version, programmatic-only rows, five targets/ten action selectors, independent CC section with empty/off defaults, imports limited to Message/Options/Clear and stale route cleanup')
+assert '[signature getArgumentTypeAtIndex:2][0] != \'@\'' in method
+print('PASS: entry/principal class, version, programmatic-only rows, five targets/eleven action selectors, independent CC and HomeMenu sections with empty/off defaults, imports limited to Message/Options/Clear and stale route cleanup')
 if platform.system() != 'Darwin':
     print('Foundation runtime routing test requires macOS; runs in GitHub Actions')
     raise SystemExit(0)
@@ -81,6 +93,7 @@ preamble = r'''
 #import <Foundation/Foundation.h>
 #include <assert.h>
 #include <string.h>
+@TARGET_FUNCTIONS@
 enum { PSButtonCell = 13, PSSwitchCell = 6 };
 @interface PSSpecifier : NSObject
 @property NSInteger cellType;
@@ -116,21 +129,25 @@ enum { PSButtonCell = 13, PSSwitchCell = 6 };
 @end
 @implementation LMVPRootListController
 '''
+preamble = preamble.replace('@TARGET_FUNCTIONS@', re.search(r'static NSArray<NSString \*> \*LMVTargets\(void\) \{[^\n]+\}', source).group(0) + '\n' + allowed_target)
 # Compile the actual switch wrappers too, so each selector must reach its own target.
 switch_actions = sorted(action for action in actions if action.startswith('switch'))
 switch_handlers = [re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', source).group(0) for action in switch_actions]
 other_handlers = ['- (void)%s(PSSpecifier *)specifier { self.calls++; self.lastRow = specifier; self.lastTarget = nil; }' % action for action in sorted(actions) if action not in switch_actions]
-handlers = '\n'.join(['- (void)switchTarget:(NSString *)target { self.calls++; self.lastRow = self.testRow; self.lastTarget = target; }'] + switch_handlers + other_handlers)
+handlers = '\n'.join(['- (void)switchTarget:(NSString *)target { self.calls++; self.lastRow = self.testRow; self.lastTarget = target; }', '- (void)badScalar:(NSInteger)value { self.calls++; }'] + switch_handlers + other_handlers)
 tests = r'''
 @end
 int main(void) { @autoreleasepool {
+    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu"]) assert(LMVMaterialTargetAllowed(target));
+    for (id bad in @[@"", @"Unknown", @"HomeMenuVideo", @"HomeMenuBackgroundEnabled", @"homemenu", @"../HomeMenu", @42, NSNull.null]) assert(!LMVMaterialTargetAllowed(bad));
+    assert(!LMVMaterialTargetAllowed(nil));
     LMVPRootListController *controller = [LMVPRootListController new];
     UITableView *table = [UITableView new];
     PSSpecifier *row = [PSSpecifier new];
     row.cellType = PSButtonCell; row.target = controller; row.properties = [NSMutableDictionary new];
     controller.testRow = row;
     NSArray *selectors = @SELECTORS@;
-    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight"};
+    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu"};
     for (NSString *selector in selectors) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
@@ -145,7 +162,7 @@ int main(void) { @autoreleasepool {
     row.target = [NSObject new];
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     row.target = controller;
-    for (NSString *selector in @[@"staleControllerAction:", @"switchUnknownTarget:"]) {
+    for (NSString *selector in @[@"staleControllerAction:", @"switchUnknownTarget:", @"badScalar:"]) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     }
@@ -155,7 +172,7 @@ int main(void) { @autoreleasepool {
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all ten actions and seven actual switch wrappers including switchControlCenterDark:/switchControlCenterLight:, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, all eleven actions and eight actual switch wrappers including switchControlCenterDark:/switchControlCenterLight:/switchHomeMenu:, allowed/invalid material targets, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:

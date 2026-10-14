@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run production floating-window predicates with Foundation/real CALayer doubles."""
 from pathlib import Path
-import platform, subprocess, tempfile
+import platform, subprocess, tempfile, sys
 r=Path(__file__).resolve().parents[1]
 s=(r/'LMVEasterOverlay.h').read_text()
 helpers=s[s.index('static BOOL LMVEasterKnownWindow('):s.index('static void LMVEasterDarwin(')]
@@ -15,7 +15,13 @@ assert all(word not in tick for word in ('connectedScenes','CFPreferences','lsta
 assert all(word not in drag for word in ('refresh','LMVRequestSafeUpdate','stringWithFormat','VisibleDrawing'))
 assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout and 'cornerRadius' not in layout
 assert 'window.windowLevel >= UIWindowLevelAlert && substantive' in helpers and 'area/full>=0.30' in helpers
-if platform.system()!='Darwin':
+assert 'self.bubble = [[UIView alloc]' in s and 'self.bubbleImage = [[UIImageView alloc]' in s
+assert 'self.bubbleImage.userInteractionEnabled = NO' in s
+assert 'LMVEasterUpdateRotation(self.bubbleImage.layer' in s
+assert 'self.bubble.layer' not in s and 'CADisplayLink' not in s
+assert 'LMVEasterDisplayPolicy(self.displayControls' in s and 'legacyAllows,safetyClear)' in s
+assert 'preferencesChanged' in s and '[manager refresh]' in s
+if platform.system()!='Darwin' and '--emit-native' not in sys.argv:
     print('PASS: floating-window snapshot/scrolling/invalidation source contracts; native functions require macOS CI')
     raise SystemExit(0)
 preamble=r'''
@@ -203,6 +209,9 @@ int main(void) { @autoreleasepool {
     puts("PASS: actual NC-only unlock/blank/exposure policy and floating safety: clear persistent Myrtle/screenshot/recording windows and tiny indicators do not block; visible high alert/security branches block; hidden content does not; NOT actual SB compositing");
 }return 0; }
 '''
+if '--emit-native' in sys.argv:
+    print(preamble+helpers)
+    raise SystemExit(0)
 with tempfile.TemporaryDirectory() as tmp:
     p=Path(tmp)/'windows.m';p.write_text(preamble+helpers+main);binary=Path(tmp)/'windows'
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(p),'-o',str(binary)],check=True)

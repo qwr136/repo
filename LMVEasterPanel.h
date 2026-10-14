@@ -2,9 +2,10 @@
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
 #import "LMVEasterPhotoFlow.h"
+#import "LMVEasterImageSettings.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
 
-// Floating video controls have no image settings or image import role.
+// Image import and display controls stay on their own settings page.
 @interface LMVEasterPanel : UITableViewController <PHPickerViewControllerDelegate>
 @property(nonatomic) BOOL busy, opacityTracking, panelVisible;
 @property(nonatomic) NSUInteger catalogGeneration;
@@ -24,6 +25,9 @@ static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"选项背景
 static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterTargets().count; }
 static NSInteger LMVEasterOpacitySection(void) { return LMVEasterControlCenterSection() + 1; }
 static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
+// Append new sections; keep the original five targets, CC, opacity and import indices.
+static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterImportSection() + 1; }
+static NSInteger LMVEasterDisplaySection(void) { return LMVEasterHomeMenuSection() + 1; }
 static NSString *LMVEasterControlCenterKey(NSInteger row) {
     return row == 1 ? @"ControlCenterDarkVideo" : (row == 2 ? @"ControlCenterLightVideo" : nil);
 }
@@ -104,15 +108,18 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         });
     });
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImportSection() + 1; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterDisplaySection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == LMVEasterControlCenterSection()) return 3;
-    return section == LMVEasterImportSection() ? 1 : 2;
+    if (section == LMVEasterHomeMenuSection()) return 2;
+    return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row > 0 ? 60 : 44; }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section < LMVEasterTargets().count) return LMVEasterTitles()[section];
     if (section == LMVEasterControlCenterSection()) return @"控制中心背景";
+    if (section == LMVEasterHomeMenuSection()) return @"桌面长按菜单视频背景";
+    if (section == LMVEasterDisplaySection()) return @"小彩蛋显示设置";
     return section == LMVEasterOpacitySection() ? @"消息、选项、清除视频透明度" : @"独立原片导入";
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -132,6 +139,25 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入视频（原片）";
         cell.imageView.image = [UIImage systemImageNamed:@"square.and.arrow.down"];
         cell.userInteractionEnabled = !self.busy; return cell;
+    }
+    if (index.section == LMVEasterDisplaySection()) {
+        cell.textLabel.text = @"显示场景与图片旋转"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
+    if (index.section == LMVEasterHomeMenuSection()) {
+        if (index.row == 0) {
+            cell.textLabel.text = @"桌面长按菜单视频背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterHomeMenuSection();
+            toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];
+            [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else {
+            cell.textLabel.text = @"切换长按菜单素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id selected = LMVEasterRead(@"HomeMenuVideo");
+            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
+            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
+            cell.detailTextLabel.numberOfLines = 2;
+        }
+        return cell;
     }
     if (index.section == LMVEasterControlCenterSection()) {
         if (index.row == 0) {
@@ -188,11 +214,13 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     return cell;
 }
 - (void)toggle:(UISwitch *)toggle {
-    if (toggle.tag < 0 || toggle.tag > LMVEasterOpacitySection()) return;
+    if (toggle.tag < 0 || toggle.tag > LMVEasterHomeMenuSection()) return;
     NSString *key;
     if (toggle.tag == LMVEasterControlCenterSection()) key = @"ControlCenterBackgroundEnabled";
     else if (toggle.tag == LMVEasterOpacitySection()) key = @"VideoOpacityEnabled";
-    else key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
+    else if (toggle.tag == LMVEasterHomeMenuSection()) key = @"HomeMenuBackgroundEnabled";
+    else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
+    else return;
     LMVEasterSet(key, @(toggle.on));
 }
 - (void)opacityChanged:(UISlider *)slider {
@@ -203,12 +231,19 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES];
     if (self.presentedViewController || self.busy) return;
-    if (index.section == LMVEasterImportSection()) { [self importVideo]; return; }
+    if (index.section == LMVEasterImportSection()) { if (index.row == 0) [self importVideo]; return; }
+    if (index.section == LMVEasterDisplaySection()) {
+        if (index.row != 0) return;
+        [self.navigationController pushViewController:[LMVEasterImageSettings new] animated:YES]; return;
+    }
     NSString *key = nil;
     NSString *fallback = @"";
     if (index.section == LMVEasterControlCenterSection()) {
         key = LMVEasterControlCenterKey(index.row);
         if (!key) return;
+    } else if (index.section == LMVEasterHomeMenuSection()) {
+        if (index.row != 1) return;
+        key = @"HomeMenuVideo";
     } else {
         if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;
         NSString *target = LMVEasterTargets()[index.section];

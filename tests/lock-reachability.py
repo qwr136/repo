@@ -157,13 +157,14 @@ int main(void){@autoreleasepool{
  CGRect clip=LMVLockVideoGeometry(sliding,sliding,cover,movingBack,window,&frame);
  CGRect shown=[sliding.layer convertRect:CGRectOffset(clip,frame.origin.x,frame.origin.y) toLayer:window.layer];
  assert(CGRectEqualToRect(shown,CGRectMake(8,6,374,416)));
- // Actual clipping is authoritative, and root wallpaper is not an extension.
+ // Actual clipping is authoritative; a verified active root-host final mask
+ // now includes the whole container above the admitted bottom (0.1.3 semantics).
  movingBack.frame=CGRectMake(-8,-6,390,422);sliding.clipsToBounds=YES;[m update];
  shown=[m.host.layer convertRect:CGPathGetBoundingBox(m.host.clipLayer.path) toLayer:window.layer];
  assert(CGRectEqualToRect(shown,CGRectMake(8,6,374,416)));sliding.clipsToBounds=NO;
  clip=LMVLockVideoGeometry(sliding,cover,cover,background,window,&frame);
  shown=[cover.layer convertRect:CGRectOffset(clip,frame.origin.x,frame.origin.y) toLayer:window.layer];
- assert(CGRectEqualToRect(shown,CGRectMake(8,6,374,416)));
+ assert(CGRectEqualToRect(shown,CGRectMake(0,0,390,422)));
  // Preserve .100 fail-closed gates, including transient zero content: do not
  // change half-screen visibility/lifecycle on the strength of a top-strip test.
  sliding.frame=CGRectMake(0,0,0,0);[m update];assert(!m.playback.wantsPlayback && !m.host.superview && !record.wasExposed);

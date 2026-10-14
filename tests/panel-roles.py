@@ -12,10 +12,16 @@ for forbidden in ['imageControls','EasterEggEnabled','EasterEggImage','imagesFil
     assert forbidden not in video,forbidden
 for forbidden in ['LMVEasterTargets','VideoOpacity','videosFilter','LMVMaterialPicker']:
     assert forbidden not in image,forbidden
-assert 'return 1;' in image and 'return 2;' in image and '启用小彩蛋' not in image
+assert 'return LMVEasterImageRotationSection() + 1;' in image and 'LMVEasterImageDisplayKeys().count : 2;' in image and '启用小彩蛋' not in image
+assert '#import "LMVEasterImageSettings.h"' in video
+assert 'pushViewController:[LMVEasterImageSettings new]' in video
+assert '显示场景与图片旋转' in video
 assert 'loadPreview' not in image and 'UIImage *preview' not in image
 assert 'picker.showsThumbnails = NO' in video
 assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
+assert 'if (self.close) self.close();' in image
+assert 'self.navigationController.viewControllers.count > 1' in image and 'popViewControllerAnimated:YES' in image
+assert 'else [self dismissViewControllerAnimated:YES completion:nil];' in image
 assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
 targets = re.findall(r'@"([^"]+)"', re.search(r'LMVEasterTargets\(void\) \{ return @\[(.*?)\]; \}', video).group(1))
 assert targets == ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop']
@@ -23,17 +29,24 @@ assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"
 for target in ('LockScreen', 'Desktop'):
     assert video.count(f'@"{target}":@""') == 2  # Label and picker both start unselected.
     assert target + 'Opacity' not in video
-assert len(targets) + 3 == 8  # Five targets + one Control Center + message opacity + import.
-assert 'return LMVEasterImportSection() + 1;' in video
+assert len(targets) + 5 == 10  # Existing eight sections + HomeMenu + image display entry.
+assert 'return LMVEasterDisplaySection() + 1;' in video
 assert 'LMVEasterControlCenterSection() + 1' in video and 'LMVEasterOpacitySection() + 1' in video
+assert 'LMVEasterImportSection() + 1' in video and 'LMVEasterHomeMenuSection() + 1' in video
 assert 'section == LMVEasterControlCenterSection()) return 3' in video
-assert 'section == LMVEasterImportSection() ? 1 : 2' in video
+assert 'section == LMVEasterHomeMenuSection()) return 2' in video
+assert 'section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2' in video
 assert 'if (section < LMVEasterTargets().count) return LMVEasterTitles()[section]' in video
 assert 'ControlCenterBackgroundEnabled' in video
 assert 'ControlCenterDarkVideo' in video and 'ControlCenterLightVideo' in video
 assert '切换深色模式素材' in video and '切换浅色模式素材' in video
 assert 'toggle.tag = LMVEasterOpacitySection();' in video
-assert 'toggle.tag > LMVEasterOpacitySection()' in video
+assert 'toggle.tag > LMVEasterHomeMenuSection()' in video
+assert 'else if (toggle.tag == LMVEasterHomeMenuSection()) key = @"HomeMenuBackgroundEnabled";' in video
+assert 'else if (toggle.tag < LMVEasterTargets().count)' in video and 'else return;' in video
+assert 'toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];' in video
+assert 'id selected = LMVEasterRead(@"HomeMenuVideo");' in video
+assert 'key = @"HomeMenuVideo";' in video and '切换长按菜单素材' in video
 assert 'toggle.tag == LMVEasterControlCenterSection()' in video
 assert 'if (index.section == LMVEasterImportSection())' in video
 assert 'if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;' in video

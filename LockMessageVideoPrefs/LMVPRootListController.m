@@ -17,7 +17,8 @@ static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight"] containsObject:target];
+    if (![target isKindOfClass:NSString.class] || !target.length) return NO;
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -41,10 +42,18 @@ static void LMVNotify(void) {
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
     [eggEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:eggEnabled];
-    PSSpecifier *eggImage = [PSSpecifier preferenceSpecifierNamed:@"导入图片 / GIF 与图标大小" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *eggImage = [PSSpecifier preferenceSpecifierNamed:@"图片 / GIF、图标大小与显示设置" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     eggImage.buttonAction = @selector(openEaster:);
     [eggImage setProperty:@"EasterEggImageSettings" forKey:@"id"];
     [_specifiers addObject:eggImage];
+    PSSpecifier *homeMenuEnabled = [PSSpecifier preferenceSpecifierNamed:@"桌面长按菜单视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"];
+    [homeMenuEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:homeMenuEnabled];
+    PSSpecifier *homeMenuMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换长按菜单素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);
+    [homeMenuMaterial setProperty:@"HomeMenuMaterial" forKey:@"id"];
+    [_specifiers addObject:homeMenuMaterial];
     NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"];
     SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:), @selector(switchLockScreen:), @selector(switchDesktop:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
@@ -120,7 +129,7 @@ static void LMVNotify(void) {
         SEL action = row.buttonAction;
         // Call only our own one-specifier button handlers, never controllerForSpecifier:.
         NSMethodSignature *signature = action ? [self methodSignatureForSelector:action] : nil;
-        if (row.target != self || !signature || signature.numberOfArguments != 3 || strcmp(signature.methodReturnType, @encode(void)) != 0) return;
+        if (row.target != self || !signature || signature.numberOfArguments != 3 || strcmp(signature.methodReturnType, @encode(void)) != 0 || [signature getArgumentTypeAtIndex:2][0] != '@') return;
         void (*invoke)(id, SEL, PSSpecifier *) = (void (*)(id, SEL, PSSpecifier *))[self methodForSelector:action];
         invoke(self, action, row);
         return;
@@ -218,7 +227,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -227,7 +236,7 @@ static void LMVNotify(void) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -242,6 +251,7 @@ static void LMVNotify(void) {
 - (void)switchDesktop:(PSSpecifier *)specifier { [self switchTarget:@"Desktop"]; }
 - (void)switchControlCenterDark:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterDark"]; }
 - (void)switchControlCenterLight:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterLight"]; }
+- (void)switchHomeMenu:(PSSpecifier *)specifier { [self switchTarget:@"HomeMenu"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];

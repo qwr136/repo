@@ -41,11 +41,13 @@ assert 'ControlCenter' not in prefs_import and 'LockScreen' not in prefs_import 
 assert 'static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterTargets().count; }' in panel
 assert 'static NSInteger LMVEasterOpacitySection(void) { return LMVEasterControlCenterSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }' in panel
-assert 'return LMVEasterImportSection() + 1;' in panel
+assert 'static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterImportSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
+assert 'return LMVEasterDisplaySection() + 1;' in panel
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight"]' in delete
-for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight'):
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu"]' in delete
+for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu'):
     assert f'@"{target}":@""' in delete
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
 assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1
@@ -102,9 +104,37 @@ print('PASS: toggle/picker keys, shared catalog, independent atomic original imp
 
 assert 'imageControls' not in panel and 'EasterEgg' not in panel
 assert 'LMVEasterImageSettings *panel' in prefs
-assert 'numberOfSectionsInTableView:' in image and 'return 1;' in image
+assert 'numberOfSectionsInTableView:' in image and 'return LMVEasterImageRotationSection() + 1;' in image
+assert 'static NSInteger LMVEasterImageDisplaySection(void) { return LMVEasterImageSection() + 1; }' in image
+assert 'static NSInteger LMVEasterImageRotationSection(void) { return LMVEasterImageDisplaySection() + 1; }' in image
+assert 'section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().count : 2' in image
+assert '通知中心沿用现有显示行为。' in image
+assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
+assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
+assert 'index.section != LMVEasterImageSection() || index.row != 0' in image
+assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
 assert 'LMVEasterTargets' not in image and 'VideoOpacity' not in image
 assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterBoundedSize' in (root / 'LMVEasterGeometry.h').read_text()
 assert 'VideoOpacityEnabled' in panel and 'opacityChanged:' in panel
 assert 'pushViewController:picker' in panel and 'picker.pushed = YES' in panel
 assert 'LMVMaterialDisplayName(relative' in panel
+assert '@[@"EasterEggShowOnLockScreen", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]' in image
+assert '@[@"在锁屏显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]' in image
+assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES]; }' in image
+assert 'return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;' in image
+assert 'toggle.on = LMVEasterImageBool(key, LMVEasterImageDisplayDefaults()[index.row].boolValue);' in image
+assert 'LMVEasterImageBool(@"EasterEggRotationEnabled", NO)' in image
+assert 'slider.minimumValue = 5; slider.maximumValue = 180; slider.value = LMVEasterImageRotationSpeed();' in image
+assert '[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 45.0' in image
+assert 'isfinite(speed) ? MAX(5.0, MIN(180.0, speed)) : 45.0' in image
+assert 'CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(180.0, round(raw))) : 45.0;' in image
+for write in ('LMVEasterSet(LMVEasterImageDisplayKeys()[toggle.tag], @(toggle.on));', 'LMVEasterSet(@"EasterEggRotationEnabled", @(toggle.on));', 'LMVEasterSet(@"EasterEggRotationSpeed", @(speed));'):
+    assert write in image
+assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, LMVEasterPrefs);' in media
+assert 'CFSTR("com.minis.lockmessagevideo")' in media and 'preferencesChanged' in media
+assert 'CFNotificationCenterPostNotification' in media and 'LMVEasterNotify();' in media
+assert 'toggle.tag < 0 || toggle.tag >= LMVEasterImageDisplayKeys().count' in image
+assert 'slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);' in image
+assert 'HomeMenuVideo' in panel and 'HomeMenuBackgroundEnabled' in prefs + panel
+assert 'EasterEggShowOnNotificationCenter' not in image and 'EasterEggShowOnNC' not in image
+print('PASS: visible three-scene defaults NO/YES/YES, rotation off/45 deg/s with finite 5..180 read/write, live Darwin notification and independent HomeMenu selection/delete routing')
