@@ -279,6 +279,13 @@ static BOOL LMVLockVideoAttachedGeometry(UIView *content,UIView *container,UIVie
     // Preserve .102's already-admitted same-owner zero/non-clipping layout.
     if(!LMVLockVideoRectValid(boundary) && !panel.clipsToBounds && !panel.layer.masksToBounds)boundary=space.bounds;
     CGRect paint=LMVLockVideoAttachedPaint(space.bounds,backdrop,boundary);
+    // Only real MODEL clipping boundaries, never the sampled presentation
+    // viewport edge. Preserve the established content/ancestor clips exactly.
+    NSUInteger depth=0;
+    for(UIView *node=content;node && node!=content.window && ++depth<=24;node=node.superview) {
+        if(node.clipsToBounds || node.layer.masksToBounds)
+            paint=CGRectIntersection(paint,[space convertRect:node.layer.bounds fromLayer:node.layer]);
+    }
     if(!LMVLockVideoRectValid(paint))return NO;
     CGRect extent=CGRectUnion(space.bounds,paint);
     if(frame)*frame=extent;
