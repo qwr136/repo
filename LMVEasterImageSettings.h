@@ -9,7 +9,7 @@ static NSInteger LMVEasterImageDisplaySection(void) { return LMVEasterImageSecti
 static NSInteger LMVEasterImageRotationSection(void) { return LMVEasterImageDisplaySection() + 1; }
 // 0.0.122: floating-panel appearance lives on this same page, so both entries
 // (Settings app and the panel's own 显示场景与图片旋转) edit exactly one place.
-static NSInteger LMVEasterImagePanelSection(void) { return LMVEasterImagePanelSection() + 1; }
+static NSInteger LMVEasterImagePanelSection(void) { return LMVEasterImageRotationSection() + 1; }
 static NSArray<NSString *> *LMVEasterImageDisplayKeys(void) { return @[@"EasterEggShowOnLockScreen", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]; }
 static NSArray<NSString *> *LMVEasterImageDisplayTitles(void) { return @[@"在锁屏显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]; }
 static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES]; }
@@ -119,7 +119,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     else if (self.navigationController.viewControllers.count > 1) [self.navigationController popViewControllerAnimated:YES];
     else [self dismissViewControllerAnimated:YES completion:nil];
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImageRotationSection() + 1; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImagePanelSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == LMVEasterImageSection()) return 3;
     // Corner toggle + corner slider + size toggle + width + height.

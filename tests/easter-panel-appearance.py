@@ -55,6 +55,16 @@ for key in ('EasterPanelCornerEnabled', 'EasterPanelCorner', 'EasterPanelSizeEna
     assert key in header, key
     assert key in image, key
 assert 'if (section == LMVEasterImagePanelSection()) return 5;' in image
+# A bad edit once made the new helper call ITSELF (compiles into infinite recursion
+# and passes every string check), so the chain and the section count are pinned here.
+import re as _re
+for _helper in ('LMVEasterImageSection', 'LMVEasterImageDisplaySection',
+                'LMVEasterImageRotationSection', 'LMVEasterImagePanelSection'):
+    _body = _re.search(r'static NSInteger %s\(void\) \{ return ([^;]+); \}' % _helper, image)
+    assert _body, _helper
+    assert _helper + '()' not in _body.group(1), _helper + ' must not call itself'
+assert 'static NSInteger LMVEasterImagePanelSection(void) { return LMVEasterImageRotationSection() + 1; }' in image
+assert 'numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImagePanelSection() + 1; }' in image
 assert 'return @"悬浮窗外观";' in image
 for selector in ('panelCornerToggled:', 'panelCornerChanged:', 'panelSizeToggled:', 'panelScaleChanged:'):
     assert 'action:@selector(%s)' % selector in image, selector
