@@ -619,5 +619,3 @@ static void LMVLockVideoInstallHooks(void) {
     LMV_INSTALL_LOCK_HOOK(@"viewDidDisappear:",YES,LMVLockHookDidDisappear,LMVLockOriginalDidDisappear);
 #undef LMV_INSTALL_LOCK_HOOK
 }
-K
-}
