@@ -192,7 +192,7 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     CGRect clip=CGRectIntersection(CGRectOffset(local,-frame.origin.x,-frame.origin.y),CGRectMake(0,0,frame.size.width,frame.size.height));
     return LMVLockVideoRectValid(clip)?clip:CGRectZero;
 }
-static CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow *window) {
+static inline CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow *window) {
     UIView *root=window.rootViewController.viewIfLoaded ?: container;
     return LMVLockVideoGeometry(content,container,root,container==content?LMVLockVideoContentBackdrop(content):nil,window,NULL);
 }
