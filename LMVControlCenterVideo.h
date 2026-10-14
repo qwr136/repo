@@ -123,10 +123,63 @@ static UIView *LMVCCMaterial(UIView *root) {
     }
     return nil;
 }
+// A pure material is the anchor, not the geometric authority. In Reachability
+// its bounds can end ABOVE the exposed viewport (the old MIN(height) acceptance
+// allowed that). Extend only our render layer; never detach UIKit's backing.
+// If the direct backdrop clips the extension, use its root-owned layer slot
+// immediately above that backdrop and still below Control Center furniture.
+static UIView *LMVCCRenderHost(UIView *root,UIView *material,CGRect *renderBounds) {
+    if(renderBounds)*renderBounds=CGRectZero;
+    CGRect viewport=LMVCCVisibleViewport(root);
+    if(!material || !LMVLockVideoRectValid(viewport))return nil;
+    CGRect target=[material convertRect:viewport fromView:root];
+    BOOL clipped=NO;NSUInteger depth=0;
+    for(UIView *node=material;node && node!=root;node=node.superview) {
+        if(++depth>16)return nil;
+        if(node.clipsToBounds || node.layer.masksToBounds) {
+            CGRect limit=[material convertRect:node.bounds fromView:node];
+            if(!CGRectContainsRect(limit,target)){clipped=YES;break;}
+        }
+    }
+    if(clipped) {
+        if(material.superview!=root)return nil;
+        if(renderBounds)*renderBounds=CGRectIntersection(root.bounds,CGRectUnion(viewport,[material convertRect:material.bounds toView:root]));
+        return root;
+    }
+    if(renderBounds)*renderBounds=CGRectUnion(material.bounds,target);
+    return material;
+}
+// Revalidate the known anchor without walking unrelated module/scroll trees.
+// Direct-child purity and sibling order remain live checks (not stale cache data).
+static BOOL LMVCCMaterialStillValid(UIView *root,UIView *material) {
+    if(!root || !material || ![material isDescendantOfView:root] ||
+       ![material isKindOfClass:NSClassFromString(@"MTMaterialView")] || !LMVCCPureBackground(material))return NO;
+    UIView *branch=material;NSUInteger depth=0;
+    for(UIView *node=material;node && node!=root;node=node.superview) {
+        if(++depth>16 || node.hidden || node.alpha<.01 || [node isKindOfClass:UIControl.class] || [node isKindOfClass:UIScrollView.class])return NO;
+        branch=node;
+    }
+    BOOL reached=NO;NSUInteger budget=64;
+    for(UIView *child in root.subviews) {
+        if(!budget--)return NO;
+        if(LMVLockVideoClass(child,@"CCUIScrollView"))break;
+        if(child==branch)reached=YES;
+    }
+    if(!reached)return NO;
+    CGRect viewport=LMVCCVisibleViewport(root),rect=[material convertRect:material.bounds toView:root];
+    CGRect visible=CGRectIntersection(rect,viewport),rootClip=CGRectIntersection(rect,root.bounds);
+    if(!LMVLockVideoRectValid(visible) || visible.size.width<=1 || visible.size.height<=1)return NO;
+    if(material.superview==root) return rootClip.size.width>=root.bounds.size.width*.98 &&
+        visible.size.width>=viewport.size.width*.98 && visible.size.height>=MIN(viewport.size.height,rect.size.height)*.98;
+    CGFloat full=root.bounds.size.width*root.bounds.size.height;
+    return full>0 && LMVLockVideoRectValid(rootClip) && rootClip.size.width*rootClip.size.height/full>=.90;
+}
 @interface LMVCCRecord:NSObject
 @property(nonatomic) BOOL visible,closing,known,progressKnown;
 @property(nonatomic) CGFloat progress;
 @property(nonatomic) NSUInteger epoch;
+@property(nonatomic,weak) UIView *materialRoot,*cachedMaterial;
+@property(nonatomic) CFTimeInterval lastMaterialSearch;
 @end
 @implementation LMVCCRecord @end
 static char LMVCCRecordKey;
@@ -220,7 +273,8 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
 }
 - (void)update {
     if(self.updating || self.suspended)return;self.updating=YES;
-    CFTimeInterval coverPerf0=CACurrentMediaTime();
+    BOOL diagnostics=LMVDiagnosticsEnabled.load();
+    CFTimeInterval now=CACurrentMediaTime(),coverPerf0=diagnostics?now:0;
     UIViewController *best=nil;UIView *material=nil;
     if(self.enabled && LMVLockVideoScreenAllowed())for(UIViewController *candidate in LMVCCControllers.allObjects) {
         LMVCCRecord *record=objc_getAssociatedObject(candidate,&LMVCCRecordKey);
@@ -236,7 +290,16 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
         CGFloat full=root.bounds.size.width*root.bounds.size.height;
         BOOL half=full>0 && viewport.size.width*viewport.size.height<full*.90;
         if(!record.visible && !half)continue;
-        UIView *found=LMVCCMaterial(root);if(!found)continue;
+        UIView *found=record.materialRoot==root && LMVCCMaterialStillValid(root,record.cachedMaterial)?record.cachedMaterial:nil;
+        // Scrolling changes furniture geometry, not the identity of the pure
+        // backdrop. Reuse its bounded live validation; refresh discovery once a
+        // second or immediately when root/material ownership or purity changed.
+        if(!found || now-record.lastMaterialSearch>=1) {
+            record.lastMaterialSearch=now;
+            found=LMVCCMaterial(root);
+            record.materialRoot=root;record.cachedMaterial=found;
+        }
+        if(!found)continue;
         best=candidate;material=found;break;
     }
     self.controller=best;
@@ -276,25 +339,32 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
         if(self.playback.posterLayer.contents==nil)
             [self.playback loadCachedPosterNowForPath:path revision:revision];
     }
-    BOOL visible=best && material && path.length && revision.length;
+    CGRect renderBounds=CGRectZero;UIView *renderHost=best?LMVCCRenderHost(best.viewIfLoaded,material,&renderBounds):nil;
+    BOOL visible=best && material && renderHost && LMVLockVideoRectValid(renderBounds) && path.length && revision.length;
     if(visible) {
-        CALayer *parent=material.layer,*video=self.playback.renderLayer;
-        [CATransaction begin];[CATransaction setDisableActions:YES];
-        // 0.0.79 fix: the video layer is attached INSIDE the backdrop's own layer,
-        // so it can only ever replace the backdrop itself and can never rise above
-        // a sibling view's layer. Ordering therefore becomes a property of the tree
-        // instead of a property of insertion timing.
-        if(video.superlayer!=parent) { [video removeFromSuperlayer];[parent addSublayer:video]; }
-        // Keep exactly one video layer per material view.
-        for(CALayer *sibling in parent.sublayers) {
-            if(sibling==video)continue;
-            if([sibling.name isEqualToString:@"com.minis.lockmessagevideo.control-center.render"])
-                [sibling removeFromSuperlayer];
+        CALayer *parent=renderHost.layer,*video=self.playback.renderLayer;
+        BOOL reparent=video.superlayer!=parent;
+        BOOL rootSlot=renderHost!=material;
+        BOOL reorder=rootSlot && [parent.sublayers indexOfObjectIdenticalTo:video]!=[parent.sublayers indexOfObjectIdenticalTo:material.layer]+1;
+        BOOL relayout=!CGRectEqualToRect(video.frame,renderBounds);
+        if(reparent || reorder || relayout || video.opacity!=1) {
+            [CATransaction begin];[CATransaction setDisableActions:YES];
+            if(reparent) {
+                [video removeFromSuperlayer];
+                // Cleanup is attachment-only, not a repeated scrolling traversal.
+                for(CALayer *sibling in [parent.sublayers copy])
+                    if(sibling!=video && [sibling.name isEqualToString:@"com.minis.lockmessagevideo.control-center.render"])
+                        [sibling removeFromSuperlayer];
+            }
+            if(rootSlot && (reparent || reorder))[parent insertSublayer:video above:material.layer];
+            else if(reparent)[parent addSublayer:video];
+            if(relayout)[self.playback layoutInBounds:renderBounds];
+            if(video.opacity!=1)video.opacity=1;
+            [CATransaction commit];
         }
-        [self.playback layoutInBounds:material.bounds];video.opacity=1;
-        [CATransaction commit];self.material=material;
-    } else { [self.playback.renderLayer removeFromSuperlayer];self.material=nil; }
-    [self.playback setVisible:visible];
+        self.material=material;
+    } else { if(self.playback.renderLayer.superlayer)[self.playback.renderLayer removeFromSuperlayer];self.material=nil; }
+    if(visible!=self.presented || self.playback.wantsPlayback!=visible)[self.playback setVisible:visible];
     // Track the presentation state so the next update can detect a hidden->visible
     // transition and re-seed the poster (see the 0.0.79 note above).
     self.presented=visible;
@@ -308,6 +378,7 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
         [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     } else if(!self.enabled) {[self.timer invalidate];self.timer=nil;}
     if(!self.enabled && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
+    if(diagnostics) {
     NSString *status=[NSString stringWithFormat:@"control-center-video visible=%d enabled=%d presented=%d style=%ld selected=%d layer-ready=%d poster=%d material=%@ error=%ld",
         visible,self.enabled,self.presented,(long)style,path.length>0,self.playback.playerLayer.readyForDisplay,self.playback.posterLayer.contents!=nil,
         material?NSStringFromClass(material.class):@"none",(long)self.playback.error.code];
@@ -315,12 +386,14 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     // 0.0.95 diagnostics: how much of the visible screen the Control Center surface
     // covers and where the uncovered band is ("background dropped / leaked").
     {
-        UIView *coverSurface=material;
+        UIView *coverSurface=renderHost;
         UIWindow *coverWindow=coverSurface.window;
         CGRect coverViewport=LMVVideoWindowViewport(coverWindow);
         BOOL attached=coverSurface!=nil && coverSurface.superview!=nil && coverWindow!=nil;
         CALayer *coverRoot=coverWindow.layer.presentationLayer ?: coverWindow.layer;
-        CALayer *coverSpace=coverSurface.layer.presentationLayer ?: coverSurface.layer;
+        CALayer *render=self.playback.renderLayer;
+        CALayer *coverSpace=render.presentationLayer ?: render;
+        attached=attached && render.superlayer!=nil;
         CGRect surfaceInWindow=attached?[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot]:CGRectZero;
         CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectIntersection(surfaceInWindow,coverViewport);
         CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
@@ -337,12 +410,15 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     }
     NSString *coverPerf=LMVCCPerf("cc",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
+    } else {self.status=nil;self.coverage=nil;}
     self.updating=NO;
 }
 @end
 static void LMVCCRefresh(BOOL reload) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
-    LMVCCDiscover();if(!LMVControlCenterVideo){LMVControlCenterVideo=[LMVControlCenterVideoManager new];reload=YES;}
+    static CFTimeInterval lastDiscovery=0;CFTimeInterval now=CACurrentMediaTime();
+    if(!LMVCCControllers.count && (reload || !lastDiscovery || now-lastDiscovery>=.5)){LMVCCDiscover();lastDiscovery=now;}
+    if(!LMVControlCenterVideo){LMVControlCenterVideo=[LMVControlCenterVideoManager new];reload=YES;}
     [LMVControlCenterVideo refresh:reload];
 }
 static void LMVCCSuspend(void) {if(NSThread.isMainThread)[LMVControlCenterVideo suspend];}
@@ -353,20 +429,27 @@ static LMVCCRecord *LMVCCTrack(UIViewController *controller) {
     if(!record){record=[LMVCCRecord new];objc_setAssociatedObject(controller,&LMVCCRecordKey,record,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     return record;
 }
+static void LMVCCRequestUpdate(void) {
+    if(!LMVLaunchReady || !NSThread.isMainThread)return;
+    static BOOL pending=NO;if(pending)return;pending=YES;
+    dispatch_async(dispatch_get_main_queue(),^{pending=NO;
+        if(LMVControlCenterVideo)[LMVControlCenterVideo update];else LMVCCRefresh(YES);
+    });
+}
 static void LMVCCLifecycle(UIViewController *controller,NSInteger state) {
     LMVCCRecord *record=LMVCCTrack(controller);if(!record)return;
     // 1 appearing, 2 appeared, 3 closing, 0 fully disappeared, -1 layout.
     if(state==1 || state==2){record.known=YES;record.visible=YES;record.closing=NO;record.progress=.5;record.progressKnown=YES;record.epoch++;if(state==2){record.progress=1;}}
     if(state==3){record.closing=YES;record.epoch++;}
     if(state==0){record.known=YES;record.visible=NO;record.closing=NO;record.progress=0;record.progressKnown=YES;record.epoch++;}
-    LMVRequestSafeUpdate();
+    LMVCCRequestUpdate();
 }
 static void LMVCCProgress(UIViewController *controller,CGFloat progress) {
     if(!isfinite(progress))return;
     LMVCCRecord *record=LMVCCTrack(controller);if(!record)return;
     record.progress=MAX(0,MIN(1,progress));record.progressKnown=YES;record.known=YES;
     NSUInteger epoch=++record.epoch;
-    if(progress>.0001){record.visible=YES;record.closing=NO;LMVRequestSafeUpdate();return;}
+    if(progress>.0001){record.visible=YES;record.closing=NO;LMVCCRequestUpdate();return;}
     // A zero may be sent before willAppear during an interactive opening. Give
     // that lifecycle one main-queue turn; a later positive progress invalidates
     // this close. No arbitrary sleep and no mid-gesture decoder rebuild.
@@ -374,7 +457,7 @@ static void LMVCCProgress(UIViewController *controller,CGFloat progress) {
     dispatch_async(dispatch_get_main_queue(),^{
         UIViewController *live=weakController;LMVCCRecord *current=live?objc_getAssociatedObject(live,&LMVCCRecordKey):nil;
         if(!current || current.epoch!=epoch || current.progress>.0001)return;
-        current.visible=NO;current.closing=NO;LMVRequestSafeUpdate();
+        current.visible=NO;current.closing=NO;LMVCCRequestUpdate();
     });
 }
 static BOOL LMVCCHookMatches(Class cls,SEL selector,const char *const *args,unsigned count) {

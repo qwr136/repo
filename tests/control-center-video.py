@@ -12,6 +12,9 @@ assert 'LMVVideoWindowViewport(window)' in h
 assert 'rootClip.size.width>=bounds.size.width*.98' in h
 assert 'clipped.size.height>=MIN(viewport.size.height,rect.size.height)*.98' in h
 assert 'if(view==root)continue' not in h
+assert 'LMVCCRenderHost' in h and 'LMVCCMaterialStillValid' in h
+assert 'record.cachedMaterial' in h and 'if(diagnostics)' in h
+h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
 # Use the same UIKit input doubles as existing lock tests. All behavior under
 # test below comes directly from the production CC header.
 tree=ast.parse((r/'tests/lock-video-host.py').read_text());pre=''
@@ -171,6 +174,22 @@ int main(void){@autoreleasepool {
  assert(manager.playback.renderLayer.superlayer==background.layer && manager.playback.builds==built && manager.playback.player==samePlayer);
  LMVCCRecord *halfRecord=objc_getAssociatedObject(cc,&LMVCCRecordKey);halfRecord.visible=NO;
  [manager update];assert(manager.playback.wantsPlayback && manager.playback.player==samePlayer);halfRecord.visible=YES;
+ // A recognized backdrop shorter than the exposed half must not leave a strip
+ // of original material at the bottom. Extend only our layer; no source rebuild.
+ background.frame=CGRectMake(0,0,390,414);[manager update];
+ CGRect expanded=[manager.playback.renderLayer convertRect:manager.playback.renderLayer.bounds toLayer:root.layer];
+ assert(CGRectContainsRect(expanded,LMVCCVisibleViewport(root)) && manager.playback.builds==built && manager.playback.player==samePlayer);
+ // A clipping direct material cannot contain that extension: use the root-owned
+ // slot above the pure backdrop, strictly below existing controls.
+ background.clipsToBounds=YES;background.layer.masksToBounds=YES;[manager update];
+ assert(manager.playback.renderLayer.superlayer==root.layer && background.layer.superlayer==root.layer && button.layer.superlayer==root.layer);
+ NSUInteger vi=[root.layer.sublayers indexOfObjectIdenticalTo:manager.playback.renderLayer];
+ assert(vi==[root.layer.sublayers indexOfObjectIdenticalTo:background.layer]+1 && vi<[root.layer.sublayers indexOfObjectIdenticalTo:button.layer]);
+ expanded=[manager.playback.renderLayer convertRect:manager.playback.renderLayer.bounds toLayer:root.layer];assert(CGRectContainsRect(expanded,LMVCCVisibleViewport(root)));
+ LMVCCRecord *cached=objc_getAssociatedObject(cc,&LMVCCRecordKey);CFTimeInterval searched=cached.lastMaterialSearch;
+ for(int n=0;n<100;n++){[manager update];assert(cached.cachedMaterial==background && cached.lastMaterialSearch==searched && manager.playback.builds==built);}
+ background.clipsToBounds=NO;background.layer.masksToBounds=NO;background.frame=CGRectMake(0,0,390,422);[manager update];
+ assert(manager.playback.renderLayer.superlayer==background.layer);
  // A full-root material also covers the half viewport; leaving/re-entering
  // Reachability changes only layout, never the selected source or player.
  background.frame=CGRectMake(0,0,390,844);[manager update];assert(LMVCCMaterial(root)==background);

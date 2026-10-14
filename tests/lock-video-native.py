@@ -8,6 +8,8 @@ assert 'AVQueuePlayer' in h and 'AVPlayerLooper' in h and 'AVPlayerLayer' in h
 assert 'addMutableTrackWithMediaType:AVMediaTypeVideo' in h
 assert 'LMVCacheFrame' not in h and 'AVAudioSession' not in h
 assert 'removeAllItems' in h and 'disableLooping' in h and 'replacePlayerLayer' in h
+assert 'BOOL retainedPlayer=self.player && self.playerLayer.player==self.player && self.everReady && !self.error;' in h
+assert 'self.playerLayer.hidden=!(ready || retainedPlayer);' in h
 if platform.system()!='Darwin':
  print('PASS: independent video-only lock playback contracts; actual Foundation/AVFoundation production execution runs on macOS CI')
  raise SystemExit(0)
@@ -23,6 +25,14 @@ code=r'''
 static NSString *posterCache;
 #define LMV_VIDEO_POSTER_ROOT posterCache
 #import "LMVLockVideoPlayback.h"
+// Controlled readiness only: execute the real presentation state machine while
+// retaining real AVQueuePlayer/CALayer objects; this is not a compositor test.
+@interface LMVTestReadyLayer:AVPlayerLayer
+@property(nonatomic) BOOL testReady;
+@end
+@implementation LMVTestReadyLayer
+- (BOOL)isReadyForDisplay { return self.testReady; }
+@end
 static void spin(NSTimeInterval time) {
  NSDate *end=[NSDate dateWithTimeIntervalSinceNow:time];
  while(end.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
@@ -63,6 +73,16 @@ static void mix(NSURL *video,NSURL *waveURL,NSURL *destination) {
 }
 int main(int argc,const char **argv) {@autoreleasepool {
  assert(argc==2);NSString *folder=[NSString stringWithUTF8String:argv[1]];posterCache=[folder stringByAppendingPathComponent:@"posters"];
+ LMVLockVideoPlayback *held=[LMVLockVideoPlayback new];
+ [held.playerLayer removeObserver:held forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];held.observingLayer=NO;
+ [held.playerLayer removeFromSuperlayer];LMVTestReadyLayer *probe=[LMVTestReadyLayer layer];held.playerLayer=probe;
+ held.player=[AVQueuePlayer queuePlayerWithItems:@[]];probe.player=held.player;[held.renderLayer addSublayer:probe];
+ held.wantsPlayback=YES;probe.testReady=YES;[held updatePresentation];assert(held.everReady && !probe.hidden && !held.renderLayer.hidden);
+ probe.testReady=NO;[held setFrozen:YES];assert(!probe.hidden && !held.renderLayer.hidden && held.player.rate==0);
+ for(int n=0;n<50;n++){[held layoutInBounds:CGRectMake(0,0,390,422)];[held updatePresentation];assert(!probe.hidden && !held.renderLayer.hidden);}
+ [held setVisible:NO];assert(held.renderLayer.hidden);[held setFrozen:YES];assert(!held.renderLayer.hidden && !probe.hidden);
+ held.error=[NSError errorWithDomain:@"test" code:1 userInfo:nil];[held updatePresentation];assert(probe.hidden && held.renderLayer.hidden);
+ [held clear];assert(!held.everReady && held.renderLayer.hidden && !held.player);
  NSString *base=[folder stringByAppendingPathComponent:@"base.mov"],*mixed=[folder stringByAppendingPathComponent:@"mixed.mov"],*second=[folder stringByAppendingPathComponent:@"second.mov"],*wavePath=[folder stringByAppendingPathComponent:@"audio.wav"];
  movie([NSURL fileURLWithPath:base],45);movie([NSURL fileURLWithPath:second],145);mix([NSURL fileURLWithPath:base],[NSURL fileURLWithPath:wavePath],[NSURL fileURLWithPath:mixed]);
  AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:mixed] options:nil];assert([asset tracksWithMediaType:AVMediaTypeAudio].count);

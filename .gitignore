@@ -28,3 +28,8 @@ xcuserdata/
 *.orig
 *.log
 _backup*/
+
+# ---- 校验缓存与构建回执 ----
+__pycache__/
+*.pyc
+build-receipt.json

@@ -44,6 +44,13 @@
 @property(nonatomic) NSUInteger generation, frame;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
 @property(nonatomic) CGPoint normalized;
+// Cache only physical probes, never permission/scope decisions. Notifications
+// invalidate them; a bounded default-mode audit catches silent tree replacement.
+@property(nonatomic, copy) NSArray<UIWindow *> *physicalWindows;
+@property(nonatomic, copy) NSArray<UIView *> *physicalProbes;
+@property(nonatomic, copy) NSArray *physicalSnapshot;
+@property(nonatomic) CFTimeInterval lastPhysicalCheck;
+- (void)invalidatePhysicalSnapshot;
 - (void)refresh;
 - (void)closePanel;
 - (void)reportWindow:(NSString *)reason;
@@ -131,19 +138,56 @@ static BOOL LMVEasterWindowExposed(UIWindow *window) {
     CGRect exposed=CGRectIntersection(rect,window.bounds);
     return !CGRectIsNull(exposed) && !CGRectIsEmpty(exposed) && exposed.size.width>1 && exposed.size.height>1;
 }
-static BOOL LMVEasterCCWindowExposed(UIWindow *window) {
-    if (!LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) || !LMVEasterWindowExposed(window)) return NO;
+static UIView *LMVEasterCCOverlay(UIWindow *window) {
+    if (!LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) || !LMVEasterWindowExposed(window)) return nil;
     NSMutableArray *pending=[NSMutableArray arrayWithObject:window.rootViewController.viewIfLoaded];NSUInteger budget=128;
     while(pending.count && budget) {
         --budget;UIView *view=pending.lastObject;[pending removeLastObject];
         if(view.hidden || view.alpha<.01)continue;
         if([view.layer.name hasSuffix:@"CCUIModularControlCenterOverlayViewController"]) {
             CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
-            return !CGRectIsNull(rect) && !CGRectIsEmpty(rect);
+            return !CGRectIsNull(rect) && !CGRectIsEmpty(rect)?view:nil;
         }
         if(view.subviews.count<48)[pending addObjectsFromArray:view.subviews];
     }
-    return NO;
+    return nil;
+}
+static BOOL LMVEasterCCWindowExposed(UIWindow *window) { return LMVEasterCCOverlay(window)!=nil; }
+// Captures live geometry/ancestry, not drawing trees. Common-mode ticks compare
+// this small snapshot; full drawing/security audits run at most once per second
+// and only outside tracking (window/scene/lock notifications still run immediately).
+static NSArray *LMVEasterPhysicalSnapshot(NSArray<UIWindow *> *windows,NSArray<UIView *> *probes,
+                                        NSInteger foreground,BOOL blankKnown,uint64_t blank,
+                                        BOOL lockKnown,uint64_t locked) {
+    NSMutableArray *state=[NSMutableArray arrayWithArray:@[@(foreground),@(blankKnown),@(blank),@(lockKnown),@(locked)]];
+    for(UIWindow *window in windows) {
+        UIViewController *controller=window.rootViewController;
+        NSUInteger depth=0;
+        while(controller.presentedViewController && depth++<16)controller=controller.presentedViewController;
+        UIView *root=controller.viewIfLoaded;CGRect bounds=window.bounds;
+        [state addObject:@[[NSValue valueWithNonretainedObject:window],@(window.hidden),@(window.alpha),
+            @(window.windowLevel),[NSValue value:&bounds withObjCType:@encode(CGRect)],
+            [NSValue valueWithNonretainedObject:window.windowScene],@(window.windowScene.activationState),
+            [NSValue valueWithNonretainedObject:window.screen],
+            [NSValue valueWithNonretainedObject:controller],[NSValue valueWithNonretainedObject:root]]];
+    }
+    for(UIView *probe in probes) {
+        NSUInteger depth=0;
+        for(UIView *view=probe;view && depth++<16;view=view.superview) {
+            CALayer *shown=view.layer.presentationLayer ?: view.layer;
+            CGRect bounds=shown.bounds;CGPoint position=shown.position;CATransform3D transform=shown.transform;
+            [state addObject:@[[NSValue valueWithNonretainedObject:view],
+                [NSValue valueWithNonretainedObject:view.superview],@(view.hidden),@(view.alpha),
+                [NSValue value:&bounds withObjCType:@encode(CGRect)],
+                [NSValue value:&position withObjCType:@encode(CGPoint)],
+                [NSValue value:&transform withObjCType:@encode(CATransform3D)]]];
+        }
+    }
+    return state;
+}
+static BOOL LMVEasterPhysicalCheckNeeded(BOOL invalid,BOOL changed,CFTimeInterval now,
+                                        CFTimeInterval last,BOOL tracking) {
+    return invalid || changed || (!tracking && (now<last || now-last>=1.0));
 }
 static BOOL LMVEasterObjectGetter(id object,SEL selector) {
     if(!object || ![object respondsToSelector:selector])return NO;
@@ -262,8 +306,25 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     NSString *keyReason = [NSString stringWithFormat:@"key-restored to=%@", previous ? NSStringFromClass(previous.class) : @"none"];
     LMVEasterWindowDiagnostic(keyReason);
 }
+- (void)invalidatePhysicalSnapshot {
+    self.physicalSnapshot=nil; self.physicalWindows=nil; self.physicalProbes=nil;
+}
+- (void)visibilityTick {
+    if (!self.ready || self.pending) return;
+    uint64_t blank=1,locked=1;
+    BOOL blankKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
+    BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
+    NSArray *snapshot=self.physicalSnapshot?LMVEasterPhysicalSnapshot(self.physicalWindows,self.physicalProbes,
+        LMVEasterForeground(),blankKnown,blank,lockKnown,locked):nil;
+    BOOL tracking=[NSRunLoop.mainRunLoop.currentMode isEqualToString:UITrackingRunLoopMode];
+    if (!LMVEasterPhysicalCheckNeeded(!self.physicalSnapshot,![snapshot isEqual:self.physicalSnapshot],
+            CACurrentMediaTime(),self.lastPhysicalCheck,tracking)) return;
+    [self refresh];
+}
 - (void)refresh {
-    if (!NSThread.isMainThread || !self.ready || self.pending) return;
+    if (!NSThread.isMainThread || !self.ready) return;
+    [self invalidatePhysicalSnapshot];
+    if (self.pending) return;
     self.pending = YES;
     dispatch_async(dispatch_get_main_queue(), ^{ self.pending = NO; [self apply]; });
 }
@@ -275,7 +336,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     }
     if (!self.visibilityTimer) {
         __weak typeof(self) weakSelf=self;
-        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [weakSelf refresh]; }];
+        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
         [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     }
     uint64_t blank=1,locked=1;
@@ -295,6 +356,23 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         if(LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window) &&
            (foreground==1 || (foreground==0 && keyHome)))homeHost=window;
     }
+    // Probe roots plus the physical NC/CC surfaces, never the scrolling module
+    // or floating panel descendants. Failed/hidden hosts are probed as well.
+    NSMutableArray<UIView *> *probes=[NSMutableArray new];
+    for(UIWindow *window in windows) {
+        if(window==self.window)continue;
+        if(window.rootViewController.viewIfLoaded)[probes addObject:window.rootViewController.viewIfLoaded];
+        if(LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"])) {
+            NSUInteger budget=128;UIView *cover=LMVEasterFindCover(window,0,&budget);
+            if(cover)[probes addObject:cover];
+            for(UIView *child in cover.subviews)if(probes.count<128)[probes addObject:child];
+        }
+        UIView *overlay=LMVEasterCCOverlay(window);if(overlay)[probes addObject:overlay];
+    }
+    NSMutableArray<UIWindow *> *physical=[windows mutableCopy];if(self.window)[physical removeObject:self.window];
+    self.physicalWindows=physical;self.physicalProbes=probes;
+    self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
+    self.lastPhysicalCheck=CACurrentMediaTime();
     UIWindow *host=ccHost ?: ncHost ?: homeHost;
     BOOL authenticated=self.authenticatedSession;
     BOOL allows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
@@ -303,6 +381,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if(self.hostWindow && self.hostWindow!=host)[self closePanel];
     NSArray *trusted=@[@"SBCoverSheetWindow",@"SBControlCenterWindow",@"SBHomeScreenWindow"];
     CGFloat level=MIN(host.windowLevel+1,UIWindowLevelAlert - 1);
+    BOOL presentationChanged=self.window.hidden || self.hostWindow!=host || self.window.windowLevel!=level;
     self.hostWindow = host;
     for (UIWindow *window in windows) {
         if (window == self.window || window.hidden || window.alpha < 0.01) continue;
@@ -345,7 +424,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         }); return;
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
-    [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
+    if(presentationChanged || ![self.windowReason hasPrefix:@"home-nc-cc host="])
+        [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
     self.window.hidden = NO; self.bubble.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame];
 }
 - (CGRect)dragArea {
@@ -358,9 +438,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)layout {
     if (!self.window || !self.bubble) return;
-    CGFloat size = LMVEasterSize(); self.bubble.bounds = CGRectMake(0, 0, size, size);
+    CGFloat size = LMVEasterSize();CGRect bubbleBounds=CGRectMake(0, 0, size, size);
+    if(!CGRectEqualToRect(self.bubble.bounds,bubbleBounds))self.bubble.bounds=bubbleBounds;
     CGRect area = [self dragArea];
-    self.bubble.center = CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
+    CGPoint center=CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
+    if(!CGPointEqualToPoint(self.bubble.center,center))self.bubble.center=center;
     if (self.panel) {
         CGRect bounds = UIEdgeInsetsInsetRect(self.window.rootViewController.view.bounds, self.window.rootViewController.view.safeAreaInsets);
         CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height * .65));
@@ -370,10 +452,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
             CGFloat limit = self.keyboardTop - 8;
             if (y + height > limit) { y = MAX(CGRectGetMinY(bounds), limit - height); height = MAX(0, MIN(height, limit - y)); }
         }
-        self.panel.view.frame = CGRectMake(CGRectGetMidX(bounds) - width / 2, y, width, height);
-        self.panel.view.layer.cornerRadius = 20;
-        self.panel.view.layer.cornerCurve = kCACornerCurveContinuous;
-        self.panel.view.clipsToBounds = YES;
+        CGRect panelFrame=CGRectMake(CGRectGetMidX(bounds) - width / 2, y, width, height);
+        if(!CGRectEqualToRect(self.panel.view.frame,panelFrame))self.panel.view.frame=panelFrame;
     }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {

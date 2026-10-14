@@ -3,7 +3,7 @@ name: build-deb
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, fix/0.0.100-roothide ]
     paths-ignore:
       - 'Packages/**'
       - 'Release/**'
@@ -19,22 +19,33 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
+    env:
+      THEOS_REV: cfba89a53a05b4a1b822121158acc3669c20602f
+      SDK_REV: 0222fd5413cf4b9af096f37b4621afa2688572f7
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          brew install --quiet make dpkg ldid
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
 
       - name: Source and import-plan regression tests
         run: |
           failures=0
           check() { "$@" || failures=$((failures + 1)); }
+          check python3 tests/roothide-package.py
           check python3 tests/shared-render-regression.py
           check python3 tests/material-thumbnail.py
           check python3 tests/preview-diagnostics.py
           check python3 tests/message-sources.py
           check python3 tests/lock-video-native.py
           check python3 tests/lock-video-host.py
+          check python3 tests/lock-reachability.py
           check python3 tests/desktop-video-host.py
           check python3 tests/video-poster-store.py
           check python3 tests/control-center-video.py
@@ -62,41 +73,59 @@ jobs:
           check "$RUNNER_TEMP/lmv-import-plan"
           test "$failures" -eq 0
 
-      - name: Setup Theos and iOS SDK
+      - name: Setup pinned native RootHide Theos and iOS SDK
         run: |
-          git clone --depth=1 --recursive https://github.com/theos/theos.git "$HOME/theos"
-          git clone --depth=1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos-sdks"
-          rm -rf "$HOME/theos/sdks"
-          mv "$RUNNER_TEMP/theos-sdks" "$HOME/theos/sdks"
-          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
-          echo "THEOS_MAKE_PATH=$HOME/theos/makefiles" >> "$GITHUB_ENV"
+          set -euo pipefail
+          dest="$RUNNER_TEMP/rh-theos"
+          git init "$dest"
+          git -C "$dest" remote add origin https://github.com/roothide/theos.git
+          git -C "$dest" fetch --depth=1 origin "$THEOS_REV"
+          git -C "$dest" checkout --detach FETCH_HEAD
+          test "$(git -C "$dest" rev-parse HEAD)" = "$THEOS_REV"
+          git -C "$dest" submodule update --init --recursive --depth=1
+          sdk="$RUNNER_TEMP/rh-sdks"
+          git init "$sdk"
+          git -C "$sdk" remote add origin https://github.com/theos/sdks.git
+          git -C "$sdk" fetch --depth=1 origin "$SDK_REV"
+          git -C "$sdk" checkout --detach FETCH_HEAD
+          test "$(git -C "$sdk" rev-parse HEAD)" = "$SDK_REV"
+          test -d "$sdk/iPhoneOS15.6.sdk"
+          test -f "$sdk/iPhoneOS15.6.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
+          cp -R "$sdk/iPhoneOS15.6.sdk" "$dest/sdks/"
+          test -f "$dest/vendor/mod/roothide/package/deb.mk"
+          test -f "$dest/vendor/include/roothide.h"
+          test -f "$dest/vendor/lib/iphone/roothide/libroothide.tbd"
+          echo "THEOS=$dest" >> "$GITHUB_ENV"
+          echo "THEOS_MAKE_PATH=$dest/makefiles" >> "$GITHUB_ENV"
 
-      - name: Install build tools
+      - name: Show toolchain provenance
         run: |
-          brew install --quiet ldid dpkg make
-
-      - name: Show environment
-        run: |
-          echo "THEOS=$THEOS"
-          xcode-select -p
-          clang --version
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos clang --version
           make --version
           dpkg-deb --version
+          git -C "$THEOS" rev-parse HEAD
+          git -C "$THEOS" submodule status --recursive
 
-      - name: Build package
+      - name: Build native RootHide dual-slice package
         run: |
-          export THEOS="$HOME/theos"
-          make clean package FINALPACKAGE=1
+          set -euo pipefail
+          make clean
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide ARCHS="arm64 arm64e" TARGET=iphone:clang:15.6:15.0
 
-      - name: List build outputs
+      - name: Verify actual deb and save receipt
         run: |
-          ls -R .
-          ls -R packages || true
+          set -euo pipefail
+          python3 verify-roothide-deb.py packages/*.deb
+          shasum -a 256 packages/*.deb
 
-      - name: Upload deb artifact
-        if: success()
-        uses: actions/upload-artifact@v4
+      - name: Upload verified deb and receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: deb-packages
-          path: packages/*.deb
+          path: |
+            packages/*.deb
+            build-receipt.json
           if-no-files-found: error
+          retention-days: 14

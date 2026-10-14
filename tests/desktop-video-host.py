@@ -9,6 +9,12 @@ assert 'LMVDesktopVideoInstallHooks()' in s and 'LMVDesktopVideoSuspend()' in s
 assert 'LMVCacheFrame' not in h and 'LMVAcquireOriginal' not in h
 assert 'LMVDesktopExplicitWallpaper' in h and 'homescreenWallpaperView' in h
 assert 'sharedWallpaperView' not in h  # Ambiguous Lock/Home source must not be used.
+assert 'BOOL appForeground=!definitiveAway && !visible && retainedAttachment;' in h
+assert 'pixels && appForeground && retainedAttachment && self.lease' in h
+assert 'if (diagnostics)' in h
+# Stub only the production diagnostic switch; execute all actual geometry,
+# ownership and presentation logic with diagnostics off, as in normal use.
+h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
 if platform.system()!='Darwin':
  print('PASS: independent Desktop integration contracts; real manager/QuartzCore/typed IMP execution runs on macOS CI')
  raise SystemExit(0)
@@ -124,6 +130,19 @@ int main(void){@autoreleasepool {
  // tearing it down, so the launch animation never flashes the system wallpaper.
  TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";UIApplication.sharedApplication.frontmost=app;[m update];
  assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);UIApplication.sharedApplication.frontmost=nil;[m update];assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ // App-to-Home lifecycle/geometry can temporarily make every newly discovered
+ // container unavailable while the old Home-only surface is still attached.
+ // Keep its original content lease even beyond the removed 0.6 s deadline.
+ record.visible=NO;wall.hidden=YES;UIApplication.sharedApplication.frontmost=nil;
+ m.holdSince=CACurrentMediaTime()-2.0;
+ for(int n=0;n<50;n++){[m update];assert(m.host.superview==wall && m.lease && m.lease.content==wallPixels && wallPixels.hidden && m.playback.frozen && !m.playback.renderLayer.hidden);}
+ record.visible=YES;wall.hidden=NO;[m update];assert(m.host.superview==wall && m.playback.wantsPlayback);
+ // Reachability changes the physical viewport, not the ownership of Home's
+ // original content: app-return then a half-height Home still keeps the video.
+ CGRect oldHomeBounds=homeWindow.bounds,oldWallBounds=wallWindow.bounds;
+ homeWindow.bounds=CGRectMake(0,0,390,422);wallWindow.bounds=CGRectMake(0,0,390,422);
+ for(int n=0;n<50;n++){[m update];assert(m.host.superview==wall && m.lease && wallPixels.hidden && !m.playback.renderLayer.hidden);}
+ homeWindow.bounds=oldHomeBounds;wallWindow.bounds=oldWallBounds;[m update];
  // Content-only NC pulls do not retarget Home, do not mutate Home frame/alpha,
  // and fully covered NC pauses decoding while retaining the last Desktop frame.
  for(int n=0;n<=100;n++) {

@@ -166,10 +166,14 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     if (ready) self.everReady=YES;
     // 0.0.98: keep showing the last decoded frame while the player re-primes.
     // `!ready` alone only blanks a surface that never displayed anything.
-    BOOL blank=!ready && !self.posterLayer.contents && !self.everReady;
+    BOOL retainedPlayer=self.player && self.playerLayer.player==self.player && self.everReady && !self.error;
+    BOOL blank=!ready && !self.posterLayer.contents && !retainedPlayer;
     [CATransaction begin];[CATransaction setDisableActions:YES];
-    self.playerLayer.hidden=!ready;
-    self.posterLayer.hidden=ready || !self.posterLayer.contents || self.error!=nil;
+    // Keep the same already-rendered player surface through a transient readiness
+    // drop. Merely leaving renderLayer visible while hiding its video child still
+    // exposed a poster/black fill during app-return and Reachability transitions.
+    self.playerLayer.hidden=!(ready || retainedPlayer);
+    self.posterLayer.hidden=(ready || retainedPlayer) || !self.posterLayer.contents || self.error!=nil;
     self.renderLayer.hidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || blank;
     [CATransaction commit];
     if (self.didChange) self.didChange();

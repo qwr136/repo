@@ -276,7 +276,8 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
 }
 - (void)update {
     if (self.updating || self.suspended) return;self.updating=YES;
-    CFTimeInterval coverPerf0=CACurrentMediaTime();
+    BOOL diagnostics=LMVDiagnosticsEnabled.load();
+    CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;
     uint64_t blank=1,locked=1;
     BOOL screenKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
@@ -328,8 +329,13 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     if (!visible && self.host.superview!=nil && !definitiveAway) {
         if (self.holdSince<=0) self.holdSince=holdNow;
     } else self.holdSince=0;
-    BOOL appForeground=!definitiveAway && !visible && self.host.superview!=nil &&
-        (foreground<=0 || (self.holdSince>0 && holdNow-self.holdSince<0.6));
+    BOOL retainedAttachment=self.container && self.host.superview==self.container &&
+        (!self.lease || (self.lease.parent==self.container && self.lease.content.superview==self.container));
+    // The existing Home-only attachment is the scope proof. A fixed 0.6 s
+    // expiry could restore the wallpaper before a long app-return/Reachability
+    // transition finished. Hold it paused until exposure returns or a definitive
+    // teardown occurs; do not acquire a new host while this evidence is missing.
+    BOOL appForeground=!definitiveAway && !visible && retainedAttachment;
     if (visible) {
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
             [self.lease restore];self.lease=nil;[self.host removeFromSuperview];
@@ -366,22 +372,24 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     }
     if (LMVLaunchReady) {
         [self.playback setVisible:visible && !covered];
-        // Applied after setVisible:, which clears the flag.
-        [self.playback setFrozen:appForeground];
+        // Both an App transition and a fully covering NC keep the same owned
+        // surface paused. Do not manually hide it based on a readiness flap.
+        [self.playback setFrozen:appForeground || (visible && covered)];
     }
     else [self.playback showPreparedPoster:visible];
-    if (visible && covered && self.playback.path && !self.playback.error) {
-        // Retain the existing desktop frame behind NC; withdrawing NC reveals
-        // that frame immediately without a flash back to the static wallpaper.
-        BOOL hasPixels=self.playback.playerLayer.readyForDisplay || self.playback.posterLayer.contents!=nil;
-        self.playback.renderLayer.hidden=!hasPixels;
-    }
     BOOL pixels=(visible || appForeground) && !self.playback.renderLayer.hidden && !self.playback.error;
-    if (pixels && content && content.superview==container) {
+    if (pixels && visible && content && content.superview==container) {
         if (!self.lease) {self.lease=[LMVDesktopContentLease new];self.lease.content=content;self.lease.parent=container;self.lease.baselineHidden=content.hidden;}
         if (!self.lease.baselineHidden) {content.hidden=YES;self.lease.applied=YES;}
+    } else if (pixels && appForeground && retainedAttachment && self.lease) {
+        // Geometry/lifecycle discovery may transiently return no wallpaper while
+        // the exact already-owned parent is still attached. Do not release that
+        // lease merely because this update has no newly discovered `content`.
+        UIView *held=self.lease.content;
+        if (held && !self.lease.baselineHidden) {held.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
+    if (diagnostics) {
     NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
@@ -412,6 +420,7 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
     }
     NSString *coverPerf=LMVDesktopVideoPerf("desktop",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
+    }
     self.updating=NO;
 }
 @end
@@ -491,6 +500,12 @@ static void LMVDesktopHostReady(UIViewController *controller) {
     if(!homeWindow && !poster)return;
     LMVDesktopUIAvailable=YES;
     if(!LMVLaunchReady)LMVDesktopEarlyLayout();
+    else if(LMVDesktopVideo && !LMVDesktopVideo.suspended && LMVDesktopVideo.host.superview) {
+        // Original Home layout completed; synchronously repair this one already
+        // owned surface before the current CoreAnimation transaction commits.
+        // No manager creation, disk access or global refresh happens here.
+        [LMVDesktopVideo update];
+    }
 }
 static void LMVDesktopLifecycle(UIViewController *controller,NSInteger visible) {
     if(!LMVInitialized || !NSThread.isMainThread)return;

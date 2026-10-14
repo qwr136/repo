@@ -1,6 +1,21 @@
 # 锁屏消息视频
 
-面向 iOS 16.5 / Dopamine roothide(rootless 风格) 的锁屏通知视频背景插件工程。
+## 0.0.100：上传 0.0.99 基线的原生 RootHide 修复版
+
+本版严格基于用户上传的 `LockMessageVideo-0.0.99-src.zip`（SHA256 `a2fe1b75f1a08fae2d10bef4a7a584f26d32e97246bc9ebeb0b1c06ad62147b1`）。已核对远端 0.0.99 提交 `653a6294ea6153eb560771ccdd78bd12b2452686` 的全部 70 个文件与上传版一致，不使用旧工作区替代基线。
+
+- 原生隐根：RootHide Theos、`THEOS_PACKAGE_SCHEME=roothide`、包架构 `iphoneos-arm64e`，真实编译 arm64/arm64e，不修改 CPU subtype 冒充。
+- 保留全部设置、素材、消息/选项/清除、锁屏、桌面、控制中心深浅色、小彩蛋与浮窗。包 ID 不变，用户数据仍在 `/var/mobile/LockMessageVideo`；只对安装资源调用 `jbroot()`。
+- 桌面：短暂宿主可见性丢失时，保持仍有效的 Home-only 附着和原背景租约，暂停保帧而不因旧 0.6 秒期限恢复原壁纸。锁屏、熄屏、关闭、错误或真实归属变化仍恢复。
+- 播放器：同一代已显示的 AVPlayerLayer 在 `readyForDisplay` 短暂下降时不主动隐藏；替换/clear/error 不续用旧帧。
+- 控制中心：独立视频图层覆盖实际曝光视口，纯背景材质偏短时补齐底部；材质裁剪时仅把自有 CALayer 放到背景之上、按钮之下，不拆系统 UIView backing layer。
+- 稳定滚动复用已验证材质，局部刷新合并，不让 CC 生命周期反复驱动全局消息和素材刷新。常规使用关闭诊断时跳过状态字符串、覆盖几何和性能日志准备。
+
+CI/原生测试只是工程验证，不等于设备合成效果已验收。真机回归：NC 从顶部慢拉/快速收回、NC 降半屏、App 打开/返回后马上降半屏、CC 半屏底部、CC 中浮窗素材列表滚动、关闭各开关与熄屏恢复。新二进制安装后注销一次；不要求先卸载或清除素材。
+
+以下历史说明保留作为版本沿革；旧版本 rootless 的构建说明不适用于本版原生 RootHide。
+
+面向 iOS 16.5 / 原生 Dopamine RootHide 的锁屏通知视频背景插件工程。
 
 ## 功能
 - 启用插件开关

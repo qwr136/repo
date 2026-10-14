@@ -11,7 +11,8 @@
 #import "LMVImport.h"
 #import "LMVMaterialPicker.h"
 #import "../LMVEasterImageSettings.h"
-static NSString * const LMVDirectory = @"/var/mobile/LockMessageVideo";
+#import "../LMVPaths.h"
+#define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }

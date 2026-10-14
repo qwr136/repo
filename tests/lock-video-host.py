@@ -11,6 +11,9 @@ assert 'LMVCacheFrame' not in h and 'LMVAcquireOriginal' not in h
 assert 'VideoOpacity' not in h and 'SBHomeScreen' not in h and 'Desktop' not in h
 assert 'LMVLockVideoHookMatches' in h
 assert '[content.layer removeFromSuperlayer]' not in h
+assert 'LMVLockVideoGeometry' in h and 'record.wasExposed' in h
+assert 'LMVLockVideoRepaint(node,content)' in h and 'entry.baselineHidden' in h
+h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
 if platform.system()!='Darwin':
  print('PASS: isolated lock host contracts; real QuartzCore manager/geometry and IMP execution runs on macOS CI')
  raise SystemExit(0)

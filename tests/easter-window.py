@@ -5,9 +5,18 @@ import platform, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
 s=(r/'LMVEasterOverlay.h').read_text()
 helpers=s[s.index('static BOOL LMVEasterKnownWindow('):s.index('static void LMVEasterDarwin(')]
+tick=s[s.index('- (void)visibilityTick {'):s.index('- (void)refresh {')]
+refresh=s[s.index('- (void)refresh {'):s.index('- (void)apply {')]
+layout=s[s.index('- (void)layout {'):s.index('- (void)drag:')]
+drag=s[s.index('- (void)drag:'):s.index('- (void)animateFrame {')]
+assert '[weakSelf visibilityTick]' in s and '[weakSelf refresh]' not in s
+assert 'invalidatePhysicalSnapshot' in refresh and 'PhysicalCheckNeeded' in tick
+assert all(word not in tick for word in ('connectedScenes','CFPreferences','lstat','VisibleDrawing','[self layout]'))
+assert all(word not in drag for word in ('refresh','LMVRequestSafeUpdate','stringWithFormat','VisibleDrawing'))
+assert 'CGRectEqualToRect(self.panel.view.frame,panelFrame)' in layout and 'cornerRadius' not in layout
+assert 'window.windowLevel >= UIWindowLevelAlert && substantive' in helpers and 'area/full>=0.30' in helpers
 if platform.system()!='Darwin':
-    assert 'window.windowLevel >= UIWindowLevelAlert && substantive' in helpers and 'area/full>=0.30' in helpers
-    print('PASS: content-based floating window contracts; native predicates run in macOS CI')
+    print('PASS: floating-window snapshot/scrolling/invalidation source contracts; native functions require macOS CI')
     raise SystemExit(0)
 preamble=r'''
 #import <Foundation/Foundation.h>
@@ -54,14 +63,19 @@ static const CGFloat UIWindowLevelAlert = 2000;
 @property(strong) UIView *viewIfLoaded;
 @end
 @implementation UIViewController @end
+@interface UIWindowScene : NSObject
+@property NSInteger activationState;
+@end
+@implementation UIWindowScene @end
 @interface UIWindow : UIView
+@property(strong) UIWindowScene *windowScene;
 @property BOOL isKeyWindow;
 @property CGFloat windowLevel;
 @property(strong) UIScreen *screen;
 @property(strong) UIViewController *rootViewController;
 @end
 @implementation UIWindow
-- (instancetype)init { if((self=[super init])) { _screen=UIScreen.mainScreen;_rootViewController=[UIViewController new];_rootViewController.viewIfLoaded=[UIView new];_rootViewController.viewIfLoaded.window=self;}return self; }
+- (instancetype)init { if((self=[super init])) { _windowScene=[UIWindowScene new];_screen=UIScreen.mainScreen;_rootViewController=[UIViewController new];_rootViewController.viewIfLoaded=[UIView new];_rootViewController.viewIfLoaded.window=self;}return self; }
 @end
 @interface MyrtleWindow : UIWindow @end
 @implementation MyrtleWindow @end
@@ -118,7 +132,34 @@ int main(void) { @autoreleasepool {
     [ccWindow.layer addSublayer:ccRoot.layer];ccRoot.superview=ccWindow;ccRoot.layer.frame=ccWindow.bounds;
     UIView *ccOverlay=[UIView new];ccOverlay.window=ccWindow;ccOverlay.superview=ccRoot;ccOverlay.layer.frame=ccRoot.bounds;ccOverlay.layer.name=@"VC:CCUIModularControlCenterOverlayViewController";
     [ccRoot.layer addSublayer:ccOverlay.layer];ccRoot.subviews=@[ccOverlay];
-    assert(LMVEasterCCWindowExposed(ccWindow));ccOverlay.hidden=YES;assert(!LMVEasterCCWindowExposed(ccWindow));ccOverlay.hidden=NO;
+    assert(LMVEasterCCWindowExposed(ccWindow));
+    NSArray *physical=@[ccWindow],*probes=@[ccRoot,ccOverlay];
+    NSArray *stable=LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0);
+    for(NSUInteger i=1;i<=240;i++) {
+        // Real scrolling changes descendants, never the physical host. A long
+        // tracking run must not schedule ANY drawing/security tree re-audit.
+        ccOverlay.layer.sublayerTransform=CATransform3DMakeTranslation(0,-(CGFloat)i,0);
+        NSArray *live=LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0);
+        assert([stable isEqual:live]);
+        assert(!LMVEasterPhysicalCheckNeeded(NO,![stable isEqual:live],i*.5,0,YES));
+    }
+    assert(!LMVEasterPhysicalCheckNeeded(NO,NO,.5,0,NO));
+    assert(LMVEasterPhysicalCheckNeeded(NO,NO,1,0,NO)); // idle fallback is bounded
+    assert(LMVEasterPhysicalCheckNeeded(YES,NO,.1,0,YES)); // explicit invalidation
+    assert(LMVEasterPhysicalCheckNeeded(NO,YES,.1,0,YES)); // safety never deferred
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,-1,YES,0,YES,0)]);
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,1,YES,0)]);
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,1)]);
+    ccWindow.hidden=YES;assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0)]);ccWindow.hidden=NO;
+    ccWindow.windowScene.activationState=2;
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0)]);ccWindow.windowScene.activationState=0;
+    ccOverlay.layer.position=CGPointMake(10,20);
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0)]);ccOverlay.layer.frame=ccRoot.bounds;
+    ccOverlay.superview=nil;
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0)]);ccOverlay.superview=ccRoot;
+    UIViewController *dialog=[UIViewController new];ccWindow.rootViewController.presentedViewController=dialog;
+    assert(![stable isEqual:LMVEasterPhysicalSnapshot(physical,probes,1,YES,0,YES,0)]);ccWindow.rootViewController.presentedViewController=nil;
+    ccOverlay.hidden=YES;assert(!LMVEasterCCWindowExposed(ccWindow));ccOverlay.hidden=NO;
     ccWindow.hidden=YES;assert(!LMVEasterCCWindowExposed(ccWindow));ccWindow.hidden=NO;
     ccOverlay.layer.name=nil;assert(!LMVEasterCCWindowExposed(ccWindow));
     authenticated=NO;
