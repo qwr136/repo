@@ -202,9 +202,14 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     CGRect containerRect=LMVLockVideoRectInTree(content,window,contentSpace,root);
     CGRect admitted=CGRectIntersection(containerRect,CGRectIntersection(viewport,panelRect));
     // .102: union in CONTENT-OWNED paint space, never at a real clipping
-    // boundary or for the root-owned wallpaper fallback. The container and
-    // recognized backdrop must both be actually on screen right now.
-    if (ownsBackdrop && !content.hidden && content.alpha>.01 && !backdrop.hidden && backdrop.alpha>.01) {
+    // boundary or for the root-owned wallpaper fallback.
+    // 0.0.105: a content-owned backdrop is confirmed by IDENTITY here, not by
+    // its momentary hidden/alpha. Pulling down Notification Center hides or
+    // zero-alphas that backdrop while the same attached slideable content still
+    // paints the panel; requiring current visibility dropped this exposure union
+    // in exactly that transient, leaving the band above the (inset) slideable
+    // content -- the top strip -- showing the original wallpaper.
+    if (ownsBackdrop && !content.hidden && content.alpha>.01) {
         CGRect exposure=LMVLockVideoRectInTree(backdrop,window,paint,root);
         if (LMVLockVideoRectValid(CGRectIntersection(containerRect,exposure))) {
             CGRect owned=LMVLockVideoOwnedPaintRect(containerRect,exposure,panelRect,viewport);
@@ -214,8 +219,14 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     NSUInteger backdropBudget=64;
     BOOL rootBackdrop=!ownsBackdrop && backdrop && backdrop.superview==container &&
         LMVLockVideoBackground(backdrop,0,&backdropBudget);
-    BOOL owned=(ownsBackdrop || rootBackdrop) && !content.hidden && content.alpha>.01 &&
-        !backdrop.hidden && backdrop.alpha>.01 && LMVLockVideoRectValid(containerRect);
+    // 0.0.105: the ROOT-owned fallback still requires a currently visible
+    // backdrop; a CONTENT-owned backdrop (identity check, not visibility) does
+    // not. Gating the final union on the backdrop's momentary hidden/alpha made
+    // the union vanish during the pull-down transient, which is exactly where
+    // the top strip leaked the original wallpaper (104 shipped that way).
+    BOOL backdropOn=backdrop && !backdrop.hidden && backdrop.alpha>.01;
+    BOOL owned=(ownsBackdrop || (rootBackdrop && backdropOn)) && !content.hidden && content.alpha>.01 &&
+        LMVLockVideoRectValid(containerRect);
     if(!LMVLockVideoRectValid(admitted) && !owned)return CGRectZero;
     // Union is applied to the FINAL owned-host mask, not just the earlier
     // backdrop exposure calculation. A transient empty derived region can use

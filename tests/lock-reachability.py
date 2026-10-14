@@ -14,6 +14,9 @@ assert 'sameOwner && !root.clipsToBounds' in h, 'empty layout recovery needs the
 assert 'CGRectIntersection(rect,root.bounds)' in h and 'CGRectIntersection(rect,LMVVideoWindowViewport(window))' in h
 assert 'CGRectIntersection(rect,[layer convertRect:layer.bounds toLayer:root])' in h
 assert 'CGRectIntersection(containerRect,CGRectIntersection(viewport,panelRect))' in h, 'root fallback remains a partial panel'
+assert 'if (ownsBackdrop && !content.hidden && content.alpha>.01) {' in h, 'content-owned exposure union must not gate on momentary backdrop visibility'
+assert 'BOOL backdropOn=backdrop && !backdrop.hidden && backdrop.alpha>.01;' in h
+assert '(ownsBackdrop || (rootBackdrop && backdropOn))' in h, 'root-owned fallback still needs a currently visible backdrop'
 # Execute the unmodified production scalar geometry on every platform; Apple
 # CI additionally runs the full production UIView/QuartzCore manager below.
 cc=shutil.which('cc')
@@ -162,6 +165,17 @@ int main(void){@autoreleasepool{
  movingBack.frame=CGRectMake(-8,-6,390,422);sliding.clipsToBounds=YES;[m update];
  shown=[m.host.layer convertRect:CGPathGetBoundingBox(m.host.clipLayer.path) toLayer:window.layer];
  assert(CGRectEqualToRect(shown,CGRectMake(8,6,374,416)));sliding.clipsToBounds=NO;
+ // 0.0.105 top strip: the content-owned backdrop is momentarily hidden/zero-alpha
+ // during the pull-down while the same attached content still paints the panel.
+ // .104 dropped both unions here, so the 6pt band above the inset slideable
+ // content fell back to the derived rect and showed the original wallpaper.
+ // The confirmed, attached, exposed content owner must keep the union; a
+ // root-owned fallback still requires its backdrop to be currently visible.
+ movingBack.hidden=YES;
+ for(int n=0;n<50;n++){[m update];assert(m.host.superview==sliding && m.playback.wantsPlayback);
+  CGRect band=[m.host.layer convertRect:CGPathGetBoundingBox(m.host.clipLayer.path) toLayer:window.layer];
+  assert(CGRectEqualToRect(band,CGRectMake(0,0,390,422)));}
+ movingBack.hidden=NO;
  clip=LMVLockVideoGeometry(sliding,cover,cover,background,window,&frame);
  shown=[cover.layer convertRect:CGRectOffset(clip,frame.origin.x,frame.origin.y) toLayer:window.layer];
  assert(CGRectEqualToRect(shown,CGRectMake(0,0,390,422)));
