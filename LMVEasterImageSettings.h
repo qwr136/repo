@@ -15,17 +15,28 @@ static BOOL LMVEasterImageBool(NSString *key, BOOL fallback) {
 static CGFloat LMVEasterImageRotationSpeed(void) {
     id value = LMVEasterRead(@"EasterEggRotationSpeed");
     double speed = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 45.0;
-    return isfinite(speed) ? MAX(5.0, MIN(180.0, speed)) : 45.0;
+    return isfinite(speed) ? MAX(5.0, MIN(720.0, speed)) : 45.0;
 }
 @interface LMVEasterImageSettings : UITableViewController <PHPickerViewControllerDelegate>
-@property(nonatomic) BOOL busy, settingsTracking;
+@property(nonatomic) BOOL busy, settingsTracking, previewVisible, previewCellVisible, previewLoading;
+@property(atomic) NSUInteger importGeneration;
+@property(nonatomic) NSUInteger previewGeneration, previewFrame;
+@property(nonatomic, copy) NSString *previewSelection;
+@property(nonatomic, strong) LMVEasterImage *previewDecoded;
+@property(nonatomic, strong) UIImageView *previewView;
+@property(nonatomic, strong) UILabel *previewLabel;
+@property(nonatomic, strong) NSTimer *previewTimer;
+@property(nonatomic, weak) PHPickerViewController *imagePicker;
 @property(nonatomic, copy) void (^close)(void);
+- (void)refreshPreview;
+- (void)stopPreview;
+- (void)animatePreview;
 @end
 static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterImageSettings *page = (__bridge LMVEasterImageSettings *)observer;
     dispatch_async(dispatch_get_main_queue(), ^{
         CFPreferencesAppSynchronize(LMVEasterPrefs);
-        if (page.isViewLoaded && !page.settingsTracking) [page.tableView reloadData];
+        if (page.isViewLoaded && !page.settingsTracking) { [page refreshPreview]; [page.tableView reloadData]; }
     });
 }
 @implementation LMVEasterImageSettings
@@ -34,21 +45,66 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     if (self) CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self, LMVEasterImageSettingsChanged, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
     return self;
 }
-- (void)dealloc { CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self); }
+- (void)dealloc { [_previewTimer invalidate]; CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self); }
 - (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated]; CFPreferencesAppSynchronize(LMVEasterPrefs); [self.tableView reloadData];
+    [super viewWillAppear:animated]; CFPreferencesAppSynchronize(LMVEasterPrefs); [self refreshPreview]; [self.tableView reloadData];
+}
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated]; self.previewVisible = YES; [self refreshPreview]; [self animatePreview];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated]; self.previewVisible = NO; [self stopPreview];
+    // Presenting Photos pauses the preview, but does not invalidate that flow.
+    if (self.isBeingDismissed || self.isMovingFromParentViewController || self.navigationController.isBeingDismissed) self.importGeneration++;
+}
+- (void)stopPreview { [self.previewTimer invalidate]; self.previewTimer = nil; }
+- (void)animatePreview {
+    [self stopPreview];
+    if (!self.previewVisible || !self.previewCellVisible || self.presentedViewController || !self.view.window || self.previewDecoded.frames.count < 2) return;
+    __weak typeof(self) weakSelf = self;
+    NSTimeInterval delay = self.previewDecoded.delays[self.previewFrame].doubleValue;
+    self.previewTimer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
+        LMVEasterImageSettings *page = weakSelf; if (!page || !page.previewVisible || !page.previewCellVisible) return;
+        page.previewFrame = (page.previewFrame + 1) % page.previewDecoded.frames.count;
+        page.previewView.image = page.previewDecoded.frames[page.previewFrame]; [page animatePreview];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:self.previewTimer forMode:NSRunLoopCommonModes];
+}
+- (void)refreshPreview {
+    id value = LMVEasterRead(@"EasterEggImage");
+    NSString *selection = [value isKindOfClass:NSString.class] ? value : @"";
+    if ([selection isEqualToString:self.previewSelection]) { [self animatePreview]; return; }
+    [self stopPreview]; self.previewSelection = selection; self.previewDecoded = nil; self.previewFrame = 0;
+    self.previewView.image = nil; self.previewLabel.text = selection.length ? @"正在载入当前素材…" : @"尚未选择图片 / GIF";
+    NSUInteger generation = ++self.previewGeneration; self.previewLoading = selection.length > 0;
+    if (!selection.length) return;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(LMVMaterialQueue(), ^{
+        NSString *path = LMVEasterImagePath(selection);
+        LMVEasterImage *decoded = path ? LMVEasterDecode([NSURL fileURLWithPath:path], NULL) : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LMVEasterImageSettings *page = weakSelf;
+            if (!page || generation != page.previewGeneration || ![page.previewSelection isEqualToString:selection]) return;
+            page.previewLoading = NO; page.previewDecoded = decoded;
+            page.previewView.image = decoded.frames.firstObject;
+            page.previewLabel.text = decoded ? @"当前小彩蛋素材" : @"当前素材不可用";
+            [page animatePreview];
+        });
+    });
 }
 - (void)viewDidLoad {
     [super viewDidLoad]; self.title = @"小彩蛋图片";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(finish)];
 }
 - (void)finish {
+    self.importGeneration++; self.previewVisible = NO; [self stopPreview];
     if (self.close) self.close();
     else if (self.navigationController.viewControllers.count > 1) [self.navigationController popViewControllerAnimated:YES];
     else [self dismissViewControllerAnimated:YES completion:nil];
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImageRotationSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == LMVEasterImageSection()) return 3;
     return section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().count : 2;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -59,7 +115,8 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     return section == LMVEasterImageDisplaySection() ? @"默认不在锁屏显示；控制中心和桌面默认显示。通知中心沿用现有显示行为。" : nil;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {
-    return index.section != LMVEasterImageDisplaySection() && index.row == 1 ? 80 : 44;
+    if (index.section == LMVEasterImageSection()) return index.row == 0 ? 184 : (index.row == 2 ? 80 : 44);
+    return index.section == LMVEasterImageRotationSection() && index.row == 1 ? 80 : 44;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
@@ -82,14 +139,34 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
         } else {
             cell.textLabel.text = @"旋转速度"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f 度/秒", LMVEasterImageRotationSpeed()];
             UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
-            slider.minimumValue = 5; slider.maximumValue = 180; slider.value = LMVEasterImageRotationSpeed();
+            slider.minimumValue = 5; slider.maximumValue = 720; slider.value = LMVEasterImageRotationSpeed();
             slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO); slider.accessibilityLabel = @"彩蛋图片旋转速度（度/秒）";
             [slider addTarget:self action:@selector(rotationSpeedChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
         }
         return cell;
     }
-    // No static preview; keep image/GIF import and floating icon size.
     if (index.row == 0) {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        UIImageView *preview = [[UIImageView alloc] initWithFrame:CGRectZero];
+        preview.contentMode = UIViewContentModeScaleAspectFit; preview.translatesAutoresizingMaskIntoConstraints = NO;
+        preview.isAccessibilityElement = YES; preview.accessibilityLabel = @"当前小彩蛋图片或 GIF 预览";
+        UILabel *label = [UILabel new]; label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1]; label.textColor = UIColor.secondaryLabelColor;
+        label.textAlignment = NSTextAlignmentCenter; label.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell.contentView addSubview:preview]; [cell.contentView addSubview:label];
+        [NSLayoutConstraint activateConstraints:@[
+            [preview.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:12],
+            [preview.centerXAnchor constraintEqualToAnchor:cell.contentView.centerXAnchor],
+            [preview.widthAnchor constraintEqualToConstant:140], [preview.heightAnchor constraintEqualToConstant:140],
+            [label.topAnchor constraintEqualToAnchor:preview.bottomAnchor constant:6],
+            [label.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:12],
+            [label.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-12]
+        ]];
+        self.previewView = preview; self.previewLabel = label;
+        preview.image = self.previewFrame < self.previewDecoded.frames.count ? self.previewDecoded.frames[self.previewFrame] : nil;
+        label.text = self.previewLoading ? @"正在载入当前素材…" : (self.previewDecoded ? @"当前小彩蛋素材" : (self.previewSelection.length ? @"当前素材不可用" : @"尚未选择图片 / GIF"));
+        return cell;
+    }
+    if (index.row == 1) {
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入图片 / GIF"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.userInteractionEnabled = !self.busy;
     } else {
         cell.textLabel.text = @"悬浮图标大小"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", LMVEasterSize()]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -98,6 +175,12 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
         [slider addTarget:self action:@selector(sizeChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
     }
     return cell;
+}
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)index {
+    if (index.section == LMVEasterImageSection() && index.row == 0) { self.previewCellVisible = YES; [self animatePreview]; }
+}
+- (void)tableView:(UITableView *)tableView didEndDisplayingCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)index {
+    if (index.section == LMVEasterImageSection() && index.row == 0 && self.previewView.superview == cell.contentView) { self.previewCellVisible = NO; [self stopPreview]; }
 }
 - (void)displayChanged:(UISwitch *)toggle {
     if (toggle.tag < 0 || toggle.tag >= LMVEasterImageDisplayKeys().count) return;
@@ -109,7 +192,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 - (void)rotationSpeedChanged:(UISlider *)slider {
     self.settingsTracking = slider.isTracking;
     double raw = slider.value;
-    CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(180.0, round(raw))) : 45.0;
+    CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(720.0, round(raw))) : 45.0;
     LMVEasterSet(@"EasterEggRotationSpeed", @(speed));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImageRotationSection()]];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f 度/秒", speed];
@@ -118,30 +201,37 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 - (void)sizeChanged:(UISlider *)slider {
     self.settingsTracking = slider.isTracking;
     CGFloat size = MAX(32, MIN(128, round(slider.value))); LMVEasterSet(@"EasterEggSize", @(size));
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImageSection()]];
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:2 inSection:LMVEasterImageSection()]];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", size];
     if (!slider.isTracking) [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
-    [tableView deselectRowAtIndexPath:index animated:YES]; if (index.section != LMVEasterImageSection() || index.row != 0 || self.busy || self.presentedViewController) return;
+    [tableView deselectRowAtIndexPath:index animated:YES]; if (index.section != LMVEasterImageSection() || index.row != 1 || self.busy || self.presentedViewController) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary]; config.filter = PHPickerFilter.imagesFilter; config.selectionLimit = 1; config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config]; picker.delegate = self;
+    self.imagePicker = picker; self.importGeneration++; [self stopPreview];
     [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    PHPickerResult *picked = results.firstObject;
+    if (picker != self.imagePicker) return;
+    PHPickerResult *picked = results.firstObject; NSUInteger generation = self.importGeneration;
+    self.imagePicker = nil;
     [picker dismissViewControllerAnimated:YES completion:^{
-        if (!picked || self.busy) return;
+        [self animatePreview];
+        if (!picked || self.busy || generation != self.importGeneration) return;
         NSString *type = [picked.itemProvider hasItemConformingToTypeIdentifier:@"com.compuserve.gif"] ? @"com.compuserve.gif" : @"public.image";
         if (![picked.itemProvider hasItemConformingToTypeIdentifier:type]) return;
         self.busy = YES; [self.tableView reloadData]; __weak typeof(self) weakSelf = self;
+        id expectedOld = LMVEasterRead(@"EasterEggImage");
         [picked.itemProvider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url, NSError *providerError) {
+            BOOL (^current)(void) = ^BOOL { LMVEasterImageSettings *page = weakSelf; return page && page.importGeneration == generation; };
+            if (!current()) return;
             NSError *error = providerError;
             if (!url && !error) error = LMVStorageError(71, @"相册未返回图片");
-            NSString *relative = url && !error ? LMVEasterImport(url, NO, &error) : nil;
+            NSString *relative = url && !error ? LMVEasterReplaceImage(url, expectedOld, current, &error) : nil;
             dispatch_async(dispatch_get_main_queue(), ^{
-                LMVEasterImageSettings *page = weakSelf; if (!page) return; page.busy = NO;
-                if (relative) LMVEasterSet(@"EasterEggImage", relative);
+                LMVEasterImageSettings *page = weakSelf; if (!page || generation != page.importGeneration) return; page.busy = NO;
+                if (relative) [page refreshPreview];
                 [page.tableView reloadData];
                 if (error && page.view.window && !page.presentedViewController) {
                     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert]; [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]]; [page presentViewController:alert animated:YES completion:nil];

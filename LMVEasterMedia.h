@@ -11,6 +11,7 @@
 #define LMVEasterWindowDiagnostic(reason) ((void)0)
 #endif
 static NSString * const LMVEasterFolder = @"/var/mobile/LockMessageVideo/\u5c0f\u5f69\u86cb";
+static NSString * const LMVEasterImagesFolder = @"/var/mobile/LockMessageVideo/images";
 static CFStringRef const LMVEasterPrefs = CFSTR("com.minis.lockmessagevideo");
 static void LMVEasterNotify(void) {
     CFPreferencesAppSynchronize(LMVEasterPrefs);
@@ -45,12 +46,13 @@ static BOOL LMVEasterSafeDirectory(NSString *path, NSError **error) {
 static __attribute__((unused)) NSString *LMVEasterImagePath(id relative) {
     if (![relative isKindOfClass:NSString.class]) return nil;
     NSArray *parts = [relative pathComponents];
-    if (parts.count != 2 || ![parts[0] isEqualToString:@"\u5c0f\u5f69\u86cb"] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
+    if (parts.count != 2 || ![@[@"images", @"\u5c0f\u5f69\u86cb"] containsObject:parts[0]] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
     NSString *path = [@"/var/mobile/LockMessageVideo" stringByAppendingPathComponent:relative];
     struct stat status;
     struct stat rootStatus, folderStatus;
     NSString *root = @"/var/mobile/LockMessageVideo";
-    if (lstat(root.fileSystemRepresentation, &rootStatus) || !S_ISDIR(rootStatus.st_mode) || lstat(LMVEasterFolder.fileSystemRepresentation, &folderStatus) || !S_ISDIR(folderStatus.st_mode)) return nil;
+    NSString *folder = [root stringByAppendingPathComponent:parts[0]];
+    if (lstat(root.fileSystemRepresentation, &rootStatus) || !S_ISDIR(rootStatus.st_mode) || lstat(folder.fileSystemRepresentation, &folderStatus) || !S_ISDIR(folderStatus.st_mode)) return nil;
     NSString *expected = [[[root stringByDeletingLastPathComponent] stringByResolvingSymlinksInPath] stringByAppendingPathComponent:@"LockMessageVideo"];
     expected = [expected stringByAppendingPathComponent:relative];
     if (lstat(path.fileSystemRepresentation, &status) || !S_ISREG(status.st_mode) || status.st_size <= 0 || status.st_size > 20 * 1024 * 1024 || ![[path stringByResolvingSymlinksInPath] isEqualToString:expected]) return nil;
@@ -106,7 +108,57 @@ static LMVEasterImage *LMVEasterDecode(NSURL *url, NSError **error) {
     return decoded;
 }
 
+// Only the old EasterEggImage selection may be retired. Never follow links,
+// recurse into directories, touch library/, or sweep other image references.
+static void LMVEasterDeleteReplacedImage(id oldRelative, NSString *newRelative) {
+    if (![oldRelative isKindOfClass:NSString.class] || [oldRelative isEqual:newRelative]) return;
+    NSArray *parts = [oldRelative pathComponents];
+    if (parts.count != 2 || ![@[@"images",@"\u5c0f\u5f69\u86cb"] containsObject:parts[0]] ||
+        [parts containsObject:@".."] || [parts containsObject:@"."] ||
+        ![oldRelative isEqualToString:[parts[0] stringByAppendingPathComponent:parts[1]]] ||
+        ![@[@"gif",@"png",@"jpg",@"jpeg",@"heic",@"heif"] containsObject:[parts[1] pathExtension].lowercaseString]) return;
+    int root = open("/var/mobile/LockMessageVideo", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (root < 0) return;
+    int folder = openat(root, [parts[0] fileSystemRepresentation], O_RDONLY | O_DIRECTORY | O_NOFOLLOW); close(root);
+    if (folder < 0) return;
+    struct stat status;
+    const char *name = [parts[1] fileSystemRepresentation];
+    if (fstatat(folder, name, &status, AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(status.st_mode))
+        unlinkat(folder, name, 0);
+    close(folder);
+}
+// Called inside the same serial import transaction, never from a UI completion.
+static BOOL LMVEasterPublishImage(NSString *relative, id expectedOld, BOOL (^current)(void), NSError **error) {
+    CFPreferencesAppSynchronize(LMVEasterPrefs);
+    id old = LMVEasterRead(@"EasterEggImage");
+    if (!current() || !(old == expectedOld || [old isEqual:expectedOld])) {
+        if (error) *error = LMVStorageError(72, @"图片选择已变化，本次导入未替换旧图");
+        return NO;
+    }
+    CFPreferencesSetAppValue(CFSTR("EasterEggImage"), (__bridge CFPropertyListRef)relative, LMVEasterPrefs);
+    BOOL persisted = CFPreferencesAppSynchronize(LMVEasterPrefs);
+    if (!persisted || !current()) {
+        CFPreferencesSetAppValue(CFSTR("EasterEggImage"), (__bridge CFPropertyListRef)old, LMVEasterPrefs);
+        CFPreferencesAppSynchronize(LMVEasterPrefs);
+        if (error) *error = LMVStorageError(73, @"图片选择未能保存或导入已取消，保留旧素材");
+        return NO;
+    }
+    if (![LMVEasterRead(@"EasterEggImage") isEqual:relative]) {
+        if (error) *error = LMVStorageError(72, @"图片选择已变化，保留旧素材");
+        return NO;
+    }
+    LMVEasterDeleteReplacedImage(old, relative);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+    return YES;
+}
+static NSString *LMVEasterImportWithPublication(NSURL *source, BOOL movie, id expectedOld, BOOL (^current)(void), NSError **outError);
 static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) {
+    return LMVEasterImportWithPublication(source, movie, nil, nil, outError);
+}
+static __attribute__((unused)) NSString *LMVEasterReplaceImage(NSURL *source, id expectedOld, BOOL (^current)(void), NSError **outError) {
+    return LMVEasterImportWithPublication(source, NO, expectedOld, current, outError);
+}
+static NSString *LMVEasterImportWithPublication(NSURL *source, BOOL movie, id expectedOld, BOOL (^current)(void), NSError **outError) {
     if (NSThread.isMainThread || !source.isFileURL) {
         if (outError) *outError = LMVStorageError(64, @"导入必须在相册后台回调中执行");
         return nil;
@@ -115,7 +167,7 @@ static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) 
     dispatch_sync(LMVMaterialQueue(), ^{
         @autoreleasepool {
             NSString *root = @"/var/mobile/LockMessageVideo";
-            NSString *folder = movie ? [root stringByAppendingPathComponent:@"library"] : LMVEasterFolder;
+            NSString *folder = movie ? [root stringByAppendingPathComponent:@"library"] : LMVEasterImagesFolder;
             NSFileManager *fm = NSFileManager.defaultManager;
             if (!LMVEasterSafeDirectory(root, &error) || !LMVEasterSafeDirectory(folder, &error)) return;
             NSString *ext = source.pathExtension.lowercaseString;
@@ -157,8 +209,15 @@ static NSString *LMVEasterImport(NSURL *source, BOOL movie, NSError **outError) 
                 error = LMVWriteMaterialNames(names);
                 if (error) [fm removeItemAtPath:destination error:nil];
             }
-            if (error) [fm removeItemAtPath:staging error:nil];
-            else result = [(movie ? @"library" : @"\u5c0f\u5f69\u86cb") stringByAppendingPathComponent:name];
+            if (!error && !movie && current) {
+                NSString *relative = [@"images" stringByAppendingPathComponent:name];
+                LMVEasterPublishImage(relative, expectedOld, current, &error);
+            }
+            if (error) {
+                [fm removeItemAtPath:staging error:nil];
+                if(!movie && current && ![LMVEasterRead(@"EasterEggImage") isEqual:[@"images" stringByAppendingPathComponent:name]])
+                    [fm removeItemAtPath:destination error:nil];
+            } else result = [(movie ? @"library" : @"images") stringByAppendingPathComponent:name];
         }
     });
     if (outError) *outError = error;

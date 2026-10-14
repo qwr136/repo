@@ -17,6 +17,7 @@ static BOOL LMVLockVideoClass(id object,NSString *name) {
 }
 static char LMVLockVideoPaintEntryKey;
 static BOOL LMVLockVideoPaintHidden(UIView *view);
+static BOOL LMVLockVideoRepaintPure(UIView *view);
 static UIView *LMVLockVideoObjectView(id object,NSString *name,UIView *root) {
     SEL selector=NSSelectorFromString(name);
     if (![object respondsToSelector:selector]) return nil;
@@ -250,6 +251,39 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     CGRect frame=CGRectUnion(space.bounds,mask);
     if(hostFrame)*hostFrame=frame;
     return CGRectOffset(mask,-frame.origin.x,-frame.origin.y);
+}
+// Attached content-owned paint follows the original layer's animation itself.
+// Never bake a sampled viewport edge into this model child: by the next commit
+// that edge is stale. Screen/window and real ancestor clips already apply in
+// the SAME layer tree. This exception is not used by a promoted/root host.
+static CGRect LMVLockVideoAttachedPaint(CGRect bounds,CGRect backdrop,CGRect panel) {
+    if(!LMVLockVideoRectValid(bounds) || !LMVLockVideoRectValid(backdrop) ||
+       !LMVLockVideoRectValid(panel) || !LMVLockVideoRectValid(CGRectIntersection(bounds,backdrop)))return CGRectZero;
+    return LMVLockVideoOwnedPaintRect(bounds,backdrop,panel,CGRectUnion(bounds,backdrop));
+}
+static BOOL LMVLockVideoAttachedGeometry(UIView *content,UIView *container,UIView *panel,UIView *anchor,CGRect *frame,CGRect *clip) {
+    if(container!=content || anchor.superview!=content || anchor!=LMVLockVideoContentBackdrop(content) ||
+       !LMVLockVideoRepaintPure(anchor) || ![content isDescendantOfView:panel] || content.window!=panel.window)return NO;
+    // Unsupported transforms cannot turn a rectangular envelope into a guessed
+    // bounding box. Keep the original conservative geometry in those cases.
+    for(UIView *node=content;node;node=node.superview) {
+        CATransform3D t=node.layer.transform;
+        if(!CATransform3DIsAffine(t))return NO;
+        CGAffineTransform a=CATransform3DGetAffineTransform(t);
+        if(fabs(a.a-1)>.0001 || fabs(a.d-1)>.0001 || fabs(a.b)>.0001 || fabs(a.c)>.0001)return NO;
+        if(node==panel)break;
+    }
+    CALayer *space=content.layer;
+    CGRect backdrop=[space convertRect:anchor.layer.bounds fromLayer:anchor.layer];
+    CGRect boundary=[space convertRect:panel.layer.bounds fromLayer:panel.layer];
+    // Preserve .102's already-admitted same-owner zero/non-clipping layout.
+    if(!LMVLockVideoRectValid(boundary) && !panel.clipsToBounds && !panel.layer.masksToBounds)boundary=space.bounds;
+    CGRect paint=LMVLockVideoAttachedPaint(space.bounds,backdrop,boundary);
+    if(!LMVLockVideoRectValid(paint))return NO;
+    CGRect extent=CGRectUnion(space.bounds,paint);
+    if(frame)*frame=extent;
+    if(clip)*clip=CGRectOffset(paint,-extent.origin.x,-extent.origin.y);
+    return YES;
 }
 static inline CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow *window) {
     UIView *root=window.rootViewController.viewIfLoaded ?: container;
@@ -644,7 +678,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         }
     }
     UIView *anchor=nil;UIView *container=content?LMVLockVideoContainer(best.viewIfLoaded,content,self.host,&anchor):nil;
-    BOOL visible=best && content && container && anchor;
+    BOOL visible=best && content && container && anchor,panelAttached=NO;
     if (visible) {
         self.content=content;self.controller=best;
         // Resolve geometry in the original owned background space FIRST. Any
@@ -671,8 +705,16 @@ static BOOL LMVLockVideoScreenAllowed(void) {
                 self.extentContainer=container;self.extentForeground=foreground;self.extentAnchor=anchor;
             }
         }
-        if(renderParent==container){self.extentContainer=nil;self.extentForeground=nil;self.extentAnchor=nil;}
+        sampledClip=clip;
+        if(renderParent==container) {
+            self.extentContainer=nil;self.extentForeground=nil;self.extentAnchor=nil;
+            // Visibility is still gated by current observed exposure above.
+            // The admitted background itself stays in the original MODEL panel
+            // space, so its full image and leading edge move as one subtree.
+            if(visible)panelAttached=LMVLockVideoAttachedGeometry(content,container,best.viewIfLoaded,anchor,&hostFrame,&clip);
+        }
         if(oldExtent!=self.extentContainer || oldForeground!=self.extentForeground)self.paintLeaseDirty=YES;
+        [CATransaction begin];[CATransaction setDisableActions:YES];
         NSArray *children=renderParent.subviews;
         NSUInteger own=[children indexOfObjectIdenticalTo:self.host];
         if(renderParent==container) {
@@ -688,15 +730,16 @@ static BOOL LMVLockVideoScreenAllowed(void) {
                 [renderParent insertSubview:self.host atIndex:front];
             }
         }
-        sampledClip=clip;
-        [CATransaction begin];[CATransaction setDisableActions:YES];
-        self.host.frame=hostFrame;self.host.alpha=1;self.host.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        self.host.frame=hostFrame;self.host.alpha=1;self.host.autoresizingMask=panelAttached?0:UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [self.playback layoutInBounds:self.host.bounds];self.host.clipLayer.frame=self.host.bounds;
         if (!self.host.clipLayer.path || !CGRectEqualToRect(CGPathGetBoundingBox(self.host.clipLayer.path),clip)) {
             CGPathRef path=CGPathCreateWithRect(clip,NULL);self.host.clipLayer.path=path;CGPathRelease(path);
         }
-        self.host.hidden=!visible;[CATransaction commit];
+        self.host.hidden=!visible;
+        // Owned surface/order/mask and background leases become visible in the
+        // same commit; no one-frame wallpaper hand-off during promotion.
         if (visible) [self leasePaint:container];else [self releasePaint];
+        [CATransaction commit];
         if (diagnostics) {
         // Which parent the surface ended up in, and every visible sibling painted
         // above it: if wallpaper still shows through, this names the culprit.
@@ -779,6 +822,29 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             [paint appendFormat:@"%@:%p h=%d/%d o=%.3f/%.3f;",NSStringFromClass(view.class),
                 (__bridge void *)view,view.hidden,shown.hidden,view.layer.opacity,shown.opacity];
         }
+        // Actual committed MODEL versus actually available PRESENTATION tree.
+        // Old coverage mixed a newly-written path with an older host position;
+        // gapTop=0 therefore did not establish a zero-gap rendered frame.
+        UIWindow *window=content.window;
+        CALayer *shownHost=self.host.layer.presentationLayer,*shownWindow=window.layer.presentationLayer;
+        CALayer *shownOwner=content.layer.presentationLayer;
+        CAShapeLayer *shownMask=(CAShapeLayer *)self.host.clipLayer.presentationLayer;
+        CGRect modelHost=[self.host.layer convertRect:CGPathGetBoundingBox(self.host.clipLayer.path) toLayer:window.layer];
+        modelHost=CGRectIntersection(modelHost,LMVLockVideoRectInTree(self.host,window,self.host.layer,window.layer));
+        CGRect shownHostRect=CGRectZero,shownOwnerRect=CGRectZero;
+        BOOL actualShown=shownHost && shownWindow && shownOwner && shownMask.path;
+        if(actualShown) {
+            shownHostRect=[shownHost convertRect:CGPathGetBoundingBox(shownMask.path) toLayer:shownWindow];
+            shownHostRect=CGRectIntersection(shownHostRect,LMVLockVideoRectInTree(self.host,window,shownHost,shownWindow));
+            shownOwnerRect=LMVLockVideoRectInTree(content,window,shownOwner,shownWindow);
+        }
+        CGFloat actualGap=actualShown && LMVLockVideoRectValid(shownHostRect) && LMVLockVideoRectValid(shownOwnerRect)?
+            MAX(0,CGRectGetMinY(shownHostRect)-CGRectGetMinY(shownOwnerRect)):-1;
+        LMVLockVideoLog([NSString stringWithFormat:@"lock-actualgeometry t=%.6f attached=%d shownAvailable=%d modelHost=%@ shownHost=%@ shownOwner=%@ actualGapTop=%.2f actualBottom=%.2f ownerY=%.2f/%.2f hostY=%.2f/%.2f source=%p player=%p leases=%lu",
+            self.lastCompositeAt,panelAttached,actualShown,LMVLockVideoRectText(modelHost),LMVLockVideoRectText(shownHostRect),
+            LMVLockVideoRectText(shownOwnerRect),actualGap,LMVLockVideoRectValid(shownHostRect)?CGRectGetMaxY(shownHostRect):-1,
+            content.layer.position.y,shownOwner?shownOwner.position.y:-1,self.host.layer.position.y,shownHost?shownHost.position.y:-1,
+            (__bridge void *)container,(__bridge void *)self.playback.player,(unsigned long)self.paintLease.entries.count]);
         CAShapeLayer *mask=(CAShapeLayer *)(self.host.clipLayer.presentationLayer ?: self.host.clipLayer);
         NSString *state=[NSString stringWithFormat:@"lock-composite promoted=%d effective=%.3f chain=[%@] paint=[%@] maskModel=%@ maskShown=%@ render=h%d/o%.3f/p%.3f player=h%d/o%.3f/p%.3f",
             self.extentContainer!=nil,effective,chain,paint,

@@ -30,12 +30,21 @@ static BOOL LMVCardRectValid(CGRect rect) {
         isfinite(rect.size.width) && isfinite(rect.size.height) &&
         rect.size.width>=1 && rect.size.height>=1;
 }
+static BOOL LMVCardLayerAttached(CALayer *layer,CALayer *root) {
+    NSUInteger depth=0;
+    for(CALayer *node=layer;node && ++depth<=48;node=node.superlayer)if(node==root)return YES;
+    return NO;
+}
 static BOOL LMVCardAttached(UIView *view, UIWindow *window) {
-    if (!view || !window || view.window!=window) return NO;
-    for (UIView *node=view; node; node=node.superview) {
+    if (!view || !window || view.window!=window || !LMVCardLayerAttached(view.layer,window.layer)) return NO;
+    NSUInteger depth=0;
+    // UIKit can insert transform/material containers between two UIView backing
+    // layers. Equality to superview.layer was never a UIKit attachment contract.
+    // Verify BOTH the attached UIView owner and the actual same-window CA ancestry.
+    for (UIView *node=view; node && ++depth<=32; node=node.superview) {
         if (node.window!=window) return NO;
         if (node==window) return YES;
-        if (!node.superview || node.layer.superlayer!=node.superview.layer) return NO;
+        if (!node.superview) return NO;
     }
     return NO;
 }
@@ -50,28 +59,35 @@ static CGFloat LMVCardExposureAlpha(UIView *view, CALayer *layer, BOOL presentat
 }
 static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentation) {
     if (!LMVCardAttached(view,window)) return NO;
-    CALayer *root=presentation ? window.layer.presentationLayer : window.layer;
     CALayer *space=presentation ? view.layer.presentationLayer : view.layer;
-    if (!root || !space || (presentation && (root.modelLayer!=window.layer || space.modelLayer!=view.layer))) return NO;
+    if (!space || (presentation && space.modelLayer!=view.layer)) return NO;
+    CALayer *root=window.layer;
+    if(presentation) {
+        // Stay within ONE actual snapshot tree. Repeated presentationLayer calls
+        // need not return pointer-identical parent snapshots during UIKit updates.
+        root=nil;NSUInteger depth=0;
+        for(CALayer *node=space;node && ++depth<=48;node=node.superlayer)
+            if(node.modelLayer==window.layer){root=node;break;}
+    }
+    if(!root || !LMVCardLayerAttached(space,root))return NO;
     CGRect rect=[space convertRect:space.bounds toLayer:root];
     if (!LMVCardRectValid(rect)) return NO;
-    CGFloat alpha=1;
-    for (UIView *node=view; node; node=node.superview) {
-        CALayer *layer=presentation ? node.layer.presentationLayer : node.layer;
-        if (!layer || (presentation && layer.modelLayer!=node.layer)) return NO;
-        if ((!presentation && node.hidden) || layer.hidden) return NO;
-        alpha*=LMVCardExposureAlpha(node,layer,presentation);
-        if (!isfinite(alpha) || alpha<0.01) return NO;
-        if (node!=window) {
-            CALayer *parent=presentation ? node.superview.layer.presentationLayer : node.superview.layer;
-            // Do not mix model/presentation coordinates or trust stale detached trees.
-            if (!parent || layer.superlayer!=parent) return NO;
+    CGFloat alpha=1;NSUInteger depth=0;
+    for (CALayer *layer=space; layer && ++depth<=48; layer=layer.superlayer) {
+        CALayer *model=presentation?layer.modelLayer:layer;
+        UIView *backing=nil;
+        for(UIView *node=view;node;node=node.superview) {
+            if(node.layer==model){backing=node;break;}
+            if(node==window)break;
         }
-        if (node.clipsToBounds || layer.masksToBounds || node==window) {
+        if(layer.hidden || (!presentation && backing.hidden))return NO;
+        alpha*=backing?LMVCardExposureAlpha(backing,layer,presentation):layer.opacity;
+        if (!isfinite(alpha) || alpha<0.01) return NO;
+        if (layer.masksToBounds || backing.clipsToBounds || layer==root) {
             rect=CGRectIntersection(rect,[layer convertRect:layer.bounds toLayer:root]);
             if (!LMVCardRectValid(rect)) return NO;
         }
-        if (node==window) break;
+        if(layer==root)break;
     }
     rect=CGRectIntersection(rect,LMVVideoWindowViewport(window));
     return LMVCardRectValid(rect);

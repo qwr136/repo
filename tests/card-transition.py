@@ -501,7 +501,7 @@ actual_update = '\n#define LMVUpdate LMVNativeUpdate\n' + update + '''
 static void LMVUpdate(UIView *cell) { fullUpdates++; LMVNativeUpdate(cell); }
 '''
 card_header=(ROOT/'LMVCardPresentation.h').read_text()
-card_attached=card_header[card_header.index('static BOOL LMVCardAttached'):card_header.index('static CGFloat LMVCardExposureAlpha')]
+card_attached=card_header[card_header.index('static BOOL LMVCardLayerAttached'):card_header.index('static CGFloat LMVCardExposureAlpha')]
 card_state=card_header[card_header.index('static BOOL LMVCardStateAttached'):card_header.index('static BOOL LMVCardColdProbe')]
 # This suite freezes its explicit visibility double; execute the new exact
 # ownership/target consumer helper. Presentation exposure runs in its own suite.

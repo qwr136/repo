@@ -91,10 +91,10 @@ class UISectionOrder(unittest.TestCase):
         for item in appends:
             group = re.search(r'groupSpecifierWithName:@"(.*?)"', item)
             sequence.append('group:' + group.group(1) if group else 'targets-group' if 'LMVNames()[i]' in item else item)
-        self.assertEqual(sequence, ['group:小彩蛋', 'eggEnabled', 'targets-group', 'enabled', 'choose',
+        self.assertEqual(sequence, ['targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
-            'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
+            'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])

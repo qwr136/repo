@@ -37,11 +37,6 @@ static void LMVNotify(void) {
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
     _specifiers = [NSMutableArray new];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
-    PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
-    [eggEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:eggEnabled];
     NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"];
     SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:), @selector(switchLockScreen:), @selector(switchDesktop:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
@@ -76,6 +71,11 @@ static void LMVNotify(void) {
     homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);
     [homeMenuMaterial setProperty:@"HomeMenuMaterial" forKey:@"id"];
     [_specifiers addObject:homeMenuMaterial];
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
+    PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
+    [eggEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:eggEnabled];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋显示设置"]];
     PSSpecifier *eggImage = [PSSpecifier preferenceSpecifierNamed:@"显示场景与图片旋转" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     eggImage.buttonAction = @selector(openEaster:);

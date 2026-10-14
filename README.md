@@ -1,5 +1,18 @@
 # 锁屏消息视频
 
+## 0.0.108：三类消息停播回归、完整通知背景随动、彩蛋预览与替换
+
+准确基线为已交付107 `800f6a8c0a364ba5a09a1849d54a136e60c60c45`，88文件与源码ZIP逐blob核验，独立108分支，不改其它版本/main。
+
+- 消息/选项/清除：107把UIView父关系误当成backing CALayer直接父关系，UIKit中间材质/变换层会被拒绝。108保持同窗口owner/anchor/overlay身份、安全screen gate，同时沿真实有界CA ancestry检查实际曝光与隐藏、opacity及clips；presentation使用单个实际快照链，不拿独立getter返回的parent指针要求相等。保持单path sharedsource/reader/cache/30HzCommonModes，不新增每卡player。加三target中间layer/独立快照/真实cliphiddennegative回归，以及限流card-exposure日志含published。
+- 整体下拉通知中心：原panel内已验证纯背景宿主不再把当帧presentation viewport上沿烘焙进下一次model mask。完整本地视频随原parent层一起滑动，真实window/祖先clip照旧、panel/半屏下沿保留；promoted/root未知路径仍原保守策略，没有无条件放大整窗或盖前景。新增60-frame between-callback parent move regression和lock-actualgeometry真实model/presentation诊断。该源码时序缺陷可复现，但无本版设备录像不能断言它是用户唯一根因。
+- 启用小彩蛋总开关紧移到小彩蛋显示设置上方，原key/default不变。
+- 小彩蛋图片/GIF页在相册导入行上方增加当前素材预览。后台bounded decode、代际拒陈旧结果，GIF只在页面和预览行可见时跑，退页/相册弹出停止，导入/图标大小/旋转路由重排不混。
+- 新图片/GIF验证+发布+持久偏好成功后只删除旧选中的受控图片文件；不扫整个素材库，不删视频/其它引用/新文件，不跟symlink/路径逃逸。失败/取消/陈旧导入保旧，失败新拷贝清理。旧版小彩蛋图片目录也仅限图片扩展的当前引用。
+- 旋转速度范围5…720度/秒，720为半秒一圈；保留原默认45与已有设置、相位连续及窗口展开旋转行为。
+
+所有native/doubles并非设备CPU/合成或UIKit相册实测。安装后注销，保留素材/偏好；如仍异常提供108同次录屏和开启诊断日志。包Description继续只用用户短句。以下历史说明保留。
+
 ## 0.0.107：下拉通知中心透底/消息续播、两处设置排序、展开窗口旋转
 
 精确基线为104成功交付提交 `0ace15d2650e47d8033888d5f184d98505f778dc`，83个源文件与交付ZIP逐Git blob核验一致，在独立工作区修改。main、104和其它发布分支不动。包详情保留“锁屏消息通知视频背景与独立素材库插件。”。

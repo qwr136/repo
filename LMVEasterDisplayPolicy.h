@@ -18,7 +18,7 @@ static BOOL LMVEasterDisplayBool(id value, BOOL fallback) {
 static double LMVEasterRotationSpeed(id value) {
     double speed=[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 45.0;
     if (!isfinite(speed)) speed=45.0;
-    return fmax(5.0,fmin(180.0,speed));
+    return fmax(5.0,fmin(720.0,speed));
 }
 static LMVEasterDisplayControls LMVEasterDisplayControlsFromValues(id enabled,id lock,id cc,id desktop,id rotation,id speed) {
     return (LMVEasterDisplayControls){LMVEasterDisplayBool(enabled,NO),LMVEasterDisplayBool(lock,NO),

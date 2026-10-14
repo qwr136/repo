@@ -129,7 +129,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.107 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.108 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -327,6 +327,8 @@ static void LMVLoadDiskFrame(NSString *path, NSString *revision) {
 @property(nonatomic, strong) NSArray<LMVOriginalLease *> *originals;
 @property(nonatomic, weak) UIView *originalAnchor, *originalScope;
 @property(nonatomic, copy) NSString *originalDiagnostic;
+@property(nonatomic) CFTimeInterval exposureDiagnosticAt;
+@property(nonatomic,copy) NSString *exposureDiagnostic;
 @end
 @implementation LMVVideoState
 - (void)dealloc {
@@ -688,7 +690,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.107 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.108 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1236,6 +1238,15 @@ static void LMVSyncDisplayLink(void) {
             LMVVideoState *state=states[target];
             BOOL active=cellVisible && LMVOpacityEnabled && LMVOpacity>0.0 &&
                 LMVCardStateVisible(cell,state,target);
+            if (LMVDiagnosticsEnabled.load() && now-state.exposureDiagnosticAt>=.5) {
+                state.exposureDiagnosticAt=now;
+                NSString *status=[NSString stringWithFormat:@"card-exposure target=%@ active=%d scope=%d attached=%d owner=%d anchor=%d overlay=%d layerAttached=%d source=%lu playing=%d published=%lu",
+                    target,active,LMVNotificationCenterSurface(cell),LMVCardStateAttached(cell,state),
+                    LMVVisible(cell),LMVVisible(state.anchor),LMVVisible(state.overlay),
+                    LMVCardLayerAttached(state.overlay.layer,cell.window.layer),
+                    (unsigned long)state.source.identifier,state.source.playing,(unsigned long)state.source.published];
+                if(![status isEqualToString:state.exposureDiagnostic]){state.exposureDiagnostic=status;LMVDiagnostic(status);}
+            }
             if (active!=state.active) changed=YES;
             state.active=active;
         }

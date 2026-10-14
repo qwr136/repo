@@ -49,7 +49,9 @@ assert import_targets == ['Message', 'Options', 'Clear']
 assert 'ControlCenter' not in import_callback and 'LockScreen' not in import_callback and 'Desktop' not in import_callback and 'HomeMenu' not in import_callback
 home_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];')
 display_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋显示设置"]];')
-home_section = source[home_start:display_start]
+egg_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];')
+assert home_start < egg_start < display_start
+home_section = source[home_start:egg_start]
 assert cc_start < home_start < display_start
 assert home_section.count('cell:PSSwitchCell') == 1 and home_section.count('cell:PSButtonCell') == 1
 assert '[homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"]' in home_section

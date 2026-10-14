@@ -181,7 +181,7 @@ def verify_package(deb, source):
     fields = control_fields(subprocess.check_output(['dpkg-deb', '-f', str(deb)], text=True))
     require(fields.get('Package') == source.get('Package') == 'com.minis.lockmessagevideo', 'wrong package identifier')
     require(fields.get('Architecture') == source.get('Architecture') == 'iphoneos-arm64e', 'not native RootHide architecture')
-    require(fields.get('Version') == source.get('Version') == '0.0.107', 'wrong package version')
+    require(fields.get('Version') == source.get('Version') == '0.0.108', 'wrong package version')
     deps = fields.get('Depends', '')
     for dependency in ('mobilesubstrate', 'preferenceloader', 'roothide'):
         require(re.search(r'(?:^|,)\s*' + dependency + r'(?:\s*\([^)]*\))?\s*(?=,|$)', deps), 'missing control dependency: ' + dependency)

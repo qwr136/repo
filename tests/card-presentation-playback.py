@@ -68,6 +68,24 @@ int main(void){@autoreleasepool{
  state.layer=[CALayer layer];[overlay.layer addSublayer:state.layer];
  LMVEnabled=[@{@"Message":@YES} mutableCopy];LMVPaths=[@{@"Message":@"movie"} mutableCopy];
  assert(LMVCardStateVisible(card,state,@"Message"));snapshot(w);
+ // REPRO 107: UIKit has an intermediate layer although UIView ownership is
+ // unchanged. Old superlayer==superview.layer returns NO for ALL three targets.
+ SampleLayer *bridge=[SampleLayer layer];bridge.anchorPoint=CGPointZero;bridge.position=CGPointZero;bridge.bounds=w.bounds;
+ [card.layer removeFromSuperlayer];[sliding.layer addSublayer:bridge];[bridge addSublayer:card.layer];
+ assert(card.superview==sliding && card.layer.superlayer!=sliding.layer);
+ for(NSString *target in @[@"Message",@"Options",@"Clear"]){LMVEnabled[target]=@YES;LMVPaths[target]=@"movie";assert(LMVCardStateVisible(card,state,target));}
+ // Snapshot parent may be a different presentationLayer object from the one
+ // separately returned by its UIView. Convert within the child's actual tree.
+ snapshot(w);SampleLayer *sampleBridge=[SampleLayer layer];sampleBridge.source=bridge;sampleBridge.anchorPoint=CGPointZero;sampleBridge.bounds=w.bounds;
+ SampleLayer *cardSample=((SampleLayer *)card.layer).sample;[cardSample removeFromSuperlayer];[((SampleLayer *)sliding.layer).sample addSublayer:sampleBridge];[sampleBridge addSublayer:cardSample];
+ SampleLayer *otherSnapshot=[SampleLayer layer];otherSnapshot.source=sliding.layer;((SampleLayer *)sliding.layer).sample=otherSnapshot;
+ sliding.frame=CGRectMake(0,-844,390,844); // force presentation-only consumer
+ for(NSString *target in @[@"Message",@"Options",@"Clear"])assert(LMVCardStateVisible(card,state,target));
+ sampleBridge.opacity=0;assert(!LMVCardStateVisible(card,state,@"Message"));sampleBridge.opacity=1;
+ sampleBridge.hidden=YES;assert(!LMVCardStateVisible(card,state,@"Message"));sampleBridge.hidden=NO;
+ sampleBridge.masksToBounds=YES;sampleBridge.bounds=CGRectMake(0,0,390,30);assert(!LMVCardStateVisible(card,state,@"Message"));sampleBridge.masksToBounds=NO;
+ sliding.frame=CGRectMake(0,0,390,844);
+ [bridge removeFromSuperlayer];[sliding.layer addSublayer:card.layer];snapshot(w);
  // Overall NC panel model already withdrawn while its committed sample is visible.
  sliding.frame=CGRectMake(0,-844,390,844);assert(!LMVCardExposureInTree(card,w,NO));
  assert(LMVCardExposureInTree(card,w,YES) && LMVCardStateVisible(card,state,@"Message"));

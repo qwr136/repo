@@ -111,7 +111,7 @@ assert 'section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().
 assert '通知中心沿用现有显示行为。' in image
 assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
 assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
-assert 'index.section != LMVEasterImageSection() || index.row != 0' in image
+assert 'index.section != LMVEasterImageSection() || index.row != 1' in image
 assert 'slider.minimumValue = 32; slider.maximumValue = 128' in image
 assert 'LMVEasterTargets' not in image and 'VideoOpacity' not in image
 assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterBoundedSize' in (root / 'LMVEasterGeometry.h').read_text()
@@ -124,10 +124,10 @@ assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return
 assert 'return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;' in image
 assert 'toggle.on = LMVEasterImageBool(key, LMVEasterImageDisplayDefaults()[index.row].boolValue);' in image
 assert 'LMVEasterImageBool(@"EasterEggRotationEnabled", NO)' in image
-assert 'slider.minimumValue = 5; slider.maximumValue = 180; slider.value = LMVEasterImageRotationSpeed();' in image
+assert 'slider.minimumValue = 5; slider.maximumValue = 720; slider.value = LMVEasterImageRotationSpeed();' in image
 assert '[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 45.0' in image
-assert 'isfinite(speed) ? MAX(5.0, MIN(180.0, speed)) : 45.0' in image
-assert 'CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(180.0, round(raw))) : 45.0;' in image
+assert 'isfinite(speed) ? MAX(5.0, MIN(720.0, speed)) : 45.0' in image
+assert 'CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(720.0, round(raw))) : 45.0;' in image
 for write in ('LMVEasterSet(LMVEasterImageDisplayKeys()[toggle.tag], @(toggle.on));', 'LMVEasterSet(@"EasterEggRotationEnabled", @(toggle.on));', 'LMVEasterSet(@"EasterEggRotationSpeed", @(speed));'):
     assert write in image
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, LMVEasterPrefs);' in media
@@ -137,4 +137,4 @@ assert 'toggle.tag < 0 || toggle.tag >= LMVEasterImageDisplayKeys().count' in im
 assert 'slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);' in image
 assert 'HomeMenuVideo' in panel and 'HomeMenuBackgroundEnabled' in prefs + panel
 assert 'EasterEggShowOnNotificationCenter' not in image and 'EasterEggShowOnNC' not in image
-print('PASS: visible three-scene defaults NO/YES/YES, rotation off/45 deg/s with finite 5..180 read/write, live Darwin notification and independent HomeMenu selection/delete routing')
+print('PASS: visible three-scene defaults NO/YES/YES, rotation off/45 deg/s with finite 5..720 read/write, live Darwin notification and independent HomeMenu selection/delete routing')

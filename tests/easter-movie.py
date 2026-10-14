@@ -10,7 +10,7 @@ movie=media[start:]
 assert movie.index('copyItemAtURL:source') < movie.index('tracksWithMediaType:AVMediaTypeVideo') < movie.index('[fm moveItemAtPath:staging')
 assert 'if (!error) [fm moveItemAtPath:staging' in movie
 assert movie.index('copyNextSampleBuffer') < movie.index('[fm moveItemAtPath:staging')
-assert 'if (error) [fm removeItemAtPath:staging' in movie
+assert 'if (error) {' in movie and '[fm removeItemAtPath:staging error:nil];' in movie
 if platform.system()!='Darwin':
     print('PASS: scoped video validation/publish contracts; native AVFoundation test runs on macOS')
     raise SystemExit(0)

@@ -154,8 +154,8 @@ int main(void) { @autoreleasepool {
     LMVEasterUpdateRotation(image,YES,YES,YES,-1); shape(image,here,M_PI/8,72);
     NSUInteger added=image.additions;
     LMVEasterUpdateRotation(image,YES,NO,YES,5); assert(image.additions==added);
-    LMVEasterUpdateRotation(image,YES,YES,YES,181); shape(image,here,M_PI/8,2);
-    added=image.additions; LMVEasterUpdateRotation(image,YES,NO,YES,180); assert(image.additions==added);
+    LMVEasterUpdateRotation(image,YES,YES,YES,721); shape(image,here,M_PI/8,.5);
+    added=image.additions; LMVEasterUpdateRotation(image,YES,NO,YES,720); assert(image.additions==added);
     LMVEasterUpdateRotation(image,YES,YES,YES,INFINITY); shape(image,here,M_PI/8,8);
     added=image.additions; LMVEasterUpdateRotation(image,YES,YES,YES,NAN); assert(image.additions==added);
     // Stop matrix invokes actual manager syncRotation with the panel still open.

@@ -63,8 +63,8 @@ int main(void) { @autoreleasepool {
     assert(!LMVEasterDisplayBool(@"YES",NO));assert(LMVEasterDisplayBool(@"NO",YES));
     assert(LMVEasterRotationSpeed(nil)==45 && LMVEasterRotationSpeed(@"junk")==45);
     assert(LMVEasterRotationSpeed(@(NAN))==45 && LMVEasterRotationSpeed(@(INFINITY))==45);
-    assert(LMVEasterRotationSpeed(@(-1))==5 && LMVEasterRotationSpeed(@181)==180);
-    assert(LMVEasterRotationSpeed(@5)==5 && LMVEasterRotationSpeed(@180)==180);
+    assert(LMVEasterRotationSpeed(@(-1))==5 && LMVEasterRotationSpeed(@721)==720);
+    assert(LMVEasterRotationSpeed(@5)==5 && LMVEasterRotationSpeed(@180)==180 && LMVEasterRotationSpeed(@720)==720);
     for(NSUInteger flags=0;flags<32;flags++) {
         LMVEasterDisplayControls c=LMVEasterDisplayControlsFromValues(@(!!(flags&1)),@(!!(flags&2)),
             @(!!(flags&4)),@(!!(flags&8)),@(!!(flags&16)),@45);
