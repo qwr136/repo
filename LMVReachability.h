@@ -97,7 +97,6 @@ static BOOL LMVReachabilitySurfaceUp(NSArray<NSString *> *windowClasses, NSArray
     return NO;
 }
 static void LMVReachabilityApply(void) {
-    static __weak UIScreenEdgePanGestureRecognizer *tracked;
     static NSInteger lastBlocked = -1;
     static BOOL reportedMissing = NO;
     BOOL enabled = LMVReachabilityEnabled();
@@ -109,10 +108,8 @@ static void LMVReachabilityApply(void) {
     BOOL blocked = LMVReachabilityDeskBlocked(enabled, blankKnown, blank, lockKnown, locked,
         LMVReachabilityForeground(), nc, cc);
     UIScreenEdgePanGestureRecognizer *recognizer = LMVReachabilityEdgeRecognizer();
-    if (recognizer) {
-        tracked = recognizer;
-        if (recognizer.enabled == blocked) recognizer.enabled = !blocked;
-    }
+    // Re-searched every pass: never cache a recognizer SpringBoard may rebuild.
+    if (recognizer && recognizer.enabled == blocked) recognizer.enabled = !blocked;
     if (enabled && !recognizer && !reportedMissing) {
         reportedMissing = YES;
         LMVDiagnostic(@"reachability recognizer=missing enabled=1 (bottom-edge gesture not found; nothing changed)");

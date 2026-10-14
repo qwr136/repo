@@ -23,7 +23,7 @@ assert '[recognizer isKindOfClass:UIScreenEdgePanGestureRecognizer.class]' in he
 assert 'UIRectEdgeBottom' in header, 'only the bottom edge is Reachability'
 assert 'LMVReachabilitySurfaceUp(@[@"SBCoverSheetWindow"], @[@"CoverSheet"])' in header
 assert 'LMVReachabilitySurfaceUp(@[@"SBControlCenterWindow"], @[@"ControlCenter"])' in header
-assert 'if (recognizer.enabled == blocked) recognizer.enabled = !blocked;' in header
+assert 'if (recognizer && recognizer.enabled == blocked) recognizer.enabled = !blocked;' in header
 assert 'static void LMVReachabilityRestore(void)' in header
 assert 'recognizer.enabled = YES;' in header, 'leaving the switch off must re-enable the gesture'
 # No private symbol guessing: public UIKit classes, dynamic selectors only.
