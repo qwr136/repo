@@ -352,7 +352,11 @@ int main(int argc, const char **argv) { @autoreleasepool {
     assert(LMVSourceForTarget(path,@"Options")==LMVSourceForTarget(path,@"Message"));
     LMVEnabled[@"Options"]=@YES;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
     LMVPaths[@"Clear"]=path;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
-    LMVWarmSourcesForPath(other);assert(LMVSharedSources.count==2);
+    LMVWarmSourcesForPath(other);
+    if(LMVSharedSources.count!=2) printf("warm-other count=%lu paths M=%s O=%s C=%s enabledM=%d enabledO=%d enabledC=%d\n",
+        (unsigned long)LMVSharedSources.count,LMVPaths[@"Message"].UTF8String,LMVPaths[@"Options"].UTF8String,LMVPaths[@"Clear"].UTF8String,
+        LMVEnabled[@"Message"].boolValue,LMVEnabled[@"Options"].boolValue,LMVEnabled[@"Clear"].boolValue);
+    assert(LMVSharedSources.count==2);
     for(LMVSharedSource *source in LMVSharedSources.allValues)assert(!source.playing && source.player.rate==0);
     for(NSString *invalidatePath in @[path,pathB,pathC])LMVInvalidateSourcesForPath(invalidatePath);
     dispatch_sync(LMVFrameQueue,^{});assert(!LMVSharedSources.count);
