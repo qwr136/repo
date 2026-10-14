@@ -39,6 +39,20 @@ replace=function(h,'static void LMVReplaceBackground(LMVVideoState *state, UIVie
 for forbidden in ['state.active','state.source','LMVReadyAssets','LMVOpacity','cached','lastImage']:
     assert forbidden not in replace,forbidden
 assert 'LMVOriginalDetach' in replace
+branch=function(h,'static void LMVOriginalCandidateBranch(UIView *view, BOOL wallpaper, NSUInteger depth, NSMutableArray *candidates, NSUInteger *remaining)')
+# Nil contents/color alone is not proof that a delegate-backed material is empty.
+# Preserve the independent safe-drawleaf path; the no-sublayer backing suppresses.
+assert 'view.layer.sublayers.count > 0' in branch.split('BOOL detachOnly',1)[1].split(';',1)[0]
+assert 'if (pure && !detachOnly)' in branch
+assert '@"layer":view.layer, @"method":@(LMVOriginalSuppressDrawing)' in branch
+scope=function(h,'static BOOL LMVOriginalTargetInScope(UIView *owner, UIView *anchor, UIView *scope)')
+assert 'owner.window' in scope and 'isDescendantOfView:owner' in scope
+for forbidden in ('hidden','alpha','LMVVisible','LMVReadyAssets','LMVOpacity','active'):
+    assert forbidden not in scope,forbidden
+maintenance=function(h,'static BOOL LMVOriginalBackgroundNeedsMaintenance(LMVVideoState *state)')
+assert 'layer.opacity != 0.0f' in maintenance and 'layer.superlayer' in maintenance
+for forbidden in ('subviews','LMVOriginalCandidates','objectEnumerator','LMVCachedFrame','LMVSource'):
+    assert forbidden not in maintenance,forbidden
 assert 'if (layer.superlayer) [layer removeFromSuperlayer]' in l
 assert 'weakToWeakObjectsMapTable' in l and 'weakObjectsHashTable' in l
 assert 'self.baselineOpacity = layer.opacity' in l and 'layer.opacity = self.baselineOpacity' in l

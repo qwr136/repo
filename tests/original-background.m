@@ -165,6 +165,69 @@ int main(void) { @autoreleasepool {
         LMVRestoreBackground(state);assert(original.superlayer==host.layer && closeTo(original.opacity,.37));
         LMVRestoreBackground(state);assert(host.layer.sublayers.count==1);
     }
+    // Regression: confirmed UIKit material with empty MODEL contents is not a
+    // proven no-draw branch. Execute production discovery/leases for all targets.
+    for (NSString *target in @[@"Message",@"Options",@"Clear"]) {
+        UIWindow *window=[UIWindow new]; UIView *owner=[UIView new], *scope=[UIView new];
+        [window addSubview:owner]; [owner addSubview:scope];
+        MTMaterialView *material=[MTMaterialView new]; material.alpha=.46;
+        [scope addSubview:material];
+        UILabel *text=[UILabel new]; text.alpha=.83; [scope addSubview:text];
+        UIControl *button=[UIControl new]; button.alpha=.72; [scope addSubview:button];
+        CALayer *video=[CALayer layer]; video.name=@"com.minis.lockmessagevideo.test";
+        [scope.layer addSublayer:video];
+        assert(!material.layer.contents && !material.layer.backgroundColor && !material.layer.sublayers.count);
+        LMVVideoState *s=[LMVVideoState new];
+        BOOL enabled=YES,selected=YES;
+        LMVReplaceBackground(s,material,scope,target,enabled && selected && LMVOriginalTargetInScope(owner,material,scope));
+        assert(s.originals.count==1 && s.originals[0].method==LMVOriginalSuppressDrawing);
+        LMVOriginalLease *held=s.originals[0];
+        assert(material.layer.opacity==0 && material.layer.superlayer==scope.layer);
+        assert(!LMVOriginalBackgroundNeedsMaintenance(s));
+        // Opacity OFF/zero, cold/error frame absence, hidden and offscreen are
+        // presentation states, never permission to expose this owner's material.
+        for (int n=0;n<100;n++) {
+            video.opacity=0; video.contents=nil; material.hidden=(n%2)==0;
+            owner.layer.position=CGPointMake(0,2000);
+            assert(LMVOriginalTargetInScope(owner,material,scope));
+            LMVReplaceBackground(s,material,scope,target,YES);
+            assert(s.originals[0]==held && material.layer.opacity==0 && video.superlayer==scope.layer);
+            assert(text.layer.opacity==.83f && button.layer.opacity==.72f && !text.hidden && !button.hidden);
+        }
+        // System redraw: dirty check then guarded production maintenance in the
+        // same transaction; retain the newest non-plugin baseline for OFF.
+        [CATransaction begin]; [CATransaction setDisableActions:YES];
+        material.layer.opacity=.64;
+        assert(LMVOriginalBackgroundNeedsMaintenance(s));
+        LMVReplaceBackground(s,material,scope,target,YES);
+        assert(material.layer.opacity==0 && !LMVOriginalBackgroundNeedsMaintenance(s));
+        [CATransaction commit];
+        selected=NO;
+        LMVReplaceBackground(s,material,scope,target,enabled && selected);
+        assert(held.retired && material.layer.superlayer==scope.layer && closeTo(material.layer.opacity,.64));
+        selected=YES; LMVReplaceBackground(s,material,scope,target,YES);
+        enabled=NO; LMVReplaceBackground(s,material,scope,target,enabled && selected);
+        assert(!s.originals.count && closeTo(material.layer.opacity,.64));
+        enabled=YES; LMVReplaceBackground(s,material,scope,target,YES);
+        // Owner removal / reuse releases before another owner can borrow it.
+        owner.window=nil; assert(!LMVOriginalTargetInScope(owner,material,scope));
+        LMVReplaceBackground(s,material,scope,target,NO);
+        assert(!s.originals.count && closeTo(material.layer.opacity,.64));
+        owner.window=window; LMVReplaceBackground(s,material,scope,target,YES);
+        MTMaterialView *replacement=[MTMaterialView new]; replacement.alpha=.31; [scope addSubview:replacement];
+        LMVReplaceBackground(s,replacement,scope,target,YES);
+        assert(closeTo(material.layer.opacity,.64) && replacement.layer.opacity==0 && replacement.layer.superlayer==scope.layer);
+        LMVRestoreBackground(s); assert(closeTo(replacement.layer.opacity,.31));
+    }
+    // Shared no-model backing still restores only after the last consumer.
+    UIView *emptyScope=[UIView new]; MTMaterialView *empty=[MTMaterialView new];
+    empty.alpha=.39; [emptyScope addSubview:empty];
+    LMVVideoState *empty1=[LMVVideoState new], *empty2=[LMVVideoState new];
+    LMVReplaceBackground(empty1,empty,emptyScope,@"Message",YES);
+    LMVReplaceBackground(empty2,empty,emptyScope,@"Options",YES);
+    assert(empty1.originals[0]==empty2.originals[0] && empty.layer.opacity==0);
+    LMVRestoreBackground(empty1); assert(empty.layer.opacity==0);
+    LMVRestoreBackground(empty2); assert(closeTo(empty.layer.opacity,.39));
     // Backing drawing suppression: keep UIView identity, baseline alpha visibility,
     // text constraints and the sibling plugin frame; never hide discovery anchor.
     UIView *scope=[UIView new]; MTMaterialView *material=[MTMaterialView new];

@@ -129,7 +129,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.102 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.103 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -682,7 +682,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.102 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.103 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1002,7 +1002,9 @@ static void LMVUpdate(UIView *cell) {
         [CATransaction commit];
         // Lease depends on enabled + selected + target scope, never decoder,
         // first frame, alpha or active consumption. Cold absence stays transparent.
-        BOOL originalInScope = cell.window && anchorVisible;
+        // Enabled+selected replacement follows the attached target owner, not
+        // video opacity or action-scroll visibility during an animation.
+        BOOL originalInScope = LMVOriginalTargetInScope(cell,anchor,host);
         if ([target isEqualToString:@"Message"]) {
             // A stack animation changes alpha/hidden before presentation ends.
             // Keep only this attached card's model-owned background replaced;
@@ -1039,10 +1041,7 @@ static BOOL LMVPrimeMessageCard(UIView *cell) {
         ![state.path isEqualToString:LMVPaths[@"Message"]];
     // UIKit may write the material's opacity at the start/end of the stack
     // animation. Revalidate through the guarded replacement path before commit.
-    for (LMVOriginalLease *lease in state.originals) {
-        if (lease.retired || (lease.method==LMVOriginalSuppressDrawing && lease.layer.opacity!=0.0f) ||
-            (lease.method==LMVOriginalDetach && lease.layer.superlayer)) { needsBinding=YES; break; }
-    }
+    if (LMVOriginalBackgroundNeedsMaintenance(state)) needsBinding=YES;
     if (anchor && (anchor.hidden || LMVOriginalVisibilityAlpha(anchor)<0.01)) {
         UIView *incoming=LMVMessageMaterialCandidate(cell,0,YES);
         if (incoming && incoming!=anchor) needsBinding=YES;
@@ -1120,17 +1119,31 @@ static void LMVUpdateActionPresenter(UIView *presenter) {
     objc_setAssociatedObject(owner, &LMVDiscoveryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LMVUpdate(owner);
 }
+static void LMVPrimeActionBackgrounds(UIView *presenter) {
+    if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVPreferencesDirty)return;
+    UIView *owner=presenter.superview;Class cellClass=NSClassFromString(@"NCNotificationListCell");
+    while(owner && (!cellClass || ![owner isKindOfClass:cellClass]))owner=owner.superview;
+    owner=owner ?: presenter;
+    NSDictionary *states=objc_getAssociatedObject(owner,&LMVStatesKey);
+    for(NSString *target in @[@"Options",@"Clear"]) {
+        LMVVideoState *state=states[target];
+        BOOL selected=LMVEnabled[target].boolValue && LMVPaths[target] && [state.path isEqualToString:LMVPaths[target]];
+        LMVMaintainOriginalBackground(state,owner,target,selected);
+    }
+}
 %hook PLActionButtonsPresentingView
 - (void)layoutSubviews {
     %orig;
     if (!LMVInitialized || !NSThread.isMainThread) return;
     [LMVActionPresenters addObject:(UIView *)self];
+    LMVPrimeActionBackgrounds((UIView *)self);
     LMVRequestCardUpdate((UIView *)self,YES);
 }
 - (void)didMoveToWindow {
     %orig;
     if (!LMVInitialized || !NSThread.isMainThread) return;
     [LMVActionPresenters addObject:(UIView *)self];
+    LMVPrimeActionBackgrounds((UIView *)self);
     LMVRequestCardUpdate((UIView *)self,YES);
 }
 %end

@@ -81,9 +81,10 @@ static void LMVOriginalCandidateBranch(UIView *view, BOOL wallpaper, NSUInteger 
         [view isKindOfClass:UITextView.class] || [view isKindOfClass:UIScrollView.class]) return;
     BOOL pure = !wallpaper && LMVOriginalPureView(view, NO, 0);
     BOOL detachOnly = pure && view.subviews.count == 0 && !view.layer.contents &&
-        !view.layer.backgroundColor && object_getClass(view.layer) == CALayer.class;
-    // Prefer real offline detach for independent draw leaves. A UIView backing
-    // layer stays attached whenever it draws or owns UIKit background subviews.
+        !view.layer.backgroundColor && object_getClass(view.layer) == CALayer.class && view.layer.sublayers.count > 0;
+    // Preserve the safe independent-leaf path. Nil contents/backgroundColor
+    // with no sublayers does not prove a confirmed material draws no pixels:
+    // UIKit may render via its delegate. Keep that backing attached and suppress.
     if (pure && !detachOnly) {
         [candidates addObject:@{@"layer":view.layer, @"method":@(LMVOriginalSuppressDrawing)}];
         return;
@@ -117,6 +118,24 @@ static void LMVOriginalCandidateBranch(UIView *view, BOOL wallpaper, NSUInteger 
 static void LMVOriginalCandidates(UIView *view, BOOL wallpaper, NSUInteger depth, NSMutableArray *candidates) {
     NSUInteger remaining = 96;
     LMVOriginalCandidateBranch(view, wallpaper, depth, candidates, &remaining);
+}
+// Replacement follows attached model ownership, not playback/presentation
+// visibility. The caller still confirms notification/action semantics.
+static BOOL LMVOriginalTargetInScope(UIView *owner, UIView *anchor, UIView *scope) {
+    return owner.window && anchor.superview && [anchor isDescendantOfView:owner] &&
+        (scope == anchor || scope == anchor.superview);
+}
+// O(leases), no discovery/tree reads on a stable layout. A dirty lease must be
+// revalidated through LMVReplaceBackground before UIKit's transaction commits.
+static BOOL LMVOriginalBackgroundNeedsMaintenance(LMVVideoState *state) {
+    for (LMVOriginalLease *lease in state.originals) {
+        CALayer *layer = lease.layer;
+        if (lease.retired || !layer || !lease.parent || !lease.scope) return YES;
+        if (lease.method == LMVOriginalSuppressDrawing) {
+            if (layer.opacity != 0.0f || layer.superlayer != lease.parent) return YES;
+        } else if (layer.superlayer) return YES;
+    }
+    return NO;
 }
 static void LMVRestoreBackground(LMVVideoState *state) {
     LMVReleaseOriginals(state.originals, state);
@@ -170,4 +189,14 @@ static void LMVReplaceBackground(LMVVideoState *state, UIView *anchor, UIView *s
         (wallpaper ? @"guarded-no-op:no-local-pure-wallpaper; secure-window-shared-or-unidentified" : @"guarded-no-op:material-has-content-or-unidentified");
     NSString *diagnostic = [NSString stringWithFormat:@"original target=%@ %@", target, reason];
     if (![state.originalDiagnostic isEqualToString:diagnostic]) { state.originalDiagnostic = diagnostic; LMVDiagnostic(diagnostic); }
+}
+// Call after the target owner's UIKit layout/didMoveToWindow, before commit.
+// Stable layouts only inspect owned leases; no global or per-frame discovery.
+static void LMVMaintainOriginalBackground(LMVVideoState *state, UIView *owner, NSString *target, BOOL selected) {
+    if (!state.originals.count) return;
+    if (!selected || !owner.window || LMVOriginalBackgroundNeedsMaintenance(state)) {
+        UIView *anchor = state.originalAnchor, *scope = state.originalScope;
+        LMVReplaceBackground(state, anchor, scope, target,
+            selected && LMVOriginalTargetInScope(owner, anchor, scope));
+    }
 }

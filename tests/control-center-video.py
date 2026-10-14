@@ -36,7 +36,8 @@ pre=pre.replace('@class UIWindow;', '''typedef NS_ENUM(NSInteger, UIUserInterfac
 @implementation UITraitCollection @end
 @class UIWindow;''')
 pre=pre.replace('@interface UIScreen:NSObject\n', '@interface UIScreen:NSObject\n@property(strong) UITraitCollection *traitCollection;\n')
-pre=pre.replace('@property(nonatomic) NSUInteger autoresizingMask;', '@property(nonatomic) NSUInteger autoresizingMask;\n@property(nonatomic,strong) NSArray *gestureRecognizers;')
+if 'NSArray *gestureRecognizers;' not in pre:
+ pre=pre.replace('@property(nonatomic) NSUInteger autoresizingMask;', '@property(nonatomic) NSUInteger autoresizingMask;\n@property(nonatomic,strong) NSArray *gestureRecognizers;')
 pre=pre.replace('- (BOOL)isDescendantOfView:(UIView *)view;', '- (BOOL)isDescendantOfView:(UIView *)view;\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view;\n- (CGRect)convertRect:(CGRect)rect fromView:(UIView *)view;')
 pre=pre.replace('- (UIWindow *)window {return self.superview.window;}', '- (UIWindow *)window {return self.superview.window;}\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view {return [self.layer convertRect:rect toLayer:view.layer];}\n- (CGRect)convertRect:(CGRect)rect fromView:(UIView *)view {return [self.layer convertRect:rect fromLayer:view.layer];}')
 pre=pre.replace('@interface UIViewController:NSObject\n','@interface UIViewController:NSObject\n@property(strong) UITraitCollection *traitCollection;\n- (void)viewWillDisappear:(BOOL)animated;\n- (void)traitCollectionDidChange:(UITraitCollection *)previous;\n')

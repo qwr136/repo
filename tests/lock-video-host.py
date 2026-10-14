@@ -56,6 +56,7 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 @property(nonatomic) BOOL hidden,clipsToBounds,opaque,userInteractionEnabled,isAccessibilityElement,accessibilityElementsHidden;
 @property(nonatomic) CGFloat alpha;
 @property(nonatomic) NSUInteger autoresizingMask;
+@property(nonatomic,strong) NSArray *gestureRecognizers;
 @property(nonatomic,strong) UIColor *backgroundColor;
 @property(nonatomic,readonly) UIWindow *window;
 - (instancetype)initWithFrame:(CGRect)rect;

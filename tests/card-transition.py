@@ -56,6 +56,7 @@ SIGNATURES = [
     'static BOOL LMVPrimeMessageCard(UIView *cell)',
 ]
 PRODUCTION = {signature: function(signature) for signature in SIGNATURES}
+action_prime = function('static void LMVPrimeActionBackgrounds(UIView *presenter)')
 discovery = PRODUCTION[SIGNATURES[2]]
 update = PRODUCTION[SIGNATURES[-2]]
 prime = PRODUCTION[SIGNATURES[-1]]
@@ -420,9 +421,65 @@ static void testPrimeGatesAndReuse(void) {
     assert(!objc_getAssociatedObject(cell,&LMVHostsKey) && !objc_getAssociatedObject(cell,&LMVDiscoveryKey));
     assert(LMVPrimeMessageCard(cell));bound(cell,m);unbind(cell);[CATransaction commit];
 }
+static void testAllTargetReplacementPolicy(void) {
+    for (NSString *target in @[@"Message",@"Options",@"Clear"]) {
+        configure(); LMVEnabled[@"Message"]=@NO; [LMVPaths removeAllObjects];
+        LMVEnabled[target]=@YES; LMVPaths[target]=@"movie";
+        // Cold/error/temporarily-not-ready: no frame, no decoder, alpha zero.
+        snapshot=[LMVFrameSnapshot new]; [LMVSharedSources removeAllObjects];
+        LMVOpacity=0; LMVReadyAssets=[NSSet set];
+        UIWindow *window=[UIWindow new]; UIView *wrapper; MTMaterialView *m;
+        NCNotificationListCell *cell=card(window,&wrapper,&m);
+        PLActionButtonsPresentingView *presenter=nil; UIButton *button=nil;
+        if (![target isEqual:@"Message"]) {
+            [m removeFromSuperview]; presenter=[PLActionButtonsPresentingView new];
+            button=[UIButton new]; button.testTitle=[target isEqual:@"Clear"]?@"Clear All":@"Options";
+            [wrapper addSubview:presenter]; [presenter addSubview:button]; [button addSubview:m];
+        }
+        // This nil-model material was skipped by the baseline discovery path.
+        m.layer.backgroundColor=NULL; assert(!m.layer.contents && !m.layer.sublayers.count);
+        UILabel *text=[UILabel new]; text.text=@"retained content"; text.alpha=.81; [wrapper addSubview:text];
+        LMVUpdate(cell);
+        NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey); LMVVideoState *s=states[target];
+        assert(s && s.anchor==m && s.originals.count==1 && !s.layer.contents && !s.source);
+        assert(m.layer.opacity==0 && m.layer.superlayer==m.superview.layer);
+        LMVOriginalLease *lease=s.originals.firstObject;
+        LMVOpacityEnabled=NO; clockNow+=.01; LMVUpdate(cell);
+        assert(s.originals.firstObject==lease && m.layer.opacity==0 && near(s.overlay.alpha,0));
+        // Owned overlay transparency is intentionally unrelated to lease policy.
+        s.layer.opacity=0;
+        wrapper.hidden=YES; clockNow+=.101; LMVUpdate(cell);
+        assert(s.originals.firstObject==lease && m.layer.opacity==0);
+        wrapper.hidden=NO; cell.frame=CGRectMake(30,2000,320,160); clockNow+=.101; LMVUpdate(cell);
+        assert(s.originals.firstObject==lease && m.layer.opacity==0 && !s.active);
+        cell.frame=CGRectMake(30,60,320,160); clockNow+=.101; LMVUpdate(cell);
+        // Synchronous system re-draw before the current transaction commits.
+        [CATransaction begin]; [CATransaction setDisableActions:YES]; m.layer.opacity=.62;
+        assert(LMVOriginalBackgroundNeedsMaintenance(s));
+        if ([target isEqual:@"Message"]) assert(LMVPrimeMessageCard(cell));
+        else LMVPrimeActionBackgrounds(presenter);
+        assert(m.layer.opacity==0 && !LMVOriginalBackgroundNeedsMaintenance(s));
+        [CATransaction commit];
+        assert(text.layer.opacity==.81f && text.layer.superlayer==wrapper.layer && !text.hidden);
+        if (button) assert(button.layer.opacity==1 && !button.hidden);
+        [LMVPaths removeObjectForKey:target]; LMVUpdate(cell);
+        states=objc_getAssociatedObject(cell,&LMVStatesKey);
+        assert(!states[target] && lease.retired && near(m.layer.opacity,.62));
+        LMVPaths[target]=@"movie"; clockNow+=.101; LMVUpdate(cell);
+        states=objc_getAssociatedObject(cell,&LMVStatesKey); s=states[target]; assert(s.originals.count==1);
+        LMVEnabled[target]=@NO; LMVUpdate(cell); assert(near(m.layer.opacity,.62));
+        LMVEnabled[target]=@YES; clockNow+=.101; LMVUpdate(cell);
+        states=objc_getAssociatedObject(cell,&LMVStatesKey); s=states[target]; assert(s.originals.count==1);
+        LMVTestReuse(cell); assert(near(m.layer.opacity,.62) && !s.originals.count);
+        clockNow+=.101; LMVUpdate(cell); states=objc_getAssociatedObject(cell,&LMVStatesKey); s=states[target];
+        assert(s.originals.count==1); [cell removeFromSuperview]; clockNow+=.101; LMVUpdate(cell);
+        assert(!s.originals.count && near(m.layer.opacity,.62));
+        [CATransaction commit];
+    }
+}
 int main(void) { @autoreleasepool {
     assert(NSThread.isMainThread);
-    testEntry(NO);testEntry(YES);testReplacement();testIsolation();testPrimeGatesAndReuse();
+    testEntry(NO);testEntry(YES);testReplacement();testIsolation();testPrimeGatesAndReuse();testAllTargetReplacementPolicy();
     [CATransaction flush];
     puts("PASS native: actual Tweak.xm update/discovery/prime/geometry + lease headers; hidden/alpha0 cached entry, 50 stable layouts, hierarchy visibility scope, <100ms replacement, reparent/overlay repair, path/disable/detach/reuse restore, labels/nested/owned overlay/header isolation, action throttle and launch/main-thread gates");
 } return 0; }
@@ -451,7 +508,7 @@ if candidate:
 fragments += [PRODUCTION[x] for x in SIGNATURES[2:5]]
 fragments += ['#import "LMVActionDiscovery.h"']
 fragments += [PRODUCTION[x] for x in SIGNATURES[5:8]]
-fragments += [actual_update, prime, queue_stubs, reuse, helpers, scenarios]
+fragments += [actual_update, prime, action_prime, queue_stubs, reuse, helpers, scenarios]
 with tempfile.TemporaryDirectory(prefix='lmv-card-transition-') as temporary:
     source = Path(temporary) / 'card-transition.mm'
     binary = Path(temporary) / 'card-transition'

@@ -219,18 +219,9 @@ static inline CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow
     return LMVLockVideoGeometry(content,container,root,container==content?LMVLockVideoContentBackdrop(content):nil,window,NULL);
 }
 
-// 0.0.92: while the CoverSheet slides, the branch that holds the panel is offset
-// inside the controller's own view, so a surface parented inside that branch can
-// only ever cover the panel itself. Everything the panel no longer covers showed
-// the system wallpaper (the "top leaks wallpaper" report). Promotion moves the
-// surface into the first non-clipping ancestor that still covers the window
-// viewport, directly below the branch holding the panel and above the branch that
-// draws the panel background, and widens the clip to that ancestor. Visibility is
-// still decided by the slideable content, so a withdrawn panel withdraws the
-// surface exactly as before.
-// The promoted surface must cover the whole visible viewport, otherwise the same
-// strip simply leaks again from a different parent.
-// Only aboveSubview: is used for placement, so no extra UIView API is required.
+// Geometry remains the .102 admitted content/backdrop region. .103 does not
+// widen it to a full window or add a new video/decoder. The new bounded checks
+// below address paint-order gaps and same-transaction mask timing separately.
 static NSString *LMVLockVideoRectText(CGRect rect) {
     return LMVLockVideoRectValid(rect)?[NSString stringWithFormat:@"{{%.0f,%.0f},{%.0f,%.0f}}",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height]:@"(none)";
 }
@@ -254,7 +245,7 @@ static NSString *LMVLockVideoPerf(const char *channel,CFTimeInterval seconds) {
 // from below, so they are LEASED: hidden while our video is on screen and restored
 // exactly as found afterwards. Nothing is detached, so the system keeps owning them.
 @interface LMVLockVideoPaintEntry : NSObject
-@property(nonatomic,weak) UIView *view,*parent;
+@property(nonatomic,weak) UIView *view,*parent,*scope;
 @property(nonatomic) BOOL baselineHidden,ownsHidden;
 @end
 @implementation LMVLockVideoPaintEntry @end
@@ -267,7 +258,8 @@ static void LMVLockVideoRestorePaint(LMVLockVideoPaintEntry *entry,UIView *conta
     UIView *view=entry.view;
     // A reparented/reused system view is no longer ours to restore. Do not undo a
     // newer visible state either; restore only the hidden value this lease owns.
-    if (entry.ownsHidden && view.hidden && view.superview==entry.parent && [view isDescendantOfView:container])
+    UIView *scope=entry.scope ?: container;
+    if (entry.ownsHidden && view.hidden && view.superview==entry.parent && [view isDescendantOfView:scope])
         view.hidden=entry.baselineHidden;
 }
 static BOOL LMVLockVideoPaintAbove(UIView *view,UIView *container,UIView *host) {
@@ -276,6 +268,24 @@ static BOOL LMVLockVideoPaintAbove(UIView *view,UIView *container,UIView *host) 
     if (!branch || branch==host || host.superview!=container) return NO;
     NSUInteger own=[container.subviews indexOfObjectIdenticalTo:host],index=[container.subviews indexOfObjectIdenticalTo:branch];
     return own!=NSNotFound && index!=NSNotFound && index>own;
+}
+static BOOL LMVLockVideoRepaintPure(UIView *view) {
+    if(!view)return NO;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:view];NSUInteger budget=96;
+    while(pending.count && budget--) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        if([node isKindOfClass:UIControl.class] || [node isKindOfClass:UILabel.class] ||
+           [node isKindOfClass:UITextView.class] || [node isKindOfClass:UIScrollView.class] ||
+           node.isAccessibilityElement || node.gestureRecognizers.count || node.subviews.count>24)return NO;
+        for(CALayer *layer in node.layer.sublayers) {
+            BOOL backing=NO;for(UIView *child in node.subviews)if(child.layer==layer){backing=YES;break;}
+            if(backing)continue;
+            if([layer isKindOfClass:CATextLayer.class] || [layer.name hasPrefix:@"com.minis.lockmessagevideo"] ||
+               (layer.delegate && layer.delegate!=node))return NO;
+        }
+        [pending addObjectsFromArray:node.subviews];
+    }
+    return !pending.count;
 }
 static BOOL LMVLockVideoRepaint(UIView *view,UIView *content) {
     if (!view || !content) return NO;
@@ -287,10 +297,19 @@ static BOOL LMVLockVideoRepaint(UIView *view,UIView *content) {
                [name containsString:@"SBDashBoardWallpaper"] ||
                [name containsString:@"WallpaperEffectView"] ||
                [name containsString:@"PBUIWallpaperView"];
-    if (!named) return NO;
-    CALayer *layer=view.layer.presentationLayer ?: view.layer;
-    CGRect frame=[layer convertRect:layer.bounds toLayer:content.layer];
-    return frame.size.width>=content.bounds.size.width*0.5 && frame.size.height>=content.bounds.size.height*0.3;
+    if (!named || !LMVLockVideoRepaintPure(view) || view.window!=content.window) return NO;
+    UIWindow *window=content.window;
+    CALayer *layer=view.layer.presentationLayer,*space=window.layer.presentationLayer;
+    CALayer *owner=content.layer.presentationLayer;
+    if(!layer || !space || !owner){layer=view.layer;space=window.layer;owner=content.layer;}
+    CGRect frame=LMVLockVideoRectInTree(view,window,layer,space);
+    CGRect exposed=LMVLockVideoRectInTree(content,window,owner,space);
+    if(!LMVLockVideoRectValid(frame) || !LMVLockVideoRectValid(exposed))return NO;
+    // Captured wallpaper can be just a few-point top strip. A 30% minimum
+    // height discarded exactly those strips even when their z-order was above
+    // the video. Test actual finite on-screen overlap/adjacency instead.
+    CGRect adjacent=CGRectInset(exposed,-1,-1);
+    return frame.size.width>=exposed.size.width*0.5 && frame.size.height>.5 && CGRectIntersectsRect(frame,adjacent);
 }
 static void LMVLockVideoCollectRepainters(UIView *node,UIView *content,NSMutableArray *output,NSUInteger *budget) {
     if (!node || !*budget) return;
@@ -302,6 +321,33 @@ static void LMVLockVideoCollectRepainters(UIView *node,UIView *content,NSMutable
         if (!*budget) return;
         LMVLockVideoCollectRepainters(child,content,output,budget);
     }
+}
+static void LMVLockVideoFindAbovePaint(UIView *container,UIView *host,UIView *content,NSMutableArray *found,NSUInteger *budget) {
+    if(!container || host.superview!=container || content.window!=container.window)return;
+    UIView *branch=host;UIWindow *window=content.window;NSUInteger depth=0;
+    for(UIView *scope=container;scope && depth++<16 && *budget;branch=scope,scope=scope.superview) {
+        if(scope.window!=window || ![content isDescendantOfView:scope])break;
+        NSUInteger own=[scope.subviews indexOfObjectIdenticalTo:branch];
+        if(own==NSNotFound)break;
+        for(NSUInteger index=own+1;index<scope.subviews.count && *budget;index++) {
+            if(scope.subviews[index]==host)continue;
+            // The owned host includes the admitted top paint which can lie just
+            // outside content's inset bounds. Compare a capture to that actual
+            // video host, not the inset content rectangle that caused the gap.
+            LMVLockVideoCollectRepainters(scope.subviews[index],host,found,budget);
+        }
+        if(scope==window)break;
+    }
+}
+static BOOL LMVLockVideoAboveHostTree(UIView *view,UIView *host,UIView *content) {
+    if(!view || !host || view.window!=content.window || host.window!=content.window)return NO;
+    UIView *branch=host;NSUInteger depth=0;
+    for(UIView *scope=host.superview;scope && depth++<16;branch=scope,scope=scope.superview) {
+        if(scope.window!=content.window || ![content isDescendantOfView:scope])return NO;
+        if(LMVLockVideoPaintAbove(view,scope,branch))return YES;
+        if(scope==content.window)break;
+    }
+    return NO;
 }
 @interface LMVLockVideoHost : UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
@@ -343,6 +389,7 @@ static void LMVLockVideoSuspend(void);
 @property(nonatomic) BOOL hasLastClip;
 @property(nonatomic,strong) LMVLockVideoPaintLease *paintLease;
 @property(nonatomic) CFTimeInterval paintLeaseTime;
+@property(nonatomic) BOOL paintLeaseDirty;
 @property(nonatomic,copy) NSString *paintText;
 - (void)refresh:(BOOL)reload;
 - (void)update;
@@ -419,24 +466,24 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     NSMutableArray *entries=[NSMutableArray arrayWithArray:self.paintLease.entries ?: @[]];
     // Keep valid entries continuously hidden, even when new views are discovered.
     // Staleness is exact parent/container/above-host ownership, not just attached.
-    BOOL stale=NO;
+    BOOL stale=NO,audit=self.paintLeaseDirty || now-self.paintLeaseTime>=.5;
     for (LMVLockVideoPaintEntry *entry in entries.copy) {
         UIView *view=entry.view;
-        if (!view || view.superview!=entry.parent || !LMVLockVideoPaintAbove(view,container,self.host)) {
+        if (!view || view.superview!=entry.parent || view.window!=self.content.window ||
+            !LMVLockVideoAboveHostTree(view,self.host,self.content) || (audit && !LMVLockVideoRepaintPure(view))) {
             LMVLockVideoRestorePaint(entry,container);[entries removeObjectIdenticalTo:entry];stale=YES;
         }
     }
-    BOOL scan=!self.paintLease || stale || now-self.paintLeaseTime>=.5;
+    BOOL scan=!self.paintLease || self.paintLeaseDirty || stale || now-self.paintLeaseTime>=.5;
+    self.paintLeaseDirty=NO;
     if (scan) {
         NSMutableArray *found=[NSMutableArray new];NSUInteger budget=240;
-        NSArray *siblings=container.subviews;NSUInteger own=[siblings indexOfObjectIdenticalTo:self.host];
-        if (own!=NSNotFound) for (NSUInteger index=own+1;index<siblings.count && budget;index++)
-            LMVLockVideoCollectRepainters(siblings[index],container,found,&budget);
+        LMVLockVideoFindAbovePaint(container,self.host,self.content,found,&budget);
         self.paintLeaseTime=now;
         for (UIView *view in found) {
             BOOL known=NO;for (LMVLockVideoPaintEntry *entry in entries) if (entry.view==view) {known=YES;break;}
             if (known) continue;
-            LMVLockVideoPaintEntry *entry=[LMVLockVideoPaintEntry new];entry.view=view;entry.parent=view.superview;
+            LMVLockVideoPaintEntry *entry=[LMVLockVideoPaintEntry new];entry.view=view;entry.parent=view.superview;entry.scope=self.content.window;
             entry.baselineHidden=view.hidden;entry.ownsHidden=!view.hidden;[entries addObject:entry];
         }
     }
@@ -536,17 +583,17 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         CALayer *coverRoot=coverWindow.layer.presentationLayer ?: coverWindow.layer;
         CALayer *coverSpace=self.host.layer.presentationLayer ?: self.host.layer;
         CGRect hostInWindow=[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot];
-        CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectOffset(clip,hostInWindow.origin.x,hostInWindow.origin.y);
+        CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:[coverSpace convertRect:clip toLayer:coverRoot];
         // What the sampled band alone would have left uncovered: this is the leak
         // that the one-frame lead above removes, so a future report can tell the two
         // apart ("geometry lag" vs "covered by something else").
-        CGRect sampledRevealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectOffset(sampledClip,hostInWindow.origin.x,hostInWindow.origin.y);
+        CGRect sampledRevealed=CGRectIsEmpty(coverViewport)?CGRectZero:[coverSpace convertRect:sampledClip toLayer:coverRoot];
         CGFloat sampledGapTop=CGRectIsEmpty(sampledRevealed)?coverViewport.size.height:MAX(0.0,sampledRevealed.origin.y-coverViewport.origin.y);
         CGFloat sampledGapBottom=CGRectIsEmpty(sampledRevealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(sampledRevealed.origin.y+sampledRevealed.size.height));
         CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
         CGFloat gapTop=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,revealed.origin.y-coverViewport.origin.y);
         CGFloat gapBottom=CGRectIsEmpty(revealed)?coverViewport.size.height:MAX(0.0,(coverViewport.origin.y+coverViewport.size.height)-(revealed.origin.y+revealed.size.height));
-        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d %@|%@|%@",floor(revealedHeight/20.0)*20.0,floor(gapTop/20.0)*20.0,floor(gapBottom/20.0)*20.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden,hostParent?NSStringFromClass(hostParent.class):@"none",aboveText,self.paintText?:@"-"];
+        NSString *coverKey=[NSString stringWithFormat:@"r=%.0f t=%.0f b=%.0f L=%.0f t0=%.0f b0=%.0f v=%d %@|%@|%@",floor(revealedHeight/20.0)*20.0,floor(gapTop*2.0)/2.0,floor(gapBottom*2.0)/2.0,floor(lead/10.0)*10.0,floor(sampledGapTop/20.0)*20.0,floor(sampledGapBottom/20.0)*20.0,(int)self.host.hidden,hostParent?NSStringFromClass(hostParent.class):@"none",aboveText,self.paintText?:@"-"];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
             NSString *coverLine=[NSString stringWithFormat:@"lock-video cover reveal=%.1f gapTop=%.1f gapBottom=%.1f lead=%.1f sampledGapTop=%.1f sampledGapBottom=%.1f hostHidden=%d container=%@ hostSuper=%@ above=[%@] leasedPaint=[%@] clip=%@ hostInWindow=%@",
@@ -572,8 +619,10 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     if (!self.enabled || !self.path.length || !self.revision.length) {
         if (self.playback.path || self.playback.player || self.playback.loading) [self.playback clear];
     }
-    NSString *coverPerf=LMVLockVideoPerf("lock",CACurrentMediaTime()-coverPerf0);
-    if (coverPerf) LMVLockVideoLog(coverPerf);
+    if(diagnostics) {
+        NSString *coverPerf=LMVLockVideoPerf("lock",CACurrentMediaTime()-coverPerf0);
+        if (coverPerf) LMVLockVideoLog(coverPerf);
+    }
     self.updating=NO;
 }
 @end
@@ -619,7 +668,18 @@ static void (*LMVLockOriginalDidAppear)(id,SEL,BOOL);
 static void (*LMVLockOriginalDidDisappear)(id,SEL,BOOL);
 static void LMVLockHookLoadView(id object,SEL selector) {LMVLockOriginalLoadView(object,selector);LMVLockVideoLifecycle(object,-1);}
 static void LMVLockHookDidLoad(id object,SEL selector) {LMVLockOriginalDidLoad(object,selector);LMVLockVideoLifecycle(object,-1);}
-static void LMVLockHookLayout(id object,SEL selector) {LMVLockOriginalLayout(object,selector);LMVLockVideoLifecycle(object,-1);}
+static void LMVLockHookLayout(id object,SEL selector) {
+    LMVLockOriginalLayout(object,selector);
+    // The system just changed geometry/z-order. Repair the existing active NC
+    // host in this same transaction, rather than leaving a stale mask/capture
+    // visible until the queued global refresh or the next display-link tick.
+    if(LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVLockVideo &&
+       LMVLockVideo.controller==object && !LMVLockVideo.updating && LMVLockVideo.enabled && LMVLockVideoScreenAllowed()) {
+        LMVLockVideo.paintLeaseDirty=YES;[LMVLockVideo update];
+        return; // this local pass subsumes the layout event, not a global cascade
+    }
+    LMVLockVideoLifecycle(object,-1);
+}
 static void LMVLockHookWillAppear(id object,SEL selector,BOOL animated) {LMVLockOriginalWillAppear(object,selector,animated);LMVLockVideoLifecycle(object,1);}
 static void LMVLockHookDidAppear(id object,SEL selector,BOOL animated) {LMVLockOriginalDidAppear(object,selector,animated);LMVLockVideoLifecycle(object,1);}
 static void LMVLockHookDidDisappear(id object,SEL selector,BOOL animated) {LMVLockOriginalDidDisappear(object,selector,animated);LMVLockVideoLifecycle(object,0);}
