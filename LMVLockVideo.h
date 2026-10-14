@@ -177,14 +177,22 @@ static CGRect LMVLockVideoOwnedPaintRect(CGRect containerRect,CGRect exposure,CG
     owned=CGRectIntersection(owned,viewport);
     return LMVLockVideoRectValid(owned)?owned:CGRectZero;
 }
-// Final mask stage, not the earlier exposure union. A currently verified
-// content-owned host must retain at least its container; physical clipping
-// remains an intersection. Root fallback/withdrawn/unknown hosts get no union.
-static CGRect LMVLockVideoFinalMask(CGRect local,CGRect container,CGRect physical,BOOL owned) {
+// Final mask stage, not the earlier exposure union. The host mask NEVER
+// shrinks below the attached container's own bounds, whatever the system is
+// doing to the background paint this frame: pulling Notification Center down
+// hides, re-orders and re-lays-out that paint (and the derived rect with it),
+// and gating this union on that momentary state opened a hole in the mask
+// that showed the ORIGINAL wallpaper behind the host -- the top strip. The
+// 0.1.3 reference closes it with a plain container-bounds union, and it must
+// hold on the ROOT-owned fallback too: this device's slideable content owns
+// no leading background run, so the container is controller.view and the old
+// root path still required a currently visible backdrop (104/105 leaked).
+// Physical still bounds the result -- window viewport, real ancestor clipping
+// and the panel bottom -- so a withdrawn panel never paints the uncovered
+// application below, and offscreen stays fail-closed.
+static CGRect LMVLockVideoFinalMask(CGRect local,CGRect container,CGRect physical) {
     if(!LMVLockVideoRectValid(container) || !LMVLockVideoRectValid(physical))return CGRectZero;
-    CGRect mask=local;
-    if(owned)mask=LMVLockVideoRectValid(local)?CGRectUnion(local,container):container;
-    if(!LMVLockVideoRectValid(mask))return CGRectZero;
+    CGRect mask=LMVLockVideoRectValid(local)?CGRectUnion(local,container):container;
     mask=CGRectIntersection(mask,physical);
     return LMVLockVideoRectValid(mask)?mask:CGRectZero;
 }
@@ -228,15 +236,18 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     BOOL owned=(ownsBackdrop || (rootBackdrop && backdropOn)) && !content.hidden && content.alpha>.01 &&
         LMVLockVideoRectValid(containerRect);
     if(!LMVLockVideoRectValid(admitted) && !owned)return CGRectZero;
-    // Union is applied to the FINAL owned-host mask, not just the earlier
-    // backdrop exposure calculation. A transient empty derived region can use
-    // the still-exposed attached container; physical offscreen still rejects.
+    // Union is applied to the FINAL host mask, not just the earlier backdrop
+    // exposure calculation, and it is no longer gated on the backdrop's
+    // momentary visibility: a transient empty/inset derived region falls back
+    // to the still-attached container bounds. Physical offscreen still rejects.
     CGRect local=LMVLockVideoRectValid(admitted)?[space convertRect:admitted fromLayer:root]:CGRectZero;
     if (!LMVLockVideoRectValid(space.bounds)) return CGRectZero;
     // This is the final mask operation discussed in the supplied patch notes.
     // The container's own currently exposed bounds may extend farther than the
-    // calculated local mask. Preserve that owned paint instead of intersecting
-    // it away a second time. Do not grant a whole-window fallback.
+    // calculated local mask. The mask keeps at least that container paint
+    // instead of intersecting it away; physical (viewport, real ancestor
+    // clips, panel bottom) is what bounds it, so this grants no whole-window
+    // fallback for a withdrawn or partial panel.
     CGRect physical=LMVVideoWindowViewport(window);
     for(UIView *node=container;node && node!=window;node=node.superview) {
         if(node.clipsToBounds || node.layer.masksToBounds) {
@@ -254,7 +265,7 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
         CGRect shown=[space convertRect:containerRect fromLayer:root];
         physicalLocal.size.height=MAX(0,MIN(CGRectGetMaxY(physicalLocal),CGRectGetMaxY(shown))-CGRectGetMinY(physicalLocal));
     }
-    CGRect mask=LMVLockVideoFinalMask(local,space.bounds,physicalLocal,owned);
+    CGRect mask=LMVLockVideoFinalMask(local,space.bounds,physicalLocal);
     if(!LMVLockVideoRectValid(mask))return CGRectZero;
     CGRect frame=CGRectUnion(space.bounds,mask);
     if(hostFrame)*hostFrame=frame;
@@ -548,6 +559,9 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
     CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;
     UIViewController *best=nil;UIView *content=nil;CGFloat area=0;
+    // 0.0.106: a lifecycle-visible CoverSheet keeps the decoder running even
+    // when this frame's derived geometry momentarily fails (see setVisible:).
+    BOOL coverPresented=NO;
     if (self.enabled && self.path.length && self.revision.length && self.screenAllowed) {
         for (UIViewController *candidate in LMVLockControllers.allObjects) {
             UIView *root=candidate.viewIfLoaded;UIWindow *window=root.window;
@@ -556,6 +570,14 @@ static BOOL LMVLockVideoScreenAllowed(void) {
             if (!record) {record=[LMVLockControllerRecord new];objc_setAssociatedObject(candidate,&LMVLockControllerRecordKey,record,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
             UIView *sliding=LMVLockVideoContent(root);CGRect contentRect=LMVLockVideoVisibleRect(sliding,window);
             CGRect viewport=LMVVideoWindowViewport(window),panel=LMVLockVideoVisibleRect(root,window);
+            // 0.0.106: a genuinely presented CoverSheet -- lifecycle-visible, with
+            // a live slideable content and panel -- keeps the decoder running even
+            // when this frame's derived exposure/clip momentarily fails (the NC
+            // pull-down hides and re-lays-out the system background paint). A
+            // degenerate content/panel (zero-size, withdrawn, no content at all)
+            // is NOT presented and still pauses.
+            if (record.lifecycleKnown && record.visible && sliding &&
+                LMVLockVideoRectValid(contentRect) && LMVLockVideoRectValid(panel)) coverPresented=YES;
             CGRect exposed=CGRectIntersection(contentRect,panel);
             UIView *backdrop=LMVLockVideoContentBackdrop(sliding);
             BOOL ownedActive=sliding && !sliding.hidden && sliding.alpha>.01 && backdrop && !backdrop.hidden && backdrop.alpha>.01 &&
@@ -654,7 +676,19 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         [self releasePaint];
         self.host.hidden=YES;[self.host removeFromSuperview];self.content=nil;self.controller=nil;
     }
-    [self.playback setVisible:visible];
+    // 0.0.106: playback intent is decoupled from the per-frame host geometry.
+    // Pulling Notification Center down transiently invalidates the derived
+    // exposure/clip -- the system hides and re-lays-out the background paint
+    // and the presentation layers are mid-animation -- and pausing the decoder
+    // on every such frame froze the video for the whole gesture: it only
+    // resumed once the panel settled ("frozen while pulling, plays at the
+    // bottom"). The decoder now runs whenever the CoverSheet is genuinely
+    // presented (a lifecycle-visible controller or an exposed host), while the
+    // host itself still follows the geometry frame by frame. Unlocking,
+    // screen-off, suspend and disable pause immediately via the lifecycle
+    // record, screenAllowed and enabled.
+    BOOL playbackWanted=self.enabled && self.path.length && self.revision.length && self.screenAllowed && (best || coverPresented);
+    [self.playback setVisible:playbackWanted];
     // One lightweight geometry monitor only while the CoverSheet is exposed.
     // No message frame decoder, extra UIWindow, original opacity lease or source-cache write.
     if (best && content && self.screenAllowed) {

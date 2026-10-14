@@ -6,6 +6,11 @@ r=Path(__file__).resolve().parents[1]
 h=(r/'LMVLockVideo.h').read_text()
 assert 'LMVLockVideoGeometry' in h and 'record.wasExposed' in h
 assert 'LMVLockVideoRepaint(node,content)' in h
+# 0.0.106: the final mask union is unconditional -- pulling NC down hides the
+# system background paint, and gating the union on that momentary state opened
+# a mask hole above the container that showed the original wallpaper.
+assert 'LMVLockVideoFinalMask(local,space.bounds,physicalLocal)' in h, 'final-mask union no longer takes an owned flag'
+assert 'BOOL coverPresented=NO;' in h and 'BOOL playbackWanted=' in h, 'playback intent is decoupled from the per-frame host geometry'
 assert 'self.host.frame=hostFrame' in h and 'entry.baselineHidden' in h
 assert 'sliding && !sliding.hidden && sliding.alpha>.01' in h, 'preserve .100 content visibility gate'
 assert 'owned=CGRectUnion(containerRect,exposure)' in h, 'union is restricted to owned paint/container space'
@@ -189,6 +194,17 @@ int main(void){@autoreleasepool{
  CGRect preserved=[m.host.layer convertRect:CGPathGetBoundingBox(m.host.clipLayer.path) toLayer:window.layer];
  assert(CGRectEqualToRect(preserved,CGRectMake(0,0,390,211)));
  record.visible=NO;for(int n=0;n<50;n++){[m update];assert(m.playback.wantsPlayback);}
+ // 0.0.106: the NC pull-down transient. The system hides the slideable content
+ // for a frame while it re-lays-out the background paint: the host is withdrawn,
+ // but the CoverSheet is still lifecycle-visible with live content and panel, so
+ // the decoder must keep running (it used to pause and freeze the picture until
+ // the panel settled). A real dismissal (unlock) still pauses immediately.
+ cover.hidden=NO;window.hidden=NO;cover.frame=CGRectMake(0,0,390,844);sliding.frame=CGRectMake(0,0,390,844);movingBack.frame=CGRectMake(0,0,390,844);record.visible=YES;
+ [m update];assert(m.playback.wantsPlayback && m.host.superview==sliding);
+ for(int n=0;n<50;n++){
+  sliding.hidden=YES;[m update];assert(m.playback.wantsPlayback && !m.host.superview);
+  sliding.hidden=NO;[m update];assert(m.playback.wantsPlayback && m.host.superview==sliding);}
+ record.visible=NO;[m update];assert(!m.playback.wantsPlayback);
  sliding.hidden=YES;[m update];assert(!m.playback.wantsPlayback && !record.wasExposed);sliding.hidden=NO;
  record.visible=YES;cover.slideableContentView=nil;[m update];assert(!m.playback.wantsPlayback && !m.host.superview);cover.slideableContentView=sliding;
  cover.hidden=NO;window.hidden=NO;
