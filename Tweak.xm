@@ -129,7 +129,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.100 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.101 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -682,7 +682,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.100 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.101 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1282,13 +1282,16 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
     });
 }
 static void LMVScreenNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    uint64_t blank=0;
-    BOOL blanked=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK && blank;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!LMVInitialized || !LMVLaunchReady) return;
+        // A blank notification can be queued immediately before unlock. Read
+        // the CURRENT state on the UI turn; never apply an obsolete blank value
+        // that would hide Home just as it is being revealed.
+        uint64_t blank=1;
+        BOOL blanked=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK && blank;
         if (blanked) LMVDesktopVideoScreenBlank();
         if (!LMVPlaybackAllowed()) LMVSuspend();
-        else LMVPrepareAssets();
+        else {LMVDesktopVideoScreenChanged();LMVPrepareAssets();}
         LMVRequestSafeUpdate();
     });
 }
@@ -1326,7 +1329,14 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         }];
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (LMVInitialized && LMVLaunchReady) LMVSuspend();
+                if (!LMVInitialized || !LMVLaunchReady) return;
+                if (!LMVPlaybackAllowed()) LMVSuspend();
+                else {
+                    // SpringBoard becoming inactive does not mean an exposed
+                    // NC/CC/Home surface vanished. Let each channel's scope and
+                    // current screen state decide, not an application-state latch.
+                    LMVReleaseAllPlayers();LMVRequestSafeUpdate();
+                }
             });
         }];
         %init;

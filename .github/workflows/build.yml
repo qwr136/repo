@@ -3,7 +3,7 @@ name: build-deb
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, fix/0.0.100-roothide ]
+    branches: [ main, master, fix/0.0.101-roothide ]
     paths-ignore:
       - 'Packages/**'
       - 'Release/**'
@@ -62,6 +62,7 @@ jobs:
           check python3 tests/settings-import-regression.py
           check python3 tests/preferences-routing.py
           check python3 tests/startup-reentry.py
+          check python3 tests/screen-transitions.py
           check python3 tests/card-local-updates.py
           check python3 tests/card-transition.py
           check python3 tests/original-background-regression.py

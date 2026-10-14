@@ -164,20 +164,31 @@ static CGRect LMVLockVideoGeometry(UIView *content,UIView *container,UIView *con
     if (!content || !container || !controllerRoot || !window || ![content isDescendantOfView:controllerRoot]) return CGRectZero;
     CALayer *space=container.layer.presentationLayer,*contentSpace=content.layer.presentationLayer;
     CALayer *root=window.layer.presentationLayer,*panel=controllerRoot.layer.presentationLayer;
-    BOOL presented=space && contentSpace && root && panel;
-    if (!presented) {space=container.layer;contentSpace=content.layer;root=window.layer;panel=controllerRoot.layer;}
+    BOOL ownsBackdrop=container==content && backdrop && backdrop.superview==content && backdrop==LMVLockVideoContentBackdrop(content);
+    CALayer *paint=ownsBackdrop?backdrop.layer.presentationLayer:nil;
+    BOOL presented=space && contentSpace && root && panel && (!ownsBackdrop || paint);
+    if (!presented) {space=container.layer;contentSpace=content.layer;root=window.layer;panel=controllerRoot.layer;paint=ownsBackdrop?backdrop.layer:nil;}
     CGRect viewport=CGRectIntersection(LMVVideoWindowViewport(window),LMVLockVideoRectInTree(controllerRoot,window,panel,root));
     CGRect admitted=CGRectIntersection(LMVLockVideoRectInTree(content,window,contentSpace,root),viewport);
     if (!LMVLockVideoRectValid(admitted)) return CGRectZero;
-    // A content-owned backdrop can lead the sliding branch. Only that observed
-    // paint, not a permanent root wallpaper or a predicted future panel, admits
-    // extra pixels. A rectangular union is safe only for contiguous equal-width bands.
-    if (backdrop && [backdrop isDescendantOfView:content] && !backdrop.hidden && backdrop.alpha>.01) {
-        CALayer *paint=presented?backdrop.layer.presentationLayer:backdrop.layer;
-        CGRect exposure=CGRectIntersection(LMVLockVideoRectInTree(backdrop,window,paint,root),viewport);
-        if (LMVLockVideoRectValid(exposure) && fabs(CGRectGetMinX(exposure)-CGRectGetMinX(admitted))<.01 &&
-            fabs(CGRectGetMaxX(exposure)-CGRectGetMaxX(admitted))<.01 && !CGRectIsEmpty(CGRectIntersection(exposure,admitted)))
-            admitted=CGRectIntersection(CGRectUnion(admitted,exposure),viewport);
+    // Only the selected leading content-owned paint can extend the mask. A
+    // wider backdrop containing the whole admitted panel is also one exact
+    // rectangle: requiring identical x edges left its exposed top strip bare.
+    // Keep the existing equal-width contiguous-band case; reject L-shaped unions.
+    if (ownsBackdrop && !backdrop.hidden && backdrop.alpha>.01) {
+        CGRect exposure=CGRectIntersection(LMVLockVideoRectInTree(backdrop,window,paint,root),LMVVideoWindowViewport(window));
+        // A non-clipping controller root can have a small top inset even though
+        // its owned background already paints above that inset. Preserve the
+        // admitted bottom edge (including the working NC half-screen boundary)
+        // while permitting only the observed top paint to close this strip.
+        if(LMVLockVideoRectValid(exposure)) {
+            CGFloat bottom=MIN(CGRectGetMaxY(exposure),CGRectGetMaxY(admitted));
+            exposure.size.height=MAX(0,bottom-CGRectGetMinY(exposure));
+        }
+        if (LMVLockVideoRectValid(exposure) && (CGRectContainsRect(exposure,admitted) ||
+            (fabs(CGRectGetMinX(exposure)-CGRectGetMinX(admitted))<.01 &&
+             fabs(CGRectGetMaxX(exposure)-CGRectGetMaxX(admitted))<.01 && !CGRectIsEmpty(CGRectIntersection(exposure,admitted)))))
+            admitted=CGRectIntersection(CGRectUnion(admitted,exposure),LMVVideoWindowViewport(window));
     }
     // Model/presentation differences must never enlarge this admitted on-screen
     // paint. In particular a model panel ahead of the animation is NOT desktop

@@ -154,7 +154,11 @@ int main(void){@autoreleasepool {
  // A screen blank invalidates authentication; waking at real lock never draws Desktop.
  screenBlank=1;[m update];assert(!m.host.superview && !m.authenticatedSession && !wallPixels.hidden);
  screenBlank=0;screenLocked=1;sliding.frame=CGRectMake(0,0,390,844);[m update];assert(!m.host.superview && !m.playback.wantsPlayback);
- screenLocked=0;sliding.frame=CGRectMake(0,-844,390,844);[m update];assert(m.host.superview==wall);
+ // Fresh unlock must bind the warm Home frame BEFORE the still-withdrawing
+ // CoverSheet reaches zero height. Waiting for an empty cover flashes wallpaper.
+ screenLocked=0;sliding.frame=CGRectMake(0,-422,390,844);[m update];
+ assert(m.authenticatedSession && m.host.superview==wall && wallPixels.hidden && !m.playback.renderLayer.hidden);
+ sliding.frame=CGRectMake(0,-844,390,844);[m update];assert(m.host.superview==wall);
  // Unknown NC content fails closed; disabled, missing material and errors restore.
  cover.slideableContentView=nil;[m update];assert(!m.host.superview && !wallPixels.hidden);cover.slideableContentView=sliding;
  m.enabled=NO;[m update];assert(!m.host.superview && !m.playback.wantsPlayback && !wallPixels.hidden);m.enabled=YES;m.playback.path=@"movie";
@@ -196,6 +200,16 @@ int main(void){@autoreleasepool {
  [controller viewWillAppear:YES];[controller viewDidAppear:YES];[controller viewDidDisappear:NO];
  assert(controller.loads==1 && controller.layouts==1 && controller.appearances==2 && controller.disappearances==1 && sharedCalls==before && !requests);
  [LMVDesktopVideo suspend];[LMVDesktopVideo.host removeFromSuperview];
+ // Existing warm desktop resumes synchronously in after-original willAppear,
+ // while authenticated unlock is complete but CoverSheet still covers half.
+ LMVLaunchReady=YES;screenBlank=0;screenLocked=1;LMVDesktopExplicitWallpaper=wall;
+ LMVDesktopVideoScreenChanged();assert(LMVDesktopVideo.suspended && !LMVDesktopVideo.host.superview);
+ screenLocked=0;sliding.frame=CGRectMake(0,-422,390,844);
+ [controller viewWillAppear:YES];
+ assert(!LMVDesktopVideo.suspended && LMVDesktopVideo.authenticatedSession && LMVDesktopVideo.host.superview==wall && wallPixels.hidden && !LMVDesktopVideo.playback.renderLayer.hidden);
+ LMVDesktopVideoScreenBlank();assert(LMVDesktopVideo.suspended && !wallPixels.hidden);
+ LMVDesktopVideoScreenChanged();assert(!LMVDesktopVideo.suspended && !LMVDesktopVideo.host.hidden);
+ sliding.frame=CGRectMake(0,-844,390,844);[LMVDesktopVideo suspend];[LMVDesktopVideo.host removeFromSuperview];
  SBWallpaperController *publisher=[SBWallpaperController sharedInstance];publisher.homescreenWallpaperView=wall;publisher.lockscreenWallpaperView=[UIView new];LMVDesktopDiscover();assert(LMVDesktopExplicitWallpaper==wall && sharedCalls==before+1);
  publisher.lockscreenWallpaperView=wall;LMVDesktopDiscover();assert(!LMVDesktopExplicitWallpaper);publisher.lockscreenWallpaperView=[UIView new];
  [m suspend];[m.host removeFromSuperview];

@@ -14,6 +14,11 @@ assert 'clipped.size.height>=MIN(viewport.size.height,rect.size.height)*.98' in 
 assert 'if(view==root)continue' not in h
 assert 'LMVCCRenderHost' in h and 'LMVCCMaterialStillValid' in h
 assert 'record.cachedMaterial' in h and 'if(diagnostics)' in h
+# Regression gates: local CC events must wake an existing suspended manager;
+# wantsPlayback is intent, not proof the decoder is running.
+assert '[LMVControlCenterVideo refresh:NO]' in h
+assert '[self.playback resumeIfNeeded]' in h
+assert 'LMVCCBackgroundViewport' in h
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
 # Use the same UIKit input doubles as existing lock tests. All behavior under
 # test below comes directly from the production CC header.
@@ -55,6 +60,7 @@ pre=pre.replace('static int LMVBlankToken=1;','static int LMVBlankToken=1;')
 pre=pre.replace('@property NSUInteger builds,clears;', '@property NSUInteger builds,clears,posterPrepareCalls,posterPathReads;\n@property BOOL persistentPosterEnabled;\n@property(strong) NSString *posterPreparedPath,*posterPreparedRevision;')
 pre=pre.replace('- (void)clear;', '''- (void)clear;
 - (void)updatePresentation;
+- (void)resumeIfNeeded;
 - (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;
 - (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;
 + (CGImageRef)sharedPosterImage;''')
@@ -98,6 +104,9 @@ pre=pre.replace('- (void)selectPath:(NSString *)path revision:(NSString *)revisi
   if(ctx){image=CGBitmapContextCreateImage(ctx);CGContextRelease(ctx);}CGColorSpaceRelease(space);}
  return image;
 }''')
+pre=pre.replace('@interface TestPlayer:NSObject', '@interface TestPlayer:NSObject\n@property(nonatomic) float rate;')
+pre=pre.replace('@property NSUInteger builds,clears,posterPrepareCalls,posterPathReads;', '@property NSUInteger builds,clears,posterPrepareCalls,posterPathReads,resumeCalls;')
+pre=pre.replace('- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;[self updatePresentation];}', '- (void)setVisible:(BOOL)visible {self.wantsPlayback=visible;self.player.rate=visible?1:0;[self updatePresentation];}\n- (void)resumeIfNeeded {self.resumeCalls++;if(self.wantsPlayback && !self.frozen && !self.error)self.player.rate=1;}')
 pre+=r'''
 @interface MTMaterialView:UIView @end
 @implementation MTMaterialView @end
@@ -162,6 +171,25 @@ int main(void){@autoreleasepool {
  assert(manager.playback.posterPreparedPath!=nil && [manager.playback.posterPreparedPath isEqual:@"dark.mov"]);
  NSUInteger built=manager.playback.builds;for(int n=0;n<100;n++)[manager update];assert(manager.playback.builds==built);
  TestPlayer *samePlayer=manager.playback.player;
+ // Regression: a global suspend followed only by a LOCAL appear/layout event
+ // must wake the same source rather than forever early-returning from update.
+ LMVControlCenterVideo=manager;[manager suspend];assert(manager.suspended && !manager.playback.wantsPlayback);
+ LMVCCLifecycle(cc,1);turn();assert(!manager.suspended && manager.playback.wantsPlayback && manager.playback.player==samePlayer && manager.playback.builds==built);
+ manager.playback.player.rate=0;[manager update];assert(manager.playback.player.rate>0 && manager.playback.resumeCalls>0);
+ assert(manager.geometryLink);
+ // Intermediate frames, not just settled Reachability: root and material sizes
+ // change independently. Known pure background exposure beyond a non-clipping
+ // short root remains covered, and geometry sync never rebuilds the player.
+ for(int n=0;n<=60;n++) {
+  CGFloat y=422.0*n/60.0,height=844-y;
+  window.screenOffset=CGPointMake(0,y);root.frame=CGRectMake(0,0,390,MAX(200,height-8));
+  background.frame=CGRectMake(0,0,390,height);background.clipsToBounds=(n%2)==0;background.layer.masksToBounds=background.clipsToBounds;
+  [manager syncGeometry];
+  CGRect video=[manager.playback.renderLayer convertRect:manager.playback.renderLayer.bounds toLayer:window.layer];
+  CGRect painted=[background convertRect:background.bounds toView:window];painted=CGRectIntersection(painted,LMVVideoWindowViewport(window));
+  assert(CGRectContainsRect(video,painted) && manager.playback.player==samePlayer && manager.playback.builds==built);
+ }
+ root.frame=CGRectMake(0,0,390,844);background.frame=CGRectMake(0,0,390,844);background.clipsToBounds=NO;background.layer.masksToBounds=NO;window.screenOffset=CGPointZero;[manager update];
  // Actual Reachability geometry: unchanged full-sized window, screen shifted by
  // 422 points, and a material whose actual height is only half the root height.
  window.screenOffset=CGPointMake(0,422);background.frame=CGRectMake(0,0,390,422);

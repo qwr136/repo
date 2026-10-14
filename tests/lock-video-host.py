@@ -243,6 +243,14 @@ int main(void){@autoreleasepool{
  CGRect half=LMVLockVideoClip(sliding,cover,window);assert(fabs(half.size.height-422)<.001 && fabs(half.origin.y)<.001);
  assert(CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,211),NO));
  assert(!CGPathContainsPoint(manager.host.clipLayer.path,NULL,CGPointMake(100,423),NO));
+ // Preserve the settled .100 Reachability path even with the observed hidden
+ // window/ancestor flags. A genuinely offscreen viewport still withdraws it.
+ window.hidden=YES;cover.hidden=YES;
+ for(int n=0;n<50;n++){[manager update];assert(manager.playback.wantsPlayback && manager.host.superview==cover);
+  assert(CGRectEqualToRect(LMVLockVideoClip(sliding,cover,window),half));}
+ window.screenOffset=CGPointMake(0,844);[manager update];assert(!manager.playback.wantsPlayback && !manager.host.superview);
+ window.screenOffset=CGPointMake(0,422);[manager update];assert(manager.playback.wantsPlayback);
+ cover.hidden=NO;window.hidden=NO;
  window.screenOffset=CGPointMake(0,0);[manager update];assert(manager.playback.wantsPlayback && fabs(LMVLockVideoClip(sliding,cover,window).size.height-844)<.001);
  // Unknown content and hidden window fail closed, no full-root/window fallback.
  cover.slideableContentView=nil;[manager update];assert(!manager.host.superview && !manager.playback.wantsPlayback);cover.slideableContentView=sliding;

@@ -10,6 +10,9 @@ assert 'LMVCacheFrame' not in h and 'AVAudioSession' not in h
 assert 'removeAllItems' in h and 'disableLooping' in h and 'replacePlayerLayer' in h
 assert 'BOOL retainedPlayer=self.player && self.playerLayer.player==self.player && self.everReady && !self.error;' in h
 assert 'self.playerLayer.hidden=!(ready || retainedPlayer);' in h
+assert '- (void)resumeIfNeeded' in h
+assert 'forKeyPath:@"timeControlStatus"' in h
+assert 'self.frozen || self.posterOnlyVisible' in h
 if platform.system()!='Darwin':
  print('PASS: independent video-only lock playback contracts; actual Foundation/AVFoundation production execution runs on macOS CI')
  raise SystemExit(0)
@@ -125,6 +128,13 @@ int main(int argc,const char **argv) {@autoreleasepool {
  [p setVisible:NO];assert(p.player.rate==0 && p.renderLayer.hidden);CMTime paused=p.player.currentTime;spin(.2);
  assert(CMTIME_IS_NUMERIC(paused) && fabs(CMTimeGetSeconds(CMTimeSubtract(p.player.currentTime,paused)))<.03);
  [p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));spin(.15);assert(p.buildCount==baselineBuilds && p.player==first);
+ // Intent can remain YES while the underlying decoder was externally paused.
+ // Reconcile actual rate without recreating the item/looper/layer or unfreezing.
+ [p.player pause];assert(p.wantsPlayback && p.player.rate==0);[p resumeIfNeeded];assert(until(^BOOL{return p.player.rate>0;},10));
+ assert(p.player==first && p.buildCount==baselineBuilds);
+ [p setFrozen:YES];[p resumeIfNeeded];spin(.03);assert(p.player.rate==0 && p.frozen);
+ [p setVisible:NO];[p resumeIfNeeded];assert(p.player.rate==0);
+ [p setVisible:YES];assert(until(^BOOL{return p.player.rate>0;},10));
  [p selectPath:second revision:LMVLockVideoRevision(second)];assert(first.rate==0 && first.items.count==0 && firstLayer.player==nil && p.playerLayer!=firstLayer);
  assert(until(^BOOL{return !p.loading && p.player && p.posterLayer.contents;},15));assert(!p.error && p.buildCount==baselineBuilds+1);
  AVQueuePlayer *secondPlayer=p.player;AVPlayerLayer *secondLayer=p.playerLayer;[p clear];spin(.1);

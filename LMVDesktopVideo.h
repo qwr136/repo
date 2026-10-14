@@ -301,8 +301,12 @@ static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds)
         container=poster.viewIfLoaded;content=nil;
     }
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover):CGRectZero;
-    if (screenKnown && !blank && lockKnown && !locked && CGRectIsEmpty(cover) && !unknownCover) self.authenticatedSession=YES;
     NSInteger foreground=LMVDesktopForeground();
+    // A fresh authenticated unlock is authoritative even while CoverSheet is
+    // still withdrawing. Waiting for cover==empty makes Home's first exposed
+    // transaction show the original wallpaper before the warm video attaches.
+    if (screenKnown && !blank && lockKnown && !locked && !unknownCover &&
+        (foreground==1 || homeConfirmed)) self.authenticatedSession=YES;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover);
     BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession && foreground>=0 &&
         (foreground==1 || homeConfirmed) && !unknownCover;
@@ -486,6 +490,15 @@ static void LMVDesktopVideoRefresh(BOOL reload) {
 }
 static void LMVDesktopVideoSuspend(void) {if(NSThread.isMainThread)[LMVDesktopVideo suspend];}
 static void LMVDesktopVideoScreenBlank(void) {if(NSThread.isMainThread){LMVDesktopVideo.authenticatedSession=NO;[LMVDesktopVideo suspend];}}
+static void LMVDesktopVideoScreenChanged(void) {
+    if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || !LMVDesktopVideo)return;
+    uint64_t blank=1,locked=1;
+    if(LMVBlankToken<0 || LMVLockToken<0 || notify_get_state(LMVBlankToken,&blank)!=NOTIFY_STATUS_OK ||
+       notify_get_state(LMVLockToken,&locked)!=NOTIFY_STATUS_OK || blank || locked)return;
+    // Current notify state, not a previously queued blank value. Reattach the
+    // already prepared Home frame on the unlock turn, before the global refresh.
+    LMVDesktopDiscover();LMVDesktopVideo.suspended=NO;[LMVDesktopVideo update];
+}
 static void LMVDesktopHostReady(UIViewController *controller) {
     if(!LMVInitialized || !NSThread.isMainThread || LMVDesktopCreatingManager)return;
     if(!LMVLockVideoClass(controller,@"SBHomeScreenViewController") && !LMVLockVideoClass(controller,@"SBIconController") &&
@@ -500,11 +513,15 @@ static void LMVDesktopHostReady(UIViewController *controller) {
     if(!homeWindow && !poster)return;
     LMVDesktopUIAvailable=YES;
     if(!LMVLaunchReady)LMVDesktopEarlyLayout();
-    else if(LMVDesktopVideo && !LMVDesktopVideo.suspended && LMVDesktopVideo.host.superview) {
-        // Original Home layout completed; synchronously repair this one already
-        // owned surface before the current CoreAnimation transaction commits.
-        // No manager creation, disk access or global refresh happens here.
-        [LMVDesktopVideo update];
+    else if(LMVDesktopVideo) {
+        uint64_t blank=1,locked=1;
+        BOOL unlocked=LMVBlankToken>=0 && LMVLockToken>=0 &&
+            notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
+            notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
+        // After-original Home willAppear/layout is an exact target, not a late
+        // global timer. Resume only that existing prepared manager on unlock.
+        if(LMVDesktopVideo.suspended && unlocked)LMVDesktopVideo.suspended=NO;
+        if(!LMVDesktopVideo.suspended)[LMVDesktopVideo update];
     }
 }
 static void LMVDesktopLifecycle(UIViewController *controller,NSInteger visible) {
@@ -525,7 +542,7 @@ static void (*LMVPosterHomeOriginalWillAppear)(id,SEL,BOOL),(*LMVPosterHomeOrigi
 #define LMV_DESKTOP_CALLBACKS(prefix) \
 static void prefix##HookLoad(id value,SEL selector){prefix##OriginalLoad(value,selector);LMVDesktopLifecycle(value,-1);} \
 static void prefix##HookLayout(id value,SEL selector){prefix##OriginalLayout(value,selector);LMVDesktopLifecycle(value,-1);LMVDesktopHostReady(value);} \
-static void prefix##HookWillAppear(id value,SEL selector,BOOL animated){prefix##OriginalWillAppear(value,selector,animated);LMVDesktopLifecycle(value,1);} \
+static void prefix##HookWillAppear(id value,SEL selector,BOOL animated){prefix##OriginalWillAppear(value,selector,animated);LMVDesktopLifecycle(value,1);LMVDesktopHostReady(value);} \
 static void prefix##HookDidAppear(id value,SEL selector,BOOL animated){prefix##OriginalDidAppear(value,selector,animated);LMVDesktopLifecycle(value,1);LMVDesktopHostReady(value);} \
 static void prefix##HookDidDisappear(id value,SEL selector,BOOL animated){prefix##OriginalDidDisappear(value,selector,animated);LMVDesktopLifecycle(value,0);}
 LMV_DESKTOP_CALLBACKS(LMVDesktop)
@@ -545,7 +562,13 @@ static void LMVDesktopWallpaperHookLayout(id value,SEL selector) {
     LMVDesktopWallpaperOriginalLayout(value,selector);
     // Wallpaper layout can run inside system initialization. It never creates
     // Desktop UI or evaluates screen/application state synchronously.
-    if(NSThread.isMainThread && LMVInitialized)LMVRequestSafeUpdate();
+    if(NSThread.isMainThread && LMVInitialized) {
+        // UIKit has completed this wallpaper layout. Repair only an already
+        // prepared Home surface (never create manager/UI in a wallpaper ctor).
+        if(LMVLaunchReady && LMVDesktopVideo && !LMVDesktopVideo.suspended &&
+           (value==LMVDesktopExplicitWallpaper || value==LMVDesktopVideo.container)) [LMVDesktopVideo update];
+        LMVRequestSafeUpdate();
+    }
 }
 static void LMVDesktopVideoInstallHooks(void) {
 #define LMV_DESKTOP_INSTALL(cls,name,animated,replacement,original) do { \

@@ -63,6 +63,8 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 - (void)showPreparedPoster:(BOOL)visible;
 - (void)selectPath:(NSString *)path revision:(NSString *)revision;
 - (void)setVisible:(BOOL)visible;
+// Reconcile intent with the decoder without changing visibility/freeze policy.
+- (void)resumeIfNeeded;
 // 0.0.91: pause the decoder but KEEP the currently displayed frame on screen.
 // `setVisible:NO` additionally hides renderLayer, which is what revealed the
 // system wallpaper for the whole app-launch transition.
@@ -91,7 +93,7 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 - (void)updatePresentation;
 - (void)replacePlayerLayer;
 @end
-static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
+static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTimeControlContext;
 @implementation LMVLockVideoPlayback
 - (instancetype)init {
     if ((self=[super init])) {
@@ -114,7 +116,10 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
 }
 - (void)dealloc {
     if (_observingLayer) [_playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];
-    if (_observingPlayer) [_player removeObserver:self forKeyPath:@"status" context:&LMVLockPlayerStatusContext];
+    if (_observingPlayer) {
+        [_player removeObserver:self forKeyPath:@"status" context:&LMVLockPlayerStatusContext];
+        [_player removeObserver:self forKeyPath:@"timeControlStatus" context:&LMVLockPlayerTimeControlContext];
+    }
     if (_failedObserver) [NSNotificationCenter.defaultCenter removeObserver:_failedObserver];
     [_generator cancelAllCGImageGeneration];[_player pause];[_looper disableLooping];
     _playerLayer.player=nil;[_player removeAllItems];[_renderLayer removeFromSuperlayer];
@@ -127,7 +132,10 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     self.preparedPath=nil;self.preparedRevision=nil;
     [self.generator cancelAllCGImageGeneration];self.generator=nil;
     if (self.failedObserver) [NSNotificationCenter.defaultCenter removeObserver:self.failedObserver];self.failedObserver=nil;
-    if (self.observingPlayer) [self.player removeObserver:self forKeyPath:@"status" context:&LMVLockPlayerStatusContext];
+    if (self.observingPlayer) {
+        [self.player removeObserver:self forKeyPath:@"status" context:&LMVLockPlayerStatusContext];
+        [self.player removeObserver:self forKeyPath:@"timeControlStatus" context:&LMVLockPlayerTimeControlContext];
+    }
     self.observingPlayer=NO;
     [self.player pause];[self.looper disableLooping];self.playerLayer.player=nil;
     [self.player removeAllItems];self.looper=nil;self.player=nil;self.templateItem=nil;
@@ -143,13 +151,18 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     self.renderLayer.frame=bounds;self.posterLayer.frame=self.renderLayer.bounds;self.playerLayer.frame=self.renderLayer.bounds;
     [CATransaction commit];
 }
+- (void)resumeIfNeeded {
+    if (!self.wantsPlayback || self.frozen || self.posterOnlyVisible || !self.player || self.error ||
+        self.player.status==AVPlayerStatusFailed) return;
+    // Waiting with a requested rate is buffering, not a stopped decoder.
+    if (self.player.rate==0 && self.player.timeControlStatus!=AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate)
+        [self.player playImmediatelyAtRate:1.0];
+}
 - (void)setVisible:(BOOL)visible {
     self.posterOnlyVisible=NO;
     _frozen=NO;
     self.wantsPlayback=visible;
-    if (visible && self.player && !self.error && self.player.status!=AVPlayerStatusFailed) {
-        if (self.player.rate==0) [self.player playImmediatelyAtRate:1.0];
-    } else [self.player pause];
+    if (visible) [self resumeIfNeeded];else [self.player pause];
     [self updatePresentation];
 }
 - (void)setFrozen:(BOOL)frozen {
@@ -179,7 +192,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
     if (self.didChange) self.didChange();
 }
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
-    if (context!=&LMVLockLayerReadyContext && context!=&LMVLockPlayerStatusContext) {
+    if (context!=&LMVLockLayerReadyContext && context!=&LMVLockPlayerStatusContext && context!=&LMVLockPlayerTimeControlContext) {
         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];return;
     }
     __weak typeof(self) weakSelf=self;
@@ -187,6 +200,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
         LMVLockVideoPlayback *live=weakSelf;
         if (!live || (object!=live.playerLayer && object!=live.player)) return;
         if (live.player.status==AVPlayerStatusFailed) {live.error=live.player.error ?: [NSError errorWithDomain:@"com.minis.lockmessagevideo.lock" code:2 userInfo:nil];[live.player pause];}
+        else [live resumeIfNeeded];
         [live updatePresentation];
     });
 }
@@ -274,7 +288,8 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext;
             live.player.automaticallyWaitsToMinimizeStalling=NO;
             live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:live.templateItem];
             live.playerLayer.player=live.player;live.buildCount++;
-            [live.player addObserver:live forKeyPath:@"status" options:NSKeyValueObservingOptionInitial context:&LMVLockPlayerStatusContext];live.observingPlayer=YES;
+            [live.player addObserver:live forKeyPath:@"status" options:NSKeyValueObservingOptionInitial context:&LMVLockPlayerStatusContext];
+            [live.player addObserver:live forKeyPath:@"timeControlStatus" options:0 context:&LMVLockPlayerTimeControlContext];live.observingPlayer=YES;
             live.failedObserver=[NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemFailedToPlayToEndTimeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
                 LMVLockVideoPlayback *current=weakSelf;
                 if (!current || current.generation!=generation || ![current.player.items containsObject:note.object]) return;
