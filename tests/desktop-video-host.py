@@ -182,8 +182,28 @@ int main(void){@autoreleasepool {
  for(int n=0;n<100;n++){[m update];assert(m.host.superview==wall && wallPixels.hidden);originalTree(wall,wallOriginal);}
  // 0.0.91: the app transition freezes the Desktop surface in place instead of
  // tearing it down, so the launch animation never flashes the system wallpaper.
- TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";UIApplication.sharedApplication.frontmost=app;[m update];
- assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);UIApplication.sharedApplication.frontmost=nil;[m update];assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ // 0.0.120: a real app reaching the foreground takes the Home view OUT of the
+ // hierarchy (viewDidDisappear -> record.visible=NO), and that is the state the
+ // launch transition freezes in. Merely changing the frontmost probe while the
+ // Home view is still visible is a PROBE FLIP, not a launch - the next block
+ // covers it, because treating it as a launch was what flickered on device.
+ TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";
+ UIApplication.sharedApplication.frontmost=app;record.visible=NO;[m update];
+ assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);
+ // 0.0.120 device log: on the plain home screen `home=1` held steady while
+ // `foreground` flip-flopped 1/-1 (recording occupies the foreground probe), so
+ // `env` followed it and the desktop video was hidden and re-shown about once a
+ // second - the reported flash / black / wallpaper. A confirmed Home view is
+ // direct evidence and must not be vetoed by the circumstantial probe.
+ record.visible=YES;[m update];
+ assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);
+ for(int flip=0;flip<200;flip++) {
+  UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
+  assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);
+ }
+ record.visible=NO;UIApplication.sharedApplication.frontmost=nil;[m update];
+ assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ record.visible=YES;
  // Measured fast enter/exit: no intermediate setHidden:YES on render/host,
  // no background lease release, and one retained player through transient zero bounds.
  watchFastTransitions=YES;watchedHost=m.host;watchedContent=wallPixels;
