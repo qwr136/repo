@@ -17,6 +17,8 @@ static NSArray<NSString *> *LMVEasterPanelAppearanceKeys(void) {
     return @[@"EasterPanelCornerEnabled", @"EasterPanelCorner",
              @"EasterPanelSizeEnabled", @"EasterPanelWidthScale", @"EasterPanelHeightScale"];
 }
+// A non-finite input resolves to `low`: a corrupt/absent value must never
+// produce a larger panel or corner than the user could have asked for.
 static CGFloat LMVEasterPanelClamp(CGFloat value, CGFloat low, CGFloat high) {
     if (!isfinite(value)) return low;
     return fmax(low, fmin(high, value));
