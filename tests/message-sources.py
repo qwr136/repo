@@ -228,7 +228,8 @@ int main(int argc, const char **argv) { @autoreleasepool {
         LMVSharedSource *source=sources[i];NSString *target=LMVTargets()[i];
         // 0.0.117: the key IS the selected file (no target prefix).
         assert([source.registryKey isEqualToString:source.path] && [source.ownerTarget isEqual:target] && [source.path isEqual:LMVPaths[target]]);
-        assert(LMVSharedSources[source.registryKey]==source && source.asset==asset);
+        // 0.0.117: each file keeps its own asset; the key is the file itself.
+        assert(LMVSharedSources[source.registryKey]==source && source.asset==LMVAssets[source.path]);
         assert(source.player && source.player.currentItem && source.output && source.endObserver);
         assert(!source.playing && source.player.rate==0 && !source.reader && !source.pendingSample);
         assert(source.lastImage==shared.image && CMTimeCompare(source.lastTime,shared.time)==0 && source.restoreOnStart);
