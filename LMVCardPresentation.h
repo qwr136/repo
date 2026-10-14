@@ -61,39 +61,45 @@ static CGFloat LMVCardExposureAlpha(UIView *view, CALayer *layer, BOOL presentat
         view.layer.opacity==0.0f && layer.opacity==0.0f) return lease.baselineOpacity;
     return layer.opacity;
 }
-// Only for a MODEL CA tree bridged outside window.layer. Never override a
-// complete presentation sample which positively says hidden/clipped/offscreen.
+// Contract-level exposure: public UIView state plus geometry. Used whenever the
+// CA tree is bridged by an internal render/portal root, and as the fallback of
+// the depth-32 ancestor walk below.
+//
+// 0.0.112: the earlier revision also walked the raw CA ancestors and let an
+// intermediate layer veto on hidden/opacity/mask/masksToBounds. Those rungs are
+// inserted by UIKit itself (material containers, portal and backdrop stubs) and
+// their state is NOT a UIView contract: a stub rung is routinely hidden or
+// opacity-zero while the public view is visibly on screen. On device every NC
+// card was rejected by one of those rungs, so no card ever became a consumer and
+// the three background videos never started. Only the public view tree and the
+// geometry may decide here.
 static BOOL LMVCardUIKitExposure(UIView *view,UIWindow *window) {
     if(!LMVCardAttached(view,window) || window.hidden)return NO;
     CGRect rect=[view convertRect:view.bounds toView:window];
     if(!LMVCardRectValid(rect))return NO;
     CGFloat alpha=1;NSUInteger depth=0;
     for(UIView *node=view;node && ++depth<=32;node=node.superview) {
-        if(node.hidden || node.layer.hidden)return NO;
+        if(node.hidden)return NO;
+        // layer.hidden is owned by UIKit on its own container/portal views; only
+        // the UIView flag is our contract. Alpha stays a real signal.
         alpha*=LMVOriginalVisibilityAlpha(node);
         if(!isfinite(alpha) || alpha<.01)return NO;
-        if(node.clipsToBounds || node.layer.masksToBounds || node==window) {
+        if(node.clipsToBounds || node==window) {
             rect=CGRectIntersection(rect,[node convertRect:node.bounds toView:window]);
             if(!LMVCardRectValid(rect))return NO;
         }
         if(node==window)break;
-    }
-    // Intermediate private CA layers still veto genuine hidden/alpha-zero
-    // or masked state: do not reinterpret a protected rendering subtree.
-    depth=0;
-    for(CALayer *layer=view.layer;layer && ++depth<=48;layer=layer.superlayer) {
-        if(layer.hidden || !isfinite(layer.opacity))return NO;
-        UIView *backing=nil;
-        for(UIView *node=view;node;node=node.superview){if(node.layer==layer){backing=node;break;}if(node==window)break;}
-        if(!backing && (layer.opacity<.01 || layer.masksToBounds || layer.mask))return NO;
-        if(layer==window.layer)break;
     }
     return LMVCardRectValid(CGRectIntersection(rect,LMVVideoWindowViewport(window)));
 }
 static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentation) {
     if (!LMVCardAttached(view,window)) return NO;
     CALayer *space=presentation ? view.layer.presentationLayer : view.layer;
-    if (!space || (presentation && space.modelLayer!=view.layer)) return NO;
+    // 0.0.112: an unevaluable sample is unknown, not invisible. Fail over to the
+    // contract gate instead of failing closed (the presentation read can also
+    // race a concurrent commit, which used to turn a visible card into NO).
+    if (!space || (presentation && space.modelLayer!=view.layer))
+        return presentation?LMVCardUIKitExposure(view,window):NO;
     CALayer *root=window.layer;
     if(presentation) {
         // Stay within ONE actual snapshot tree. Repeated presentationLayer calls
@@ -103,7 +109,7 @@ static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentat
             if(node.modelLayer==window.layer){root=node;break;}
     }
     if(!root || !LMVCardLayerAttached(space,root))
-        return presentation?NO:LMVCardUIKitExposure(view,window);
+        return LMVCardUIKitExposure(view,window);
     CGRect rect=[space convertRect:space.bounds toLayer:root];
     if (!LMVCardRectValid(rect)) return NO;
     CGFloat alpha=1;NSUInteger depth=0;
@@ -114,8 +120,13 @@ static BOOL LMVCardExposureInTree(UIView *view, UIWindow *window, BOOL presentat
             if(node.layer==model){backing=node;break;}
             if(node==window)break;
         }
-        if(layer.hidden || (!presentation && backing.hidden))return NO;
-        alpha*=backing?LMVCardExposureAlpha(backing,layer,presentation):layer.opacity;
+        // 0.0.112: only a view-backed layer carries the UIView visibility
+        // contract. A private rung inserted between two view layers may be
+        // hidden or opacity-zero while the view is visibly on screen; letting it
+        // veto rejected every card on device (no consumer, no playback at all).
+        // A private rung still contributes its real clipping geometry below.
+        if(backing && (layer.hidden || (!presentation && backing.hidden)))return NO;
+        alpha*=backing?LMVCardExposureAlpha(backing,layer,presentation):1.0;
         if (!isfinite(alpha) || alpha<0.01) return NO;
         if (layer.masksToBounds || (!presentation && backing.clipsToBounds) || layer==root) {
             rect=CGRectIntersection(rect,[layer convertRect:layer.bounds toLayer:root]);

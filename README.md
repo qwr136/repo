@@ -1,5 +1,14 @@
 # 锁屏消息视频
 
+## 0.0.112：三类卡片准入修正、录屏指示不再隐藏浮球
+
+精确基线111 `28f840e`，独立112分支，只改这两处，其余（整页背景、CC/桌面/长按菜单、声音音量、设置顺序、720、素材库/导入、录制浮球层级）一律不动。
+
+- 通知/选项/清除不播放（用户报111）：卡片准入按“UIView 契约 + 几何”判定，不再让**非视图直连的私有 CA 层**（UIKit 自己插入的材质/portal/backdrop 中间层）用自身的 hidden/opacity/mask/masksToBounds 否决整棵子树。111 把这层当成“受保护渲染子树”，真机上每个 NC 卡片都会在其中一段被判为不可见，于是从未成为消费方（日志里只有 discovery visible=0、完全没有 card-exposure/sourcephase/firstpublished），三类自然一个都不播。现在：视图直连层（UIView.hidden/alpha/clipsToBounds）与真实裁剪几何仍然是否决项，离屏/撤回/异窗/熄屏照旧暂停；呈现快照读不到时（含提交竞态）改为回落到契约判定，而不是直接判不可见。私有中间层的裁剪几何仍然参与求交。
+- 录屏时悬浮球被隐藏（用户报）：系统录屏/隐私指示窗的类名带 Privacy/Recording，被安全审计当成密码/权限弹窗拦下（apply 报 blocked class=…），整个录屏期间不显示。现在录屏/采集指示面（Recording/ScreenCapture/CaptureIndicator/PrivacyIndicator/Broadcast/Replay/Mirroring，以及录屏进行中且类名含 Indicator/Capture 的窗口）不再充当 blocker，只参与层级竞争，球依旧在其之上；真正的密码、认证、权限、隐私授权与 UIAlertController 仍照旧拦下，其他窗口判定不变。
+
+原生回归新增：私有中间层 hidden/opacity 不再否决而视图直连祖先仍否决（卡片准入），录屏指示窗不再拦截而隐私措辞但非采集类的提示仍然拦截（浮球优先级）。CI 的 native/doubles 不等于真机合成与录屏实测；请装 112 后注销一次，同次录屏验证下拉三类立即播放、录屏期间球常驻。
+
 ## 0.0.111：三类可见消费兼容、原系统背景保留、独立开关与录屏浮球
 
 精确基线110 `c4f57bc4215e2bb29a4f184861bfbb2c2690cc52`，94files逐blob核验。用户最新要求优先三类视频真正播放；其它已正常背景/声音/桌面/设置/720等冻结。

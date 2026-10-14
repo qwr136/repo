@@ -8,6 +8,12 @@ r=Path(__file__).resolve().parents[1];h=(r/'LMVCardPresentation.h').read_text();
 assert '#import "LMVCardPresentation.h"' in s and 'LMVCardColdProbe(cell,states)' in s
 assert s.count('LMVCardStateVisible(cell,state,target)')>=3
 assert 'LMVCardExposureInTree(view,window,YES)' in h and 'lease.baselineOpacity' in h
+# 0.0.112: a private (non-view-backed) CA rung may not veto on hidden/opacity;
+# only a view-backed layer or real clipping geometry decides.
+assert 'if(backing && (layer.hidden || (!presentation && backing.hidden)))return NO;' in h
+assert 'alpha*=backing?LMVCardExposureAlpha(backing,layer,presentation):1.0;' in h
+assert 'if(layer.hidden || !isfinite(layer.opacity))return NO;' not in h
+assert '!backing && (layer.opacity<.01 || layer.masksToBounds || layer.mask)' not in h
 assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=30' in s
 resign=s[s.index('addObserverForName:UIApplicationWillResignActiveNotification'):]
 assert 'LMVSyncDisplayLink();LMVRequestSafeUpdate();' in resign
@@ -91,8 +97,18 @@ int main(void){@autoreleasepool{
  [sliding.layer removeFromSuperlayer];[portal addSublayer:sliding.layer];
  assert(!LMVCardLayerAttached(card.layer,w.layer) && LMVCardAttached(card,w));
  for(NSString *t in @[@"Message",@"Options",@"Clear"]){LMVEnabled[t]=@YES;LMVPaths[t]=@"movie";assert(LMVCardStateVisible(card,state,t));}
- portal.hidden=YES;assert(!LMVCardStateVisible(card,state,@"Message"));portal.hidden=NO;
- portal.opacity=0;assert(!LMVCardStateVisible(card,state,@"Message"));portal.opacity=1;
+ // 0.0.112 device regression: an internal CA render/portal root is not a UIView,
+ // so its hidden/opacity is UIKit implementation state, not a visibility
+ // contract. Vetoing on it rejected every real NC card, so no card ever became a
+ // consumer and Message/Options/Clear never played at all. Such a rung still
+ // contributes its clipping geometry below; only real geometry may reject it.
+ portal.hidden=YES;assert(LMVCardStateVisible(card,state,@"Message"));portal.hidden=NO;
+ portal.opacity=0;assert(LMVCardStateVisible(card,state,@"Message"));portal.opacity=1;
+ // A VIEW-BACKED ancestor keeps the full veto in the same model-only state.
+ ((SampleLayer *)w.layer).sample=nil;((SampleLayer *)sliding.layer).sample=nil;
+ ((SampleLayer *)card.layer).sample=nil;((SampleLayer *)anchor.layer).sample=nil;((SampleLayer *)overlay.layer).sample=nil;
+ sliding.hidden=YES;assert(!LMVCardStateVisible(card,state,@"Message"));sliding.hidden=NO;
+ sliding.alpha=.005;assert(!LMVCardStateVisible(card,state,@"Message"));sliding.alpha=1;
  card.frame=CGRectMake(0,1200,390,150);assert(!LMVCardStateVisible(card,state,@"Message"));card.frame=CGRectMake(0,60,390,150);
  [portal removeFromSuperlayer];[w.layer addSublayer:sliding.layer];snapshot(w);
  // REPRO 107: UIKit has an intermediate layer although UIView ownership is
@@ -108,8 +124,11 @@ int main(void){@autoreleasepool{
  SampleLayer *otherSnapshot=[SampleLayer layer];otherSnapshot.source=sliding.layer;((SampleLayer *)sliding.layer).sample=otherSnapshot;
  sliding.frame=CGRectMake(0,-844,390,844); // force presentation-only consumer
  for(NSString *target in @[@"Message",@"Options",@"Clear"])assert(LMVCardStateVisible(card,state,target));
- sampleBridge.opacity=0;assert(!LMVCardStateVisible(card,state,@"Message"));sampleBridge.opacity=1;
- sampleBridge.hidden=YES;assert(!LMVCardStateVisible(card,state,@"Message"));sampleBridge.hidden=NO;
+ // 0.0.112: same contract inside ONE committed snapshot tree. A private rung of
+ // the snapshot may be hidden/opacity-zero without hiding the public view, so it
+ // cannot veto either; its masksToBounds geometry still can.
+ sampleBridge.opacity=0;assert(LMVCardStateVisible(card,state,@"Message"));sampleBridge.opacity=1;
+ sampleBridge.hidden=YES;assert(LMVCardStateVisible(card,state,@"Message"));sampleBridge.hidden=NO;
  sampleBridge.masksToBounds=YES;sampleBridge.bounds=CGRectMake(0,0,390,30);assert(!LMVCardStateVisible(card,state,@"Message"));sampleBridge.masksToBounds=NO;
  sliding.frame=CGRectMake(0,0,390,844);
  [bridge removeFromSuperlayer];[sliding.layer addSublayer:card.layer];snapshot(w);
@@ -146,7 +165,7 @@ int main(void){@autoreleasepool{
  UIWindow *app=[UIWindow new];UIView *ordinary=[UIView new];[app addSubview:ordinary];assert(!LMVVisible(ordinary));
  [app addSubview:card];card.frame=CGRectMake(0,0,390,150);assert(LMVNotificationCenterSurface(card));
  for(NSString *target in @[@"Message",@"Options",@"Clear"])assert(LMVCardStateVisible(card,state,target));
- puts("PASS actual production Message consumer gate: overall NC model-offscreen/presentation-visible,500 stable,parent sample hidden,lease opacity baseline,clip,blank,disable,withdraw,window transfer/app rejection; not decode/device pixels");
+ puts("PASS actual production Message consumer gate: overall NC model-offscreen/presentation-visible,500 stable,view-backed veto,private-rung non-veto (0.0.112),lease opacity baseline,clip,blank,disable,withdraw,window transfer/app rejection; not decode/device pixels");
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as d:

@@ -79,12 +79,25 @@ static BOOL LMVEasterSecurityName(NSString *name) {
         if ([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound) return YES;
     return NO;
 }
+// 0.0.112: the system screen-recording / capture indicator is a PRIVACY surface
+// ("Privacy" is in the security word list above), so recording a screen turned
+// the floating ball off for the whole session: the audit read the recording
+// indicator as a protected modal. An indicator is not a prompt -- the ball must
+// stay visible (and above it). Only capture-worded surfaces are exempt; a real
+// passcode/permission prompt never carries these words.
+static BOOL LMVEasterCaptureName(NSString *name) {
+    if (!name.length) return NO;
+    for (NSString *word in @[@"Recording",@"ScreenCapture",@"CaptureIndicator",@"PrivacyIndicator",@"Broadcast",@"Replay",@"Mirroring"])
+        if ([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound) return YES;
+    return NO;
+}
 static BOOL LMVEasterVisibleDrawing(UIView *view, UIWindow *window, NSUInteger depth, NSUInteger *budget, BOOL *security) {
     if (!view || !*budget || depth>7 || view.hidden || view.alpha<0.01) return NO;
     --*budget;
     CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
     if (CGRectIsNull(rect) || CGRectIsEmpty(rect)) return NO;
-    if (LMVEasterSecurityName(NSStringFromClass(view.class))) *security=YES;
+    NSString *viewName=NSStringFromClass(view.class);
+    if (LMVEasterSecurityName(viewName) && !LMVEasterCaptureName(viewName)) *security=YES;
     CGFloat area=rect.size.width*rect.size.height, full=window.bounds.size.width*window.bounds.size.height;
     BOOL draws=view.layer.contents!=nil || (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor)>0.05) ||
         [view isKindOfClass:UIVisualEffectView.class];
@@ -248,6 +261,29 @@ static BOOL LMVEasterPriorityWindowVisible(UIWindow *window) {
         window.screen==UIScreen.mainScreen && !CGRectIsEmpty(window.bounds) &&
         !CGRectIsNull(window.bounds) && !CGRectIsInfinite(window.bounds);
 }
+// Dynamic because the private SDK surface is not always declared; a missing
+// selector must mean "not captured", never a build or runtime error.
+static BOOL LMVEasterScreenCaptured(void) {
+    UIScreen *screen=UIScreen.mainScreen;SEL selector=NSSelectorFromString(@"isCaptured");
+    if(!screen || ![screen respondsToSelector:selector])return NO;
+    NSMethodSignature *signature=[screen methodSignatureForSelector:selector];
+    if(!signature || signature.numberOfArguments!=2 || strcmp(signature.methodReturnType,@encode(BOOL)))return NO;
+    return ((BOOL(*)(id,SEL))objc_msgSend)(screen,selector);
+}
+// 0.0.112: see LMVEasterCaptureName. A live capture surface may compete for the
+// level (so the ball still sits above the recording indicator) but it must never
+// block. While the display is actually captured, any window whose class is a
+// capture indicator qualifies even if a vendor renamed it past the word list.
+static BOOL LMVEasterCaptureWindow(UIWindow *window) {
+    if(!window)return NO;
+    NSString *root=window.rootViewController ? NSStringFromClass(window.rootViewController.class) : @"";
+    if(LMVEasterCaptureName(NSStringFromClass(window.class)) || LMVEasterCaptureName(root))return YES;
+    if(!LMVEasterScreenCaptured())return NO;
+    for(NSString *word in @[@"Indicator",@"Capture"])
+        for(NSString *name in @[NSStringFromClass(window.class),root])
+            if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
+    return NO;
+}
 static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
     (void)level; // Security is never waived just because the bubble is higher.
     if(!LMVEasterPriorityWindowVisible(window))return NO;
@@ -258,8 +294,12 @@ static BOOL LMVEasterBlockingWindow(UIWindow *window, CGFloat level) {
         BOOL security=NO,drawing=NO,modal=NO;
         BOOL substantive=LMVEasterVisibleDrawing(root,window,0,&drawingBudget,&security);
         BOOL foreground=LMVEasterVisibleForeground(root,window,0,&foregroundBudget,&drawing,&modal);
-        BOOL classSecurity=LMVEasterSecurityName(NSStringFromClass(window.class)) ||
-            (root.window==window && LMVEasterSecurityName(NSStringFromClass(controller.class)));
+        // A capture/recording indicator surface is never a protected modal
+        // (0.0.112), even though its privacy wording matches the security list.
+        BOOL classSecurity=(!LMVEasterCaptureName(NSStringFromClass(window.class)) &&
+            LMVEasterSecurityName(NSStringFromClass(window.class))) ||
+            (root.window==window && !LMVEasterCaptureName(NSStringFromClass(controller.class)) &&
+             LMVEasterSecurityName(NSStringFromClass(controller.class)));
         Class alert=NSClassFromString(@"UIAlertController");
         CGRect rect=root?[root convertRect:root.bounds toView:window]:CGRectZero;
         CGRect exposed=CGRectIntersection(rect,window.bounds);
@@ -289,7 +329,8 @@ static BOOL LMVEasterOverlayPriority(NSArray<UIWindow *> *windows,UIWindow *own,
     if(blockedWindow)*blockedWindow=nil;
     for(UIWindow *window in windows) {
         if(window==own || !LMVEasterPriorityWindowVisible(window))continue;
-        if(LMVEasterBlockingWindow(window,0)) {
+        // A live recording/capture indicator only competes for the level below.
+        if(!LMVEasterCaptureWindow(window) && LMVEasterBlockingWindow(window,0)) {
             if(blockedWindow)*blockedWindow=window;return NO;
         }
         CGFloat candidate=window.windowLevel;

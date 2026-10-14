@@ -24,6 +24,14 @@ assert 'LMVEasterBlockingWindow(window,0)' in priority
 assert 'LMVEasterVisibleDrawing' in blocking and 'LMVEasterVisibleForeground' in blocking
 assert 'if(security || modal ||' in blocking and 'classSecurity && (drawing || substantive || foreground)' in blocking
 assert '(visible && alert && [controller isKindOfClass:alert])' in blocking
+# 0.0.112: a recording/capture indicator carries privacy wording but is not a
+# protected modal; it may set the level, never the block.
+assert 'static BOOL LMVEasterCaptureName(NSString *name)' in overlay
+assert 'static BOOL LMVEasterCaptureWindow(UIWindow *window)' in overlay
+assert 'LMVEasterSecurityName(viewName) && !LMVEasterCaptureName(viewName)' in overlay
+assert '!LMVEasterCaptureWindow(window) && LMVEasterBlockingWindow(window,0)' in priority
+assert '!LMVEasterCaptureName(NSStringFromClass(window.class)) &&' in blocking
+assert 'LMVEasterScreenCaptured' in overlay and 'isCaptured' in overlay
 import re
 executable=re.sub(r'//[^\n]*|/\*.*?\*/','',priority+blocking,flags=re.S)
 assert all(name not in executable for name in ('UINT_MAX', 'CGFLOAT_MAX', 'Squid', 'Gesture'))
@@ -83,6 +91,12 @@ fixture = r'''
 @implementation UIAlertController @end
 @interface OrdinaryGestureHUDWindow : UIWindow @end
 @implementation OrdinaryGestureHUDWindow @end
+@interface PrivacyRecordingIndicatorWindow : UIWindow @end
+@implementation PrivacyRecordingIndicatorWindow @end
+@interface PrivacyIndicatorView : UIView @end
+@implementation PrivacyIndicatorView @end
+@interface PrivacyPromptView : UIView @end
+@implementation PrivacyPromptView @end
 @interface GestureAuthenticationWindow : UIWindow @end
 @implementation GestureAuthenticationWindow @end
 @interface PermissionView : UIView @end
@@ -146,6 +160,16 @@ int main(void) { @autoreleasepool {
     UIWindow *recording=[SBRecordingIndicatorWindow new];recording.windowLevel=1000000000;
     rootView(recording,recording.rootViewController.viewIfLoaded);
     allowed(@[home,recording,own],own,1000000001);recording.hidden=YES;allowed(@[home,recording,own],own,1001);
+    // 0.0.112: a recording/privacy INDICATOR is a capture surface, not a
+    // protected modal. Its class/view names match the privacy security words,
+    // which used to hide the floating ball for the whole recording session.
+    UIWindow *privacyRecording=[PrivacyRecordingIndicatorWindow new];privacyRecording.windowLevel=3000000;
+    rootView(privacyRecording,privacyRecording.rootViewController.viewIfLoaded);
+    PrivacyIndicatorView *pill=[PrivacyIndicatorView new];pill.bounds=CGRectMake(0,0,60,20);solid(pill);child(privacyRecording,pill);
+    allowed(@[home,privacyRecording,own],own,3000001);
+    // The same privacy wording without a capture word is still a real prompt.
+    UIWindow *privacyPrompt=hud(3000000);PrivacyPromptView *privacy=[PrivacyPromptView new];privacy.bounds=CGRectMake(0,0,60,20);solid(privacy);child(privacyPrompt,privacy);
+    denied(@[home,privacyPrompt,own],own,privacyPrompt);
     // A gesture-containing security class gets NO special allowance, and a
     // small visible drawing is enough even without 30% area.
     UIWindow *auth=[GestureAuthenticationWindow new];auth.windowLevel=100000;
