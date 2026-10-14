@@ -65,26 +65,6 @@ static BOOL LMVPreferencesDirty = YES;
 static void LMVDiagnostic(NSString *event);
 #define LMVEasterWindowDiagnostic(reason) LMVDiagnostic([@"easter-window " stringByAppendingString:(reason)])
 #import "LMVEasterOverlay.h"
-// 0.0.118: desktop-only Reachability block (public API, see the header).
-#import "LMVReachability.h"
-static NSTimer *LMVReachabilityTimer;
-static void LMVReachabilitySync(void) {
-    if (!NSThread.isMainThread) return;
-    BOOL enabled = LMVReachabilityEnabled();
-    if (enabled) {
-        if (!LMVReachabilityTimer) {
-            LMVReachabilityTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
-                LMVReachabilityApply();
-            }];
-            [NSRunLoop.mainRunLoop addTimer:LMVReachabilityTimer forMode:NSRunLoopCommonModes];
-        }
-        LMVReachabilityApply();
-        return;
-    }
-    // Off: stop watching and make sure the gesture is never left disabled.
-    [LMVReachabilityTimer invalidate]; LMVReachabilityTimer = nil;
-    LMVReachabilityRestore();
-}
 static LMVEasterManager *LMVEaster;
 static void LMVLoadPreferences(void);
 static void LMVRetryDiscovery(UIView *cell);
@@ -143,7 +123,7 @@ static void LMVDiagnostic(NSString *event) {
             static NSUInteger records=0;
             static unsigned long lastEpoch=0;
             if (lastEpoch != epoch) { records=0; lastEpoch=epoch; }
-            // 0.0.118: the card and lock channels emit ~10-150 records per second,
+            // 0.0.121: the card and lock channels emit ~10-150 records per second,
             // so a fixed per-epoch budget silently dropped the rare floating-ball
             // decisions (no easter-window line ever reached the log, which made
             // "the ball disappeared" undiagnosable). Easter decisions are tiny and
@@ -161,7 +141,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.118 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.121 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -233,7 +213,7 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 }
 
 // One playback chain per SELECTED FILE, never per card.
-// 0.0.118 user policy: when Message/Options/Clear select the SAME video they
+// 0.0.121 user policy: when Message/Options/Clear select the SAME video they
 // share one player, clock, output and retained frame; a category whose selected
 // video differs keeps its own independent chain. The target is still validated
 // (only the three card categories may register here) but it no longer
@@ -667,7 +647,7 @@ static void LMVPrepareAssets(void) {
     if (!LMVInitialized || !LMVLaunchReady) return;
     NSSet *wanted = [NSSet setWithArray:LMVPaths.allValues];
     for(LMVSharedSource *source in LMVSharedSources.allValues) {
-        // 0.0.118: a shared source stays while ANY enabled category still
+        // 0.0.121: a shared source stays while ANY enabled category still
         // selects this exact file; retirement follows real demand, not the
         // category that happened to create it first.
         BOOL wanted=NO;
@@ -746,7 +726,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.118 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.121 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -756,7 +736,7 @@ static void LMVLoadPreferences(void) {
         @"Clear": @"clear.mov"
     };
     LMVEnabled = [NSMutableDictionary new];
-    // 0.0.118: master switch for the whole tweak, read inline so sliced test
+    // 0.0.121: master switch for the whole tweak, read inline so sliced test
     // fixtures need no extra symbol. Absent or non-number means ENABLED, so an
     // upgrade never changes an existing configuration; only an explicit NO
     // stops every channel.
@@ -1332,7 +1312,6 @@ static void LMVRefresh(BOOL reload) {
         LMVLoadPreferences();LMVReloadAudioControls();
     }
     [LMVDirtyCards removeAllObjects];[LMVDirtyPresenters removeAllObjects];
-    LMVReachabilitySync();
     LMVLockVideoRefresh(reload);
     LMVDesktopVideoRefresh(reload);
     LMVCCRefresh(reload);
