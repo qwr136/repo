@@ -41,7 +41,9 @@ pre+=r'''
 @property(nonatomic,copy) NSString *path;
 @end
 @implementation LMVVideoState @end
-static NSMutableDictionary *LMVEnabled,*LMVPaths;
+static NSMutableDictionary<NSString *,NSNumber *> *LMVEnabled;
+static NSMutableDictionary<NSString *,NSString *> *LMVPaths;
+static CGRect LMVVideoWindowViewport(UIWindow *window){return window.bounds;}
 static BOOL LMVVisible(UIView *view);
 static BOOL LMVMessageCell(UIView *view){return [view isKindOfClass:NCNotificationListCell.class];}
 static BOOL LMVNotificationCenterSurface(UIView *view){return [view.window isKindOfClass:SBCoverSheetWindow.class];}

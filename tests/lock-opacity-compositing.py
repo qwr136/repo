@@ -36,11 +36,11 @@ int main(void){@autoreleasepool{
  s.alpha=.35;assert(opacity(m.host)<.36);[m update];
  assert(m.host.superview==cover && opacity(m.host)>.999 && back.hidden && !clock.hidden);
  assert(m.extentContainer==s && m.playback.renderLayer==render && m.playback.playerLayer==player);
- assert(s.alpha==.35 && [cover.subviews indexOfObjectIdenticalTo:m.host]+1==[cover.subviews indexOfObjectIdenticalTo:s]);
+ assert(fabs(s.alpha-.35)<.000001 && [cover.subviews indexOfObjectIdenticalTo:m.host]+1==[cover.subviews indexOfObjectIdenticalTo:s]);
  LMVLockVideoPaintLease *lease=m.paintLease;
  for(int i=0;i<500;i++){[m update];assert(m.host.superview==cover && back.hidden && opacity(m.host)>.999 && m.paintLease==lease);}
  // Fading the entire cover selects the next opaque ancestor, below the cover.
- cover.alpha=.4;[m update];assert(m.host.superview==outer && opacity(m.host)>.999 && cover.alpha==.4);
+ cover.alpha=.4;[m update];assert(m.host.superview==outer && opacity(m.host)>.999 && fabs(cover.alpha-.4)<.000001);
  // All existing physical clips/partial bottom continue to constrain the video.
  s.frame=CGRectMake(0,-500,390,844);[m update];CGRect rect=[m.host.layer convertRect:CGPathGetBoundingBox(m.host.clipLayer.path) toLayer:w.layer];
  assert(fabs(CGRectGetMinY(rect))<.01 && fabs(CGRectGetMaxY(rect)-344)<.01);
