@@ -352,11 +352,11 @@ int main(int argc, const char **argv) { @autoreleasepool {
     assert(LMVSourceForTarget(path,@"Options")==LMVSourceForTarget(path,@"Message"));
     LMVEnabled[@"Options"]=@YES;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
     LMVPaths[@"Clear"]=path;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
-    // A category moving to a DIFFERENT file gets its own chain: covered above by
-    // the three-distinct-file section (three players, three readers). Here the
-    // only files left are gated (unready asset / frame still pending on disk), so
-    // warming them correctly adds nothing and the shared chain is unchanged.
-    LMVPaths[@"Clear"]=other;LMVWarmSourcesForPath(other);assert(LMVSharedSources.count==1);
+    // A category moving to a DIFFERENT (ready) file gets its own chain: the
+    // shared file keeps one source and the new file adds exactly one more.
+    LMVPaths[@"Clear"]=other;LMVWarmSourcesForPath(other);assert(LMVSharedSources.count==2);
+    LMVSourceForTarget(path,@"Message");LMVSourceForTarget(other,@"Clear");
+    assert(LMVSourceForTarget(path,@"Message")!=LMVSourceForTarget(other,@"Clear"));
     for(LMVSharedSource *source in LMVSharedSources.allValues)assert(!source.playing && source.player.rate==0);
     for(NSString *invalidatePath in @[path,pathB,pathC])LMVInvalidateSourcesForPath(invalidatePath);
     dispatch_sync(LMVFrameQueue,^{});assert(!LMVSharedSources.count);
