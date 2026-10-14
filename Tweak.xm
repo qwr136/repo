@@ -946,7 +946,7 @@ static void LMVUpdate(UIView *cell) {
     }
     if (LMVDiagnosticsEnabled.load()) {
     static char discoveryDiagnosticKey;
-    NSMutableString *discovery=[NSMutableString stringWithFormat:@"discovery visible=%d scope=%d ownerClass=%@ windowClass=%@ controllerClass=%@",visible,LMVNotificationCenterSurface(cell),NSStringFromClass(cell.class),cell.window?NSStringFromClass(cell.window.class):@"none",cell.window.rootViewController?NSStringFromClass(cell.window.rootViewController.class):@"none"];
+    NSMutableString *discovery=[NSMutableString stringWithFormat:@"discovery visible=%d scope=%d ownerClass=%@ windowClass=%@",visible,LMVNotificationCenterSurface(cell),NSStringFromClass(cell.class),cell.window?NSStringFromClass(cell.window.class):@"none"];
     for (NSString *target in LMVTargets()) [discovery appendFormat:@" %@ enabled=%d selected=%d assetready=%d host=%d",target,LMVEnabled[target].boolValue,LMVPaths[target]!=nil,LMVReadyAssets && [LMVReadyAssets containsObject:LMVPaths[target] ?: @""],[hosts objectForKey:target]!=nil];
     NSString *previous=objc_getAssociatedObject(cell,&discoveryDiagnosticKey);
     if (![previous isEqualToString:discovery]) { objc_setAssociatedObject(cell,&discoveryDiagnosticKey,[discovery copy],OBJC_ASSOCIATION_RETAIN_NONATOMIC); LMVDiagnostic(discovery); }

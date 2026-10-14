@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real AVFoundation audio-only channels; AVAudioSession policy double on macOS.
+"""Real AVFoundation audio-only channels; LMVTestAudioSession policy double on macOS.
 Cannot prove iOS external music mixing or device compositing."""
 import platform,subprocess,tempfile,wave,struct,math
 from pathlib import Path
@@ -21,20 +21,20 @@ static CFStringRef const kLMVPrefsID=CFSTR("test");
 static NSMutableDictionary *prefs;
 static CFPropertyListRef testCopy(CFStringRef key,CFStringRef domain){return CFBridgingRetain(prefs[(__bridge NSString *)key]);}
 #define CFPreferencesCopyAppValue testCopy
-static NSString *const AVAudioSessionCategoryAmbient=@"Ambient";
-static const NSUInteger AVAudioSessionCategoryOptionMixWithOthers=1;
+static NSString *const LMVTestAudioSessionCategoryAmbient=@"Ambient";
+static const NSUInteger LMVTestAudioSessionCategoryOptionMixWithOthers=1;
 static NSUInteger categoryWrites,activations;
-@interface AVAudioSession:NSObject
+@interface LMVTestAudioSession:NSObject
 + (instancetype)sharedInstance;
 - (BOOL)setCategory:(NSString *)category withOptions:(NSUInteger)options error:(NSError **)error;
 - (BOOL)setActive:(BOOL)value error:(NSError **)error;
 @end
-@implementation AVAudioSession
+@implementation LMVTestAudioSession
 + (instancetype)sharedInstance{static id s;static dispatch_once_t once;dispatch_once(&once,^{s=[self new];});return s;}
 - (BOOL)setCategory:(NSString *)c withOptions:(NSUInteger)o error:(NSError **)e{assert([c isEqual:@"Ambient"] && o==1);categoryWrites++;return YES;}
 - (BOOL)setActive:(BOOL)v error:(NSError **)e{assert(v);activations++;return YES;}
 @end
-static BOOL wait(BOOL (^f)(void),double seconds){NSDate *end=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!f() && end.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];return f();}
+static BOOL waitAudio(BOOL (^f)(void),double seconds){NSDate *end=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!f() && end.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];return f();}
 '''
 main=r'''
 int main(int argc,const char **argv){@autoreleasepool{
@@ -44,7 +44,7 @@ int main(int argc,const char **argv){@autoreleasepool{
  for(NSString *target in LMVAudioTargets()){prefs[[target stringByAppendingString:@"SoundEnabled"]]=@YES;prefs[[target stringByAppendingString:@"Volume"]]=@.3;}
  LMVAudioReload();assert(LMVAudioAnyEnabled());
  for(NSString *target in LMVAudioTargets())LMVAudioConsume(target,path,@"r",YES,kCMTimeZero);
- assert(wait(^BOOL{for(LMVAudioChannel *c in LMVAudioChannels.allValues)if(!c.player || c.player.rate==0)return NO;return YES;},15));
+ assert(waitAudio(^BOOL{for(LMVAudioChannel *c in LMVAudioChannels.allValues)if(!c.player || c.player.rate==0)return NO;return YES;},15));
  assert(categoryWrites==1 && activations==1);
  for(NSString *target in LMVAudioTargets()) {
   LMVAudioChannel *c=LMVAudioChannels[target];AVQueuePlayer *p=c.player;
@@ -56,7 +56,7 @@ int main(int argc,const char **argv){@autoreleasepool{
  LMVAudioPauseAll();for(LMVAudioChannel *c in LMVAudioChannels.allValues)assert(c.player.rate==0);
  // Hidden while asynchronous asset load finishes must not emit sound.
  LMVAudioChannel *c=LMVAudioChannels[@"Message"];[c clear];LMVAudioConsume(@"Message",path,@"r2",YES,kCMTimeZero);LMVAudioConsume(@"Message",path,@"r2",NO,kCMTimeZero);
- assert(wait(^BOOL{return !c.loading;},10));assert(c.player.rate==0);
+ assert(waitAudio(^BOOL{return !c.loading;},10));assert(c.player.rate==0);
  prefs[@"MessageSoundEnabled"]=@NO;LMVAudioReload();assert(!c.player && !c.loading);
  prefs[@"OptionsVolume"]=@(NAN);LMVAudioReload();assert(fabs(LMVAudioChannels[@"Options"].volume-.5)<.00001);
  for(NSString *target in LMVAudioTargets())prefs[[target stringByAppendingString:@"SoundEnabled"]]=@NO;LMVAudioReload();assert(!LMVAudioAnyEnabled());
@@ -68,6 +68,6 @@ with tempfile.TemporaryDirectory() as d:
  with wave.open(str(wav),'w') as f:
   f.setnchannels(1);f.setsampwidth(2);f.setframerate(22050)
   f.writeframes(b''.join(struct.pack('<h',int(2000*math.sin(i*2*math.pi*440/22050))) for i in range(44100)))
- src.write_text(pre+h.replace('#pragma once','')+main)
+ src.write_text(pre+h.replace('#pragma once','').replace('AVAudioSession','LMVTestAudioSession')+main)
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia',str(src),'-o',str(out)],check=True)
  subprocess.run([str(out),str(wav)],check=True,timeout=45)

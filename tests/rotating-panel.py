@@ -199,15 +199,16 @@ int main(void) { @autoreleasepool {
     assert(CATransform3DIsIdentity(image.transform));
     // A running/scaled ancestor clock must use convertTime, not global media
     // time. Speed replacement uses the old turn evaluated at the NEW beginTime.
-    CALayer *scaled=[CALayer layer]; scaled.speed=.5; scaled.timeOffset=37;
+    CALayer *scaled=[CALayer layer];
     CountingLayer *running=[CountingLayer layer]; [scaled addSublayer:running];
+    running.speed=.5;running.beginTime=CACurrentMediaTime()-20;running.timeOffset=100;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     LMVEasterUpdateRotation(running,YES,NO,YES,45);
     CABasicAnimation *first=turn(running);
     double global=CACurrentMediaTime(); assert(fabs(first.beginTime-global)>1);
     // Jump only the fixture's clock by 2 local seconds to guarantee nonzero
     // phase without sleeping or depending on a window server/display refresh.
-    scaled.timeOffset+=2;
+    running.timeOffset+=2;
     LMVEasterUpdateRotation(running,YES,YES,YES,180);
     CABasicAnimation *second=turn(running);
     double elapsed=second.beginTime-first.beginTime;

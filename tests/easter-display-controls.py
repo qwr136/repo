@@ -110,7 +110,7 @@ int main(void) { @autoreleasepool {
         danger.hidden=YES;budget=64;security=NO;LMVEasterVisibleDrawing(cover,window,0,&budget,&security);assert(!security);
         [danger.layer removeFromSuperlayer];
     }
-    UIWindow *alert=[UIWindow new];alert.windowLevel=UIWindowLevelAlert;solidDisplay(alert.rootViewController.viewIfLoaded);
+    UIWindow *alert=[AuthenticationWindow new];alert.windowLevel=UIWindowLevelAlert;solidDisplay(alert.rootViewController.viewIfLoaded);
     assert(LMVEasterBlockingWindow(alert,1200));
     assert(runPolicy(c,YES,0,YES,1,YES,NO,NO,NO,!LMVEasterBlockingWindow(alert,1200))==LMVEasterDisplayNone);
     alert.hidden=YES;assert(!LMVEasterBlockingWindow(alert,1200));
