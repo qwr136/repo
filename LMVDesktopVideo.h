@@ -296,15 +296,23 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // at 71756.836 and the desktop only resumed at 71757.572, 0.73 s
                 // later. Measure the visible CONTENT instead; when it cannot be
                 // measured at all the frame-based answer below still stands.
+                BOOL contentMeasurable=NO;
                 CGRect content=CGRectZero;
+                CALayer *contentSpace=window.layer.presentationLayer;
+                if (!contentSpace) contentSpace=window.layer;
                 for (UIView *child in root.subviews) {
                     if (child.hidden || child.alpha<.01) continue;
                     CALayer *paint=child.layer.presentationLayer;if (!paint) continue;
-                    CGRect piece=CGRectIntersection([paint convertRect:paint.bounds toLayer:destination.layer],destination.bounds);
-                    if (LMVLockVideoRectValid(piece)) content=CGRectIsEmpty(content)?piece:CGRectUnion(content,piece);
+                    CGRect piece=[paint convertRect:paint.bounds toLayer:contentSpace];
+                    if (!LMVLockVideoRectValid(piece)) continue;
+                    contentMeasurable=YES;
+                    content=CGRectIsEmpty(content)?piece:CGRectUnion(content,piece);
                 }
-                if (!CGRectIsEmpty(content)) {
-                    CGFloat covered=content.size.width*content.size.height,
+                if (contentMeasurable) {
+                    // Content that has left the screen entirely is NOT a cover - an
+                    // empty intersection here means "gone", not "unmeasurable".
+                    CGRect onScreen=CGRectIntersection([window convertRect:content toWindow:destination],destination.bounds);
+                    CGFloat covered=CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.height,
                         screen=destination.bounds.size.width*destination.bounds.size.height;
                     if (screen<=0 || covered/screen<0.6) continue; // the content has left
                 }
