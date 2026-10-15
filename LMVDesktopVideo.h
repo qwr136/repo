@@ -131,6 +131,11 @@ static void LMVDesktopVideoSuspend(void);
 // pure waste; the short grace absorbs the app-launch transition, during which the
 // cover probe flaps for a frame or two.
 @property(nonatomic) CFTimeInterval coveredSince;
+// 0.0.133: anything covering the desktop (app, switcher, Control Center,
+// notification sheet). Gates the Desktop AUDIO channel - the video may keep
+// playing under a translucent sheet at fg==1, but the sound follows the cover,
+// not the player state.
+@property(nonatomic) BOOL coveredNow;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
 // run on the ~0.4 s hook/tick cadence - the exit cross-fade could therefore
@@ -451,20 +456,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     [self.coverWatch invalidate];self.coverWatch=nil;
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
-    if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
-    BOOL layerHidden=self.host.hidden;
-    // Two watched states: the layer hidden behind an opaque app (reveal), and
-    // the layer visible but frozen under a sheet (0.0.131: Control Center
-    // close -> resume). Anything else has nothing to wait for.
-    if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}
+    if (self.suspended || self.host.superview==nil || !self.host.hidden || self.container==nil) {[self stopCoverWatch];return;}
     BOOL unknown=NO,appCover=NO,switcherCover=NO,sheetCover=NO;
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&sheetCover);
-    if (unknown) return;
-    BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
-    // hidden mode: silent while fully covered AND an app is frontmost;
-    // frozen-visible mode (sheet): silent while the sheet still fully covers -
-    // the moment it drops (slide-out or window hidden) the resume is requested.
-    if (fullyCovered && (layerHidden ? LMVDesktopForeground()!=1 : YES)) return;
+    // Still provably hidden (fully covered, app frontmost): nothing to do. An
+    // unknown cover keeps waiting for the regular tick to decide.
+    if (unknown || (LMVDesktopFullyCovered(self.container,cover) && LMVDesktopForeground()!=1)) return;
     [self stopCoverWatch];
     LMVDiagnostic(@"desktop-video cover-watch-reveal");
     LMVDesktopRequestUpdate();
@@ -513,6 +510,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (screenKnown && !blank && lockKnown && !locked && !unknownCover &&
         (foreground==1 || homeConfirmed)) self.authenticatedSession=YES;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover);
+    self.coveredNow=covered;
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
@@ -618,12 +616,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         [self.host removeFromSuperview];self.container=nil;self.holdSince=0;
     }
     if (LMVLaunchReady) {
-        // 0.0.132: the app switcher joined the freeze family - covering the
-        // desktop with the switcher IS "the desktop went into the background"
-        // (video freezes, audio stops), while a REAL app window keeps the
-        // 0.0.127 exit-transition play rule (fg==1 + app window => play).
-        BOOL freeze=appForeground || (visible && covered && (sheetCover || switcherCover || foreground!=1)),
-            play=visible && (!covered || (appWindowCover && foreground==1));
+        // 0.0.133: the video freeze follows the frontmost probe ONLY. While an
+        // app is REALLY frontmost (fg!=1) over a covered desktop the video
+        // freezes and hides; at fg==1 (desktop evidence) the video PLAYS under
+        // any cover - the Control Center, the switcher or a fading app - so
+        // closing them needs no resume at all: the motion is already there
+        // (the 0.0.130 feel the user asked for). The AUDIO is decoupled: it
+        // stays OFF while anything covers the desktop (coveredNow gates the
+        // audio sync, and the play branch pauses the channel directly).
+        BOOL freeze=appForeground || (visible && covered && foreground!=1),
+            play=visible && (!covered || foreground==1);
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
@@ -638,6 +640,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             else if(!self.playback.wantsPlayback || self.playback.posterOnlyVisible)
                 [self.playback setVisible:YES];
             else [self.playback resumeIfNeeded];
+            // 0.0.133: the video plays under the covering sheet (instant on
+            // reveal), but the audio stays OFF while anything covers the
+            // desktop - the audio-sync gate keeps it off, this makes the first
+            // pause instant instead of one 10 Hz timer beat late.
+            if(covered && LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();
         } else if(self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible)
             [self.playback setVisible:NO];
     }
@@ -653,13 +660,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         UIView *held=self.lease.content;
         if (held && !self.lease.baselineHidden) {if(!held.hidden)held.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
-    // 0.0.128/0.0.131: watch every frame in BOTH waiting states - the layer
-    // hidden behind an opaque app (exit reveal), AND the layer visible but
-    // frozen under a sheet like Control Center (0.0.130 device data: the CC
-    // window disappears from the list while closed) - so the exit cross-fade
-    // and the sheet close are caught within ~16 ms instead of the ~0.4 s update
-    // cadence (which let the wallpaper content show through / delayed resume).
-    if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];
+    // 0.0.128/0.0.133: watch every frame ONLY while the layer is hidden behind
+    // an opaque app - the exit cross-fade is caught within ~16 ms instead of the
+    // ~0.4 s update cadence (which let the wallpaper content show through).
+    // 0.0.133: sheet/switcher covers no longer freeze the video at fg==1, so
+    // there is no frozen-visible waiting state to watch anymore.
+    if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];
     else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {

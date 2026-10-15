@@ -122,8 +122,8 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImagePanelSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == LMVEasterImageSection()) return 3;
-    // Corner toggle + corner slider + size toggle + width + height + ball haptic.
-    if (section == LMVEasterImagePanelSection()) return 6;
+    // Corner toggle + corner slider + size toggle + width + height.
+    if (section == LMVEasterImagePanelSection()) return 5;
     return section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().count : 2;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -133,7 +133,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == LMVEasterImageDisplaySection()) return @"默认不在锁屏显示；控制中心和桌面默认显示。通知中心沿用现有显示行为。";
-    return section == LMVEasterImagePanelSection() ? @"拖动悬浮窗顶部标题栏即可移动窗口；窗口始终被限制在屏幕内。关闭「自定义悬浮窗大小」时按屏幕自动计算。「悬浮球震动」控制点击悬浮球时的触感反馈。" : nil;
+    return section == LMVEasterImagePanelSection() ? @"拖动悬浮窗顶部标题栏即可移动窗口；窗口始终被限制在屏幕内。关闭「自定义悬浮窗大小」时按屏幕自动计算。" : nil;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {
     if (index.section == LMVEasterImageSection()) return index.row == 0 ? 184 : (index.row == 2 ? 80 : 44);
@@ -165,12 +165,6 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             UISwitch *toggle = [UISwitch new]; toggle.on = sizeOn;
             toggle.accessibilityLabel = cell.textLabel.text;
             [toggle addTarget:self action:@selector(panelSizeToggled:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
-        } else if (index.row == 5) {
-            cell.textLabel.text = @"悬浮球震动";
-            UISwitch *toggle = [UISwitch new];
-            toggle.on = LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES);
-            toggle.accessibilityLabel = cell.textLabel.text;
-            [toggle addTarget:self action:@selector(panelHapticToggled:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
             BOOL width = index.row == 3;
             NSString *key = width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale";
@@ -285,9 +279,6 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 }
 - (void)panelSizeToggled:(UISwitch *)toggle {
     LMVEasterSet(@"EasterPanelSizeEnabled", @(toggle.on)); [self.tableView reloadData];
-}
-- (void)panelHapticToggled:(UISwitch *)toggle {
-    LMVEasterSet(@"EasterBallHapticEnabled", @(toggle.on));
 }
 - (void)panelCornerChanged:(UISlider *)slider {
     self.settingsTracking = slider.isTracking;

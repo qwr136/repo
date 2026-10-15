@@ -141,7 +141,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.132 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.133 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -726,7 +726,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.132 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.133 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1273,8 +1273,11 @@ static void LMVSyncAudioVisibility(void) {
         LMVAudioLayerExposed(lock.renderLayer,LMVLockVideo.host.window);
     LMVAudioConsume(@"LockScreen",lock.path,lock.revision,lockVisible,lock.player.currentTime);
     LMVLockVideoPlayback *desktop=LMVDesktopVideo.playback;
+    // 0.0.133: the video may keep PLAYING under a translucent cover at fg==1
+    // (the instant-reveal feel), but the sound follows the COVER, not the
+    // player state - off whenever anything covers the desktop.
     BOOL desktopVisible=desktop.wantsPlayback && !desktop.frozen && !LMVDesktopVideo.host.hidden &&
-        LMVAudioLayerExposed(desktop.renderLayer,LMVDesktopVideo.host.window);
+        !LMVDesktopVideo.coveredNow && LMVAudioLayerExposed(desktop.renderLayer,LMVDesktopVideo.host.window);
     LMVAudioConsume(@"Desktop",desktop.path,desktop.revision,desktopVisible,desktop.player.currentTime);
     LMVLockVideoPlayback *cc=LMVControlCenterVideo.playback;
     BOOL ccVisible=LMVControlCenterVideo.presented && cc.wantsPlayback && !cc.frozen &&
