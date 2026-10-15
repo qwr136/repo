@@ -86,8 +86,12 @@ has(desktop, 'view.frame.size.width,view.frame.size.height,view.layer.cornerRadi
     'the printer carries frame AND corner radius (the mount needs both)')
 has(desktop, 'if (depth>=4 || view.subviews.count==0) return out;', 'the tree goes four levels deep')
 has(desktop, '@"desktop-overlay %@"', 'the overlay diagnostic line exists')
-has(desktop, '![overlayName containsString:@"TransitionView"] && ![overlayName containsString:@"Overlay"]',
-    'presentation containers are recognised by name')
+has(desktop, 'static void LMVDesktopFindOverlayViews(UIView *view,NSUInteger depth,NSMutableArray<UIView *> *found,NSUInteger *nodes) {',
+    'the overlay finder recurses the whole view tree (not just window.subviews)')
+has(desktop, 'if ([name containsString:@"TransitionView"] || [name containsString:@"Overlay"]) [found addObject:view];',
+    'presentation containers are recognised by name at any depth')
+has(desktop, 'LMVDesktopFindOverlayViews(window,0,found,&nodes);',
+    'the finder is called once per window, then every match is shaped')
 has(desktop, 'for (UIWindow *window in everyWindow) {', 'legacy (scene-less) windows are walked too')
 has(desktop, '[everyWindow containsObject:window]) [everyWindow addObject:window];',
     'scene and legacy window lists are merged without duplicates')

@@ -314,6 +314,19 @@ static NSString *LMVDesktopOverlayShape(UIView *view,NSUInteger depth) {
     [out appendString:@"}"];
     return out;
 }
+// 1.27: the overlay scan must walk the WHOLE view tree, not just the window's
+// direct subviews. AppTools (and most iOS presentations) drop their
+// UITransitionView one or two levels BELOW the window - under SBHomeScreenView,
+// for example - so a window.subviews-only scan never sees it and the diagnostic
+// stays stuck on "none" even while the pop-up is on screen. This gathers every
+// TransitionView/Overlay descendant, bounded so it cannot stall the tick.
+static void LMVDesktopFindOverlayViews(UIView *view,NSUInteger depth,NSMutableArray<UIView *> *found,NSUInteger *nodes) {
+    if (!view || depth>4 || *nodes>1500) return;
+    (*nodes)++;
+    NSString *name=NSStringFromClass(view.class);
+    if ([name containsString:@"TransitionView"] || [name containsString:@"Overlay"]) [found addObject:view];
+    for (UIView *child in view.subviews) LMVDesktopFindOverlayViews(child,depth+1,found,nodes);
+}
 static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *ccCover,BOOL *sheetCover,BOOL *sheetFullCover) {
     CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*ccCover=NO;*sheetCover=NO;*sheetFullCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1268,13 +1281,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         NSMutableString *overlays=[NSMutableString new];
         for (UIWindow *window in everyWindow) {
             if (window.hidden || window.alpha<.01) continue;
-            for (UIView *child in window.subviews) {
-                NSString *overlayName=NSStringFromClass(child.class);
-                if (![overlayName containsString:@"TransitionView"] && ![overlayName containsString:@"Overlay"]) continue;
+            NSMutableArray<UIView *> *found=[NSMutableArray new];
+            NSUInteger nodes=0;
+            LMVDesktopFindOverlayViews(window,0,found,&nodes);
+            for (UIView *v in found) {
                 if (overlays.length>3000) break;
                 [overlays appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f{%@} ",
                     NSStringFromClass(window.class),window.frame.origin.x,window.frame.origin.y,
-                    window.frame.size.width,window.frame.size.height,LMVDesktopOverlayShape(child,0)];
+                    window.frame.size.width,window.frame.size.height,LMVDesktopOverlayShape(v,0)];
             }
         }
         NSString *overlayShape=[NSString stringWithFormat:@"desktop-overlay %@",overlays.length?overlays:@"none"];
