@@ -870,7 +870,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
                 [self.host removeFromSuperview];
                 [hostParent insertSubview:self.host aboveSubview:container];
             }
-        } else
+        }
         BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,container.bounds);
         [CATransaction begin];[CATransaction setDisableActions:YES];
         if(geometryChanged)self.host.frame=container.bounds;
