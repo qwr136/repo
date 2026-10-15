@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""1.26: the AppTools (AT) pop-up channel.
+"""1.26: the AppTools (AT) pop-up channel - settings, plumbing, and (1.28) the mount.
 
-This release stores the AT settings and adds the diagnostics needed to FIND the
-pop-up - AppTools presents its panel INTO an existing window (SBHomeScreenWindow),
-so it is not a window at all and the window list never changes. The video mount
-is the next release, so this file also pins that no AT player/wiring exists yet.
+AppTools presents its panel INTO an existing window (SBHomeScreenWindow), so it is
+not a window at all and the window list never changes. 1.26 stored the settings and
+added the diagnostics that found the shape; 1.28 mounts the video, so the scope guard
+that pinned "no AT player yet" is now replaced by the wiring and module contracts.
 """
 from pathlib import Path
 import re
@@ -16,6 +16,7 @@ audio = (root / 'LMVMediaAudio.h').read_text()
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
 desktop = (root / 'LMVDesktopVideo.h').read_text()
 tweak = (root / 'Tweak.xm').read_text()
+module = (root / 'LMVATPanelVideo.h').read_text()
 
 
 def body(source, anchor):
@@ -69,10 +70,75 @@ assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",
 assert re.search(r'@"AT":@""\}', delete), 'the AT selection is cleared when its material is deleted'
 assert '"HomeMenu",@"SquidPanel",@"AT"];' in audio, 'the audio chain list carries AT'
 
-# ---- this release only STORES the settings ---------------------------------
-assert 'ATVideo.h' not in tweak, 'no AT player is wired yet'
-assert 'LMVAudioConsume(@"AT"' not in tweak, 'no AT audio consumer yet'
-assert not (root / 'LMVATVideo.h').exists(), 'the AT mount module belongs to the next release'
+# ---- 1.28: the mount is wired now ------------------------------------------
+assert '#import "LMVATPanelVideo.h"' in tweak, 'the AT panel player is wired'
+assert 'LMVAudioConsume(@"AT"' in tweak, 'the AT audio consumer exists'
+assert (root / 'LMVATPanelVideo.h').exists(), 'the AT mount module exists'
+assert '    LMVATPanelVideoRefresh(reload);' in tweak
+assert tweak.count('LMVATPanelVideoSuspend();') == 2, 'suspend + resign-active'
+assert '        LMVATPanelVideoInstallHooks();' in tweak
+
+# ---- the mount module ------------------------------------------------------
+# Unlike SquidGesturePro the panel owns NO window: the search starts at the window
+# it presents INTO, and only TransitionView subtrees are searched (1.27: AppTools
+# drops its TransitionView one or two levels BELOW the window).
+assert 'if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])return window;' in module
+assert 'static void LMVATPanelTransitionRoots(UIView *view,NSUInteger depth,NSMutableArray<UIView *> *found,NSUInteger *nodes) {' in module
+assert 'if(!view || depth>4 || *nodes>800)return;' in module
+assert 'if([NSStringFromClass(view.class) containsString:@"TransitionView"])[found addObject:view];' in module
+assert 'if(!roots.count)return nil;   // no presentation on screen -> no panel' in module
+# No private class of that tweak is hooked or guessed.
+assert 'MSHookMessageEx' not in module and 'class_getInstanceMethod' not in module
+# The card is the largest VISIBLE descendant that does NOT fill the window, so a
+# panel that grows with its icons is followed by construction, not by a stored rect.
+assert 'static UIView *LMVATPanelCard(UIWindow *window) {' in module
+assert 'if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;' in module
+assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;' in module
+assert 'static CGFloat LMVATPanelVisibleArea(CGRect frame,CGRect bounds) {' in module
+assert 'return visible/total>=.5?visible:0;' in module
+assert 'CGFloat visible=LMVATPanelVisibleArea(frame,bounds);' in module
+assert 'if(visible<=0)continue;' in module
+assert 'if(visible>bestArea){bestArea=visible;best=child;}' in module
+assert 'static UIView *LMVATPanelMaterial(UIView *root,UIWindow *window) {' in module
+assert 'UIView *material=LMVATPanelMaterial(card,window);' in module
+assert 'if(!material)material=LMVATPanelMaterial(window,window);' in module
+assert 'vis=%.0f' in module
+# A UIVisualEffectView refuses direct subviews - adding one raises, and an exception
+# in a run-loop callback aborts SpringBoard (the 1.25 crash). Never the container.
+assert '- (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {' in module
+assert 'if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;' in module
+assert '@try {[container insertSubview:self.host atIndex:index];}' in module
+assert '@catch(NSException *exception) {[self.host removeFromSuperview];return NO;}' in module
+# UNDER the icons but ABOVE that material - the same placement 1.24 settled.
+assert 'if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;' in module
+assert 'UIView *content=((UIVisualEffectView *)material).contentView;' in module
+assert 'container=content;index=0;target=content.bounds;mode=@"content";' in module
+assert 'index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";' in module
+assert 'if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;' in module
+# Defence in depth: no failure in this channel may abort SpringBoard.
+assert '@try {[LMVATPanelVideo update];}' in module
+assert '@catch(NSException *exception) {[LMVATPanelVideo detach];}' in module
+assert 'mode=%@' in module
+assert 'UIViewAutoresizing mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;' in module
+assert 'if(self.host.layer.cornerRadius!=card.layer.cornerRadius)self.host.layer.cornerRadius=card.layer.cornerRadius;' in module
+# Our own host can never be mistaken for the card while the search walks the tree.
+assert 'static NSInteger const LMVATPanelHostTag=0x5A18;' in module
+assert 'if(child.tag==LMVATPanelHostTag || child.hidden || child.alpha<.01)continue;' in module
+assert 'self.tag=LMVATPanelHostTag;' in module
+# Never interactive, never a poster substitute for a live panel background.
+assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in module
+assert 'self.playback.posterLayer.hidden=YES;' in module
+assert 'BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;' in module
+# Preferences: own switch, own material, master switch respected, default off.
+assert 'CFSTR("ATBackgroundEnabled")' in module
+assert 'LMVATPanelPath=LMVCCSelectedPath(@"ATVideo");' in module
+assert 'LMVATPanelRevision=LMVLockVideoRevision(LMVATPanelPath);' in module
+assert 'LMVATPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&' in module
+# No player/UI while the channel is off, and a poll that never runs hot when idle.
+assert 'if(!LMVATPanelEnabled || !LMVATPanelPath.length || !LMVATPanelRevision.length) {' in module
+assert 'if(!LMVATPanelVideo)LMVATPanelVideo=[LMVATPanelVideoManager new];' in module
+assert 'NSTimeInterval want=LMVATPanelEnabled?.1:.5;' in module
+assert 'dispatch_async(dispatch_get_main_queue()' not in module  # main run loop only
 
 
 def has(text, token, message):
@@ -103,5 +169,6 @@ assert desktop.index('static NSString *LMVDesktopOverlayShape(UIView *view') < \
     desktop.index('static CGRect LMVDesktopCoverRect('), \
     'the printer is a FILE-SCOPE function, not a nested definition inside update (the 1.26 CI failure)'
 
-print('PASS: AT pop-up channel settings (Settings + floating panel), material/audio plumbing, '
-      'release-scope guard (settings only) and the pop-up diagnostics')
+print('PASS: AT pop-up channel - settings (Settings + floating panel), material/audio plumbing, '
+      'the pop-up diagnostics and the 1.28 mount (TransitionView-only search into '
+      'SBHomeScreenWindow, under the icons / above the material)')
