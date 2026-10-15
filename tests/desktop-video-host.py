@@ -114,7 +114,7 @@ assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend fo
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;' in h, 'an attach under a sheet marks it pre-existing'
-assert 'if (sheetCover && !self.sheetPreexisting) {' in h, 'a user pull shows the wallpaper'
+assert 'if (visible && sheetCover && !self.sheetPreexisting) {' in h, 'a user pull over a live desktop shows the wallpaper'
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the sheet shows the wallpaper'
 assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'

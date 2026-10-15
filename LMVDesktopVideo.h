@@ -746,7 +746,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // sheet (the layer is hidden above and the lease is released) - this must
         // run whenever the sheet is up, NOT only while frozen, or a partial pull
         // would keep the wallpaper suppressed with no way to see it.
-        if (sheetCover && !self.sheetPreexisting) {
+        // Only over a LIVE desktop: on the lock screen the sheet is up with no
+        // surface, and flagging it there suppressed the lease re-acquisition at
+        // the following unlock tick - the wallpaper then stayed exposed.
+        if (visible && sheetCover && !self.sheetPreexisting) {
             if (self.lease) {[self.lease restore];self.lease=nil;}
             self.sheetWallpaperShown=YES;
         }
