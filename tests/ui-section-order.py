@@ -141,7 +141,7 @@ class UISectionOrder(unittest.TestCase):
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 5)
-        self.assertEqual(41 + (len(TARGETS) + 3) * 2, 57)
+        self.assertEqual(43 + (len(TARGETS) + 3) * 2, 59)
         self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 15)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines() if 'setProperty:' in x or '.buttonAction =' in x)
