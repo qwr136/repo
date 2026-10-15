@@ -229,6 +229,34 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
             if (window.screen!=destination.screen || window.hidden || window.alpha<.01) continue;
+            NSString *name=NSStringFromClass(window.class);
+            if (LMVLockVideoClass(window,@"SBControlCenterWindow")) {
+                // 0.0.130: the Control Center sheet is probed EXACTLY, by class -
+                // a 0.0.129 attempt at a generalized "any full-screen root is a
+                // sheet" probe froze the desktop video for good, because real
+                // SpringBoards carry PERMANENTLY visible full-screen windows
+                // (UITextEffectsWindow, the SystemAperture host, Myrtle / Snapper /
+                // FloatingView panels - see the desktop-windows diagnostic). The
+                // CC window disappears from the list while closed (window goes
+                // hidden), and while open its ROOT slides in and out - the same
+                // semantics the floating ball's CC probe has used on device.
+                // Closed: window hidden -> skipped. Open: root frame on screen ->
+                // sheet cover -> freeze under the blur (never hide, fg==1).
+                UIView *root=window.rootViewController.viewIfLoaded;
+                if (!root || root.hidden || root.alpha<.01) continue;
+                CALayer *rootPresentation=root.layer.presentationLayer;
+                if (rootPresentation && rootPresentation.opacity<0.99) continue;
+                CGRect rect=rootPresentation?rootPresentation.frame:root.frame;
+                if (!LMVLockVideoRectValid(rect)) continue;
+                CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);
+                if (!LMVLockVideoRectValid(converted)) continue;
+                CGFloat area=converted.size.width*converted.size.height,
+                    full=destination.bounds.size.width*destination.bounds.size.height;
+                if (full<=0 || area/full<0.9) continue;
+                combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
+                *sheetCover=YES;
+                continue;
+            }
             if (!LMVLockVideoClass(window,@"SBCoverSheetWindow")) {
                 // 0.0.125: the old probe only ever saw CoverSheet windows, so the
                 // COMMON case of a covered desktop - a foreground application - was
@@ -237,44 +265,15 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // CPU burn. Whitelist only window classes that are always fully
                 // opaque and always sit above Home (app / app-switcher); every
                 // other class (status bar, snapshots, this tweak's own floating
-                // surfaces, keyboard) stays excluded, so a small or translucent
-                // surface can never hide the desktop on its own. Reachability is
-                // still safe: a shrunk app window no longer covers the Home rect.
-                // Conversion failures are skipped SILENTLY (never *unknown=YES -
-                // that tears the desktop down and flashes the wallpaper).
-                NSString *name=NSStringFromClass(window.class);
+                // surfaces, keyboard, tweak panels) stays excluded, so a small or
+                // translucent surface can never hide the desktop on its own.
+                // Reachability is still safe: a shrunk app window no longer covers
+                // the Home rect. Conversion failures are skipped SILENTLY (never
+                // *unknown=YES - that tears the desktop down and flashes the
+                // wallpaper). 0.0.129: no generalized probe - permanent full-screen
+                // tweak/system windows made it freeze the desktop for good.
                 if (window==destination || LMVDesktopHomeWindow(window) ||
-                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) {
-                    // 0.0.129: any OTHER visible window whose root view covers
-                    // ~the whole screen is a SHEET cover - the Control Center
-                    // (its root slides in and out) and full-screen search/overlay
-                    // presenters freeze the desktop video exactly like the
-                    // notification sheet does. Guards: the root must be loaded,
-                    // visible, opaque, its animated frame on screen and at least
-                    // 90% of the destination - a status-bar strip, a small banner
-                    // window or a fading presenter can never qualify. Sheet covers
-                    // only ever FREEZE (fg==1 under them): the blurred sheet keeps
-                    // sampling the still frame, and the layer is never hidden
-                    // behind a translucent surface.
-                    NSString *sheetName=NSStringFromClass(window.class);
-                    if (window==destination || LMVDesktopHomeWindow(window) ||
-                        [sheetName containsString:@"Easter"] || [sheetName containsString:@"Snapshot"] ||
-                        [sheetName containsString:@"StatusBar"] || [sheetName containsString:@"Wallpaper"]) continue;
-                    UIView *root=window.rootViewController.viewIfLoaded;
-                    if (!root || root.hidden || root.alpha<.01) continue;
-                    CALayer *rootPresentation=root.layer.presentationLayer;
-                    if (rootPresentation && rootPresentation.opacity<0.99) continue;
-                    CGRect rect=rootPresentation?rootPresentation.frame:root.frame;
-                    if (!LMVLockVideoRectValid(rect)) continue;
-                    CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);
-                    if (!LMVLockVideoRectValid(converted)) continue;
-                    CGFloat area=converted.size.width*converted.size.height,
-                        full=destination.bounds.size.width*destination.bounds.size.height;
-                    if (full<=0 || area/full<0.9) continue;
-                    combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
-                    *sheetCover=YES;
-                    continue;
-                }
+                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) continue;
                 // 0.0.126: measure the ANIMATED frame - the model frame stays
                 // full-screen for the whole open/close zoom.
                 // 0.0.127: a FADING app window is already revealing the desktop.

@@ -43,7 +43,7 @@ assert 'shown=%d composited=%d decode=%d opaque=%d' in h
 # excluded, and app-window conversion failures never set *unknown (that would
 # tear the desktop down and flash the wallpaper).
 assert 'window==destination || LMVDesktopHomeWindow(window) ||' in h
-assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) {" in h
+assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) continue;" in h
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.126: the cover follows the app's ANIMATED frame, not the model frame that
 # stays full-screen for the whole zoom - otherwise the wallpaper flashes on
@@ -85,13 +85,22 @@ assert 'cover-watch-reveal' in h
 # content leaves. Guards: root loaded/visible/opaque, animated frame on screen,
 # >=90% of the destination; easter/snapshot/status-bar names stay excluded.
 assert "if (window==destination || LMVDesktopHomeWindow(window) ||" in h
-assert '[sheetName containsString:@"Easter"] || [sheetName containsString:@"Snapshot"] ||' in h
-assert '[sheetName containsString:@"StatusBar"] || [sheetName containsString:@"Wallpaper"]) continue;' in h
+assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) continue;" in h
+assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
+# 0.0.129's generalized "any full-screen root is a sheet" probe FROZE the desktop
+# for good on device: SpringBoard permanently carries full-screen windows
+# (UITextEffectsWindow, the SystemAperture host, Myrtle/Snapper/FloatingView
+# panels - named in the desktop-windows diagnostic). 0.0.130 reverts to the
+# exact whitelist and probes ONLY the Control Center window by class - its
+# window disappears while closed and its root slides while open.
+assert 'if (LMVLockVideoClass(window,@\"SBControlCenterWindow\")) {' in h
+assert 'the Control Center sheet is probed EXACTLY, by class' in h
 assert 'UIView *root=window.rootViewController.viewIfLoaded;' in h
 assert 'if (!root || root.hidden || root.alpha<.01) continue;' in h
 assert 'if (rootPresentation && rootPresentation.opacity<0.99) continue;' in h
 assert 'CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);' in h
 assert 'if (full<=0 || area/full<0.9) continue;' in h
+assert 'sheetName' not in h, 'the generalized sheet probe is really gone'
 # 0.0.129 diagnostics: the on-screen window class list (changes-only) identifies
 # sheet presenters (e.g. the search pull-down) the probe does not know yet.
 assert 'desktop-windows %@' in h
@@ -321,6 +330,9 @@ int main(void){@autoreleasepool {
  // generalized root probe. fg==-1 first (freeze, grace not elapsed -> no hide),
  // then fg==1 - the real CC case: still frozen, NEVER hidden, surface attached;
  // closing the sheet resumes playing in the same update.
+ // 0.0.130: the CC probe is now EXACT (by class) after the generalized probe
+ // froze the desktop behind permanent full-screen tweak/system windows, and a
+ // plain full-screen UIWindow with a loaded root must NOT count as a cover.
  SBControlCenterWindow *ccWindow=[SBControlCenterWindow new];
  UIViewController *ccController=[UIViewController new];
  UIView *ccView=[UIView new];
@@ -333,6 +345,19 @@ int main(void){@autoreleasepool {
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
+ // 0.0.130: the 0.0.129 regression guard - a plain UIWindow with a full-screen
+ // root (like UITextEffectsWindow / the aperture host / tweak panels) must
+ // never become a cover: the desktop keeps PLAYING with it present.
+ UIWindow *plainWindow=[UIWindow new];
+ UIViewController *plainController=[UIViewController new];
+ UIView *plainView=[UIView new];
+ [plainWindow addSubview:plainView];plainWindow.rootViewController=plainController;plainController.viewIfLoaded=plainView;
+ scene.windows=@[homeWindow,wallWindow,nc,plainWindow];
+ [m update];
+ assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback && wallPixels.hidden);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(m.host.superview==wall && m.playback.wantsPlayback);
  for(int flip=0;flip<200;flip++) {
   UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
   assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);
