@@ -109,8 +109,8 @@ assert h.count('BOOL hostHidden=opaqueAppCover || (sheetCover && !self.sheetPree
 assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetCover) self.sheetWallpaperShown=NO;' in h
-assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
-assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
+assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
+assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;' in h, 'an attach under a sheet marks it pre-existing'
@@ -616,8 +616,6 @@ int main(void){@autoreleasepool {
  // The user-visible contract here is the WALLPAPER: a fresh unlock must bind the
  // warm Home frame before the sheet finishes withdrawing (no wallpaper flash).
  // Whether the render layer is already drawn on this exact tick is a timing nit.
- printf("DBG-UNLOCK lease=%d base=%d applied=%d shown=%d pre=%d hidden=%d wallHidden=%d covered=%d hostHidden=%d\n",
-   m.lease!=nil,m.lease!=nil?m.lease.baselineHidden:0,m.lease!=nil?m.lease.applied:0,m.sheetWallpaperShown,m.sheetPreexisting,m.host.hidden,wallPixels.hidden,m.coveredNow,m.playback.renderLayer.hidden);
  assert(m.authenticatedSession && m.host.superview==wall && wallPixels.hidden);
  sliding.frame=CGRectMake(0,-844,390,844);[m update];assert(m.host.superview==wall);
  // Unknown NC content fails closed; disabled, missing material and errors restore.
