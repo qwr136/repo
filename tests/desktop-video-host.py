@@ -526,7 +526,7 @@ int main(void){@autoreleasepool {
  assert(m.playback.frozen && m.coveredNow && m.ccSawCover && m.effectiveControlCenterPresented);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
- assert(m.effectiveControlCenterPresented==NO, 'the released surface stops holding the freeze');
+ assert(m.effectiveControlCenterPresented==NO);
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow && !m.host.hidden);
  [SBControlCenterController sharedInstance].isVisible=NO;
  [m update];
