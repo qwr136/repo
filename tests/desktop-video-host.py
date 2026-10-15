@@ -616,6 +616,8 @@ int main(void){@autoreleasepool {
  // The user-visible contract here is the WALLPAPER: a fresh unlock must bind the
  // warm Home frame before the sheet finishes withdrawing (no wallpaper flash).
  // Whether the render layer is already drawn on this exact tick is a timing nit.
+ printf("DBG-UNLOCK lease=%d base=%d applied=%d shown=%d pre=%d hidden=%d wallHidden=%d covered=%d hostHidden=%d\n",
+   m.lease!=nil,m.lease!=nil?m.lease.baselineHidden:0,m.lease!=nil?m.lease.applied:0,m.sheetWallpaperShown,m.sheetPreexisting,m.host.hidden,wallPixels.hidden,m.coveredNow,m.playback.renderLayer.hidden);
  assert(m.authenticatedSession && m.host.superview==wall && wallPixels.hidden);
  sliding.frame=CGRectMake(0,-844,390,844);[m update];assert(m.host.superview==wall);
  // Unknown NC content fails closed; disabled, missing material and errors restore.
