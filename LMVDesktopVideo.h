@@ -290,6 +290,30 @@ static CGFloat LMVDesktopContentCoverage(UIWindow *window,UIView *root,UIWindow 
     CGRect onScreen=CGRectIntersection(content,screenInWindow);
     return (CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.height)/full;
 }
+// 1.26: the shape of a pop-up that is NOT a window. AppTools (and most panel
+// tweaks) present their panel INTO an existing window, so the window list never
+// changes and a class-name-only dump cannot tell where the card is, how big it
+// is or which level the video would have to sit on. This prints one view and its
+// descendants with everything a mount decision needs: class, frame, corner
+// radius, alpha and hidden state. Diagnostics only - never touches the view.
+static NSString *LMVDesktopOverlayShape(UIView *view,NSUInteger depth) {
+    if (!view) return @"";
+    NSMutableString *out=[NSMutableString new];
+    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f(r%.0f,a%.2f,h%d)",
+        NSStringFromClass(view.class),view.frame.origin.x,view.frame.origin.y,
+        view.frame.size.width,view.frame.size.height,view.layer.cornerRadius,
+        view.alpha,(int)view.hidden];
+    if (depth>=4 || view.subviews.count==0) return out;
+    [out appendString:@"{"];
+    NSUInteger n=0;
+    for (UIView *child in view.subviews) {
+        if (n++>=6) {[out appendString:@"…"];break;}
+        [out appendString:LMVDesktopOverlayShape(child,depth+1)];
+        [out appendString:@","];
+    }
+    [out appendString:@"}"];
+    return out;
+}
 static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *ccCover,BOOL *sheetCover,BOOL *sheetFullCover) {
     CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*ccCover=NO;*sheetCover=NO;*sheetFullCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1180,30 +1204,6 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         static NSString *lastShape=nil;
         if (![shape isEqualToString:lastShape]) {lastShape=[shape copy];LMVDiagnostic(shape);}
     }
-// 1.26: the shape of a pop-up that is NOT a window. AppTools (and most panel
-// tweaks) present their panel INTO an existing window, so the window list never
-// changes and a class-name-only dump cannot tell where the card is, how big it
-// is or which level the video would have to sit on. This prints one view and its
-// descendants with everything a mount decision needs: class, frame, corner
-// radius, alpha and hidden state. Diagnostics only - never touches the view.
-static NSString *LMVDesktopOverlayShape(UIView *view,NSUInteger depth) {
-    if (!view) return @"";
-    NSMutableString *out=[NSMutableString new];
-    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f(r%.0f,a%.2f,h%d)",
-        NSStringFromClass(view.class),view.frame.origin.x,view.frame.origin.y,
-        view.frame.size.width,view.frame.size.height,view.layer.cornerRadius,
-        view.alpha,(int)view.hidden];
-    if (depth>=4 || view.subviews.count==0) return out;
-    [out appendString:@"{"];
-    NSUInteger n=0;
-    for (UIView *child in view.subviews) {
-        if (n++>=6) {[out appendString:@"…"];break;}
-        [out appendString:LMVDesktopOverlayShape(child,depth+1)];
-        [out appendString:@","];
-    }
-    [out appendString:@"}"];
-    return out;
-}
     // 1.25: the GEOMETRY the panel feature needs. The SquidGesture panel is a
     // rounded card in the lower part of the screen (the user's screenshot: it does
     // not fill the screen), so a video background behind it has to be laid out to

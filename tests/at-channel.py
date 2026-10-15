@@ -94,6 +94,9 @@ has(desktop, '[everyWindow containsObject:window]) [everyWindow addObject:window
 has(desktop, 'if (scenes.length>4000) {', 'the shape dump no longer drops whole windows at 1500 characters')
 has(desktop, 'window.frame.size.width,window.frame.size.height,', 'the window list carries frames')
 has(desktop, 'window.windowLevel];', 'the window list carries window levels')
+assert desktop.index('static NSString *LMVDesktopOverlayShape(UIView *view') < \
+    desktop.index('static CGRect LMVDesktopCoverRect('), \
+    'the printer is a FILE-SCOPE function, not a nested definition inside update (the 1.26 CI failure)'
 
 print('PASS: AT pop-up channel settings (Settings + floating panel), material/audio plumbing, '
       'release-scope guard (settings only) and the pop-up diagnostics')
