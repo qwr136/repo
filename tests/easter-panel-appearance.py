@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""0.0.123: settings icon, draggable floating panel, panel previews, and the
-floating-panel appearance controls (corner radius / width / height).
+"""0.0.124: pending-state thumbnail ("生成中…") with timed retry on the floating
+panel; settings icon, draggable floating panel, panel previews, and the
+floating-panel appearance controls (corner radius / width / height) all
+unchanged from 0.0.123.
 
 Source contracts plus a real PNG-header read for the supplied artwork. The pure
 appearance rules are executed natively in tests/easter-panel-appearance.m on
@@ -56,9 +58,21 @@ assert 'picker.showsThumbnails = YES' in panel
 _picker = (root / 'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
 assert '_thumbnailQueue.maxConcurrentOperationCount = 2;' in _picker
 assert 'NSInteger failures = self.thumbnailFailures[key].integerValue;' in _picker
-assert 'if (failures >= 2)' in _picker
+assert 'if (failures >= LMVMaterialThumbnailMaxFailures)' in _picker
 assert 'picker.thumbnailFailures[key] = @(failures + 1);' in _picker
 assert '[picker.thumbnailFailures removeObjectForKey:key];' in _picker
+# 0.0.124: a row with no poster yet is NOT shown as the film icon - it says 生成中
+# and is retried on a timer, so a freshly imported movie fills itself in without
+# leaving and re-entering the list.
+assert 'static const NSInteger LMVMaterialThumbnailRetryLimit = 3;' in _picker
+assert 'static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;' in _picker
+assert '- (BOOL)thumbnailIsPending:(NSDictionary *)row {' in _picker
+assert '- (void)scheduleRetryForKey:(NSString *)key {' in _picker
+assert '[picker scheduleRetryForKey:key];' in _picker
+assert 'if (self.thumbnailRetries[key].integerValue >= LMVMaterialThumbnailRetryLimit) return;' in _picker
+assert 'if (!key.length || [self.retryScheduled containsObject:key]) return;' in _picker, 'one timer per row'
+assert '@"生成中…"' in _picker
+assert 'poster ?: [UIImage systemImageNamed:pending ? @"arrow.triangle.2.circlepath" : @"film"]' in _picker
 assert 'showsThumbnails = NO' not in panel
 
 # ---- (4)(5) corner radius + width/height on the page both entries share --------

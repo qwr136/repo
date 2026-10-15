@@ -22,6 +22,18 @@ assert 'BOOL geometryChanged=' in h and 'if(!content.hidden)' in h
 assert 'foreground>=0 &&' not in h
 assert 'BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession &&' in h
 assert '(foreground==1 || homeConfirmed) && !unknownCover;' in h
+
+# 0.0.124: backboardd was burning CPU compositing the desktop video layer while an
+# opaque surface fully covered it. The layer is hidden only when BOTH independent
+# proofs hold for a full grace period - the cover geometry AND the frontmost probe -
+# so a probe flap or an app-launch transition can never hide a desktop the user is
+# looking at, and the layer is never detached (recovery is instant, no wallpaper
+# flash). `composited`/`decode`/`opaque` expose the state in the log.
+assert 'if (covered && foreground!=1) { if (self.coveredSince<=0) self.coveredSince=holdNow; }' in h
+assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
+assert h.count('if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;') == 2, 'both live branches use one rule'
+assert 'self.host.hidden=YES;' in h, 'the real teardown still hides it'
+assert 'shown=%d composited=%d decode=%d opaque=%d' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -190,6 +202,9 @@ int main(void){@autoreleasepool {
  // playing (this is what used to show the original wallpaper on every app launch).
  record.visible=YES;[m update];
  assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);
+ // 0.0.124: the desktop is exposed, so the layer MUST be composited - the
+ // compositing saving may never take the desktop away while it is on screen.
+ assert(!m.host.hidden);
  for(int flip=0;flip<200;flip++) {
   UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
   assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);

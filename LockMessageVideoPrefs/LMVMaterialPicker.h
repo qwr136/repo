@@ -7,6 +7,14 @@
 #import "LMVMaterialDeletion.h"
 #import "LMVMaterialPrompt.h"
 
+// 0.0.124: bounded retry for a poster that is not on disk yet. A freshly imported
+// movie is still being finalised when the list opens, so decoding its first frame
+// can fail; the old code latched that failure for the whole session and left the
+// film icon on the row forever. Two decode attempts per round, up to three rounds.
+static const NSInteger LMVMaterialThumbnailMaxFailures = 2;
+static const NSInteger LMVMaterialThumbnailRetryLimit = 3;
+static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
+
 @interface LMVMaterialCell : UITableViewCell
 @property(nonatomic) BOOL showsThumbnail;
 @end
@@ -36,7 +44,13 @@
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *thumbnailFailures;
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic, strong) NSMutableSet<NSString *> *previewStages;
+// 0.0.124: how many retry rounds a row has used, and which rows already have one
+// queued (so a row cannot schedule two timers).
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *thumbnailRetries;
+@property(nonatomic, strong) NSMutableSet<NSString *> *retryScheduled;
 - (void)requestThumbnail:(NSDictionary *)row;
+- (void)scheduleRetryForKey:(NSString *)key;
+- (BOOL)thumbnailIsPending:(NSDictionary *)row;
 - (void)tracePreview:(NSString *)stage row:(NSDictionary *)row;
 @end
 
@@ -62,6 +76,8 @@
         _pending = [NSMutableSet new];
         _previewStages = [NSMutableSet new];
         _thumbnailFailures = [NSMutableDictionary new];
+        _thumbnailRetries = [NSMutableDictionary new];
+        _retryScheduled = [NSMutableSet new];
         _thumbnailQueue = [NSOperationQueue new];
         // 0.0.123: two workers instead of one. Decoding a poster is dominated by
         // I/O + one frame decode, so a second worker doubles the fill rate of a
@@ -151,6 +167,34 @@
     LMVThumbnailLog([NSString stringWithFormat:@"%@ row=%ld generation=%lu", stage,
         index == NSNotFound ? -1L : (long)index + 1, (unsigned long)self.generation], row[@"path"] ?: @"", nil);
 }
+// A row with no poster is "still working" until its retry budget runs out, so the
+// list can say 生成中 instead of showing the film icon (which read as "broken").
+- (BOOL)thumbnailIsPending:(NSDictionary *)row {
+    NSString *key = row[@"revision"];
+    if (!key.length) return NO;
+    if ([self.pending containsObject:key]) return YES;
+    return self.thumbnailRetries[key].integerValue < LMVMaterialThumbnailRetryLimit;
+}
+// 0.0.124: retry a failed poster on a timer. Imported files settle within a few
+// seconds, so the list fills itself in without the user leaving and re-entering it.
+- (void)scheduleRetryForKey:(NSString *)key {
+    if (!key.length || [self.retryScheduled containsObject:key]) return;
+    if (self.thumbnailRetries[key].integerValue >= LMVMaterialThumbnailRetryLimit) return;
+    self.thumbnailRetries[key] = @(self.thumbnailRetries[key].integerValue + 1);
+    [self.retryScheduled addObject:key];
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(LMVMaterialThumbnailRetryDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        LMVMaterialPicker *picker = weakSelf;
+        if (!picker) return;
+        [picker.retryScheduled removeObject:key];
+        [picker.thumbnailFailures removeObjectForKey:key];
+        for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
+            if (index.row >= picker.materials.count) continue;
+            NSDictionary *visible = picker.materials[index.row];
+            if ([visible[@"revision"] isEqualToString:key]) { [picker requestThumbnail:visible]; return; }
+        }
+    });
+}
 - (void)requestThumbnail:(NSDictionary *)row {
     if (!self.showsThumbnails) return;
     NSString *key = row[@"revision"];
@@ -161,7 +205,7 @@
     // first frame) used to park this row on the placeholder for the whole
     // session. Retry a bounded number of times instead of latching.
     NSInteger failures = self.thumbnailFailures[key].integerValue;
-    if (failures >= 2) { [self tracePreview:@"skip-previous-failure" row:row]; return; }
+    if (failures >= LMVMaterialThumbnailMaxFailures) { [self tracePreview:@"skip-previous-failure" row:row]; return; }
     if ([self.pending containsObject:key]) { [self tracePreview:@"skip-pending" row:row]; return; }
     if (self.pending.count >= 12) { [self tracePreview:@"defer-queue-full" row:row]; return; }
     [self tracePreview:@"enqueue" row:row];
@@ -187,7 +231,8 @@
                 // Never cache the film symbol as if it were a successfully decoded poster.
                 if (poster) { [picker.thumbnails setObject:poster forKey:key cost:cost];
                 [picker.thumbnailFailures removeObjectForKey:key]; }
-                else picker.thumbnailFailures[key] = @(failures + 1);
+                else { picker.thumbnailFailures[key] = @(failures + 1);
+                       [picker scheduleRetryForKey:key]; }
                 // Resolve current paths, never capture/reuse a cell from a previous generation.
                 for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
                     if (index.row < picker.materials.count) {
@@ -209,10 +254,16 @@
     BOOL current = [self.selected isEqualToString:relative];
     cell.textLabel.text = none ? @"无素材" : row[@"name"];
     cell.textLabel.numberOfLines = 2;
-    cell.detailTextLabel.text = current ? @"使用中" : nil;
+    BOOL pending = !none && ![self.thumbnails objectForKey:row[@"revision"]] && [self thumbnailIsPending:row];
+    cell.detailTextLabel.text = current ? @"使用中" : (pending ? @"生成中…" : nil);
     cell.accessoryType = current ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     ((LMVMaterialCell *)cell).showsThumbnail=self.showsThumbnails;
-    cell.imageView.image = self.showsThumbnails ? (none ? [UIImage systemImageNamed:@"nosign"] : [self.thumbnails objectForKey:row[@"revision"]] ?: [UIImage systemImageNamed:@"film"]) : nil;
+    // 0.0.124: three states, not two. Film means "this really failed"; a poster
+    // that is merely not ready yet (typical right after an import) shows a
+    // progress glyph so it is not mistaken for a broken entry.
+    UIImage *poster = none ? nil : [self.thumbnails objectForKey:row[@"revision"]];
+    cell.imageView.image = self.showsThumbnails ? (none ? [UIImage systemImageNamed:@"nosign"] :
+        poster ?: [UIImage systemImageNamed:pending ? @"arrow.triangle.2.circlepath" : @"film"]) : nil;
     cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
     cell.imageView.clipsToBounds = YES;
     cell.imageView.layer.cornerRadius = 6;

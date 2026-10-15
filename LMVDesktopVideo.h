@@ -126,6 +126,11 @@ static void LMVDesktopVideoSuspend(void);
 // transient loss of visibility, and how many real teardowns have happened. Both
 // are diagnostics for the "hitches when opening/leaving an app" report.
 @property(nonatomic) CFTimeInterval holdSince;
+// 0.0.124: how long the desktop has been BOTH fully covered by an opaque surface
+// and not flagged as foreground. While that holds, compositing the video layer is
+// pure waste; the short grace absorbs the app-launch transition, during which the
+// cover probe flaps for a frame or two.
+@property(nonatomic) CFTimeInterval coveredSince;
 @property(nonatomic) NSUInteger teardowns;
 - (void)refresh:(BOOL)reload;
 - (void)primePoster;
@@ -418,6 +423,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (!visible && self.host.superview!=nil && !definitiveAway) {
         if (self.holdSince<=0) self.holdSince=holdNow;
     } else self.holdSince=0;
+    // 0.0.124: geometry proof that an opaque surface really covers the desktop.
+    // `foreground!=1` is required as well, so a noisy frontmost probe alone can
+    // never drive this, and `covered` alone (which flaps during an app launch)
+    // cannot either - both must hold for the whole grace period.
+    if (covered && foreground!=1) { if (self.coveredSince<=0) self.coveredSince=holdNow; }
+    else self.coveredSince=0;
+    BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;
     BOOL retainedAttachment=LMVDesktopOwnedAttachment(self);
     // An owned explicit wallpaper moved to an unrelated window is not a new
     // acquisition. Home-root reparenting is permitted only to another real Home.
@@ -456,7 +468,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         [CATransaction begin];[CATransaction setDisableActions:YES];
         if(geometryChanged)self.host.frame=container.bounds;
         if(self.host.alpha!=1)self.host.alpha=1;
-        if(self.host.hidden)self.host.hidden=NO;
+        // 0.0.124: do not composite a layer that nothing can see. The layer stays
+        // attached to the same superview, so it is back the instant the cover goes
+        // away; this only removes wasted work and cannot hide the desktop.
+        if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;
         NSUInteger mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
         if(geometryChanged || !CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))
@@ -465,7 +480,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     } else if (appForeground) {
         // Hold the attachment, the displayed frame and the suppress-lease: the
         // background stays a video still instead of flashing to the wallpaper.
-        self.host.hidden=NO;
+        // 0.0.124: while something OPAQUE fully covers the desktop there is nothing
+        // to show, yet a visible layer is still composited by backboardd for every
+        // frame - measurable CPU burn on a video background. Hide the LAYER only
+        // (it stays in the same superview, so recovery is instant and the wallpaper
+        // can never flash); `covered` is the geometry proof that hiding it cannot
+        // be seen. Without that proof the layer stays visible, i.e. unchanged.
+        if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;
     } else {
         if (self.host.superview!=nil) self.teardowns++;
         self.host.hidden=YES;[self.lease restore];self.lease=nil;
@@ -501,12 +522,18 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d",
+    // 0.0.124: `composited` is the layer that backboardd actually has to composite
+    // and `decode` is whether the decoder is running - together they tell apart
+    // "paused but still on screen" (CPU wasted on compositing) from "still decoding
+    // while invisible" (CPU wasted on decode).
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
         (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container)),
         (self.holdSince>0?holdNow-self.holdSince:0.0),(unsigned long)self.teardowns,
-        (int)self.host.hidden,(int)(self.playback.posterLayer.contents!=nil),(int)(!self.playback.renderLayer.hidden)];
+        (int)self.host.hidden,(int)(self.playback.posterLayer.contents!=nil),(int)(!self.playback.renderLayer.hidden),
+        (int)(self.host.superview!=nil && !self.host.hidden),
+        (int)(self.playback.wantsPlayback && !self.playback.frozen),(int)opaqueCover];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
     // and where the uncovered band is ("background dropped / leaked").
