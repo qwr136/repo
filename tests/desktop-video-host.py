@@ -285,6 +285,9 @@ int main(void){@autoreleasepool {
  // still provably covered (fg==-1, full cover): the watcher must NOT fire yet
  assert(m.host.hidden);
  scene.windows=@[homeWindow,wallWindow,nc];
+ // The watcher hands over through LMVDesktopRequestUpdate, which drives the
+ // GLOBAL manager - point it at this instance so the async update lands here.
+ LMVDesktopVideo=m;
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
