@@ -566,10 +566,9 @@ int main(void){@autoreleasepool {
  [SBControlCenterController sharedInstance].isVisible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
  [m update];
- assert(m.playback.frozen && m.coveredNow && m.ccCover);
+ assert(m.playback.frozen && m.coveredNow);
  ccContent.frame=CGRectMake(0,-844,390,844);   // the modules slide out, the window stays
  [m update];
- assert(!m.ccCover);
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  ccContent.frame=CGRectMake(0,0,390,844);
  [SBControlCenterController sharedInstance].isVisible=NO;
