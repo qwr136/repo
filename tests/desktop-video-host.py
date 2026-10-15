@@ -95,7 +95,11 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||' in h
 assert '(visible && covered && (switcherCover || ccCover || foreground!=1)),' in h
 assert 'play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;' in h
-assert 'BOOL hostHidden=opaqueCover || sheetWallpaper;' in h
+# 0.0.139: the layer hides only behind an OPAQUE APP cover or under a
+# notification pull - behind the translucent switcher/CC the FROZEN frame stays
+# visible (and the lease keeps the wallpaper hidden, so nothing leaks).
+assert h.count('BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);') == 2
+assert h.count('BOOL hostHidden=opaqueAppCover || sheetWallpaper;') == 2
 assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetWallpaper) self.sheetWallpaperShown=NO;' in h
@@ -486,6 +490,11 @@ int main(void){@autoreleasepool {
  // kept - no wallpaper through the blur. Removing the switcher: the watcher
  // resumes within ~16 ms.
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && m.coveredNow);
+ // 0.0.139: past the hide grace the frozen frame is STILL visible behind the
+ // translucent switcher (only an opaque app cover may hide the layer), and the
+ // suppress-lease keeps the wallpaper hidden - no original background leaks.
+ for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && wallPixels.hidden);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];

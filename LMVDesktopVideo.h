@@ -693,7 +693,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 0.0.124: do not composite a layer that nothing can see. The layer stays
         // attached to the same superview, so it is back the instant the cover goes
         // away; this only removes wasted work and cannot hide the desktop.
-        BOOL hostHidden=opaqueCover || sheetWallpaper;
+        // 0.0.139: hide ONLY behind an opaque APP cover or under a notification
+        // pull. Behind the translucent switcher/Control Center the frozen video
+        // frame must stay VISIBLE (the user asked for exactly that, and the
+        // suppress-lease stays applied so no wallpaper can show through).
+        BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);
+        BOOL hostHidden=opaqueAppCover || sheetWallpaper;
         if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
         NSUInteger mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
@@ -709,7 +714,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // (it stays in the same superview, so recovery is instant and the wallpaper
         // can never flash); `covered` is the geometry proof that hiding it cannot
         // be seen. Without that proof the layer stays visible, i.e. unchanged.
-        BOOL hostHidden=opaqueCover || sheetWallpaper;
+        // 0.0.139: same rule on the held-surface path - a translucent cover
+        // keeps the frozen frame visible.
+        BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);
+        BOOL hostHidden=opaqueAppCover || sheetWallpaper;
         if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
     } else {
         if (self.host.superview!=nil) self.teardowns++;
