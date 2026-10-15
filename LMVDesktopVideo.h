@@ -302,7 +302,11 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 if (!contentSpace) contentSpace=window.layer;
                 for (UIView *child in root.subviews) {
                     if (child.hidden || child.alpha<.01) continue;
-                    CALayer *paint=child.layer.presentationLayer;if (!paint) continue;
+                    // No presentation layer simply means "not animating" - the model
+                    // layer is the live geometry then (and the only one that exists
+                    // in the fixture).
+                    CALayer *paint=child.layer.presentationLayer;if (!paint) paint=child.layer;
+                    if (!paint) continue;
                     CGRect piece=[paint convertRect:paint.bounds toLayer:contentSpace];
                     if (!LMVLockVideoRectValid(piece)) continue;
                     contentMeasurable=YES;
@@ -310,8 +314,11 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 }
                 if (contentMeasurable) {
                     // Content that has left the screen entirely is NOT a cover - an
-                    // empty intersection here means "gone", not "unmeasurable".
-                    CGRect onScreen=CGRectIntersection([window convertRect:content toWindow:destination],destination.bounds);
+                    // empty intersection here means "gone", not "unmeasurable". The
+                    // screen rect is carried into the CC window instead of the union
+                    // into the destination, so no conversion crosses layer trees.
+                    CGRect screenInWindow=[destination convertRect:destination.bounds toWindow:window];
+                    CGRect onScreen=CGRectIntersection(content,screenInWindow);
                     CGFloat covered=CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.height,
                         screen=destination.bounds.size.width*destination.bounds.size.height;
                     if (screen<=0 || covered/screen<0.6) continue; // the content has left
