@@ -507,7 +507,12 @@ int main(void){@autoreleasepool {
   // lease stays); the FULL pull freezes and restores the wallpaper on purpose
   // ("下滑到底才出现原壁纸").
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
-  if(n==100)assert(!m.playback.wantsPlayback && !m.playback.renderLayer.hidden && !wallPixels.hidden);
+  if(n==100){
+    printf("DBG-NC100 %s\n", m.status.UTF8String);
+    assert(!m.playback.wantsPlayback);
+    assert(!m.playback.renderLayer.hidden);
+    assert(!wallPixels.hidden);
+  }
   else assert(m.playback.wantsPlayback && wallPixels.hidden);
  }
  sliding.frame=CGRectMake(0,-844,390,844);screenLocked=0;[m update];assert(m.playback.wantsPlayback);
