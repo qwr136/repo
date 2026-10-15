@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 1.10')==1
+assert (root/'control').read_text().count('Version: 1.11')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='1.10'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='1.11'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
@@ -103,4 +103,4 @@ assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
 # line ever reached the log).
 assert 'BOOL priority = [event hasPrefix:@"easter-window "];' in s
 assert 'if (!priority && ++records > 1200) return;' in s
-print('PASS: 1.10 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
+print('PASS: 1.11 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')
