@@ -30,7 +30,11 @@ assert '(foreground==1 || homeConfirmed) && !unknownCover;' in h
 # looking at, and the layer is never detached (recovery is instant, no wallpaper
 # flash). `composited`/`decode`/`opaque` expose the state in the log.
 assert 'if (covered && foreground!=1) { if (self.coveredSince<=0) self.coveredSince=holdNow; }' in h
-assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
+# 0.0.136: the hide only applies when the full cover comes from OPAQUE app
+# windows with no translucent contributor - the switcher/CC/NC blur shows the
+# desktop, so the layer must never hide behind them (the wallpaper leak).
+assert 'BOOL opaqueOnlyCover=appWindowCover && !(switcherCover || ccCover || sheetCover);' in h
+assert 'BOOL opaqueCover=covered && opaqueOnlyCover && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 assert h.count('if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;') == 2, 'both live branches use one rule'
 assert 'self.host.hidden=YES;' in h, 'the real teardown still hides it'
 assert 'shown=%d composited=%d decode=%d opaque=%d' in h
@@ -57,8 +61,14 @@ assert 'CGRect converted=[window convertRect:(presentation?presentation.frame:wi
 assert 'if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;' in h
 assert 'BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO;' in h
 assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover)' in h
-assert 'BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),' in h
-assert 'play=visible && (!covered || ((appWindowCover || switcherCover || ccCover) && foreground==1));' in h
+# 0.0.136: the 0.0.128 model - the desktop is either INVISIBLE (opaque full
+# cover from app windows, no translucent contributor, fg!=1) and then the video
+# freezes+hides, or it is VISIBLE and the video PLAYS under the translucent
+# switcher/CC/NC blur and any fading app window - closing them needs no resume.
+assert 'BOOL freeze=appForeground || (visible && covered && foreground!=1 && appWindowCover && !(switcherCover || ccCover || sheetCover)),' in h
+assert 'play=visible && (!covered || foreground==1 || switcherCover || ccCover || sheetCover);' in h
+assert 'BOOL opaqueOnlyCover=appWindowCover && !(switcherCover || ccCover || sheetCover);' in h
+assert 'BOOL opaqueCover=covered && opaqueOnlyCover && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 # 0.0.134: the Control Center does not freeze the video at fg==1 either - the
 # close needs no resume (instant like the user asked); coveredNow keeps the
 # audio off under it. Only the notification sheet freezes at fg==1 (its close
@@ -66,17 +76,19 @@ assert 'play=visible && (!covered || ((appWindowCover || switcherCover || ccCove
 # 0.0.134: the switcher does NOT freeze the video at fg==1 (the app exit path
 # runs through it - the 0.0.130 instant feel); it still counts as a cover for
 # the audio (coveredNow) and freezes at fg!=1 like anything else.
-# 0.0.133: the audio is decoupled from the player - coveredNow (ANY cover) gates
-# the Desktop channel in the audio sync, on top of the freeze-time direct pause.
+# 0.0.136: coveredNow means "the video is not audible" - it follows the SAME
+# condition as the freeze (not the raw geometry), so audio and video never
+# disagree; the flip syncs the Desktop audio directly with no timer beat.
 assert '@property(nonatomic) BOOL coveredNow;' in h
-assert 'self.coveredNow=covered;' in h
+assert 'self.coveredNow=audioCovered;' in h
+assert 'BOOL audioCovered=appForeground || (visible && covered && foreground!=1 && appWindowCover && !(switcherCover || ccCover || sheetCover));' in h
 assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # 0.0.132: the app switcher is NOT an app exit - covering the desktop with the
 # switcher freezes the video and stops the audio, exactly like an app cover.
 assert 'if ([name containsString:@"Switcher"]) *switcherCover=YES;' in h
 assert '*ccCover=YES;' in h, 'the CC branch marks its own cover kind'
 assert 'else *appWindowCover=YES;' in h
-assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];' in h
+assert 'if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];' in h
 assert 'opaque=%d sheet=%d appc=%d sw=%d cc=%d' in h
 
 # 0.0.128: while the layer is hidden behind an opaque app, a per-frame watcher
@@ -88,9 +100,9 @@ assert '@property(nonatomic,strong) CADisplayLink *coverWatch;' in h
 assert '- (void)startCoverWatch {' in h and '- (void)stopCoverWatch {' in h
 assert '- (void)coverWatchTick:(CADisplayLink *)link {' in h
 assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)]' in h
-# 0.0.131: the watcher covers BOTH waiting states - the hidden layer (exit
-# reveal) AND the visible layer frozen under a sheet (CC close -> resume).
-assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];' in h
+# 0.0.136: nothing freezes while the desktop is visible anymore, so the watcher
+# is back to the hidden-layer-only form (the exit reveal, caught within ~16 ms).
+assert 'if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
@@ -107,8 +119,7 @@ assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # the video player's current time) the instant it clears. No timer beat.
 assert 'static void (^LMVDesktopAudioCoverHook)(BOOL covered);' in h
 assert 'BOOL wasCovered=self.coveredNow;' in h
-assert 'if (covered!=wasCovered && LMVDesktopAudioCoverHook)' in h
-assert 'LMVDesktopAudioCoverHook(covered);' in h
+assert 'if (audioCovered!=wasCovered && LMVDesktopAudioCoverHook) LMVDesktopAudioCoverHook(audioCovered);' in h
 assert "LMVDesktopAudioCoverHook=^(BOOL covered){" in s
 assert 'else LMVAudioResumeTarget(@"Desktop",LMVDesktopVideo.playback.player?LMVDesktopVideo.playback.player.currentTime:kCMTimeZero);' in s
 audio=(r/'LMVMediaAudio.h').read_text()
@@ -380,13 +391,15 @@ int main(void){@autoreleasepool {
  [ccWindow addSubview:ccView];ccWindow.rootViewController=ccController;ccController.viewIfLoaded=ccView;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
  [m update];
- assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
- assert(m.coveredNow);
- // 0.0.134: at fg==1 the video PLAYS under the Control Center (closing needs
- // no resume at all); coveredNow keeps the audio off under it.
+ // 0.0.136: fg!=1 (app probe) with the CC sheet up - the grace has not elapsed
+ // and the CC is translucent, so the layer stays visible; the video may be
+ // frozen only until the probe evidence resolves.
+ assert(m.host.superview==wall && !m.host.hidden);
+ // 0.0.136: at fg==1 the video PLAYS under the Control Center - closing it
+ // needs no resume at all, and coveredNow (audio) follows the video: ON.
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
- assert(m.coveredNow && m.coverWatch==nil);
+ assert(!m.coveredNow && m.coverWatch==nil);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
@@ -400,10 +413,10 @@ int main(void){@autoreleasepool {
  [switcherWindow addSubview:switcherView];switcherWindow.rootViewController=switcherController;switcherController.viewIfLoaded=switcherView;
  scene.windows=@[homeWindow,wallWindow,nc,switcherWindow];
  [m update];
- // 0.0.134: fg==1 under the switcher -> the video PLAYS (the app exit path
- // runs through the switcher - the 0.0.130 instant feel); coveredNow keeps the
- // audio off, and it clears the moment the switcher leaves.
- assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback && m.coveredNow);
+ // 0.0.136: fg==1 under the switcher -> the video PLAYS and the AUDIO plays
+ // with it (coveredNow follows the video, the 0.0.128 feel - the sound is back
+ // the moment the exit starts, not when the switcher finally leaves).
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
@@ -469,7 +482,9 @@ int main(void){@autoreleasepool {
  for(int n=0;n<=100;n++) {
   CGFloat height=844*n/100.0;sliding.frame=CGRectMake(0,-844+height,390,844);screenLocked=n?1:0;[m update];
   assert(m.host.superview==wall && wallPixels.hidden);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
-  if(n==100)assert(!m.playback.wantsPlayback && !m.playback.renderLayer.hidden);else assert(m.playback.wantsPlayback);
+  // 0.0.136: the NC is translucent - the video PLAYS under it at fg==1, closing
+ // needs no resume (the same instant feel as the app exit).
+ assert(m.playback.wantsPlayback && !m.playback.renderLayer.hidden);
  }
  sliding.frame=CGRectMake(0,-844,390,844);screenLocked=0;[m update];assert(m.playback.wantsPlayback);
  // A screen blank invalidates authentication; waking at real lock never draws Desktop.
