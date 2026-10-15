@@ -228,8 +228,8 @@ static void LMVDesktopDiscover(void) {
         }
     }
 }
-static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *sheetCover) {
-    CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*sheetCover=NO;
+static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *sheetCover) {
+    CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*sheetCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
@@ -249,6 +249,11 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // sheet cover -> freeze under the blur (never hide, fg==1).
                 UIView *root=window.rootViewController.viewIfLoaded;
                 if (!root || root.hidden || root.alpha<.01) continue;
+                // 0.0.132: a FADING Control Center window is closing - the root
+                // stays full-screen through the fade, so without this gate the
+                // cover (and the freeze) outlived the visible sheet by the whole
+                // fade and the resume waited for the next update tick.
+                if (window.alpha<0.99) continue;
                 CALayer *rootPresentation=root.layer.presentationLayer;
                 if (rootPresentation && rootPresentation.opacity<0.99) continue;
                 CGRect rect=rootPresentation?rootPresentation.frame:root.frame;
@@ -293,7 +298,16 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;
                 CGRect converted=[window convertRect:(presentation?presentation.frame:window.frame) toWindow:destination];
                 if (!LMVLockVideoRectValid(converted)) continue;
-                if (!CGRectIsEmpty(converted)) {combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);*appWindowCover=YES;}
+                if (!CGRectIsEmpty(converted)) {
+                    combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
+                    // 0.0.132: the app switcher is NOT an app exit - covering the
+                    // desktop with the switcher is "the desktop went into the
+                    // background": the video must freeze and the audio must stop,
+                    // exactly like an app cover. Only a REAL app window keeps the
+                    // 0.0.127 exit-transition play rule.
+                    if ([name containsString:@"Switcher"]) *switcherCover=YES;
+                    else *appWindowCover=YES;
+                }
                 continue;
             }
             UIView *content=LMVLockVideoContent(window);
@@ -443,8 +457,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // the layer visible but frozen under a sheet (0.0.131: Control Center
     // close -> resume). Anything else has nothing to wait for.
     if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}
-    BOOL unknown=NO,appCover=NO,sheetCover=NO;
-    CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&sheetCover);
+    BOOL unknown=NO,appCover=NO,switcherCover=NO,sheetCover=NO;
+    CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&sheetCover);
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
     // hidden mode: silent while fully covered AND an app is frontmost;
@@ -490,8 +504,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if(!wallpaperValid && self.wallpaperAttachment && LMVDesktopOwnedAttachment(self)) {
         container=self.container;content=self.attachedContent;wallpaperValid=YES;
     }
-    BOOL appWindowCover=NO,sheetCover=NO;
-    BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&sheetCover):CGRectZero;
+    BOOL appWindowCover=NO,switcherCover=NO,sheetCover=NO;
+    BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&sheetCover):CGRectZero;
     NSInteger foreground=LMVDesktopForeground();
     // A fresh authenticated unlock is authoritative even while CoverSheet is
     // still withdrawing. Waiting for cover==empty makes Home's first exposed
@@ -604,18 +618,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         [self.host removeFromSuperview];self.container=nil;self.holdSince=0;
     }
     if (LMVLaunchReady) {
-        // 0.0.127: the FREEZE follows the frontmost probe, not the stale app
-        // window. Device log: during the exit cross-fade the window stays
-        // full-screen until removal (~1.2 s) while foreground==1 already proved
-        // the desktop - the old `visible && covered` kept the player paused for
-        // that whole time ("退出app后没立刻播放视频"). Now:
-        //  - an app REALLY frontmost over a covered desktop (fg!=1) freezes;
-        //  - the notification sheet covering the desktop freezes (blur samples
-        //    the still, the pre-0.125 behavior);
-        //  - foreground==1 means SpringBoard/Home evidence: PLAY, even while the
-        //    fading window still geometrically covers - the desktop is being
-        //    revealed right now.
-        BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),
+        // 0.0.132: the app switcher joined the freeze family - covering the
+        // desktop with the switcher IS "the desktop went into the background"
+        // (video freezes, audio stops), while a REAL app window keeps the
+        // 0.0.127 exit-transition play rule (fg==1 + app window => play).
+        BOOL freeze=appForeground || (visible && covered && (sheetCover || switcherCover || foreground!=1)),
             play=visible && (!covered || (appWindowCover && foreground==1));
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
@@ -652,7 +659,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // window disappears from the list while closed) - so the exit cross-fade
     // and the sheet close are caught within ~16 ms instead of the ~0.4 s update
     // cadence (which let the wallpaper content show through / delayed resume).
-    if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];
+    if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];
     else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {
@@ -660,7 +667,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // and `decode` is whether the decoder is running - together they tell apart
     // "paused but still on screen" (CPU wasted on compositing) from "still decoding
     // while invisible" (CPU wasted on decode).
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d appc=%d",
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d appc=%d sw=%d",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
         (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container)),
@@ -668,7 +675,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         (int)self.host.hidden,(int)(self.playback.posterLayer.contents!=nil),(int)(!self.playback.renderLayer.hidden),
         (int)(self.host.superview!=nil && !self.host.hidden),
         (int)(self.playback.wantsPlayback && !self.playback.frozen),(int)opaqueCover,
-        (int)sheetCover,(int)appWindowCover];
+        (int)sheetCover,(int)appWindowCover,(int)switcherCover];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     // 0.0.129: which windows are on screen (class names, changes-only) - the
     // discovery aid for sheet presenters (e.g. the search pull-down) whose host

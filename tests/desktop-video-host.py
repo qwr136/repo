@@ -55,11 +55,16 @@ assert 'CGRect converted=[window convertRect:(presentation?presentation.frame:wi
 # cover; and the freeze follows the frontmost probe so the player resumes the
 # moment the desktop is exposed instead of when the window is finally removed.
 assert 'if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;' in h
-assert 'BOOL appWindowCover=NO,sheetCover=NO;' in h
-assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&sheetCover)' in h
-assert 'BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),' in h
+assert 'BOOL appWindowCover=NO,switcherCover=NO,sheetCover=NO;' in h
+assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&sheetCover)' in h
+assert 'BOOL freeze=appForeground || (visible && covered && (sheetCover || switcherCover || foreground!=1)),' in h
 assert 'play=visible && (!covered || (appWindowCover && foreground==1));' in h
-assert 'opaque=%d sheet=%d appc=%d' in h
+# 0.0.132: the app switcher is NOT an app exit - covering the desktop with the
+# switcher freezes the video and stops the audio, exactly like an app cover.
+assert 'if ([name containsString:@"Switcher"]) *switcherCover=YES;' in h
+assert 'else *appWindowCover=YES;' in h
+assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];' in h
+assert 'opaque=%d sheet=%d appc=%d sw=%d' in h
 
 # 0.0.128: while the layer is hidden behind an opaque app, a per-frame watcher
 # re-checks the cheap cover geometry and hands over to a full update the moment
@@ -72,10 +77,11 @@ assert '- (void)coverWatchTick:(CADisplayLink *)link {' in h
 assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)]' in h
 # 0.0.131: the watcher covers BOTH waiting states - the hidden layer (exit
 # reveal) AND the visible layer frozen under a sheet (CC close -> resume).
-assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];' in h
+assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert 'if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}' in h
 assert 'if (fullyCovered && (layerHidden ? LMVDesktopForeground()!=1 : YES)) return;' in h
+assert 'if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
 assert '[_coverWatch invalidate];' in h, 'dealloc cleans the watcher up'
@@ -107,6 +113,7 @@ assert 'the Control Center sheet is probed EXACTLY, by class' in h
 assert 'UIView *root=window.rootViewController.viewIfLoaded;' in h
 assert 'if (!root || root.hidden || root.alpha<.01) continue;' in h
 assert 'if (rootPresentation && rootPresentation.opacity<0.99) continue;' in h
+assert 'if (window.alpha<0.99) continue;' in h, 'a fading Control Center is closing - not a cover'
 assert 'CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);' in h
 assert 'if (full<=0 || area/full<0.9) continue;' in h
 assert 'sheetName' not in h, 'the generalized sheet probe is really gone'
@@ -229,6 +236,8 @@ static NSUInteger sharedCalls;
 @implementation SBAppWindow @end
 @interface SBControlCenterWindow:UIWindow @end
 @implementation SBControlCenterWindow @end
+@interface SBMainSwitcherWindow:UIWindow @end
+@implementation SBMainSwitcherWindow @end
 '''
 lock=(r/'LMVLockVideo.h').read_text()
 # Execute real discovery, geometry and ABI validators needed by Desktop.
@@ -365,6 +374,30 @@ int main(void){@autoreleasepool {
  assert(m.coverWatch==nil);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
+ // 0.0.132: the app switcher is NOT an app exit. Covering the desktop with the
+ // switcher at fg==1 must FREEZE (and, on device, stop the audio through the
+ // wired hook) - the 0.0.127 exit-transition play rule belongs to real app
+ // windows only. Removing the switcher resumes.
+ SBMainSwitcherWindow *switcherWindow=[SBMainSwitcherWindow new];
+ UIViewController *switcherController=[UIViewController new];
+ UIView *switcherView=[UIView new];
+ [switcherWindow addSubview:switcherView];switcherWindow.rootViewController=switcherController;switcherController.viewIfLoaded=switcherView;
+ scene.windows=@[homeWindow,wallWindow,nc,switcherWindow];
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
+ // 0.0.132: a FADING Control Center window is closing - not a cover. The video
+ // keeps playing while the sheet fades out instead of freezing until removal.
+ ccWindow.alpha=0.5;
+ scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ [m update];
+ assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ ccWindow.alpha=1;
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(m.host.superview==wall && m.playback.wantsPlayback);
  // 0.0.130: the 0.0.129 regression guard - a plain UIWindow with a full-screen
  // root (like UITextEffectsWindow / the aperture host / tweak panels) must
  // never become a cover: the desktop keeps PLAYING with it present.

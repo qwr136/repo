@@ -110,13 +110,15 @@ assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
 assert 'blankKnown' in overlay and 'home-nc-cc:not-visible-or-locked' in overlay
 assert 'LMVEasterNCPolicy' in overlay and 'recordScreenBlank' in overlay
-# 0.0.131: the ball tap fires a haptic (medium impact, style=1), gated by the
-# shared 悬浮球震动 switch (default ON) read at tap time. Built through the
-# runtime because the pinned 15.6 SDK headers hide the typed initializer.
+# 0.0.131/0.0.132: the ball tap fires a haptic (medium impact, style=1), gated
+# by the shared 悬浮球震动 switch (default ON) read at tap time. Built through
+# the runtime, with a respondsToSelector guard AND a catch - the first version
+# went through forwarding and took SpringBoard to safe mode.
 assert 'if (LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES)) {' in overlay
 assert 'NSClassFromString(@"UIImpactFeedbackGenerator")' in overlay
-assert 'sel_registerName("initWithUIImpactFeedbackStyle:"),1' in overlay
-assert 'sel_registerName("impactOccurred")' in overlay
+assert '[generator respondsToSelector:styleSelector]' in overlay
+assert '[generator respondsToSelector:@selector(impactOccurred)]' in overlay
+assert '@catch (NSException *exception)' in overlay
 assert '@[@"Message", @"Options", @"Clear"]' in original  # Main renderer remains limited to the original three roles.
 assert 'LMVLayoutLockOverlay' not in original
 assert not (r/'LMVLockBackground.h').exists()

@@ -701,13 +701,18 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 - (void)openPanel {
     // 0.0.131: tap haptic on the ball - on by default, toggled by the shared
     // appearance page (悬浮球震动). Fires on every tap, panel open or not.
-    // Built through the runtime: the pinned iOS 15.6 SDK headers do not expose
-    // the UIImpactFeedbackGenerator initializer to this compile unit.
+    // Built through the runtime with a respondsToSelector guard AND a catch:
+    // the first attempt went through forwarding and took SpringBoard to safe
+    // mode - haptics must never be able to crash the board.
     if (LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES)) {
-        Class generatorClass=NSClassFromString(@"UIImpactFeedbackGenerator");
-        id generator=generatorClass?((id(*)(id,SEL))objc_msgSend)(generatorClass,sel_registerName("alloc")):nil;
-        generator=generator?((id(*)(id,SEL,long))objc_msgSend)(generator,sel_registerName("initWithUIImpactFeedbackStyle:"),1):nil;
-        if (generator) ((void(*)(id,SEL))objc_msgSend)(generator,sel_registerName("impactOccurred"));
+        @try {
+            Class generatorClass=NSClassFromString(@"UIImpactFeedbackGenerator");
+            id generator=generatorClass?((id(*)(id,SEL))objc_msgSend)(generatorClass,sel_registerName("alloc")):nil;
+            SEL styleSelector=NSSelectorFromString(@"initWithUIImpactFeedbackStyle:");
+            generator=(generator && [generator respondsToSelector:styleSelector])?((id(*)(id,SEL,long))objc_msgSend)(generator,styleSelector,1):nil;
+            if (generator && [generator respondsToSelector:@selector(impactOccurred)])
+                ((void(*)(id,SEL))objc_msgSend)(generator,NSSelectorFromString(@"impactOccurred"));
+        } @catch (NSException *exception) { /* haptics must never take SpringBoard down. */ }
     }
     if (self.panel || self.window.hidden || self.displayScene==LMVEasterDisplayLockScreen) return;
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
