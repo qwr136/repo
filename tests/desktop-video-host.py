@@ -588,6 +588,9 @@ int main(void){@autoreleasepool {
   // lease stays); the FULL pull freezes and restores the wallpaper on purpose
   // ("下滑到底才出现原壁纸").
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
+  if(n==1||n==50||n==99)
+    printf("DBG-NC n=%d pre=%d shown=%d covered=%d hidden=%d frozen=%d wants=%d wallHidden=%d\n",
+        n,m.sheetPreexisting,m.sheetWallpaperShown,m.coveredNow,m.host.hidden,m.playback.frozen,m.playback.wantsPlayback,wallPixels.hidden);
   if(n==0){
     // closed sheet: the desktop plays and the lease stays
     assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
