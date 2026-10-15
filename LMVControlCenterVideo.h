@@ -314,8 +314,7 @@ static BOOL LMVCCMaterialStillValid(UIView *root,UIView *material) {
 @property(nonatomic) BOOL visible,closing,known,progressKnown;
 @property(nonatomic) CGFloat progress;
 @property(nonatomic) NSUInteger epoch;
-@property(nonatomic,weak) UIView *materialRoot,*cachedMaterial,*backgroundRoot;
-@property(nonatomic) CGRect backgroundBounds;
+@property(nonatomic,weak) UIView *materialRoot,*cachedMaterial;
 @property(nonatomic) CFTimeInterval lastMaterialSearch;
 @end
 @implementation LMVCCRecord @end

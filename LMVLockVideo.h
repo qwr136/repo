@@ -519,10 +519,6 @@ static void LMVLockVideoSuspend(void);
 @property(nonatomic,copy) NSString *path,*revision,*diagnostic,*coverage;
 @property(nonatomic) BOOL enabled,updating,screenAllowed;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
-// 0.0.97: previous sampled band + its timestamp, used to lead the moving edge
-// by exactly one frame of motion (see update()).
-@property(nonatomic) CGRect lastClipRect;@property(nonatomic) CFTimeInterval lastClipTime;
-@property(nonatomic) BOOL hasLastClip;
 @property(nonatomic,strong) LMVLockVideoPaintLease *paintLease;
 @property(nonatomic) CFTimeInterval paintLeaseTime;
 @property(nonatomic) BOOL paintLeaseDirty;

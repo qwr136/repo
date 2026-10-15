@@ -41,17 +41,9 @@ static inline NSString *LMVUserStorageRoot(void) {
     return @"/var/mobile/LockMessageVideo";
 }
 
-// Convenience only: retain the caller's existing lstat/O_NOFOLLOW/fd checks.
-// Relative paths are the only values to persist in CFPreferences/catalogs.
-static inline NSString *LMVUserStoragePath(NSString *relativePath) {
-    if (![relativePath isKindOfClass:NSString.class] || !relativePath.length ||
-        relativePath.isAbsolutePath || [relativePath.pathComponents containsObject:@".."] ||
-        [relativePath.pathComponents containsObject:@"."]) return nil;
-    NSString *root = LMVUserStorageRoot();
-    NSString *path = [[root stringByAppendingPathComponent:relativePath] stringByStandardizingPath];
-    return [path hasPrefix:[root stringByAppendingString:@"/"]] ? path : nil;
-}
-
+// Installed package resources (icons, entry plists, the prefs bundle itself)
+// resolve through jbroot; retained as the single documented mapping helper for
+// every future package-installed resource path. Never use it for user data.
 static inline NSString *LMVPreferenceBundlePath(void) {
     return LMVInstalledPath(@"/Library/PreferenceBundles/LockMessageVideoPrefs.bundle");
 }
