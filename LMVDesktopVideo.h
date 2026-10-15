@@ -233,8 +233,8 @@ static void LMVDesktopDiscover(void) {
         }
     }
 }
-static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *sheetCover) {
-    CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*sheetCover=NO;
+static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *ccCover,BOOL *sheetCover) {
+    CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*ccCover=NO;*sheetCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
@@ -269,7 +269,7 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                     full=destination.bounds.size.width*destination.bounds.size.height;
                 if (full<=0 || area/full<0.9) continue;
                 combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
-                *sheetCover=YES;
+                *ccCover=YES;
                 continue;
             }
             if (!LMVLockVideoClass(window,@"SBCoverSheetWindow")) {
@@ -462,8 +462,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // and the layer visible but frozen under a sheet or the switcher (their
     // close is caught here within ~16 ms). Anything else has nothing to wait for.
     if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}
-    BOOL unknown=NO,appCover=NO,switcherCover=NO,sheetCover=NO;
-    CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&sheetCover);
+    BOOL unknown=NO,appCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO;
+    CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&ccCover,&sheetCover);
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
     // hidden mode: silent while fully covered AND an app is frontmost;
@@ -509,8 +509,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if(!wallpaperValid && self.wallpaperAttachment && LMVDesktopOwnedAttachment(self)) {
         container=self.container;content=self.attachedContent;wallpaperValid=YES;
     }
-    BOOL appWindowCover=NO,switcherCover=NO,sheetCover=NO;
-    BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&sheetCover):CGRectZero;
+    BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO;
+    BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover):CGRectZero;
     NSInteger foreground=LMVDesktopForeground();
     // A fresh authenticated unlock is authoritative even while CoverSheet is
     // still withdrawing. Waiting for cover==empty makes Home's first exposed
@@ -624,12 +624,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         [self.host removeFromSuperview];self.container=nil;self.holdSince=0;
     }
     if (LMVLaunchReady) {
-        // 0.0.132: the app switcher joined the freeze family - covering the
-        // desktop with the switcher IS "the desktop went into the background"
-        // (video freezes, audio stops), while a REAL app window keeps the
-        // 0.0.127 exit-transition play rule (fg==1 + app window => play).
-        BOOL freeze=appForeground || (visible && covered && (sheetCover || switcherCover || foreground!=1)),
-            play=visible && (!covered || (appWindowCover && foreground==1));
+        // 0.0.134: the app exit path runs THROUGH the switcher, and the Control
+        // Center close must be instant - so NEITHER of them freezes the video at
+        // fg==1: the video keeps playing under their blur (the 0.0.130 feel),
+        // closing needs no resume at all, and coveredNow keeps the audio off.
+        // The switcher still counts as a cover for the AUDIO, and at fg!=1 both
+        // freeze like anything else. The notification sheet keeps the
+        // freeze-at-fg==1 (blur samples the still), with the watcher resuming
+        // it within ~16 ms of the close.
+        BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),
+            play=visible && (!covered || ((appWindowCover || switcherCover || ccCover) && foreground==1));
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
@@ -659,11 +663,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         UIView *held=self.lease.content;
         if (held && !self.lease.baselineHidden) {if(!held.hidden)held.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
-    // 0.0.128/0.0.132: watch every frame in BOTH waiting states - the layer
+    // 0.0.128/0.0.134: watch every frame in BOTH waiting states - the layer
     // hidden behind an opaque app (exit reveal), AND the layer visible but
-    // frozen under a sheet or the switcher (their close is caught within
-    // ~16 ms instead of the ~0.4 s update cadence).
-    if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];
+    // frozen under a sheet (the NC/CC close is caught within ~16 ms instead of
+    // the ~0.4 s update cadence). The switcher never freezes at fg==1 anymore.
+    if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];
     else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {
@@ -671,7 +675,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // and `decode` is whether the decoder is running - together they tell apart
     // "paused but still on screen" (CPU wasted on compositing) from "still decoding
     // while invisible" (CPU wasted on decode).
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d appc=%d sw=%d",
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d appc=%d sw=%d cc=%d",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
         (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container)),
@@ -679,7 +683,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         (int)self.host.hidden,(int)(self.playback.posterLayer.contents!=nil),(int)(!self.playback.renderLayer.hidden),
         (int)(self.host.superview!=nil && !self.host.hidden),
         (int)(self.playback.wantsPlayback && !self.playback.frozen),(int)opaqueCover,
-        (int)sheetCover,(int)appWindowCover,(int)switcherCover];
+        (int)sheetCover,(int)appWindowCover,(int)switcherCover,(int)ccCover];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     // 0.0.129: which windows are on screen (class names, changes-only) - the
     // discovery aid for sheet presenters (e.g. the search pull-down) whose host
