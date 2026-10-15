@@ -57,18 +57,18 @@ assert 'CGRect converted=[window convertRect:(presentation?presentation.frame:wi
 assert 'if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;' in h
 assert 'BOOL appWindowCover=NO,switcherCover=NO,sheetCover=NO;' in h
 assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&sheetCover)' in h
-assert 'BOOL freeze=appForeground || (visible && covered && foreground!=1),' in h
-assert 'play=visible && (!covered || foreground==1);' in h
-# 0.0.133: the video PLAYS under any cover at fg==1 (the 0.0.130 instant feel);
-# the AUDIO is decoupled and stays off while anything covers the desktop.
+assert 'BOOL freeze=appForeground || (visible && covered && (sheetCover || switcherCover || foreground!=1)),' in h
+assert 'play=visible && (!covered || (appWindowCover && foreground==1));' in h
+# 0.0.133: the audio is decoupled from the player - coveredNow (ANY cover) gates
+# the Desktop channel in the audio sync, on top of the freeze-time direct pause.
 assert '@property(nonatomic) BOOL coveredNow;' in h
 assert 'self.coveredNow=covered;' in h
-assert 'if(covered && LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();' in h
+assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # 0.0.132: the app switcher is NOT an app exit - covering the desktop with the
 # switcher freezes the video and stops the audio, exactly like an app cover.
 assert 'if ([name containsString:@"Switcher"]) *switcherCover=YES;' in h
 assert 'else *appWindowCover=YES;' in h
-assert 'if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];' in h
+assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];' in h
 assert 'opaque=%d sheet=%d appc=%d sw=%d' in h
 
 # 0.0.128: while the layer is hidden behind an opaque app, a per-frame watcher
@@ -82,7 +82,7 @@ assert '- (void)coverWatchTick:(CADisplayLink *)link {' in h
 assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)]' in h
 # 0.0.131: the watcher covers BOTH waiting states - the hidden layer (exit
 # reveal) AND the visible layer frozen under a sheet (CC close -> resume).
-assert 'if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];' in h
+assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && (sheetCover || switcherCover))) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
@@ -362,15 +362,18 @@ int main(void){@autoreleasepool {
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
  assert(m.coveredNow);
- // 0.0.133: at fg==1 the video PLAYS under the sheet - closing it needs no
- // resume at all (the 0.0.130 instant feel). No watcher runs for sheet covers.
+ // 0.0.132/0.0.133: frozen at fg==1 too, watched so the close resumes in
+ // ~16 ms; coveredNow gates the audio while anything covers the desktop.
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
- assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
- assert(m.coverWatch==nil);
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && m.coveredNow);
+ assert(m.coverWatch!=nil);
+ [m coverWatchTick:nil];
+ assert(m.playback.frozen);
  scene.windows=@[homeWindow,wallWindow,nc];
- [m update];
+ [m coverWatchTick:nil];
+ [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
- assert(!m.coveredNow);
+ assert(m.coverWatch==nil && !m.coveredNow);
  // 0.0.132: the app switcher is NOT an app exit. Covering the desktop with the
  // switcher at fg==1 must FREEZE (and, on device, stop the audio through the
  // wired hook) - the 0.0.127 exit-transition play rule belongs to real app
@@ -381,13 +384,12 @@ int main(void){@autoreleasepool {
  [switcherWindow addSubview:switcherView];switcherWindow.rootViewController=switcherController;switcherController.viewIfLoaded=switcherView;
  scene.windows=@[homeWindow,wallWindow,nc,switcherWindow];
  [m update];
- // 0.0.133: fg==1 under the switcher -> the video PLAYS (0.0.130 feel), the
- // coveredNow flag is what keeps the audio off.
- assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
- assert(m.coveredNow);
+ // 0.0.132: fg==1 under the switcher still freezes (entering the background),
+ // watched for the close; coveredNow keeps the audio off meanwhile.
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && m.coveredNow);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
- assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  // 0.0.132: a FADING Control Center window is closing - not a cover. The video
  // keeps playing while the sheet fades out instead of freezing until removal.
  ccWindow.alpha=0.5;
