@@ -146,13 +146,17 @@ static void LMVDesktopVideoSuspend(void);
 // to clear flashes the wallpaper). Only a sheet the user pulled down onto an
 // already-visible desktop shows the original wallpaper.
 @property(nonatomic) BOOL sheetPreexisting,lastSheetCover;
-// 1.12: the pixels decide when the desktop comes back. SpringBoard's
+// 1.13: the pixels decide when the desktop comes back. SpringBoard's
 // presentation flags flip only AFTER the dismiss animation, so the desktop
 // video waited a whole animation for a state the screen had already released
 // (device report: 控制中心收回 / App 退出到桌面 后视频和声音太慢). The probe is
 // believed only once it has actually seen a cover, so a device whose window
 // classes do not match keeps the old state-driven freeze.
 @property(nonatomic) BOOL geometryCoverSeen,switcherSawCover,ccSawCover;
+// 1.13: the application went away and its surface has not come back. While this
+// is set the switcher/CC shells hold NOTHING: they linger after an app exit
+// (the device log shows the app surface gone 0.1-1.8 s before the shell).
+@property(nonatomic) BOOL appAway;
 @property(nonatomic) BOOL effectiveSwitcherPresented,effectiveControlCenterPresented;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
@@ -256,7 +260,12 @@ static void LMVDesktopDiscover(void) {
         }
     }
 }
-// 1.12: how much of the window's visible CONTENT is still on screen (0..1).
+// 1.13: the Control Center video module already tracks the CC content as it
+// slides away (its own window/material probe) and it reported the content gone
+// 0.74 s before the window itself left (device log). When it is configured it
+// publishes that answer here, so the desktop releases on the same evidence.
+static BOOL (*LMVDesktopControlCenterPresentedHook)(void);
+// 1.13: how much of the window's visible CONTENT is still on screen (0..1).
 // A window keeps its full-screen frame while the content inside shrinks away -
 // that is exactly what an app exit and a Control Center dismiss look like, and
 // a frame-based probe cannot see it (device log: the cover stayed 1 for 1.14 s
@@ -303,6 +312,8 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // sheet cover -> freeze under the blur (never hide, fg==1).
                 UIView *root=window.rootViewController.viewIfLoaded;
                 if (!root || root.hidden || root.alpha<.01) continue;
+                // 1.13: the window can outlive its content by most of a second.
+                if (LMVDesktopControlCenterPresentedHook && !LMVDesktopControlCenterPresentedHook()) continue;
                 // 0.0.132: a FADING Control Center window is closing - the root
                 // stays full-screen through the fade, so without this gate the
                 // cover (and the freeze) outlived the visible sheet by the whole
@@ -314,7 +325,7 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 if (!LMVLockVideoRectValid(rect)) continue;
                 CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);
                 if (!LMVLockVideoRectValid(converted)) continue;
-                // 1.12: the window frame alone is not a cover. On dismiss the
+                // 1.13: the window frame alone is not a cover. On dismiss the
                 // Control Center root stays FULL-SCREEN while the modules (and the
                 // blur material with them) slide away inside it, so a frame-based
                 // probe kept the desktop frozen for the whole animation - the
@@ -346,8 +357,14 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // *unknown=YES - that tears the desktop down and flashes the
                 // wallpaper). 0.0.129: no generalized probe - permanent full-screen
                 // tweak/system windows made it freeze the desktop for good.
+                // 1.13: SBWindow is the surface that carries the application on
+                // the user's device (the device log shows it appear/disappear with
+                // the app and with the app CARD inside the switcher). Without it
+                // the app was invisible to the probe (appc=0 throughout) and only
+                // the empty switcher shell held the desktop - for up to 1.8 s.
                 if (window==destination || LMVDesktopHomeWindow(window) ||
-                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) continue;
+                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"] &&
+                     ![name isEqualToString:@"SBWindow"])) continue;
                 // 0.0.126: measure the ANIMATED frame - the model frame stays
                 // full-screen for the whole open/close zoom.
                 // 0.0.127: a FADING app window is already revealing the desktop.
@@ -362,7 +379,7 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;
                 CGRect converted=[window convertRect:(presentation?presentation.frame:window.frame) toWindow:destination];
                 if (!LMVLockVideoRectValid(converted)) continue;
-                // 1.12: the frame is not enough here either. An app (and the
+                // 1.13: the frame is not enough here either. An app (and the
                 // switcher surface that carries it) keeps its full-screen frame
                 // while its content shrinks away on exit, so the desktop stayed
                 // frozen until the window itself disappeared. The threshold is
@@ -392,7 +409,7 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
             if (!LMVLockVideoRectValid(converted)) continue;
             if (!CGRectIsEmpty(converted)) {
                 combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);*sheetCover=YES;
-                // 1.12: a pull is FULL only once the sheet actually covers the
+                // 1.13: a pull is FULL only once the sheet actually covers the
                 // SCREEN. A HALF-pulled sheet leaves the desktop visible underneath
                 // and must NOT hide the layer or release the suppress-lease - doing
                 // that put the original wallpaper where the video is still supposed
@@ -568,7 +585,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // (wake with the CoverSheet still half open): the warm video must bind.
     self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;
 }
-// 1.12: mark a presentation as still holding the desktop ONLY while the cover
+// 1.13: mark a presentation as still holding the desktop ONLY while the cover
 // probe can still see it. `...SawCover` is set the moment the presented surface
 // is really on screen during THIS presentation, so:
 //   - switcher/CC actually visible -> opening freezes, closing resumes on the
@@ -603,7 +620,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     NSInteger fg=LMVDesktopForeground();
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     BOOL presented=self.effectiveSwitcherPresented||self.effectiveControlCenterPresented;
-    // 1.12: the tick must be silent for exactly as long as the state the update
+    // 1.13: the tick must be silent for exactly as long as the state the update
     // produced still HOLDS, and fire the frame that state ends. Listing the
     // reasons one by one left the GEOMETRY cover out: with a switcher/CC/app
     // surface on screen at fg==1 the tick matched none of the listed reasons,
@@ -658,6 +675,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     }
     BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover):CGRectZero;
+    // 1.13: an app surface IS the app; its absence after an app was frontmost
+    // means the desktop is back, whatever the empty shells behind it still do.
+    if (foreground==-1) self.appAway=YES;
+    if (appWindowCover) self.appAway=NO;
+    if (self.appAway) {switcherCover=NO;ccCover=NO;}
     NSInteger foreground=LMVDesktopForeground();
     // A fresh authenticated unlock is authoritative even while CoverSheet is
     // still withdrawing. Waiting for cover==empty makes Home's first exposed
@@ -669,13 +691,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // It is the authority for the switcher and the Control Center: while either
     // is presented the desktop is not what the user is looking at, so the video
     // freezes and the audio stops even when no covering window matched.
-    // 1.12: classified against what the pixels show (see the method): the flag
+    // 1.13: classified against what the pixels show (see the method): the flag
     // keeps a freeze only while its surface is still on screen.
     BOOL coverOnScreen=switcherCover||ccCover||sheetCover||appWindowCover||!CGRectIsEmpty(cover);
     [self classifyPresentationForCoverOnScreen:coverOnScreen];
     BOOL switcherPresented=self.effectiveSwitcherPresented;
     BOOL ccPresented=self.effectiveControlCenterPresented;
-    // 1.12: a desktop with NOTHING covering it is proof enough that the desktop
+    // 1.13: a desktop with NOTHING covering it is proof enough that the desktop
     // is what is on screen - the frontmost probe and the Home lifecycle callbacks
     // both lag the app-exit animation, and waiting for them was the reported
     // "App 退出到桌面后视频和声音太慢". Guarded by geometryCoverSeen, so a device
@@ -693,7 +715,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         (foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;
     BOOL configured=self.enabled && self.path.length && self.revision.length;
     LMVDesktopControllerRecord *ownerRecord=objc_getAssociatedObject(self.attachmentController,&LMVDesktopControllerRecordKey);
-    // 1.12: an exposed desktop outranks a stale Home lifecycle record as well.
+    // 1.13: an exposed desktop outranks a stale Home lifecycle record as well.
     // The app-exit transition reports the Home controller back only at the very
     // end of the animation, so the record said "away" while the desktop was
     // already on screen - the video stayed frozen into an exposed desktop.
@@ -736,7 +758,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // translucent surface is safe now: the suppress-lease STAYS applied while
     // the layer is hidden, so the wallpaper content can never show through the
     // blur - only a pull that has covered the screen restores it on purpose.
-    // 1.12: a HALF-pulled sheet is not a cover at all - the desktop is still
+    // 1.13: a HALF-pulled sheet is not a cover at all - the desktop is still
     // on display underneath, so it neither counts here nor hides the layer.
     if (covered && (foreground!=1 || switcherCover || ccCover || sheetFullCover)) {
         if (self.coveredSince<=0) self.coveredSince=holdNow;
@@ -828,7 +850,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // timer beat in either direction): pausing the instant the desktop becomes
     // invisible, resuming the instant it is back.
     if (!sheetFullCover) self.sheetWallpaperShown=NO;
-    // 1.12: a notification pull no longer silences the desktop - the user asked
+    // 1.13: a notification pull no longer silences the desktop - the user asked
     // for sound whenever the video is still playing (下拉/收回通知中心 视频有声).
     // A pull that has COVERED the screen still freezes and silences (below).
     BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented)) ||
@@ -852,7 +874,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;
     self.lastSheetCover=sheetCover;
     if (!sheetCover) self.sheetPreexisting=NO;
-    // 1.12: only a pull that has COVERED the screen shows the original
+    // 1.13: only a pull that has COVERED the screen shows the original
     // wallpaper behind the sheet (the layer is hidden above and the lease is
     // released). A partial pull is not a cover: the desktop is still visible
     // underneath and must keep showing the video - restoring the wallpaper
@@ -864,7 +886,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             if (self.lease) {[self.lease restore];self.lease=nil;}
             self.sheetWallpaperShown=YES;
         }
-        // 0.0.140/1.12: the notification sheet is a cover until the pull
+        // 0.0.140/1.13: the notification sheet is a cover until the pull
         // reaches the bottom. Pulled HALF way it is not a cover at all - the
         // desktop is on display underneath, so the video keeps playing AND stays
         // VISIBLE (no hide, no wallpaper). Only a pull that has covered the
@@ -885,7 +907,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             // (source change, the 10 Hz sync) can never leave the sound playing
             // under a cover.
             if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();
-            // 0.0.137/1.12: a FULL pull shows the original wallpaper on
+            // 0.0.137/1.13: a FULL pull shows the original wallpaper on
             // purpose ("下滑到底才出现原壁纸"); a partial pull keeps the video
             // VISIBLE and PLAYING, because the desktop it is drawn on is still
             // exposed. The lease re-acquires as soon as the sheet slides back.
@@ -898,7 +920,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             // 0.0.140: while a COVERING sheet is up the layer is hidden on
             // purpose but the player must KEEP RUNNING - stopping it here is what
             // made the release feel slow (a stopped player restarts from scratch).
-            // 1.12: a partial pull never gets here - the layer is visible and
+            // 1.13: a partial pull never gets here - the layer is visible and
             // the video must not be stopped.
             [self.playback setVisible:NO];
     }
@@ -945,9 +967,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         (int)sheetCover,(int)sheetFullCover,(int)appWindowCover,(int)switcherCover,(int)ccCover,
         (int)self.effectiveSwitcherPresented,(int)self.effectiveControlCenterPresented,(int)self.geometryCoverSeen];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
-    // 1.12: WHICH whitelisted surface currently holds the cover, with its content
+    // 1.13: WHICH whitelisted surface currently holds the cover, with its content
     // coverage - so an app-exit log names the window instead of leaving it to
-    // inference (the 1.12 log carried an unexplained switcher window).
+    // inference (the 1.13 log carried an unexplained switcher window).
     {
         NSMutableString *owners=[NSMutableString new];
         UIWindow *target=container?container.window:nil;
@@ -969,7 +991,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             LMVDiagnostic([NSString stringWithFormat:@"desktop-cover-owner %@",owners]);
         }
     }
-    // 1.12: which FULL-SCREEN windows the cover probe deliberately skips - the
+    // 1.13: which FULL-SCREEN windows the cover probe deliberately skips - the
     // discovery aid for an app window whose class name is not in the whitelist
     // (device log: an unexplained SBWindow and appc=0 throughout, i.e. the
     // desktop never saw the application at all).
