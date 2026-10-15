@@ -82,8 +82,8 @@ assert 'shown=%d composited=%d decode=%d opaque=%d' in h
 # tear the desktop down and flash the wallpaper).
 assert 'window==destination || LMVDesktopHomeWindow(window) ||' in h
 assert '![name isEqualToString:@"SBWindow"])) continue;' in h, 'the app surface SBWindow is recognised (1.14)'
-assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.14)'
-assert '{switcherCover=NO;ccCover=NO;appWindowCover=NO;}' in h, 'for the release window nothing holds the freeze (1.14)'
+assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;self.shellAtExit=NO;}' in h, 'the frontmost probe arms the release (1.14)'
+assert 'if (self.shellAtExit) {switcherCover=NO;ccCover=NO;}' in h, 'only the shells that were already up at the exit are ignored (1.14)'
 assert 'if (appNow-self.appLeftAt<=0.8)' in h, 'the release window is bounded (1.14)'
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.126: the cover follows the app's ANIMATED frame, not the model frame that
@@ -228,8 +228,8 @@ assert "[c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();" in 
 # >=90% of the destination; easter/snapshot/status-bar names stay excluded.
 assert "if (window==destination || LMVDesktopHomeWindow(window) ||" in h
 assert '![name isEqualToString:@"SBWindow"])) continue;' in h, 'the app surface SBWindow is recognised (1.14)'
-assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.14)'
-assert '{switcherCover=NO;ccCover=NO;appWindowCover=NO;}' in h, 'for the release window nothing holds the freeze (1.14)'
+assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;self.shellAtExit=NO;}' in h, 'the frontmost probe arms the release (1.14)'
+assert 'if (self.shellAtExit) {switcherCover=NO;ccCover=NO;}' in h, 'only the shells that were already up at the exit are ignored (1.14)'
 assert 'if (appNow-self.appLeftAt<=0.8)' in h, 'the release window is bounded (1.14)'
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.129's generalized "any full-screen root is a sheet" probe FROZE the desktop

@@ -159,8 +159,11 @@ static void LMVDesktopVideoSuspend(void);
 // animation (the device log shows the app surface and the switcher shell
 // lingering for 0.1-1.8 s after the app was gone).
 @property(nonatomic) BOOL appAway;
-// The instant that happened, for the short release window below.
+// The instant that happened, and whether the switcher/CC shells were already up
+// at that instant. Only THOSE are the remnants the release window may ignore: a
+// switcher the user opens afterwards is a real cover again.
 @property(nonatomic) CFTimeInterval appLeftAt;
+@property(nonatomic) BOOL shellAtExit;
 @property(nonatomic) BOOL effectiveSwitcherPresented,effectiveControlCenterPresented;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
@@ -618,11 +621,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.14: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
-    if (fg==-1) {self.appAway=YES;self.appLeftAt=0;}
+    if (fg==-1) {self.appAway=YES;self.appLeftAt=0;self.shellAtExit=NO;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
-        if (self.appLeftAt<=0) self.appLeftAt=appNow;
-        if (appNow-self.appLeftAt<=0.8) {switcherCover=NO;ccCover=NO;appCover=NO;}
+        if (self.appLeftAt<=0) {self.appLeftAt=appNow;self.shellAtExit=(switcherCover||ccCover);}
+        if (appNow-self.appLeftAt<=0.8) {
+            appCover=NO;
+            if (self.shellAtExit) {switcherCover=NO;ccCover=NO;}
+        }
     }
     BOOL presented=self.effectiveSwitcherPresented||self.effectiveControlCenterPresented;
     // 1.14: the tick must be silent for exactly as long as the state the update
@@ -688,11 +694,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
     NSInteger foreground=LMVDesktopForeground();
-    if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
+    if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;self.shellAtExit=NO;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
-        if (self.appLeftAt<=0) self.appLeftAt=appNow;
-        if (appNow-self.appLeftAt<=0.8) {switcherCover=NO;ccCover=NO;appWindowCover=NO;}
+        if (self.appLeftAt<=0) {self.appLeftAt=appNow;self.shellAtExit=(switcherCover||ccCover);}
+        if (appNow-self.appLeftAt<=0.8) {
+            appWindowCover=NO;                                   // the app surface never holds
+            if (self.shellAtExit) {switcherCover=NO;ccCover=NO;}  // ...only the remnants
+        }
     }
     // A fresh authenticated unlock is authoritative even while CoverSheet is
     // still withdrawing. Waiting for cover==empty makes Home's first exposed
