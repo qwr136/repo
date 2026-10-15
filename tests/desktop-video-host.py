@@ -46,7 +46,7 @@ assert '(foreground==1 || homeConfirmed) && !unknownCover;' in h
 # notification pull restores it on purpose. An UNKNOWN cover HOLDS (no
 # teardown -> no lease restore) instead of tearing down - the in-app swipe-up
 # switcher leak was the teardown restoring the wallpaper mid-transition.
-assert 'if (covered && (foreground!=1 || switcherCover || ccCover || sheetCover)) {' in h
+assert 'if (covered && (foreground!=1 || switcherCover || ccCover || sheetFullCover)) {' in h
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 assert 'BOOL definitiveAway=!configured || !screenKnown || blank || !lockKnown || locked ||' in h
 assert 'self.playback.error!=nil;' in h
@@ -80,8 +80,8 @@ assert 'CGRect converted=[window convertRect:(presentation?presentation.frame:wi
 # cover; and the freeze follows the frontmost probe so the player resumes the
 # moment the desktop is exposed instead of when the window is finally removed.
 assert 'if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;' in h
-assert 'BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO;' in h
-assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover)' in h
+assert 'BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;' in h
+assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover)' in h
 # 0.0.136: the 0.0.128 model - the desktop is either INVISIBLE (opaque full
 # cover from app windows, no translucent contributor, fg!=1) and then the video
 # freezes+hides, or it is VISIBLE and the video PLAYS under the translucent
@@ -96,25 +96,30 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 # the pull the player keeps running (hidden layer, wallpaper behind) so the
 # release resumes with zero delay. Switcher/CC freeze as soon as presented.
 assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h
-assert '(visible && covered && (sheetCover || switcherCover || ccCover || foreground!=1)),' in h
-assert 'play=visible && !covered && !switcherPresented && !ccPresented && !(sheetCover && !self.sheetPreexisting);' in h
+assert '(visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),' in h
+assert 'play=visible && !covered && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);' in h
 # the sheet hides the layer but must NOT stop the player - a stopped player is
 # what made the release feel slow.
-assert '} else if(!(sheetCover && !self.sheetPreexisting) && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))' in h
+assert '} else if(!(sheetFullCover && !self.sheetPreexisting) && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))' in h
 # 0.0.139: the layer hides only behind an OPAQUE APP cover or under a
 # notification pull - behind the translucent switcher/CC the FROZEN frame stays
 # visible (and the lease keeps the wallpaper hidden, so nothing leaks).
 assert h.count('BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);') == 2
-assert h.count('BOOL hostHidden=opaqueAppCover || (sheetCover && !self.sheetPreexisting);') == 2
+assert h.count('BOOL hostHidden=opaqueAppCover || (sheetFullCover && !self.sheetPreexisting);') == 2
 assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
-assert 'if (!sheetCover) self.sheetWallpaperShown=NO;' in h
+assert 'if (!sheetFullCover) self.sheetWallpaperShown=NO;' in h
 assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
-assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
+assert h.count('self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;') == 1
+# 0.0.142: the pull is classified FULL only when it really covers the screen
+assert 'onScreen.size.width>=destination.bounds.size.width-1 &&' in h and        'onScreen.size.height>=destination.bounds.size.height-1) *sheetFullCover=YES;' in h, \
+    'a pull is a full cover only once it covers the screen (same tolerance as the cover test)'
+assert '*sheetCover=NO;*sheetFullCover=NO;' in h, 'the probe reports both flags'
+assert 'a FULL pull hides it on purpose' in h, 'the watcher silences on a full pull, not on any sheet'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;' in h, 'an attach under a sheet marks it pre-existing'
-assert 'if (visible && sheetCover && !self.sheetPreexisting) {' in h, 'a user pull over a live desktop shows the wallpaper'
+assert 'if (visible && sheetFullCover && !self.sheetPreexisting) {' in h, 'only a pull that covered the screen shows the wallpaper'
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the sheet shows the wallpaper'
 assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'
@@ -140,7 +145,7 @@ assert 'if ([name containsString:@"Switcher"]) *switcherCover=YES;' in h
 assert '*ccCover=YES;' in h, 'the CC branch marks its own cover kind'
 assert 'else *appWindowCover=YES;' in h
 assert 'if (self.host.superview!=nil) [self startCoverWatch];' in h
-assert 'opaque=%d sheet=%d appc=%d sw=%d cc=%d' in h
+assert 'opaque=%d sheet=%d sheetFull=%d appc=%d sw=%d cc=%d' in h
 
 # 0.0.128: while the layer is hidden behind an opaque app, a per-frame watcher
 # re-checks the cheap cover geometry and hands over to a full update the moment
@@ -157,9 +162,9 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 assert 'if (self.host.superview!=nil) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert 'if (self.host.hidden || self.playback.frozen) {' in h
-assert 'if (presented) return;' in h and 'if (sheetCover) return;' in h, 'every hidden reason returns (no 60 Hz fire loop)'
+assert 'if (presented) return;' in h and 'if (sheetFullCover) return;' in h, 'every hidden reason returns (no 60 Hz fire loop)'
 assert 'if (fullyCovered && fg!=1) return;' in h
-assert 'if (!(presented || (fullyCovered && (fg!=1 || switcherCover || ccCover || sheetCover)))) return;' in h
+assert 'if (!(presented || (fullyCovered && (fg!=1 || switcherCover || ccCover || sheetFullCover)))) return;' in h
 assert 'BOOL presented=LMVDesktopSwitcherPresented()||LMVDesktopControlCenterPresented();' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
@@ -592,12 +597,14 @@ int main(void){@autoreleasepool {
     // closed sheet: the desktop plays and the lease stays
     assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
   } else if(n<100){
-    // 0.0.140: while the sheet is being pulled the ORIGINAL WALLPAPER is what the
-    // blur shows (layer hidden, lease released) but the VIDEO KEEPS PLAYING - it
-    // is not paused, which is what makes the release resume with zero delay. The
-    // SOUND is already off from the first pull tick.
+    // 0.0.142: a HALF-pulled sheet is not a cover - the desktop underneath is
+    // still on display, so the video stays VISIBLE and keeps PLAYING. Hiding the
+    // layer and releasing the lease here is what showed the original wallpaper
+    // where the video was supposed to be playing. The SOUND is off from the
+    // first pull tick (that part is unchanged).
     assert(m.playback.wantsPlayback && !m.playback.frozen);
-    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
+    assert(!m.host.hidden && !m.playback.renderLayer.hidden);
+    assert(wallPixels.hidden && !m.sheetWallpaperShown && m.lease);
     assert(m.coveredNow);
   } else {
     // pulled to the bottom: the video AND the sound freeze.
@@ -607,6 +614,9 @@ int main(void){@autoreleasepool {
     assert(m.coveredNow);
   }
  }
+ // Released halfway back: the video is visible and playing again on the spot.
+ sliding.frame=CGRectMake(0,-844+422,390,844);[m update];
+ assert(!m.host.hidden && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden && !m.sheetWallpaperShown);
  sliding.frame=CGRectMake(0,-844,390,844);screenLocked=0;[m update];assert(m.playback.wantsPlayback);
  // A screen blank invalidates authentication; waking at real lock never draws Desktop.
  screenBlank=1;[m update];assert(!m.host.superview && !m.authenticatedSession && !wallPixels.hidden);
