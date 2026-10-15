@@ -98,6 +98,9 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h
 assert '(visible && covered && (sheetCover || switcherCover || ccCover || foreground!=1)),' in h
 assert 'play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;' in h
+# the sheet hides the layer but must NOT stop the player - a stopped player is
+# what made the release feel slow.
+assert '} else if(!sheetWallpaper && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))' in h
 # 0.0.139: the layer hides only behind an OPAQUE APP cover or under a
 # notification pull - behind the translucent switcher/CC the FROZEN frame stays
 # visible (and the lease keeps the wallpaper hidden, so nothing leaks).

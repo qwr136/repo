@@ -782,7 +782,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             else if(!self.playback.wantsPlayback || self.playback.posterOnlyVisible)
                 [self.playback setVisible:YES];
             else [self.playback resumeIfNeeded];
-        } else if(self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible)
+        } else if(!sheetWallpaper && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))
+            // 0.0.140: while the sheet is up the layer is hidden on purpose but
+            // the player must KEEP RUNNING - stopping it here is what made the
+            // release feel slow (a stopped player has to restart from scratch).
             [self.playback setVisible:NO];
     }
     else if(self.playback.posterOnlyVisible!=visible)[self.playback showPreparedPoster:visible];
