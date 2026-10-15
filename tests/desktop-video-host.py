@@ -387,8 +387,9 @@ int main(void){@autoreleasepool {
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
- // the watcher stops itself after firing
- assert(m.coverWatch==nil);
+ // 0.0.137: the watcher is BIDIRECTIONAL and stays running while the surface
+ // exists - after firing it restarts and keeps watching for the next cover.
+ assert(m.coverWatch!=nil);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
  // 0.0.129: the Control Center sheet counts as a sheet cover through the
