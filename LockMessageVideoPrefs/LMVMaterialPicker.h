@@ -63,7 +63,10 @@
         _previewStages = [NSMutableSet new];
         _thumbnailFailures = [NSMutableDictionary new];
         _thumbnailQueue = [NSOperationQueue new];
-        _thumbnailQueue.maxConcurrentOperationCount = 1;
+        // 0.0.123: two workers instead of one. Decoding a poster is dominated by
+        // I/O + one frame decode, so a second worker doubles the fill rate of a
+        // long list while keeping the peak bounded.
+        _thumbnailQueue.maxConcurrentOperationCount = 2;
         _thumbnailQueue.qualityOfService = NSQualityOfServiceUtility;
     }
     return self;
@@ -154,7 +157,11 @@
     if (!key.length) { [self tracePreview:@"request-invalid" row:row]; return; }
     [self tracePreview:@"request" row:row];
     if ([self.thumbnails objectForKey:key]) { [self tracePreview:@"memory-hit" row:row]; return; }
-    if ([self.thumbnailFailures[key] boolValue]) { [self tracePreview:@"skip-previous-failure" row:row]; return; }
+    // 0.0.123: a single transient failure (a file still being finalised, a slow
+    // first frame) used to park this row on the placeholder for the whole
+    // session. Retry a bounded number of times instead of latching.
+    NSInteger failures = self.thumbnailFailures[key].integerValue;
+    if (failures >= 2) { [self tracePreview:@"skip-previous-failure" row:row]; return; }
     if ([self.pending containsObject:key]) { [self tracePreview:@"skip-pending" row:row]; return; }
     if (self.pending.count >= 12) { [self tracePreview:@"defer-queue-full" row:row]; return; }
     [self tracePreview:@"enqueue" row:row];
@@ -178,8 +185,9 @@
                 [picker.pending removeObject:key];
                 [picker tracePreview:poster ? @"apply-poster" : @"apply-placeholder" row:row];
                 // Never cache the film symbol as if it were a successfully decoded poster.
-                if (poster) [picker.thumbnails setObject:poster forKey:key cost:cost];
-                else picker.thumbnailFailures[key] = @YES;
+                if (poster) { [picker.thumbnails setObject:poster forKey:key cost:cost];
+                [picker.thumbnailFailures removeObjectForKey:key]; }
+                else picker.thumbnailFailures[key] = @(failures + 1);
                 // Resolve current paths, never capture/reuse a cell from a previous generation.
                 for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
                     if (index.row < picker.materials.count) {

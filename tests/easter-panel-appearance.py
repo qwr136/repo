@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""0.0.122: settings icon, draggable floating panel, panel previews, and the
+"""0.0.123: settings icon, draggable floating panel, panel previews, and the
 floating-panel appearance controls (corner radius / width / height).
 
 Source contracts plus a real PNG-header read for the supplied artwork. The pure
@@ -23,7 +23,10 @@ entry = (root / 'layout/Library/PreferenceLoader/Preferences/LockMessageVideoPre
 
 # ---- (1) settings icon: the supplied artwork, 88x88, packed into the bundle -----
 # Read the real PNG header instead of trusting the file name.
-for name, size in [('icon.png', 88), ('icon@2x.png', 176), ('icon@3x.png', 264)]:
+# 29 pt is the size Settings uses for its rows; the 88x88 artwork is the source,
+# and @3x lands on 87 px. (88 px as @1x rendered visibly larger than every other
+# plug-in in the list.)
+for name, size in [('icon.png', 29), ('icon@2x.png', 58), ('icon@3x.png', 87)]:
     data = (root / 'LockMessageVideoPrefs' / name).read_bytes()
     assert data[:8] == b'\x89PNG\r\n\x1a\n', name
     width, height = struct.unpack('>II', data[16:24])
@@ -47,6 +50,15 @@ assert 'self.panelOffset = CGPointZero' not in overlay, \
 # The picker already loads them on ONE utility queue, caches in an NSCache,
 # remembers failures and only touches visible rows - it is simply switched on.
 assert 'picker.showsThumbnails = YES' in panel
+# 0.0.123: a transient decode failure used to park a row on the placeholder for the
+# whole session (these rows were showing the film symbol), so the failure memory is
+# now a bounded retry, and two workers fill a long list faster.
+_picker = (root / 'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
+assert '_thumbnailQueue.maxConcurrentOperationCount = 2;' in _picker
+assert 'NSInteger failures = self.thumbnailFailures[key].integerValue;' in _picker
+assert 'if (failures >= 2)' in _picker
+assert 'picker.thumbnailFailures[key] = @(failures + 1);' in _picker
+assert '[picker.thumbnailFailures removeObjectForKey:key];' in _picker
 assert 'showsThumbnails = NO' not in panel
 
 # ---- (4)(5) corner radius + width/height on the page both entries share --------
