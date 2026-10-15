@@ -211,8 +211,8 @@ static void LMVDesktopDiscover(void) {
         }
     }
 }
-static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown) {
-    CGRect combined=CGRectZero;*unknown=NO;
+static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *sheetCover) {
+    CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*sheetCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
@@ -233,19 +233,21 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown) {
                 NSString *name=NSStringFromClass(window.class);
                 if (window==destination || LMVDesktopHomeWindow(window) ||
                     (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) continue;
-                // 0.0.126: the MODEL frame of an app window stays full-screen for
-                // the whole open/close zoom, so judging by it kept the desktop
-                // hidden until the animation ended - exactly the reported "原壁纸
-                // 闪一下才恢复视频" on entering OR leaving an app. The PRESENTATION
-                // frame is what is actually on screen: while the zoom leaves any
-                // desktop exposed, the cover disappears immediately, so the layer
-                // unhides and the player resumes the instant the app starts
-                // revealing the desktop (frozen frame -> playing, never wallpaper);
-                // when the zoom fully covers, the 0.3 s grace then freezes+hides.
+                // 0.0.126: measure the ANIMATED frame - the model frame stays
+                // full-screen for the whole open/close zoom.
+                // 0.0.127: a FADING app window is already revealing the desktop.
+                // Device log: the exit cross-fade keeps the window model frame
+                // full-screen until removal (~1.2 s), so the frozen video layer
+                // stayed hidden behind a translucent app - the visible wallpaper
+                // content showed through and read as a wallpaper flash, and the
+                // player stayed paused until the window was finally removed.
+                // Presentation opacity < 0.99 (or a model alpha mid-fade) means
+                // the desktop is being revealed: the window is NOT a cover.
                 CALayer *presentation=window.layer.presentationLayer;
+                if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;
                 CGRect converted=[window convertRect:(presentation?presentation.frame:window.frame) toWindow:destination];
                 if (!LMVLockVideoRectValid(converted)) continue;
-                if (!CGRectIsEmpty(converted)) combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
+                if (!CGRectIsEmpty(converted)) {combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);*appWindowCover=YES;}
                 continue;
             }
             UIView *content=LMVLockVideoContent(window);
@@ -253,7 +255,7 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown) {
             CGRect rect=LMVLockVideoVisibleRect(content,window);if(CGRectIsEmpty(rect))continue;
             CGRect converted=[window convertRect:rect toWindow:destination];
             if (!LMVLockVideoRectValid(converted)) {*unknown=YES;continue;}
-            combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
+            if (!CGRectIsEmpty(converted)) {combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);*sheetCover=YES;}
         }
     }
     return combined;
@@ -411,7 +413,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if(!wallpaperValid && self.wallpaperAttachment && LMVDesktopOwnedAttachment(self)) {
         container=self.container;content=self.attachedContent;wallpaperValid=YES;
     }
-    BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover):CGRectZero;
+    BOOL appWindowCover=NO,sheetCover=NO;
+    BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&sheetCover):CGRectZero;
     NSInteger foreground=LMVDesktopForeground();
     // A fresh authenticated unlock is authoritative even while CoverSheet is
     // still withdrawing. Waiting for cover==empty makes Home's first exposed
@@ -524,7 +527,19 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         [self.host removeFromSuperview];self.container=nil;self.holdSince=0;
     }
     if (LMVLaunchReady) {
-        BOOL freeze=appForeground || (visible && covered),play=visible && !covered;
+        // 0.0.127: the FREEZE follows the frontmost probe, not the stale app
+        // window. Device log: during the exit cross-fade the window stays
+        // full-screen until removal (~1.2 s) while foreground==1 already proved
+        // the desktop - the old `visible && covered` kept the player paused for
+        // that whole time ("退出app后没立刻播放视频"). Now:
+        //  - an app REALLY frontmost over a covered desktop (fg!=1) freezes;
+        //  - the notification sheet covering the desktop freezes (blur samples
+        //    the still, the pre-0.125 behavior);
+        //  - foreground==1 means SpringBoard/Home evidence: PLAY, even while the
+        //    fading window still geometrically covers - the desktop is being
+        //    revealed right now.
+        BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),
+            play=visible && (!covered || (appWindowCover && foreground==1));
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
@@ -557,14 +572,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // and `decode` is whether the decoder is running - together they tell apart
     // "paused but still on screen" (CPU wasted on compositing) from "still decoding
     // while invisible" (CPU wasted on decode).
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d",
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d appc=%d",
         visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
         (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container)),
         (self.holdSince>0?holdNow-self.holdSince:0.0),(unsigned long)self.teardowns,
         (int)self.host.hidden,(int)(self.playback.posterLayer.contents!=nil),(int)(!self.playback.renderLayer.hidden),
         (int)(self.host.superview!=nil && !self.host.hidden),
-        (int)(self.playback.wantsPlayback && !self.playback.frozen),(int)opaqueCover];
+        (int)(self.playback.wantsPlayback && !self.playback.frozen),(int)opaqueCover,
+        (int)sheetCover,(int)appWindowCover];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
     // and where the uncovered band is ("background dropped / leaked").

@@ -50,6 +50,16 @@ assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # entering or leaving an app until the animation ends.
 assert 'CALayer *presentation=window.layer.presentationLayer;' in h
 assert 'CGRect converted=[window convertRect:(presentation?presentation.frame:window.frame) toWindow:destination];' in h
+# 0.0.127: a FADING app window is already revealing the desktop (the exit
+# cross-fade keeps the model frame full-screen until removal), so it is NOT a
+# cover; and the freeze follows the frontmost probe so the player resumes the
+# moment the desktop is exposed instead of when the window is finally removed.
+assert 'if ((presentation && presentation.opacity<0.99) || window.alpha<0.99) continue;' in h
+assert 'BOOL appWindowCover=NO,sheetCover=NO;' in h
+assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&sheetCover)' in h
+assert 'BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),' in h
+assert 'play=visible && (!covered || (appWindowCover && foreground==1));' in h
+assert 'opaque=%d sheet=%d appc=%d' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -239,6 +249,21 @@ int main(void){@autoreleasepool {
  appWindow.frame=CGRectMake(0,0,390,400);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
+ // 0.0.127: a FADING window (the exit cross-fade keeps the model frame
+ // full-screen but drops opacity) is NOT a cover either - same instant unhide
+ // and resume while the window is still in the scene.
+ appWindow.frame=CGRectMake(0,0,390,844);appWindow.alpha=0.5;
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
+ appWindow.alpha=1;
+ // 0.0.127: with the window full and opaque again, the freeze follows the
+ // frontmost probe: fg==-1 -> pause; fg==1 (desktop evidence, stale window
+ // still up) -> RESUME in the same update instead of waiting for removal.
+ for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
+ assert(m.host.hidden && m.playback.frozen);
+ record.visible=YES;
+ UIApplication.sharedApplication.frontmost=nil;[m update];
+ assert(!m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
