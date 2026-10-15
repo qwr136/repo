@@ -19,7 +19,7 @@ assert 'static BOOL LMVDesktopControlCenterPresented(void) {' in h
 assert '[@"SBMainSwitcherControllerCoordinator",@"SBAppSwitcherController"]' in h
 assert 'LMVDesktopBoolSelector(shared,@"isAnySwitcherVisible")' in h
 assert 'LMVDesktopBoolSelector(shared,@"isVisible")' in h
-# 1.11: a presented switcher/CC keeps the freeze only while the cover probe can
+# 1.12: a presented switcher/CC keeps the freeze only while the cover probe can
 # still see its surface - the SpringBoard flag flips a whole animation late.
 assert '- (void)classifyPresentationForCoverOnScreen:(BOOL)coverOnScreen {' in h, 'the pixels decide when a presentation releases the desktop'
 assert 'BOOL switcherPresented=self.effectiveSwitcherPresented;' in h
@@ -30,7 +30,7 @@ assert 'if (switcher) {if (coverOnScreen) self.switcherSawCover=YES;} else self.
 assert 'if (cc) {if (coverOnScreen) self.ccSawCover=YES;} else self.ccSawCover=NO;' in h
 assert '[self classifyPresentationForCoverOnScreen:coverOnScreen];' in h, 'the update classifies against the geometry'
 assert '[self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];' in h, 'the watcher classifies every frame'
-# 1.11: an exposed desktop is its own proof that Home is what is on screen.
+# 1.12: an exposed desktop is its own proof that Home is what is on screen.
 assert 'BOOL coverOnScreen=switcherCover||ccCover||sheetCover||appWindowCover||!CGRectIsEmpty(cover);' in h
 assert 'BOOL desktopExposed=self.geometryCoverSeen && !coverOnScreen && !unknownCover;' in h, 'only a probe that has seen a cover may trust an empty one'
 assert '(foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;' in h, 'the exposed desktop replaces the lagging frontmost probe'
@@ -45,7 +45,7 @@ assert 'BOOL geometryChanged=' in h and 'if(!content.hidden)' in h
 # may never veto a confirmed Home view (it did, and the surface was torn down).
 assert 'foreground>=0 &&' not in h
 assert 'BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession &&' in h
-assert '(foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;' in h, 'an exposed desktop is accepted on its own (1.11)'
+assert '(foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;' in h, 'an exposed desktop is accepted on its own (1.12)'
 
 # 0.0.124: backboardd was burning CPU compositing the desktop video layer while an
 # opaque surface fully covered it. The layer is hidden only when BOTH independent
@@ -124,16 +124,21 @@ assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetFullCover) self.sheetWallpaperShown=NO;' in h
 assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
 assert h.count('self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;') == 1
-# 1.11: the pull is classified FULL only when it really covers the screen
+# 1.12: the pull is classified FULL only when it really covers the screen
 assert 'onScreen.size.width>=destination.bounds.size.width-1 &&' in h and        'onScreen.size.height>=destination.bounds.size.height-1) *sheetFullCover=YES;' in h, \
     'a pull is a full cover only once it covers the screen (same tolerance as the cover test)'
 assert '*sheetCover=NO;*sheetFullCover=NO;' in h, 'the probe reports both flags'
 assert 'BOOL held=presented || sheetFullCover ||' in h, 'the watcher silences while the frozen state still holds'
 assert 'if (held) return;                            // still exactly what we froze on' in h
 assert '} else if (!held) return;                        // still exactly what we play on' in h
-# 1.11: the Control Center holds the desktop only while its CONTENT is on screen
-assert 'for (UIView *child in root.subviews) {' in h and 'if (screen<=0 || covered/screen<0.6) continue; // the content has left' in h, 'the CC window frame is not a cover once the content slid away'
-assert 'if (contentMeasurable) {' in h and 'CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.height' in h, 'content that left the screen entirely counts as gone, not unmeasurable'
+# 1.12: the Control Center holds the desktop only while its CONTENT is on screen
+# 1.12: the content probe is shared by the CC and the app/switcher surfaces
+assert 'static CGFloat LMVDesktopContentCoverage(UIWindow *window,UIView *root,UIWindow *destination) {' in h, 'one content-coverage probe for every covering surface'
+assert 'for (UIView *child in root.subviews) {' in h
+assert 'CGFloat ccContent=LMVDesktopContentCoverage(window,root,destination);' in h and 'if (ccContent>=0 && ccContent<0.6) continue; // the content has left' in h, 'the CC window frame is not a cover once the content slid away'
+assert 'CGFloat appContent=LMVDesktopContentCoverage(window,window.rootViewController.viewIfLoaded,destination);' in h and 'if (appContent>=0 && appContent<0.4) continue;' in h, 'an app/switcher window frame is not a cover once its content shrinks away'
+assert 'desktop-cover-owner %@' in h, 'the log names the surface that holds the cover'
+assert 'return (CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.height)/full;' in h, 'content that left the screen entirely counts as gone, not unmeasurable'
 assert 'CALayer *paint=child.layer.presentationLayer;if (!paint) paint=child.layer;' in h, 'a missing presentation layer means not animating, not unmeasurable'
 assert 'CGRect screenInWindow=[destination convertRect:destination.bounds toWindow:window];' in h, 'the screen rect is carried into the CC window (no cross-tree conversion)'
 assert 'desktop-windows-skipped %@' in h, 'the skipped full-screen windows are listed for diagnosis'
@@ -184,7 +189,7 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 assert 'if (self.host.superview!=nil) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert 'if (self.host.hidden || self.playback.frozen) {' in h
-# 1.11: one condition, both directions - a geometry cover (switcher/CC/app on
+# 1.12: one condition, both directions - a geometry cover (switcher/CC/app on
 # screen at fg==1) used to match no listed reason, so the tick fired every frame.
 assert '(fullyCovered && (fg!=1 || switcherCover || ccCover || appCover));' in h, 'a geometry cover silences the watcher too'
 assert 'if (presented) return;' in h or 'if (held) return;' in h
@@ -482,7 +487,7 @@ int main(void){@autoreleasepool {
  assert(m.coverWatch!=nil);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
- // 1.11: the app exit resumes on the PIXELS. The Home controller is still
+ // 1.12: the app exit resumes on the PIXELS. The Home controller is still
  // reported away (record.visible=NO) and the frontmost probe still points at the
  // app, but the app window no longer covers anything - the desktop is on screen,
  // so the video AND the sound come back in this very update. Waiting for the
@@ -526,7 +531,7 @@ int main(void){@autoreleasepool {
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
- // 1.11: the watcher fires ONLY when the frozen state actually ends. With a
+ // 1.12: the watcher fires ONLY when the frozen state actually ends. With a
  // switcher surface on screen at fg==1 it used to match no listed reason and
  // fired EVERY frame, each fire running a full update (device log: 89 updates in
  // 2 s, up to 4.24 ms each, cover-watch-reveal every 8-17 ms).
@@ -549,7 +554,7 @@ int main(void){@autoreleasepool {
  LMVDesktopUpdatePending=NO;
  [m update];
  assert(!m.playback.frozen && m.playback.wantsPlayback);
- // 1.11: the Control Center resume follows the PIXELS too. SpringBoard's own flag
+ // 1.12: the Control Center resume follows the PIXELS too. SpringBoard's own flag
  // is still YES while its surface has already left the screen (the flag flips
  // only after the dismiss animation) - the desktop must come back in THIS update.
  [SBControlCenterController sharedInstance].isVisible=YES;
@@ -562,7 +567,26 @@ int main(void){@autoreleasepool {
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow && !m.host.hidden);
  [SBControlCenterController sharedInstance].isVisible=NO;
  [m update];
- // 1.11: the Control Center ROOT stays full-screen on dismiss while the content
+ // 1.12: the same rule for the app/switcher surface. Its frame stays full-screen
+ // while the content shrinks away - the device log showed the cover held for
+ // 1.14 s after the app had gone, because only the frame was measured.
+ SBMainSwitcherWindow *contentSwitcher=[SBMainSwitcherWindow new];
+ UIViewController *contentSwitcherController=[UIViewController new];UIView *contentSwitcherRoot=[UIView new];
+ UIView *contentSwitcherBody=[UIView new];contentSwitcherBody.frame=CGRectMake(0,0,390,844);
+ [contentSwitcherRoot addSubview:contentSwitcherBody];
+ [contentSwitcher addSubview:contentSwitcherRoot];contentSwitcher.rootViewController=contentSwitcherController;
+ contentSwitcherController.viewIfLoaded=contentSwitcherRoot;
+ UIApplication.sharedApplication.frontmost=nil;record.visible=YES;
+ scene.windows=@[homeWindow,wallWindow,nc,contentSwitcher];
+ [m update];
+ assert(m.playback.frozen && m.coveredNow);
+ contentSwitcherBody.frame=CGRectMake(0,-844,390,844);   // content gone, frame kept
+ [m update];
+ assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
+ contentSwitcherBody.frame=CGRectMake(0,0,390,844);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ // 1.12: the Control Center ROOT stays full-screen on dismiss while the content
  // slides away inside it, so the frame must not act as a cover. The SpringBoard
  // flag is left YES on purpose: the pixels decide.
  UIView *ccContent=[UIView new];ccContent.frame=CGRectMake(0,0,390,844);[ccView addSubview:ccContent];
@@ -686,7 +710,7 @@ int main(void){@autoreleasepool {
     // closed sheet: the desktop plays and the lease stays
     assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
   } else if(n<100){
-    // 1.11: a HALF-pulled sheet is not a cover - the desktop underneath is
+    // 1.12: a HALF-pulled sheet is not a cover - the desktop underneath is
     // still on display, so the video stays VISIBLE and keeps PLAYING. Hiding the
     // layer and releasing the lease here is what showed the original wallpaper
     // where the video was supposed to be playing. The SOUND is off from the
