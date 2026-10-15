@@ -10,9 +10,11 @@
 // 0.0.124: bounded retry for a poster that is not on disk yet. A freshly imported
 // movie is still being finalised when the list opens, so decoding its first frame
 // can fail; the old code latched that failure for the whole session and left the
-// film icon on the row forever. Two decode attempts per round, up to three rounds.
+// film icon on the row forever. Two decode attempts per round, up to six rounds
+// (0.0.125) - and the ledger lives on the SHARED picker state, so rounds survive
+// re-entering the list and are never lost to a scrolled-away row.
 static const NSInteger LMVMaterialThumbnailMaxFailures = 2;
-static const NSInteger LMVMaterialThumbnailRetryLimit = 3;
+static const NSInteger LMVMaterialThumbnailRetryLimit = 6;
 static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 
 @interface LMVMaterialCell : UITableViewCell
@@ -68,22 +70,44 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 - (instancetype)init {
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) {
+        // 0.0.125: every picker instance in this process shares ONE thumbnail
+        // cache, ONE queue and ONE retry ledger. The Settings entry and the
+        // floating-panel entry used to build fresh instances, so each open
+        // re-read/re-decoded posters the other entry had just produced; worse,
+        // a retry round was lost whenever its row happened to be off screen in
+        // the instance that scheduled it. (Cross-process sharing stays on disk
+        // via the sidecar records - SpringBoard and Settings cannot share
+        // Objective-C objects.) All shared state is touched on the main thread
+        // only; NSCache itself is thread-safe.
+        static NSCache<NSString *, UIImage *> *sharedThumbnails;
+        static NSMutableDictionary<NSString *, NSNumber *> *sharedFailures, *sharedRetries;
+        static NSMutableSet<NSString *> *sharedScheduled, *sharedPending;
+        static NSOperationQueue *sharedQueue;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            sharedThumbnails = [NSCache new];
+            sharedThumbnails.countLimit = 60;
+            sharedThumbnails.totalCostLimit = 6 * 1024 * 1024;
+            sharedFailures = [NSMutableDictionary new];
+            sharedRetries = [NSMutableDictionary new];
+            sharedScheduled = [NSMutableSet new];
+            sharedPending = [NSMutableSet new];
+            sharedQueue = [NSOperationQueue new];
+            // 0.0.123: two workers instead of one. Decoding a poster is dominated by
+            // I/O + one frame decode, so a second worker doubles the fill rate of a
+            // long list while keeping the peak bounded.
+            sharedQueue.maxConcurrentOperationCount = 2;
+            sharedQueue.qualityOfService = NSQualityOfServiceUtility;
+        });
         _materials = @[];
         _showsThumbnails = YES;
-        _thumbnails = [NSCache new];
-        _thumbnails.countLimit = 60;
-        _thumbnails.totalCostLimit = 6 * 1024 * 1024;
-        _pending = [NSMutableSet new];
+        _thumbnails = sharedThumbnails;
+        _pending = sharedPending;
         _previewStages = [NSMutableSet new];
-        _thumbnailFailures = [NSMutableDictionary new];
-        _thumbnailRetries = [NSMutableDictionary new];
-        _retryScheduled = [NSMutableSet new];
-        _thumbnailQueue = [NSOperationQueue new];
-        // 0.0.123: two workers instead of one. Decoding a poster is dominated by
-        // I/O + one frame decode, so a second worker doubles the fill rate of a
-        // long list while keeping the peak bounded.
-        _thumbnailQueue.maxConcurrentOperationCount = 2;
-        _thumbnailQueue.qualityOfService = NSQualityOfServiceUtility;
+        _thumbnailFailures = sharedFailures;
+        _thumbnailRetries = sharedRetries;
+        _retryScheduled = sharedScheduled;
+        _thumbnailQueue = sharedQueue;
     }
     return self;
 }
@@ -106,7 +130,9 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
     if (self.pushed) [self.navigationController popViewControllerAnimated:YES];
     else [self dismissViewControllerAnimated:YES completion:nil];
 }
-- (void)dealloc { [_thumbnailQueue cancelAllOperations]; }
+// The queue is shared by every picker in the process (0.0.125): closing one
+// picker must never cancel another's in-flight decodes, and a finished decode
+// still lands in the shared cache for the next open.
 // Rows skipped while the queue was full are requested once scrolling settles.
 - (void)requestVisibleThumbnails {
     if (!self.showsThumbnails) return;
@@ -177,22 +203,29 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 }
 // 0.0.124: retry a failed poster on a timer. Imported files settle within a few
 // seconds, so the list fills itself in without the user leaving and re-entering it.
+// 0.0.125: the retry re-requests by ROW (searching the whole catalog), not by
+// visibility - previously a round was silently consumed whenever its row was
+// scrolled off screen in the picker that scheduled it, which is exactly how a
+// freshly imported entry ended up with no poster after all rounds were gone.
+// Six rounds x 3 s covers a large copy that settles slowly.
 - (void)scheduleRetryForKey:(NSString *)key {
     if (!key.length || [self.retryScheduled containsObject:key]) return;
     if (self.thumbnailRetries[key].integerValue >= LMVMaterialThumbnailRetryLimit) return;
     self.thumbnailRetries[key] = @(self.thumbnailRetries[key].integerValue + 1);
     [self.retryScheduled addObject:key];
+    // The shared ledger objects are held strongly: a picker closing before the
+    // timer fires must not leak the scheduled marker (which would block every
+    // future retry for this row) nor keep the failure memory latched.
+    NSMutableSet<NSString *> *scheduled = self.retryScheduled;
+    NSMutableDictionary<NSString *, NSNumber *> *ledger = self.thumbnailFailures;
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(LMVMaterialThumbnailRetryDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [scheduled removeObject:key];
+        [ledger removeObjectForKey:key];
         LMVMaterialPicker *picker = weakSelf;
         if (!picker) return;
-        [picker.retryScheduled removeObject:key];
-        [picker.thumbnailFailures removeObjectForKey:key];
-        for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
-            if (index.row >= picker.materials.count) continue;
-            NSDictionary *visible = picker.materials[index.row];
-            if ([visible[@"revision"] isEqualToString:key]) { [picker requestThumbnail:visible]; return; }
-        }
+        for (NSDictionary *material in picker.materials)
+            if ([material[@"revision"] isEqualToString:key]) { [picker requestThumbnail:material]; return; }
     });
 }
 - (void)requestThumbnail:(NSDictionary *)row {
@@ -212,32 +245,39 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
     [self.pending addObject:key];
     NSString *relative = row[@"path"];
     NSTimeInterval queuedAt = NSDate.date.timeIntervalSince1970;
+    // 0.0.125: hold the SHARED cache and SHARED pending set strongly - the work
+    // must complete its bookkeeping even if this picker is deallocated first
+    // (weakSelf alone would no-op the cache write and leak the pending entry,
+    // which would permanently skip-pending the row in every future picker).
+    NSCache<NSString *, UIImage *> *sharedCache = self.thumbnails;
+    NSMutableSet<NSString *> *sharedPending = self.pending;
     __weak typeof(self) weakSelf = self;
     [self.thumbnailQueue addOperationWithBlock:^{
         @autoreleasepool {
             // Settings imports publish this poster; old files decode only on cache miss.
-            if (!weakSelf) { LMVThumbnailLog(@"cancel-picker-gone", relative, nil); return; }
             NSTimeInterval startedAt = NSDate.date.timeIntervalSince1970;
             LMVThumbnailLog([NSString stringWithFormat:@"worker-start waitMs=%.1f", (startedAt - queuedAt) * 1000], relative, nil);
             UIImage *poster = LMVEnsureThumbnail(relative, key);
             LMVThumbnailLog([NSString stringWithFormat:@"worker-finish poster=%d elapsedMs=%.1f", poster != nil,
                 (NSDate.date.timeIntervalSince1970 - startedAt) * 1000], relative, nil);
             NSUInteger cost = poster.CGImage ? CGImageGetBytesPerRow(poster.CGImage) * CGImageGetHeight(poster.CGImage) : 0;
+            // Land the poster in the SHARED cache even if this picker was closed
+            // while the decode ran - the next open, here or in the floating panel,
+            // starts warm. Never cache the film symbol as if it were a poster.
+            if (poster) [sharedCache setObject:poster forKey:key cost:cost];
+            [sharedPending removeObject:key];
             dispatch_async(dispatch_get_main_queue(), ^{
                 LMVMaterialPicker *picker = weakSelf;
                 if (!picker) return;
-                [picker.pending removeObject:key];
                 [picker tracePreview:poster ? @"apply-poster" : @"apply-placeholder" row:row];
-                // Never cache the film symbol as if it were a successfully decoded poster.
-                if (poster) { [picker.thumbnails setObject:poster forKey:key cost:cost];
-                [picker.thumbnailFailures removeObjectForKey:key]; }
+                if (poster) [picker.thumbnailFailures removeObjectForKey:key];
                 else { picker.thumbnailFailures[key] = @(failures + 1);
                        [picker scheduleRetryForKey:key]; }
                 // Resolve current paths, never capture/reuse a cell from a previous generation.
                 for (NSIndexPath *index in picker.tableView.indexPathsForVisibleRows) {
                     if (index.row < picker.materials.count) {
                         NSDictionary *visible = picker.materials[index.row];
-                        if ([visible[@"revision"] isEqualToString:key]) { if (poster || [picker.thumbnails objectForKey:key]) [picker.tableView reloadRowsAtIndexPaths:@[index] withRowAnimation:UITableViewRowAnimationNone]; else [picker requestThumbnail:visible]; }
+                        if ([visible[@"revision"] isEqualToString:key]) { if (poster || [sharedCache objectForKey:key]) [picker.tableView reloadRowsAtIndexPaths:@[index] withRowAnimation:UITableViewRowAnimationNone]; else [picker requestThumbnail:visible]; }
                         else [picker requestThumbnail:visible];
                     }
                 }

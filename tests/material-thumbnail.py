@@ -10,7 +10,10 @@ p=(r/'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
 assert 'copyNextSampleBuffer' in h and 'reader cancelReading' in h
 assert 'track.timeRange.start' in h and 'track.preferredTransform' in h
 assert 'NSDataWritingAtomic' in h and 'LMVThumbnailRevision(relative)' in h
-assert '[picker.thumbnails setObject:poster' in p and 'poster ?: [UIImage systemImageNamed:@"film"]' not in p
+# 0.0.125: the decoded poster lands in the SHARED cache even if its picker has
+# been closed meanwhile (the shared cache is held strongly by the work item);
+# the film symbol is never cached.
+assert '[sharedCache setObject:poster forKey:key cost:cost];' in p and 'poster ?: [UIImage systemImageNamed:@"film"]' not in p
 assert 'relative, key' in p and 'thumbnailFailures removeAllObjects' in p
 if platform.system()!='Darwin':
     print('PASS: poster source contracts; actual cache/orientation/decode runs in macOS CI')

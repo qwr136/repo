@@ -34,6 +34,17 @@ assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredS
 assert h.count('if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;') == 2, 'both live branches use one rule'
 assert 'self.host.hidden=YES;' in h, 'the real teardown still hides it'
 assert 'shown=%d composited=%d decode=%d opaque=%d' in h
+
+# 0.0.125: a foreground APPLICATION is the common fully-covered desktop, and the
+# old probe (CoverSheet windows only) never saw it - the video composited and
+# decoded behind the app the whole time, which is the backboardd CPU burn. The
+# probe now whitelists always-opaque above-Home window classes only; everything
+# else (status bar, snapshots, this tweak's own floating surfaces) stays
+# excluded, and app-window conversion failures never set *unknown (that would
+# tear the desktop down and flash the wallpaper).
+assert 'window==destination || LMVDesktopHomeWindow(window) ||' in h
+assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) continue;" in h
+assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -145,6 +156,8 @@ static NSUInteger sharedCalls;
 @property(nonatomic,copy) NSString *bundleIdentifier;
 @end
 @implementation TestApplication @end
+@interface SBAppWindow:UIWindow @end
+@implementation SBAppWindow @end
 '''
 lock=(r/'LMVLockVideo.h').read_text()
 # Execute real discovery, geometry and ABI validators needed by Desktop.
@@ -205,6 +218,18 @@ int main(void){@autoreleasepool {
  // 0.0.124: the desktop is exposed, so the layer MUST be composited - the
  // compositing saving may never take the desktop away while it is on screen.
  assert(!m.host.hidden);
+ // 0.0.125: a foreground application IS full cover. While the app window is up
+ // the layer must stop being composited and the player must freeze; the instant
+ // the window leaves, the desktop is back with the surface still attached (no
+ // wallpaper flash, no reattach).
+ SBAppWindow *appWindow=[SBAppWindow new];
+ scene.windows=@[homeWindow,wallWindow,nc,appWindow];
+ record.visible=YES;
+ for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
+ assert(m.host.superview==wall && m.host.hidden && m.playback.frozen);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
  for(int flip=0;flip<200;flip++) {
   UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
   assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);

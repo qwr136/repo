@@ -56,21 +56,39 @@ assert 'picker.showsThumbnails = YES' in panel
 # whole session (these rows were showing the film symbol), so the failure memory is
 # now a bounded retry, and two workers fill a long list faster.
 _picker = (root / 'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
-assert '_thumbnailQueue.maxConcurrentOperationCount = 2;' in _picker
+assert 'sharedQueue.maxConcurrentOperationCount = 2;' in _picker
 assert 'NSInteger failures = self.thumbnailFailures[key].integerValue;' in _picker
 assert 'if (failures >= LMVMaterialThumbnailMaxFailures)' in _picker
 assert 'picker.thumbnailFailures[key] = @(failures + 1);' in _picker
 assert '[picker.thumbnailFailures removeObjectForKey:key];' in _picker
+# 0.0.125: Settings and the floating panel share ONE cache/queue/retry ledger per
+# process (cross-process sharing stays on the disk sidecar), a decode lands in
+# the shared cache even if its picker closed mid-flight, and closing a picker
+# never cancels the shared queue.
+assert 'static NSCache<NSString *, UIImage *> *sharedThumbnails;' in _picker
+assert '_thumbnails = sharedThumbnails;' in _picker
+assert '_thumbnailQueue = sharedQueue;' in _picker
+assert '_thumbnailFailures = sharedFailures;' in _picker
+assert '_thumbnailRetries = sharedRetries;' in _picker
+assert '_retryScheduled = sharedScheduled;' in _picker
+assert '_pending = sharedPending;' in _picker
+assert 'if (poster) [sharedCache setObject:poster forKey:key cost:cost];' in _picker
+assert '[sharedPending removeObject:key];' in _picker, 'pending clears even when the picker closed'
+assert '[scheduled removeObject:key];' in _picker and '[ledger removeObjectForKey:key];' in _picker, 'retry ledger survives a closed picker'
+assert '- (void)dealloc { [_thumbnailQueue cancelAllOperations]; }' not in _picker
 # 0.0.124: a row with no poster yet is NOT shown as the film icon - it says 生成中
 # and is retried on a timer, so a freshly imported movie fills itself in without
 # leaving and re-entering the list.
-assert 'static const NSInteger LMVMaterialThumbnailRetryLimit = 3;' in _picker
+assert 'static const NSInteger LMVMaterialThumbnailRetryLimit = 6;' in _picker
 assert 'static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;' in _picker
 assert '- (BOOL)thumbnailIsPending:(NSDictionary *)row {' in _picker
 assert '- (void)scheduleRetryForKey:(NSString *)key {' in _picker
 assert '[picker scheduleRetryForKey:key];' in _picker
 assert 'if (self.thumbnailRetries[key].integerValue >= LMVMaterialThumbnailRetryLimit) return;' in _picker
 assert 'if (!key.length || [self.retryScheduled containsObject:key]) return;' in _picker, 'one timer per row'
+# 0.0.125: a retry re-requests by ROW from the whole catalog, so a round is never
+# consumed by a row that merely scrolled off screen.
+assert 'for (NSDictionary *material in picker.materials)' in _picker
 assert '@"生成中…"' in _picker
 assert 'poster ?: [UIImage systemImageNamed:pending ? @"arrow.triangle.2.circlepath" : @"film"]' in _picker
 assert 'showsThumbnails = NO' not in panel

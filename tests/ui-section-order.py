@@ -157,7 +157,7 @@ class UISectionOrder(unittest.TestCase):
 
     def test_shared_picker_delete_routing_unchanged(self):
         # 0.0.117: orientation support is added to the picker (rotation follow).
-        self.assertEqual(digest(PICKER), '3a5647b0772242ecfe6f930c40ef3f147b2f591113e8663fe8ac7ec0f37763c5')
+        self.assertEqual(digest(PICKER), 'da64be50bc84655b99e139f1fa8f8ac76183ba9f52859d051da2c75028ce151b')
         self.assertEqual(digest(DELETION), '03f620c758b6a5099b20ce02a56c981ec030df979fb663171931ffe6f24117db')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)

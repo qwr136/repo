@@ -216,7 +216,28 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown) {
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (!LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=destination.screen || window.hidden || window.alpha<.01) continue;
+            if (window.screen!=destination.screen || window.hidden || window.alpha<.01) continue;
+            if (!LMVLockVideoClass(window,@"SBCoverSheetWindow")) {
+                // 0.0.125: the old probe only ever saw CoverSheet windows, so the
+                // COMMON case of a covered desktop - a foreground application - was
+                // invisible to it: the video kept compositing AND decoding behind
+                // the app for as long as it stayed open, which is the backboardd
+                // CPU burn. Whitelist only window classes that are always fully
+                // opaque and always sit above Home (app / app-switcher); every
+                // other class (status bar, snapshots, this tweak's own floating
+                // surfaces, keyboard) stays excluded, so a small or translucent
+                // surface can never hide the desktop on its own. Reachability is
+                // still safe: a shrunk app window no longer covers the Home rect.
+                // Conversion failures are skipped SILENTLY (never *unknown=YES -
+                // that tears the desktop down and flashes the wallpaper).
+                NSString *name=NSStringFromClass(window.class);
+                if (window==destination || LMVDesktopHomeWindow(window) ||
+                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) continue;
+                CGRect converted=[window convertRect:window.bounds toWindow:destination];
+                if (!LMVLockVideoRectValid(converted)) continue;
+                if (!CGRectIsEmpty(converted)) combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
+                continue;
+            }
             UIView *content=LMVLockVideoContent(window);
             if (!content) {*unknown=YES;continue;}
             CGRect rect=LMVLockVideoVisibleRect(content,window);if(CGRectIsEmpty(rect))continue;
