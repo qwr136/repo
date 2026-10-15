@@ -42,7 +42,7 @@ check(re.search(r'^THEOS_PACKAGE_SCHEME\s*=\s*roothide\s*$', make, re.M), 'nativ
 check('TARGET := iphone:clang:15.6:15.0' in make, 'pinned target')
 for target in ('LockMessageVideo', 'LockMessageVideoPrefs'):
     check(target + '_LIBRARIES = roothide' in make, target + ' libroothide linkage')
-check(source['Version'] == '0.0.128' and source['Architecture'] == 'iphoneos-arm64e', 'control metadata')
+check(source['Version'] == '0.0.129' and source['Architecture'] == 'iphoneos-arm64e', 'control metadata')
 info = plistlib.loads((ROOT / 'LockMessageVideoPrefs/Info.plist').read_bytes())
 check(info['CFBundleVersion'] == info['CFBundleShortVersionString'] == source['Version'], 'CFBundle versions')
 check(plistlib.loads((ROOT / 'LockMessageVideo.plist').read_bytes()) == plistlib.loads((ROOT / 'layout/Library/MobileSubstrate/DynamicLibraries/LockMessageVideo.plist').read_bytes()), 'source/staged filter parity')
@@ -56,7 +56,7 @@ for name in ('build.yml', 'easter-compile.yml'):
         check(token in workflow, name + ': ' + token)
     check('https://github.com/theos/theos.git' not in workflow and 'macos-14' not in workflow, 'no old toolchain: ' + name)
     if name == 'build.yml':
-        check('push:' in workflow and 'fix/0.0.128-roothide' in workflow, 'authorized branch push enabled')
+        check('push:' in workflow and 'fix/0.0.129-roothide' in workflow, 'authorized branch push enabled')
     else:
         check('push:' not in workflow, 'auxiliary workflow is manual-only')
 base = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:.github/workflows/build.yml'], text=True)
@@ -135,7 +135,7 @@ check(shutil.which('dpkg-deb') is not None, 'dpkg-deb required for actual archiv
 with tempfile.TemporaryDirectory(prefix='lmv-rh-test-') as directory:
     root = Path(directory) / 'stage'
     (root / 'DEBIAN').mkdir(parents=True)
-    control = 'Package: com.minis.lockmessagevideo\nVersion: 0.0.128\nArchitecture: iphoneos-arm64e\nMaintainer: Test <test@example.invalid>\nDescription: synthetic verifier fixture only\nDepends: mobilesubstrate, preferenceloader, roothide\n'
+    control = 'Package: com.minis.lockmessagevideo\nVersion: 0.0.129\nArchitecture: iphoneos-arm64e\nMaintainer: Test <test@example.invalid>\nDescription: synthetic verifier fixture only\nDepends: mobilesubstrate, preferenceloader, roothide\n'
     (root / 'DEBIAN/control').write_text(control)
     for name, data in ((verify.TWEAK, fat()), (verify.PREFS + '/LockMessageVideoPrefs', fat(False)), (verify.PREFS + '/Info.plist', plistlib.dumps(info)), (verify.TWEAK.replace('.dylib', '.plist'), (ROOT / 'LockMessageVideo.plist').read_bytes()), (verify.ENTRY, (ROOT / 'layout' / verify.ENTRY).read_bytes())):
         dest = root / name

@@ -119,7 +119,7 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,weak) UIViewController *attachmentController;
 @property(nonatomic) BOOL wallpaperAttachment;
 @property(nonatomic,strong) NSTimer *timer;
-@property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage;
+@property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage,*windowListStatus;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
 @property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery;
 // 0.0.97: how long the surface has been held (attached, frozen) through a
@@ -244,7 +244,37 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // that tears the desktop down and flashes the wallpaper).
                 NSString *name=NSStringFromClass(window.class);
                 if (window==destination || LMVDesktopHomeWindow(window) ||
-                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) continue;
+                    (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) {
+                    // 0.0.129: any OTHER visible window whose root view covers
+                    // ~the whole screen is a SHEET cover - the Control Center
+                    // (its root slides in and out) and full-screen search/overlay
+                    // presenters freeze the desktop video exactly like the
+                    // notification sheet does. Guards: the root must be loaded,
+                    // visible, opaque, its animated frame on screen and at least
+                    // 90% of the destination - a status-bar strip, a small banner
+                    // window or a fading presenter can never qualify. Sheet covers
+                    // only ever FREEZE (fg==1 under them): the blurred sheet keeps
+                    // sampling the still frame, and the layer is never hidden
+                    // behind a translucent surface.
+                    NSString *sheetName=NSStringFromClass(window.class);
+                    if (window==destination || LMVDesktopHomeWindow(window) ||
+                        [sheetName containsString:@"Easter"] || [sheetName containsString:@"Snapshot"] ||
+                        [sheetName containsString:@"StatusBar"] || [sheetName containsString:@"Wallpaper"]) continue;
+                    UIView *root=window.rootViewController.viewIfLoaded;
+                    if (!root || root.hidden || root.alpha<.01) continue;
+                    CALayer *rootPresentation=root.layer.presentationLayer;
+                    if (rootPresentation && rootPresentation.opacity<0.99) continue;
+                    CGRect rect=rootPresentation?rootPresentation.frame:root.frame;
+                    if (!LMVLockVideoRectValid(rect)) continue;
+                    CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);
+                    if (!LMVLockVideoRectValid(converted)) continue;
+                    CGFloat area=converted.size.width*converted.size.height,
+                        full=destination.bounds.size.width*destination.bounds.size.height;
+                    if (full<=0 || area/full<0.9) continue;
+                    combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
+                    *sheetCover=YES;
+                    continue;
+                }
                 // 0.0.126: measure the ANIMATED frame - the model frame stays
                 // full-screen for the whole open/close zoom.
                 // 0.0.127: a FADING app window is already revealing the desktop.
@@ -622,6 +652,23 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         (int)(self.playback.wantsPlayback && !self.playback.frozen),(int)opaqueCover,
         (int)sheetCover,(int)appWindowCover];
     if(![status isEqualToString:self.status]){self.status=status;LMVDiagnostic(status);}
+    // 0.0.129: which windows are on screen (class names, changes-only) - the
+    // discovery aid for sheet presenters (e.g. the search pull-down) whose host
+    // window class the cover probe does not know yet.
+    {
+        NSMutableString *windowList=[NSMutableString new];
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+                if (window.hidden || window.alpha<.01) continue;
+                [windowList appendFormat:@"%@ ",NSStringFromClass(window.class)];
+            }
+        }
+        if (![windowList isEqualToString:self.windowListStatus]) {
+            self.windowListStatus=windowList;
+            LMVDiagnostic([NSString stringWithFormat:@"desktop-windows %@",windowList]);
+        }
+    }
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
     // and where the uncovered band is ("background dropped / leaked").
     {

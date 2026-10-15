@@ -43,7 +43,7 @@ assert 'shown=%d composited=%d decode=%d opaque=%d' in h
 # excluded, and app-window conversion failures never set *unknown (that would
 # tear the desktop down and flash the wallpaper).
 assert 'window==destination || LMVDesktopHomeWindow(window) ||' in h
-assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) continue;" in h
+assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) {" in h
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.126: the cover follows the app's ANIMATED frame, not the model frame that
 # stays full-screen for the whole zoom - otherwise the wallpaper flashes on
@@ -76,6 +76,26 @@ assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watche
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
 assert '[_coverWatch invalidate];' in h, 'dealloc cleans the watcher up'
 assert 'cover-watch-reveal' in h
+
+# 0.0.129: any OTHER visible window whose root view covers ~the whole screen is a
+# SHEET cover - the Control Center root slides in and out, and full-screen
+# search/overlay presenters freeze the desktop video exactly like the
+# notification sheet (fg==1 under them: freeze only, never hide). CoverSheet
+# keeps its content probe because its ROOT stays full-screen while the sliding
+# content leaves. Guards: root loaded/visible/opaque, animated frame on screen,
+# >=90% of the destination; easter/snapshot/status-bar names stay excluded.
+assert "if (window==destination || LMVDesktopHomeWindow(window) ||" in h
+assert '[sheetName containsString:@"Easter"] || [sheetName containsString:@"Snapshot"] ||' in h
+assert '[sheetName containsString:@"StatusBar"] || [sheetName containsString:@"Wallpaper"]) continue;' in h
+assert 'UIView *root=window.rootViewController.viewIfLoaded;' in h
+assert 'if (!root || root.hidden || root.alpha<.01) continue;' in h
+assert 'if (rootPresentation && rootPresentation.opacity<0.99) continue;' in h
+assert 'CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);' in h
+assert 'if (full<=0 || area/full<0.9) continue;' in h
+# 0.0.129 diagnostics: the on-screen window class list (changes-only) identifies
+# sheet presenters (e.g. the search pull-down) the probe does not know yet.
+assert 'desktop-windows %@' in h
+assert 'windowListStatus' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -189,6 +209,8 @@ static NSUInteger sharedCalls;
 @implementation TestApplication @end
 @interface SBAppWindow:UIWindow @end
 @implementation SBAppWindow @end
+@interface SBControlCenterWindow:UIWindow @end
+@implementation SBControlCenterWindow @end
 '''
 lock=(r/'LMVLockVideo.h').read_text()
 # Execute real discovery, geometry and ABI validators needed by Desktop.
@@ -295,6 +317,22 @@ int main(void){@autoreleasepool {
  assert(m.coverWatch==nil);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
+ // 0.0.129: the Control Center sheet counts as a sheet cover through the
+ // generalized root probe. fg==-1 first (freeze, grace not elapsed -> no hide),
+ // then fg==1 - the real CC case: still frozen, NEVER hidden, surface attached;
+ // closing the sheet resumes playing in the same update.
+ SBControlCenterWindow *ccWindow=[SBControlCenterWindow new];
+ UIViewController *ccController=[UIViewController new];
+ UIView *ccView=[UIView new];
+ [ccWindow addSubview:ccView];ccWindow.rootViewController=ccController;ccController.viewIfLoaded=ccView;
+ scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
+ UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
  for(int flip=0;flip<200;flip++) {
   UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
   assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);
