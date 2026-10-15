@@ -636,9 +636,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) {self.appLeftAt=appNow;self.shellAtExit=(switcherCover||ccCover);}
         if (appNow-self.appLeftAt<=0.8) {
+            BOOL appSurfaceWasUp=appCover;                       // read BEFORE clearing
             fullyCovered=NO;                                     // 1.15: not a cover at all
             appCover=NO;
             if (self.shellAtExit) {switcherCover=NO;ccCover=NO;}
+            if (!appSurfaceWasUp) {self.appAway=NO;self.appLeftAt=0;}
         }
     }
     BOOL presented=self.effectiveSwitcherPresented||self.effectiveControlCenterPresented;
@@ -711,9 +713,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) {self.appLeftAt=appNow;self.shellAtExit=(switcherCover||ccCover);}
         if (appNow-self.appLeftAt<=0.8) {
+            BOOL appSurfaceWasUp=appWindowCover;                  // read BEFORE clearing
             appExitRelease=YES;
             appWindowCover=NO;                                   // the app surface never holds
             if (self.shellAtExit) {switcherCover=NO;ccCover=NO;}  // ...only the remnants
+            // 1.15: the moment the app surface is gone the release has done its
+            // job - close it, so a cover appearing later is a real cover again.
+            if (!appSurfaceWasUp) {self.appAway=NO;self.appLeftAt=0;}
         }
     }
     // A fresh authenticated unlock is authoritative even while CoverSheet is
