@@ -134,7 +134,7 @@ assert '} else if (!held) return;                        // still exactly what w
 # 1.11: the Control Center holds the desktop only while its CONTENT is on screen
 assert 'for (UIView *child in root.subviews) {' in h and 'if (screen<=0 || covered/screen<0.6) continue; // the content has left' in h, 'the CC window frame is not a cover once the content slid away'
 assert 'if (contentMeasurable) {' in h and 'CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.height' in h, 'content that left the screen entirely counts as gone, not unmeasurable'
-assert 'CGRect *paint=child.layer.presentationLayer;if (!paint) paint=child.layer;' in h, 'a missing presentation layer means not animating, not unmeasurable'
+assert 'CALayer *paint=child.layer.presentationLayer;if (!paint) paint=child.layer;' in h, 'a missing presentation layer means not animating, not unmeasurable'
 assert 'CGRect screenInWindow=[destination convertRect:destination.bounds toWindow:window];' in h, 'the screen rect is carried into the CC window (no cross-tree conversion)'
 assert 'desktop-windows-skipped %@' in h, 'the skipped full-screen windows are listed for diagnosis'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
