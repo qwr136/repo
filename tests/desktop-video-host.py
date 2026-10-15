@@ -19,8 +19,21 @@ assert 'static BOOL LMVDesktopControlCenterPresented(void) {' in h
 assert '[@"SBMainSwitcherControllerCoordinator",@"SBAppSwitcherController"]' in h
 assert 'LMVDesktopBoolSelector(shared,@"isAnySwitcherVisible")' in h
 assert 'LMVDesktopBoolSelector(shared,@"isVisible")' in h
-assert 'BOOL switcherPresented=LMVDesktopSwitcherPresented();' in h
-assert 'BOOL ccPresented=LMVDesktopControlCenterPresented();' in h
+# 1.10: a presented switcher/CC keeps the freeze only while the cover probe can
+# still see its surface - the SpringBoard flag flips a whole animation late.
+assert '- (void)classifyPresentationForCoverOnScreen:(BOOL)coverOnScreen {' in h, 'the pixels decide when a presentation releases the desktop'
+assert 'BOOL switcherPresented=self.effectiveSwitcherPresented;' in h
+assert 'BOOL ccPresented=self.effectiveControlCenterPresented;' in h
+assert 'self.effectiveSwitcherPresented=switcher && !(self.switcherSawCover && !coverOnScreen);' in h, 'a released switcher stops holding the freeze'
+assert 'self.effectiveControlCenterPresented=cc && !(self.ccSawCover && !coverOnScreen);' in h, 'a released Control Center stops holding the freeze'
+assert 'if (switcher) {if (coverOnScreen) self.switcherSawCover=YES;} else self.switcherSawCover=NO;' in h, 'the probe must have seen the surface to be believed'
+assert 'if (cc) {if (coverOnScreen) self.ccSawCover=YES;} else self.ccSawCover=NO;' in h
+assert '[self classifyPresentationForCoverOnScreen:coverOnScreen];' in h, 'the update classifies against the geometry'
+assert '[self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];' in h, 'the watcher classifies every frame'
+# 1.10: an exposed desktop is its own proof that Home is what is on screen.
+assert 'BOOL coverOnScreen=switcherCover||ccCover||sheetCover||appWindowCover||!CGRectIsEmpty(cover);' in h
+assert 'BOOL desktopExposed=self.geometryCoverSeen && !coverOnScreen && !unknownCover;' in h, 'only a probe that has seen a cover may trust an empty one'
+assert '(foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;' in h, 'the exposed desktop replaces the lagging frontmost probe'
 assert 'pixels && appForeground && retainedAttachment && self.lease' in h
 assert 'if (diagnostics)' in h
 assert 'static void LMVDesktopRequestUpdate' in h and '- (void)syncGeometry' in h
@@ -32,7 +45,7 @@ assert 'BOOL geometryChanged=' in h and 'if(!content.hidden)' in h
 # may never veto a confirmed Home view (it did, and the surface was torn down).
 assert 'foreground>=0 &&' not in h
 assert 'BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession &&' in h
-assert '(foreground==1 || homeConfirmed) && !unknownCover;' in h
+assert '(foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;' in h, 'an exposed desktop is accepted on its own (1.10)'
 
 # 0.0.124: backboardd was burning CPU compositing the desktop video layer while an
 # opaque surface fully covered it. The layer is hidden only when BOTH independent
@@ -111,7 +124,7 @@ assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetFullCover) self.sheetWallpaperShown=NO;' in h
 assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
 assert h.count('self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;') == 1
-# 0.0.142: the pull is classified FULL only when it really covers the screen
+# 1.10: the pull is classified FULL only when it really covers the screen
 assert 'onScreen.size.width>=destination.bounds.size.width-1 &&' in h and        'onScreen.size.height>=destination.bounds.size.height-1) *sheetFullCover=YES;' in h, \
     'a pull is a full cover only once it covers the screen (same tolerance as the cover test)'
 assert '*sheetCover=NO;*sheetFullCover=NO;' in h, 'the probe reports both flags'
@@ -136,7 +149,8 @@ assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredS
 # disagree; the flip syncs the Desktop audio directly with no timer beat.
 assert '@property(nonatomic) BOOL coveredNow;' in h
 assert 'self.coveredNow=audioCovered;' in h
-assert 'BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || (sheetCover && !self.sheetPreexisting))) ||' in h
+assert 'BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h, 'a notification pull keeps the sound'
+assert '(visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1));' in h
 assert 'if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();' in h
 assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # 0.0.132: the app switcher is NOT an app exit - covering the desktop with the
@@ -145,7 +159,7 @@ assert 'if ([name containsString:@"Switcher"]) *switcherCover=YES;' in h
 assert '*ccCover=YES;' in h, 'the CC branch marks its own cover kind'
 assert 'else *appWindowCover=YES;' in h
 assert 'if (self.host.superview!=nil) [self startCoverWatch];' in h
-assert 'opaque=%d sheet=%d sheetFull=%d appc=%d sw=%d cc=%d' in h
+assert 'opaque=%d sheet=%d sheetFull=%d appc=%d sw=%d cc=%d swEff=%d ccEff=%d geoSeen=%d' in h
 
 # 0.0.128: while the layer is hidden behind an opaque app, a per-frame watcher
 # re-checks the cheap cover geometry and hands over to a full update the moment
@@ -165,7 +179,7 @@ assert 'if (self.host.hidden || self.playback.frozen) {' in h
 assert 'if (presented) return;' in h and 'if (sheetFullCover) return;' in h, 'every hidden reason returns (no 60 Hz fire loop)'
 assert 'if (fullyCovered && fg!=1) return;' in h
 assert 'if (!(presented || (fullyCovered && (fg!=1 || switcherCover || ccCover || sheetFullCover)))) return;' in h
-assert 'BOOL presented=LMVDesktopSwitcherPresented()||LMVDesktopControlCenterPresented();' in h
+assert 'BOOL presented=self.effectiveSwitcherPresented||self.effectiveControlCenterPresented;' in h, 'the watcher silences on a still-visible presentation only'
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
 assert '[_coverWatch invalidate];' in h, 'dealloc cleans the watcher up'
@@ -459,6 +473,22 @@ int main(void){@autoreleasepool {
  assert(m.coverWatch!=nil);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
+ // 1.10: the app exit resumes on the PIXELS. The Home controller is still
+ // reported away (record.visible=NO) and the frontmost probe still points at the
+ // app, but the app window no longer covers anything - the desktop is on screen,
+ // so the video AND the sound come back in this very update. Waiting for the
+ // Home lifecycle record / frontmost probe was the reported slow resume.
+ SBAppWindow *exitWindow=[SBAppWindow new];UIView *exitView=[UIView new];UIViewController *exitC=[UIViewController new];
+ [exitWindow addSubview:exitView];exitWindow.rootViewController=exitC;exitC.viewIfLoaded=exitView;
+ scene.windows=@[homeWindow,wallWindow,nc,exitWindow];
+ record.visible=NO;UIApplication.sharedApplication.frontmost=app;
+ for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
+ assert(m.host.hidden && m.playback.frozen && m.coveredNow);
+ assert(m.geometryCoverSeen);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(!m.host.hidden && m.playback.wantsPlayback && !m.playback.frozen && !m.coveredNow && wallPixels.hidden);
+ record.visible=YES;UIApplication.sharedApplication.frontmost=nil;[m update];
  // 0.0.129: the Control Center sheet counts as a sheet cover through the
  // generalized root probe. fg==-1 first (freeze, grace not elapsed -> no hide),
  // then fg==1 - the real CC case: still frozen, NEVER hidden, surface attached;
@@ -487,6 +517,19 @@ int main(void){@autoreleasepool {
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
+ // 1.10: the Control Center resume follows the PIXELS too. SpringBoard's own flag
+ // is still YES while its surface has already left the screen (the flag flips
+ // only after the dismiss animation) - the desktop must come back in THIS update.
+ [SBControlCenterController sharedInstance].isVisible=YES;
+ scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ [m update];
+ assert(m.playback.frozen && m.coveredNow && m.ccSawCover && m.effectiveControlCenterPresented);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m update];
+ assert(m.effectiveControlCenterPresented==NO, 'the released surface stops holding the freeze');
+ assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow && !m.host.hidden);
+ [SBControlCenterController sharedInstance].isVisible=NO;
+ [m update];
  // 0.0.132: the app switcher is NOT an app exit. Covering the desktop with the
  // switcher at fg==1 must FREEZE (and, on device, stop the audio through the
  // wired hook) - the 0.0.127 exit-transition play rule belongs to real app
@@ -597,7 +640,7 @@ int main(void){@autoreleasepool {
     // closed sheet: the desktop plays and the lease stays
     assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
   } else if(n<100){
-    // 0.0.142: a HALF-pulled sheet is not a cover - the desktop underneath is
+    // 1.10: a HALF-pulled sheet is not a cover - the desktop underneath is
     // still on display, so the video stays VISIBLE and keeps PLAYING. Hiding the
     // layer and releasing the lease here is what showed the original wallpaper
     // where the video was supposed to be playing. The SOUND is off from the
@@ -605,7 +648,7 @@ int main(void){@autoreleasepool {
     assert(m.playback.wantsPlayback && !m.playback.frozen);
     assert(!m.host.hidden && !m.playback.renderLayer.hidden);
     assert(wallPixels.hidden && !m.sheetWallpaperShown && m.lease);
-    assert(m.coveredNow);
+    assert(!m.coveredNow);
   } else {
     // pulled to the bottom: the video AND the sound freeze.
     assert(!m.playback.wantsPlayback);
