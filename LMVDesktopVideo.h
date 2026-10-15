@@ -136,6 +136,11 @@ static void LMVDesktopVideoSuspend(void);
 // playing under a translucent sheet at fg==1, but the sound follows the cover,
 // not the player state.
 @property(nonatomic) BOOL coveredNow;
+// 0.0.137: the FULL notification pull restored the wallpaper on purpose - the
+// suppress-lease must NOT be re-acquired while the sheet stays fully up, or
+// the same update would undo the restore (the lease block runs right after
+// the freeze branch). Cleared as soon as the sheet slides back.
+@property(nonatomic) BOOL sheetWallpaperShown;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
 // run on the ~0.4 s hook/tick cadence - the exit cross-fade could therefore
@@ -648,6 +653,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // the video never disagree. The flip syncs the Desktop audio directly (no
     // timer beat in either direction): pausing the instant the desktop becomes
     // invisible, resuming the instant it is back.
+    if (!(sheetCover && covered)) self.sheetWallpaperShown=NO;
     BOOL audioCovered=appForeground || (visible && covered && (switcherCover || ccCover || sheetCover || foreground!=1));
     BOOL wasCovered=self.coveredNow;
     self.coveredNow=audioCovered;
@@ -676,7 +682,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             // wallpaper on purpose ("下滑到底才出现原壁纸"); a partial pull keeps
             // the video visible through the blur. The lease re-acquires as soon
             // as the sheet slides back and the desktop is exposed again.
-            if(sheetCover && covered && self.lease) {[self.lease restore];self.lease=nil;}
+            if (sheetCover && covered) {
+                if (self.lease) {[self.lease restore];self.lease=nil;}
+                self.sheetWallpaperShown=YES;
+            }
         } else if(play) {
             if(self.playback.frozen)[self.playback holdCurrentFrame:NO];
             else if(!self.playback.wantsPlayback || self.playback.posterOnlyVisible)
@@ -688,7 +697,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     else if(self.playback.posterOnlyVisible!=visible)[self.playback showPreparedPoster:visible];
     BOOL pixels=(visible || appForeground) && !self.playback.renderLayer.hidden && !self.playback.error;
     if (pixels && visible && content && content.superview==container) {
-        if (!self.lease) {self.lease=[LMVDesktopContentLease new];self.lease.content=content;self.lease.parent=container;self.lease.baselineHidden=content.hidden;}
+        if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];self.lease.content=content;self.lease.parent=container;self.lease.baselineHidden=content.hidden;}
         if (!self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}
     } else if (pixels && appForeground && retainedAttachment && self.lease) {
         // Geometry/lifecycle discovery may transiently return no wallpaper while

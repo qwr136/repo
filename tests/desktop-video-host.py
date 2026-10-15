@@ -75,7 +75,10 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 # watcher's job (~16 ms), and a full NC pull restores the wallpaper on purpose.
 assert 'BOOL freeze=appForeground || (visible && covered && (switcherCover || ccCover || sheetCover || foreground!=1)),' in h
 assert 'play=visible && !covered;' in h
-assert 'if(sheetCover && covered && self.lease) {[self.lease restore];self.lease=nil;}' in h
+assert 'if (sheetCover && covered) {' in h
+assert 'self.sheetWallpaperShown=YES;' in h
+assert 'if (!(sheetCover && covered)) self.sheetWallpaperShown=NO;' in h
+assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 # 0.0.134: the Control Center does not freeze the video at fg==1 either - the
 # close needs no resume (instant like the user asked); coveredNow keeps the
