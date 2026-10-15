@@ -37,9 +37,13 @@ assert '- (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {' in mo
 assert 'if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;' in module
 assert '@try {[container insertSubview:self.host atIndex:index];}' in module
 assert '@catch(NSException *exception) {[self.host removeFromSuperview];return NO;}' in module
-assert 'BOOL sibling=[card isKindOfClass:UIVisualEffectView.class];' in module
-assert 'UIView *container=sibling?card.superview:card;' in module
-assert 'CGRect target=sibling?card.frame:card.bounds;' in module
+# 1.24: and it must sit UNDER the icons but ABOVE that material - 1.23 placed it
+# below the material, which hid it (device report: 看不到视频背景).
+assert 'static UIView *LMVSquidPanelMaterial(UIWindow *window) {' in module
+assert 'if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;' in module
+assert 'UIView *content=((UIVisualEffectView *)material).contentView;' in module
+assert 'container=content;index=0;target=content.bounds;mode=@"content";' in module
+assert 'index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";' in module
 assert 'if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;' in module
 # Defence in depth: no failure in this channel may ever abort SpringBoard.
 assert '@try {[LMVSquidPanelVideo update];}' in module
