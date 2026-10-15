@@ -258,7 +258,7 @@ int main(void) { @autoreleasepool {
    assert([[settings volume:volume] doubleValue]==expected*100);
   }
  }
- assert(switches==8&&sliders==8);
+ assert(switches==9&&sliders==9);
  LMVEasterPanel *p=[LMVEasterPanel new];p.tableView=[UITableView new];p.navigationController=[Navigation new];
  UISwitch *toggle=[UISwitch new];UISlider *slider=[UISlider new];
  for(NSInteger tag=0;tag<8;tag++) {
