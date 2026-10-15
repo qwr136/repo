@@ -4,9 +4,9 @@ from pathlib import Path
 import math, plistlib
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 1.25')==1
+assert (root/'control').read_text().count('Version: 1.26')==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='1.25'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='1.26'
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s

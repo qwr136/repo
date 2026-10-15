@@ -6,7 +6,7 @@ import math, platform, re, subprocess, tempfile
 root = Path(__file__).resolve().parents[1]
 panel = (root / 'LMVEasterPanel.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
-targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel']
+targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT']
 
 def body(source, anchor):
     start = source.index(anchor)
@@ -24,9 +24,10 @@ mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert 'section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)' in mapping
 assert '(row == 2 || row == 3)) return @"HomeMenu";' in mapping
 assert '(row == 2 || row == 3)) return @"SquidPanel";' in mapping
+assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
-assert mapping.count('return ') == 6 and mapping.endswith('return nil;\n}')
+assert mapping.count('return ') == 7 and mapping.endswith('return nil;\n}')
 cc_key = body(panel, 'static NSString *LMVEasterControlCenterKey(')
 actual_material_rows = {int(row): target for row, target in re.findall(r'row == (\d+) \? @"(\w+)Video"', cc_key)}
 assert actual_material_rows == {1: 'ControlCenterDark', 4: 'ControlCenterLight'}
@@ -55,6 +56,7 @@ selection = body(panel, '- (void)tableView:(UITableView *)tableView didSelectRow
 assert 'key = LMVEasterControlCenterKey(index.row);\n        if (!key) return;' in selection
 assert 'if (index.row != 1) return;\n        key = @"HomeMenuVideo";' in selection
 assert 'if (index.row != 1) return;\n        key = @"SquidPanelVideo";' in selection
+assert 'if (index.row != 1) return;\n        key = @"ATVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
 append = body(prefs, '- (void)appendAudioForTarget:')
@@ -70,7 +72,7 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
 for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
-assert specifiers.count('appendAudioForTarget:') == 5  # One five-target loop, plus four explicit targets.
+assert specifiers.count('appendAudioForTarget:') == 6  # One five-target loop, plus four explicit targets.
 set_enabled = body(prefs, '- (void)setEnabled:')
 getter = body(prefs, '- (id)volume:')
 setter = body(prefs, '- (void)setVolume:')

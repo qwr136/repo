@@ -1142,7 +1142,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             for (UIWindow *window in wins) {
                 if (window && ![allSceneWins containsObject:window]) [allSceneWins addObject:window];
                 if (window.hidden || window.alpha<.01) continue;
-                if (scenes.length>1500) break;
+                // 1.26: the budget is per WINDOW, not for the whole line. The old
+                // hard break dropped every window after the first ~1500 characters
+                // (SBHomeScreenWindow alone eats most of it), which is why a panel
+                // window could be missing from one sample and present in the next.
+                if (scenes.length>4000) {[scenes appendFormat:@"%@(a%.2f){…} ",NSStringFromClass(window.class),window.alpha];continue;}
                 [scenes appendFormat:@"%@(a%.2f){",NSStringFromClass(window.class),window.alpha];
                 NSUInteger n=0;
                 for (UIView *child in window.subviews) {
@@ -1176,6 +1180,30 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         static NSString *lastShape=nil;
         if (![shape isEqualToString:lastShape]) {lastShape=[shape copy];LMVDiagnostic(shape);}
     }
+// 1.26: the shape of a pop-up that is NOT a window. AppTools (and most panel
+// tweaks) present their panel INTO an existing window, so the window list never
+// changes and a class-name-only dump cannot tell where the card is, how big it
+// is or which level the video would have to sit on. This prints one view and its
+// descendants with everything a mount decision needs: class, frame, corner
+// radius, alpha and hidden state. Diagnostics only - never touches the view.
+static NSString *LMVDesktopOverlayShape(UIView *view,NSUInteger depth) {
+    if (!view) return @"";
+    NSMutableString *out=[NSMutableString new];
+    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f(r%.0f,a%.2f,h%d)",
+        NSStringFromClass(view.class),view.frame.origin.x,view.frame.origin.y,
+        view.frame.size.width,view.frame.size.height,view.layer.cornerRadius,
+        view.alpha,(int)view.hidden];
+    if (depth>=4 || view.subviews.count==0) return out;
+    [out appendString:@"{"];
+    NSUInteger n=0;
+    for (UIView *child in view.subviews) {
+        if (n++>=6) {[out appendString:@"…"];break;}
+        [out appendString:LMVDesktopOverlayShape(child,depth+1)];
+        [out appendString:@","];
+    }
+    [out appendString:@"}"];
+    return out;
+}
     // 1.25: the GEOMETRY the panel feature needs. The SquidGesture panel is a
     // rounded card in the lower part of the screen (the user's screenshot: it does
     // not fill the screen), so a video background behind it has to be laid out to
@@ -1217,6 +1245,41 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         NSString *geometry=[NSString stringWithFormat:@"desktop-panel %@",panels.length?panels:@"none"];
         static NSString *lastGeometry=nil;
         if (![geometry isEqualToString:lastGeometry]) {lastGeometry=[geometry copy];LMVDiagnostic(geometry);}
+    }
+    // 1.26: the pop-ups that are NOT windows (AppTools and friends). A panel that
+    // is PRESENTED into an existing window changes no window class, so neither the
+    // window list nor the panel geometry above can see it - the device log only
+    // ever showed it as an extra UITransitionView inside SBHomeScreenWindow. This
+    // walks EVERY window (scene-borne AND legacy), finds the presentation
+    // containers and prints their whole shape with frames, corner radii, alpha and
+    // hidden state, so the mount level can be decided from the log alone.
+    {
+        NSMutableArray<UIWindow *> *everyWindow=[NSMutableArray new];
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *window in ((UIWindowScene *)scene).windows)
+                if (window && ![everyWindow containsObject:window]) [everyWindow addObject:window];
+        }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        for (UIWindow *window in UIApplication.sharedApplication.windows)
+            if (window && ![everyWindow containsObject:window]) [everyWindow addObject:window];
+#pragma clang diagnostic pop
+        NSMutableString *overlays=[NSMutableString new];
+        for (UIWindow *window in everyWindow) {
+            if (window.hidden || window.alpha<.01) continue;
+            for (UIView *child in window.subviews) {
+                NSString *overlayName=NSStringFromClass(child.class);
+                if (![overlayName containsString:@"TransitionView"] && ![overlayName containsString:@"Overlay"]) continue;
+                if (overlays.length>3000) break;
+                [overlays appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f{%@} ",
+                    NSStringFromClass(window.class),window.frame.origin.x,window.frame.origin.y,
+                    window.frame.size.width,window.frame.size.height,LMVDesktopOverlayShape(child,0)];
+            }
+        }
+        NSString *overlayShape=[NSString stringWithFormat:@"desktop-overlay %@",overlays.length?overlays:@"none"];
+        static NSString *lastOverlay=nil;
+        if (![overlayShape isEqualToString:lastOverlay]) {lastOverlay=[overlayShape copy];LMVDiagnostic(overlayShape);}
     }
     // 1.25: WHICH whitelisted surface currently holds the cover, with its content
     // coverage - so an app-exit log names the window instead of leaving it to
@@ -1278,7 +1341,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
                 if (window.hidden || window.alpha<.01) continue;
-                [windowList appendFormat:@"%@ ",NSStringFromClass(window.class)];
+                [windowList appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f/L%.0f ",NSStringFromClass(window.class),
+                    window.frame.origin.x,window.frame.origin.y,window.frame.size.width,window.frame.size.height,
+                    window.windowLevel];
             }
         }
         if (![windowList isEqualToString:self.windowListStatus]) {

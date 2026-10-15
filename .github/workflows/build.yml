@@ -3,7 +3,7 @@ name: build-deb
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, fix/1.25-roothide ]
+    branches: [ main, master, fix/1.26-roothide ]
     paths-ignore:
       - 'Packages/**'
       - 'Release/**'
@@ -44,6 +44,8 @@ jobs:
           check python3 tests/preview-diagnostics.py
           check python3 tests/message-sources.py
           check python3 tests/video-audio-controls.py
+          check python3 tests/at-channel.py
+          check python3 tests/squid-panel-video.py
           check python3 tests/media-audio-runtime.py
           check python3 tests/lock-video-native.py
           check python3 tests/lock-video-host.py
