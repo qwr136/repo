@@ -590,20 +590,20 @@ int main(void){@autoreleasepool {
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
   if(n==0){
     // closed sheet: the desktop plays and the lease stays
-    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.(sheetCover && !self.sheetPreexisting)Shown && !m.coveredNow);
+    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
   } else if(n<100){
     // 0.0.140: while the sheet is being pulled the ORIGINAL WALLPAPER is what the
     // blur shows (layer hidden, lease released) but the VIDEO KEEPS PLAYING - it
     // is not paused, which is what makes the release resume with zero delay. The
     // SOUND is already off from the first pull tick.
     assert(m.playback.wantsPlayback && !m.playback.frozen);
-    assert(m.host.hidden && !wallPixels.hidden && m.(sheetCover && !self.sheetPreexisting)Shown);
+    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
     assert(m.coveredNow);
   } else {
     // pulled to the bottom: the video AND the sound freeze.
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
-    assert(m.host.hidden && !wallPixels.hidden && m.(sheetCover && !self.sheetPreexisting)Shown);
+    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
     assert(m.coveredNow);
   }
  }
