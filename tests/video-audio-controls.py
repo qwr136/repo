@@ -6,7 +6,7 @@ import math, platform, re, subprocess, tempfile
 root = Path(__file__).resolve().parents[1]
 panel = (root / 'LMVEasterPanel.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
-targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu']
+targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel']
 
 def body(source, anchor):
     start = source.index(anchor)
@@ -23,9 +23,10 @@ assert re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTarget
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert 'section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)' in mapping
 assert '(row == 2 || row == 3)) return @"HomeMenu";' in mapping
+assert '(row == 2 || row == 3)) return @"SquidPanel";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
-assert mapping.count('return ') == 5 and mapping.endswith('return nil;\n}')
+assert mapping.count('return ') == 6 and mapping.endswith('return nil;\n}')
 cc_key = body(panel, 'static NSString *LMVEasterControlCenterKey(')
 actual_material_rows = {int(row): target for row, target in re.findall(r'row == (\d+) \? @"(\w+)Video"', cc_key)}
 assert actual_material_rows == {1: 'ControlCenterDark', 4: 'ControlCenterLight'}
@@ -53,6 +54,7 @@ assert '!panel.opacityTracking && !panel.volumeTracking' in panel
 selection = body(panel, '- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:')
 assert 'key = LMVEasterControlCenterKey(index.row);\n        if (!key) return;' in selection
 assert 'if (index.row != 1) return;\n        key = @"HomeMenuVideo";' in selection
+assert 'if (index.row != 1) return;\n        key = @"SquidPanelVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
 append = body(prefs, '- (void)appendAudioForTarget:')
@@ -66,9 +68,9 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
               '[sound setProperty:volumeKey forKey:@"audioVolumeKey"]'):
     assert exact in append, exact
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
-for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu')):
+for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
-assert specifiers.count('appendAudioForTarget:') == 4  # One five-target loop, plus three explicit targets.
+assert specifiers.count('appendAudioForTarget:') == 5  # One five-target loop, plus four explicit targets.
 set_enabled = body(prefs, '- (void)setEnabled:')
 getter = body(prefs, '- (id)volume:')
 setter = body(prefs, '- (void)setVolume:')
@@ -203,20 +205,21 @@ static NSIndexPath *path(NSInteger section, NSInteger row) { NSUInteger v[]={sec
 int main(void) { @autoreleasepool {
  store=[NSMutableDictionary new];
  NSArray *targets=LMVEasterAudioTargets();
- for (NSInteger section=0;section<10;section++) {
+ for (NSInteger section=0;section<11;section++) {
   for (NSInteger row=0;row<8;row++) {
    NSString *expected=nil;
    if(section<5&&(row==2||row==3))expected=targets[section];
    if(section==5&&(row==2||row==3))expected=targets[5];
    if(section==5&&(row==5||row==6))expected=targets[6];
    if(section==6&&(row==2||row==3))expected=targets[7];
+   if(section==7&&(row==2||row==3))expected=targets[8];
    NSString *actual=LMVEasterAudioTarget(section,row);
    assert((!actual&&!expected)||[actual isEqual:expected]);
    assert(LMVEasterAudioVolumeRow(section,row)==(expected&&(row==3||row==6)));
   }
  }
- assert(!LMVEasterAudioTarget(-1,2)&&!LMVEasterAudioTarget(10,2));
- assert(!LMVEasterAudioTargetForTag(-1)&&!LMVEasterAudioTargetForTag(8));
+ assert(!LMVEasterAudioTarget(-1,2)&&!LMVEasterAudioTarget(11,2));
+ assert(!LMVEasterAudioTargetForTag(-1)&&!LMVEasterAudioTargetForTag(9));
  assert(LMVEasterAudioVolume(nil)==0.5&&LMVEasterAudioVolume(@"0.8")==0.5);
  for(NSNumber *value in @[@(-1),@0,@0.5,@1,@2,@(NAN),@(INFINITY),@(-INFINITY)]) {
   double raw=value.doubleValue, expected=isfinite(raw)?MAX(0,MIN(1,raw)):0.5;
@@ -224,7 +227,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==54);
+ assert(rows.count==57);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -267,19 +270,20 @@ int main(void) { @autoreleasepool {
   assert([store[lastKey] doubleValue]==0.75&&[slider.accessibilityValue isEqual:@"75%"]);
   slider.tracking=NO;slider.value=NAN;[p volumeChanged:slider];assert(!p.volumeTracking&&[store[lastKey] doubleValue]==0.5);
  }
- for(NSNumber *tag in @[@(-1),@8,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;slider.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:slider];assert(writes==before);}
+ for(NSNumber *tag in @[@(-1),@9,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;slider.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:slider];assert(writes==before);}
  for(NSInteger section=0;section<10;section++)for(NSInteger row=0;row<8;row++) {
   NSInteger before=p.navigationController.pushes,imports=p.imports;
   NSString *expected=nil;
   if(section<5&&row==1)expected=[targets[section] stringByAppendingString:@"Video"];
   if(section==5)expected=LMVEasterControlCenterKey(row);
   if(section==6&&row==1)expected=@"HomeMenuVideo";
+  if(section==7&&row==1)expected=@"SquidPanelVideo";
   [p tableView:p.tableView didSelectRowAtIndexPath:path(section,row)];
   if(expected) {assert(p.navigationController.pushes==before+1);LMVMaterialPicker *picker=p.navigationController.last;picker.apply(@"library/test.mov",@"Test");assert([lastKey isEqual:expected]);}
-  else if(section==7&&row==0)assert(p.navigationController.pushes==before+1);
-  else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==9&&row==0));}
+  else if(section==8&&row==0)assert(p.navigationController.pushes==before+1);
+  else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==10&&row==0));}
  }
- puts("PASS: exact production specifiers (54), all eight audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
+ puts("PASS: exact production specifiers (57), all nine audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))

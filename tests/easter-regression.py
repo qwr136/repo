@@ -48,12 +48,13 @@ assert 'static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterT
 assert 'static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }' in panel
 assert 'static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }' in panel
 assert 'static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterControlCenterSection() + 1; }' in panel
-assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterSquidPanelSection() + 1; }' in panel
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', panel) is not None
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu"]' in delete
-for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu'):
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel"]' in delete
+for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel'):
     assert f'@"{target}":@""' in delete
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
 assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1
@@ -152,5 +153,6 @@ assert 'CFNotificationCenterPostNotification' in media and 'LMVEasterNotify();' 
 assert 'toggle.tag < 0 || toggle.tag >= LMVEasterImageDisplayKeys().count' in image
 assert 'slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);' in image
 assert 'HomeMenuVideo' in panel and 'HomeMenuBackgroundEnabled' in prefs + panel
+assert 'SquidPanelVideo' in panel and 'SquidPanelBackgroundEnabled' in prefs + panel
 assert 'EasterEggShowOnNotificationCenter' not in image and 'EasterEggShowOnNC' not in image
 print('PASS: visible three-scene defaults NO/YES/YES, rotation off/45 deg/s with finite 5..720 read/write, live Darwin notification and independent HomeMenu selection/delete routing')

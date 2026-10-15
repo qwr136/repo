@@ -33,19 +33,20 @@ def section(name):
 
 class UISectionOrder(unittest.TestCase):
     def test_panel_sections_and_row_counts(self):
-        names = ['ControlCenter', 'HomeMenu', 'Display', 'Opacity', 'Import']
+        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'Display', 'Opacity', 'Import']
         actual = [section('LMVEaster' + name + 'Section') for name in names]
-        self.assertEqual(actual, [5, 6, 7, 8, 9])
+        self.assertEqual(actual, [5, 6, 7, 8, 9, 10])
         total = re.search(r'numberOfSectionsInTableView:.*?\{ return (LMVEaster\w+Section)\(\) \+ 1;', PANEL).group(1)
-        self.assertEqual(section(total) + 1, 10)
+        self.assertEqual(section(total) + 1, 11)
         for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
+                     'if (section == LMVEasterSquidPanelSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
-        rows = [4 if i < 5 or i == actual[1] else 7 if i == actual[0] else 1 if i in (actual[2], actual[4]) else 2 for i in range(10)]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 35)
+        rows = [4 if i < 5 or i in (actual[1], actual[2]) else 7 if i == actual[0] else 1 if i in (actual[3], actual[5]) else 2 for i in range(11)]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 39)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -53,6 +54,7 @@ class UISectionOrder(unittest.TestCase):
         routes = dict(re.findall(r'toggle.tag == (LMVEaster\w+Section)\(\)\) key = @"(.*?)";', body))
         self.assertEqual(routes, {'LMVEasterControlCenterSection': 'ControlCenterBackgroundEnabled',
                                  'LMVEasterHomeMenuSection': 'HomeMenuBackgroundEnabled',
+                                 'LMVEasterSquidPanelSection': 'SquidPanelBackgroundEnabled',
                                  'LMVEasterOpacitySection': 'VideoOpacityEnabled'})
         self.assertIn('toggle.tag < 0', body)
         self.assertIn('else return;', body)
@@ -64,11 +66,12 @@ class UISectionOrder(unittest.TestCase):
         resolved.update({i: target + 'BackgroundEnabled' for i, target in enumerate(TARGETS)})
         def key_for(tag):
             return None if tag < 0 or tag > section(bound) else resolved.get(tag)
-        self.assertEqual([key_for(i) for i in range(10)],
+        self.assertEqual([key_for(i) for i in range(11)],
                          [t + 'BackgroundEnabled' for t in TARGETS] +
-                         ['ControlCenterBackgroundEnabled', 'HomeMenuBackgroundEnabled', None, 'VideoOpacityEnabled', None])
+                         ['ControlCenterBackgroundEnabled', 'HomeMenuBackgroundEnabled', 'SquidPanelBackgroundEnabled',
+                          None, 'VideoOpacityEnabled', None])
         self.assertIsNone(key_for(-1))
-        self.assertIsNone(key_for(10))
+        self.assertIsNone(key_for(11))
 
     def test_panel_selection_cells_import_defaults_unchanged(self):
         cells = PANEL[PANEL.index('- (UITableViewCell *)tableView:'):PANEL.index('- (void)toggle:')]
@@ -79,8 +82,8 @@ class UISectionOrder(unittest.TestCase):
         audio_end = cells.index('    if (index.section == LMVEasterImportSection())', audio_start)
         old_cells = cells[:audio_start] + cells[audio_end:]
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
-        self.assertEqual(digest(old_cells), '9fe3724d491aea26e6e818db22d0bc23b4946422660d4bfe009d0a3447cd71c4')
-        self.assertEqual(digest(selection), '00c65dc68f840dcee1932bb65d5e82f74f4f5b57b3b99028e6787086b87a79e5')
+        self.assertEqual(digest(old_cells), '7e0a52923e482473468c9523f0b4cff4d28c296318d5f7eee1f2c92b830064fb')
+        self.assertEqual(digest(selection), 'f49b774c5fc80a7200d0c2bebea00126722d21fa89c41ae98571a663c9180349')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',
@@ -90,7 +93,7 @@ class UISectionOrder(unittest.TestCase):
             self.assertIn(text, selection)
         # The frozen handlers use helpers, so relocated 6/7/8/9 cannot alias CC or targets.
         self.assertEqual(len({section('LMVEaster' + n + 'Section') for n in
-                             ['ControlCenter', 'HomeMenu', 'Display', 'Opacity', 'Import']}), 5)
+                             ['ControlCenter', 'HomeMenu', 'SquidPanel', 'Display', 'Opacity', 'Import']}), 6)
 
     def test_settings_top_group_is_the_global_master_switch(self):
         # 0.0.114: the master switch is the FIRST row and defaults to ON, so an
@@ -126,30 +129,32 @@ class UISectionOrder(unittest.TestCase):
             'targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
+            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 38)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 41)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
-        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 4)
-        self.assertEqual(38 + (len(TARGETS) + 3) * 2, 54)
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 14)
+        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 5)
+        self.assertEqual(41 + (len(TARGETS) + 3) * 2, 57)
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 15)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines() if 'setProperty:' in x or '.buttonAction =' in x)
-        self.assertEqual(digest('\n'.join(props)), '4acd335e442129a99e2c9982df95b9d6a9829d2f3986eb8041e8837a8d12a3ed')
+        self.assertEqual(digest('\n'.join(props)), 'bf399a42225ee674df0e19bc44010d03a474e0af16cb2b19a76501c245c73469')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)
         old_handlers = handlers[:volume_start] + handlers[volume_end:]
         old_handlers = old_handlers.replace(': [specifier propertyForKey:@"audioVolumeKey"];', ': nil;')
-        self.assertEqual(digest(old_handlers), '00c0c8d02105a428ccde4072426beeebc5b825bee4952a10e3e66a6cafd360df')
+        self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
-                               ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu')]:
+                               ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
+                               ('switchSquidPanel', 'SquidPanel')]:
             self.assertIn(f'- (void){action}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}', handlers)
         self.assertIn('PSSpecifier *row = [self specifierAtIndexPath:indexPath];', handlers)
         self.assertIn('invoke(self, action, row);', handlers)
@@ -158,11 +163,11 @@ class UISectionOrder(unittest.TestCase):
     def test_shared_picker_delete_routing_unchanged(self):
         # 0.0.117: orientation support is added to the picker (rotation follow).
         self.assertEqual(digest(PICKER), 'da64be50bc84655b99e139f1fa8f8ac76183ba9f52859d051da2c75028ce151b')
-        self.assertEqual(digest(DELETION), '03f620c758b6a5099b20ce02a56c981ec030df979fb663171931ffe6f24117db')
+        self.assertEqual(digest(DELETION), 'b6a7b64b5c62a05698a3a03d7ca5feda863e4a441740db1eb1f3c0310382c2da')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
         self.assertIn('LMVDeleteMaterial(relative,&deleted)', PICKER)
-        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu"])', DELETION)
+        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel"])', DELETION)
         self.assertIn('[target stringByAppendingString:@"Video"]', DELETION)
 
 
