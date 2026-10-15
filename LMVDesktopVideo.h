@@ -516,16 +516,17 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
     NSInteger fg=LMVDesktopForeground();
+    BOOL presented=LMVDesktopSwitcherPresented()||LMVDesktopControlCenterPresented();
     if (self.host.hidden || self.playback.frozen) {
-        // waiting for the reveal: fire the moment the cover drops (a fading
-        // window drops it at its first fade frame; a closing sheet slides out).
-        // A cover that stays while fg flips (the stale exit window) changes
-        // nothing visible - do not fire, or the tick would loop.
-        if (fullyCovered) return;
+        // waiting for the visible state: fire the moment the cover drops OR the
+        // switcher/CC stops being presented (whichever releases first), so the
+        // resume is one frame instead of one update tick.
+        if (fullyCovered && (presented || fg!=1)) return;
     } else {
-        // playing: fire the moment a cover that must freeze appears.
-        if (!fullyCovered) return;
-        if (!(fg!=1 || switcherCover || ccCover || sheetCover)) return;
+        // playing: fire only when the video really must freeze - a presented
+        // switcher/CC, or a FULL cover with no desktop evidence. A sheet that is
+        // still being pulled is NOT a freeze (0.0.140), so it must not fire.
+        if (!(presented || (fullyCovered && (fg!=1 || switcherCover || ccCover || sheetCover)))) return;
     }
     [self stopCoverWatch];
     LMVDiagnostic(@"desktop-video cover-watch-reveal");
@@ -744,8 +745,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // resumes the instant the desktop is visible again - the per-frame
         // watcher catches the reveal within ~16 ms. Only a FULL notification
         // pull shows the original wallpaper on purpose (the lease restores).
-        BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||
-            (visible && covered && (switcherCover || ccCover || foreground!=1)),
+        // 0.0.140: the notification sheet only FREEZES at the bottom of the pull
+        // (`covered`); while it is still being pulled the player keeps RUNNING
+        // (the layer is hidden above so the sheet shows the wallpaper, but the
+        // video is not paused - that is what makes the release resume with zero
+        // delay). The switcher and the Control Center freeze as soon as they are
+        // presented, and a full cover of any kind freezes.
+        BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
+            (visible && covered && (sheetCover || switcherCover || ccCover || foreground!=1)),
             play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.

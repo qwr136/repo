@@ -92,8 +92,11 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 # 0.0.138: the sheet (any pull), the switcher and the CC all freeze video AND
 # audio; the SpringBoard state is authoritative so they freeze even when no
 # covering window matched on this build.
-assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||' in h
-assert '(visible && covered && (switcherCover || ccCover || foreground!=1)),' in h
+# 0.0.140: the sheet freezes only at the BOTTOM of the pull (`covered`); during
+# the pull the player keeps running (hidden layer, wallpaper behind) so the
+# release resumes with zero delay. Switcher/CC freeze as soon as presented.
+assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h
+assert '(visible && covered && (sheetCover || switcherCover || ccCover || foreground!=1)),' in h
 assert 'play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;' in h
 # 0.0.139: the layer hides only behind an OPAQUE APP cover or under a
 # notification pull - behind the translucent switcher/CC the FROZEN frame stays
@@ -151,9 +154,9 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 assert 'if (self.host.superview!=nil) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert 'if (self.host.hidden || self.playback.frozen) {' in h
-assert 'if (fullyCovered) return;' in h
-assert 'if (!fullyCovered) return;' in h
-assert 'if (!(fg!=1 || switcherCover || ccCover || sheetCover)) return;' in h
+assert 'if (fullyCovered && (presented || fg!=1)) return;' in h
+assert 'if (!(presented || (fullyCovered && (fg!=1 || switcherCover || ccCover || sheetCover)))) return;' in h
+assert 'BOOL presented=LMVDesktopSwitcherPresented()||LMVDesktopControlCenterPresented();' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
 assert '[_coverWatch invalidate];' in h, 'dealloc cleans the watcher up'
@@ -583,15 +586,21 @@ int main(void){@autoreleasepool {
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
   if(n==0){
     // closed sheet: the desktop plays and the lease stays
-    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown);
+    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
+  } else if(n<100){
+    // 0.0.140: while the sheet is being pulled the ORIGINAL WALLPAPER is what the
+    // blur shows (layer hidden, lease released) but the VIDEO KEEPS PLAYING - it
+    // is not paused, which is what makes the release resume with zero delay. The
+    // SOUND is already off from the first pull tick.
+    assert(m.playback.wantsPlayback && !m.playback.frozen);
+    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
+    assert(m.coveredNow);
   } else {
-    // 0.0.138: ANY pull - half or full - shows the ORIGINAL WALLPAPER behind the
-    // blur (frozen video, hidden layer, lease released), not the desktop video.
+    // pulled to the bottom: the video AND the sound freeze.
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
-    assert(m.host.hidden);
-    assert(!wallPixels.hidden);
-    assert(m.sheetWallpaperShown);
+    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
+    assert(m.coveredNow);
   }
  }
  sliding.frame=CGRectMake(0,-844,390,844);screenLocked=0;[m update];assert(m.playback.wantsPlayback);
