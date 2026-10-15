@@ -9,7 +9,18 @@ assert 'LMVDesktopVideoInstallHooks()' in s and 'LMVDesktopVideoSuspend()' in s
 assert 'LMVCacheFrame' not in h and 'LMVAcquireOriginal' not in h
 assert 'LMVDesktopExplicitWallpaper' in h and 'homescreenWallpaperView' in h
 assert 'sharedWallpaperView' not in h  # Ambiguous Lock/Home source must not be used.
-assert 'BOOL appForeground=!definitiveAway && !visible && retainedAttachment;' in h
+# 0.0.138: while a cover or a SpringBoard presentation is up, the surface is
+# only hidden, never torn down (a teardown restored the wallpaper lease and the
+# original wallpaper showed through the translucent switcher).
+assert 'BOOL appForeground=!definitiveAway && !visible &&' in h
+assert '(retainedAttachment || switcherPresented || ccPresented || sheetCover);' in h
+assert 'static BOOL LMVDesktopSwitcherPresented(void) {' in h
+assert 'static BOOL LMVDesktopControlCenterPresented(void) {' in h
+assert '[@"SBMainSwitcherControllerCoordinator",@"SBAppSwitcherController"]' in h
+assert 'LMVDesktopBoolSelector(shared,@"isAnySwitcherVisible")' in h
+assert 'LMVDesktopBoolSelector(shared,@"isVisible")' in h
+assert 'BOOL switcherPresented=LMVDesktopSwitcherPresented();' in h
+assert 'BOOL ccPresented=LMVDesktopControlCenterPresented();' in h
 assert 'pixels && appForeground && retainedAttachment && self.lease' in h
 assert 'if (diagnostics)' in h
 assert 'static void LMVDesktopRequestUpdate' in h and '- (void)syncGeometry' in h
@@ -45,7 +56,7 @@ assert 'self.playback.error!=nil;' in h
 assert 'unknownCover || self.playback.error' in h, 'a genuine unknown cover still tears down (fail closed)'
 assert 'if (!content) {*unknown=YES;continue;}' in h
 assert h.count('if (!LMVLockVideoRectValid(converted)) continue;') >= 2, 'the CoverSheet transient flap is a silent skip'
-assert h.count('if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;') == 2, 'both live branches use one rule'
+assert h.count('if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;') == 2, 'both live branches use one rule'
 assert 'self.host.hidden=YES;' in h, 'the real teardown still hides it'
 assert 'shown=%d composited=%d decode=%d opaque=%d' in h
 
@@ -78,11 +89,21 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 # 0.0.137: ANY full cover freezes video+audio immediately (the switcher/CC/NC
 # at fg==1 included); play only when the desktop is exposed. Resume is the
 # watcher's job (~16 ms), and a full NC pull restores the wallpaper on purpose.
-assert 'BOOL freeze=appForeground || (visible && covered && (switcherCover || ccCover || sheetCover || foreground!=1)),' in h
-assert 'play=visible && !covered;' in h
-assert 'if (sheetCover && covered) {' in h
+# 0.0.138: the sheet (any pull), the switcher and the CC all freeze video AND
+# audio; the SpringBoard state is authoritative so they freeze even when no
+# covering window matched on this build.
+assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||' in h
+assert '(visible && covered && (switcherCover || ccCover || foreground!=1)),' in h
+assert 'play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;' in h
+assert 'BOOL hostHidden=opaqueCover || sheetWallpaper;' in h
+assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
-assert 'if (!(sheetCover && covered)) self.sheetWallpaperShown=NO;' in h
+assert 'if (!sheetWallpaper) self.sheetWallpaperShown=NO;' in h
+# the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
+# performed on an already-visible desktop does.
+assert 'else if (visible && !self.wasVisible) self.sheetPreexisting=YES;' in h
+assert 'BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;' in h
+assert 'if (sheetWallpaper) {' in h, 'a user pull shows the wallpaper'
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'
 assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
@@ -98,7 +119,8 @@ assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredS
 # disagree; the flip syncs the Desktop audio directly with no timer beat.
 assert '@property(nonatomic) BOOL coveredNow;' in h
 assert 'self.coveredNow=audioCovered;' in h
-assert 'BOOL audioCovered=appForeground || (visible && covered && (switcherCover || ccCover || sheetCover || foreground!=1));' in h
+assert 'BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||' in h
+assert 'if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();' in h
 assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # 0.0.132: the app switcher is NOT an app exit - covering the desktop with the
 # switcher freezes the video and stops the audio, exactly like an app cover.
@@ -293,6 +315,24 @@ static NSUInteger sharedCalls;
 @interface SBControlCenterWindow:UIWindow @end
 @implementation SBControlCenterWindow @end
 @interface SBMainSwitcherWindow:UIWindow @end
+// 0.0.138: the SpringBoard presentation state is the authority for the switcher
+// and the Control Center - these fakes let the calls resolve in the fixture.
+@interface SBMainSwitcherControllerCoordinator:NSObject
+@property(nonatomic) BOOL isAnySwitcherVisible;
++ (instancetype)sharedInstance;
+@end
+@implementation SBMainSwitcherControllerCoordinator
+static SBMainSwitcherControllerCoordinator *gSwitcher;
++ (instancetype)sharedInstance { if (!gSwitcher) gSwitcher=[self new]; return gSwitcher; }
+@end
+@interface SBControlCenterController:NSObject
+@property(nonatomic) BOOL isVisible;
++ (instancetype)sharedInstance;
+@end
+@implementation SBControlCenterController
+static SBControlCenterController *gControlCenter;
++ (instancetype)sharedInstance { if (!gControlCenter) gControlCenter=[self new]; return gControlCenter; }
+@end
 @implementation SBMainSwitcherWindow @end
 '''
 lock=(r/'LMVLockVideo.h').read_text()
@@ -448,6 +488,23 @@ int main(void){@autoreleasepool {
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
+ // 0.0.138: SpringBoard says the switcher/CC is presented with NO covering
+ // window at all - the video freezes and the audio stops anyway (coveredNow).
+ scene.windows=@[homeWindow,wallWindow,nc];
+ UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
+ assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
+ [SBMainSwitcherControllerCoordinator sharedInstance].isAnySwitcherVisible=YES;
+ [m update];
+ assert(m.host.superview==wall && m.playback.frozen && m.coveredNow && !m.host.hidden);
+ [SBMainSwitcherControllerCoordinator sharedInstance].isAnySwitcherVisible=NO;
+ [m update];
+ assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
+ [SBControlCenterController sharedInstance].isVisible=YES;
+ [m update];
+ assert(m.host.superview==wall && m.playback.frozen && m.coveredNow && !m.host.hidden);
+ [SBControlCenterController sharedInstance].isVisible=NO;
+ [m update];
+ assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  // 0.0.132: a FADING Control Center window is closing - not a cover. The video
  // keeps playing while the sheet fades out instead of freezing until removal.
  ccWindow.alpha=0.5;
@@ -513,13 +570,18 @@ int main(void){@autoreleasepool {
   // lease stays); the FULL pull freezes and restores the wallpaper on purpose
   // ("下滑到底才出现原壁纸").
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
-  if(n==100){
+  if(n==0){
+    // closed sheet: the desktop plays and the lease stays
+    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown);
+  } else {
+    // 0.0.138: ANY pull - half or full - shows the ORIGINAL WALLPAPER behind the
+    // blur (frozen video, hidden layer, lease released), not the desktop video.
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
+    assert(m.host.hidden);
     assert(!wallPixels.hidden);
     assert(m.sheetWallpaperShown);
   }
-  else assert(m.playback.wantsPlayback && wallPixels.hidden);
  }
  sliding.frame=CGRectMake(0,-844,390,844);screenLocked=0;[m update];assert(m.playback.wantsPlayback);
  // A screen blank invalidates authentication; waking at real lock never draws Desktop.

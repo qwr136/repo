@@ -141,6 +141,11 @@ static void LMVDesktopVideoSuspend(void);
 // the same update would undo the restore (the lease block runs right after
 // the freeze branch). Cleared as soon as the sheet slides back.
 @property(nonatomic) BOOL sheetWallpaperShown;
+// 0.0.138: a sheet that was ALREADY up when the desktop became visible is the
+// unlock/withdrawal case - the warm video must bind there (waiting for the sheet
+// to clear flashes the wallpaper). Only a sheet the user pulled down onto an
+// already-visible desktop shows the original wallpaper.
+@property(nonatomic) BOOL sheetPreexisting,wasVisible;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
 // run on the ~0.4 s hook/tick cadence - the exit cross-fade could therefore
@@ -338,6 +343,37 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
     }
     return combined;
 }
+// 0.0.138: the switcher and the Control Center are detected through
+// SpringBoard's OWN state, not only through window class names - on the user's
+// device the window classes did not match, so neither the video nor the audio
+// paused while the switcher/CC was up. Every call is guarded: a missing class
+// or selector simply reports NO and the window probe stays the fallback.
+static id LMVDesktopSharedInstance(NSString *className) {
+    Class cls=NSClassFromString(className); if (!cls) return nil;
+    for (NSString *name in @[@"sharedInstance",@"sharedInstanceIfExists",@"sharedInstanceCoordinatorIfExists"]) {
+        SEL selector=NSSelectorFromString(name);
+        if ([cls respondsToSelector:selector]) return ((id(*)(id,SEL))objc_msgSend)(cls,selector);
+    }
+    return nil;
+}
+static BOOL LMVDesktopBoolSelector(id object,NSString *selectorName) {
+    if (!object) return NO;
+    SEL selector=NSSelectorFromString(selectorName);
+    if (![object respondsToSelector:selector]) return NO;
+    return ((BOOL(*)(id,SEL))objc_msgSend)(object,selector);
+}
+static BOOL LMVDesktopSwitcherPresented(void) {
+    for (NSString *className in @[@"SBMainSwitcherControllerCoordinator",@"SBAppSwitcherController"]) {
+        id shared=LMVDesktopSharedInstance(className);
+        if (LMVDesktopBoolSelector(shared,@"isAnySwitcherVisible") ||
+            LMVDesktopBoolSelector(shared,@"isSwitcherVisible")) return YES;
+    }
+    return NO;
+}
+static BOOL LMVDesktopControlCenterPresented(void) {
+    id shared=LMVDesktopSharedInstance(@"SBControlCenterController");
+    return LMVDesktopBoolSelector(shared,@"isVisible") || LMVDesktopBoolSelector(shared,@"isPresented");
+}
 static BOOL LMVDesktopFullyCovered(UIView *view,CGRect cover) {
     CGRect target=LMVLockVideoVisibleRect(view,view.window);if(CGRectIsEmpty(target))return YES;
     CGRect overlap=CGRectIntersection(target,cover);
@@ -534,6 +570,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (screenKnown && !blank && lockKnown && !locked && !unknownCover &&
         (foreground==1 || homeConfirmed)) self.authenticatedSession=YES;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover);
+    // 0.0.138: SpringBoard's own presentation state, OR-ed with the geometry.
+    // It is the authority for the switcher and the Control Center: while either
+    // is presented the desktop is not what the user is looking at, so the video
+    // freezes and the audio stops even when no covering window matched.
+    BOOL switcherPresented=LMVDesktopSwitcherPresented();
+    BOOL ccPresented=LMVDesktopControlCenterPresented();
+    if (!sheetCover) self.sheetPreexisting=NO;
+    // set after `visible` is computed below (see sheetWallpaper).
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
@@ -598,7 +642,19 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // expiry could restore the wallpaper before a long app-return/Reachability
     // transition finished. Hold it paused until exposure returns or a definitive
     // teardown occurs; do not acquire a new host while this evidence is missing.
-    BOOL appForeground=!definitiveAway && !visible && retainedAttachment;
+    if (!sheetCover) self.sheetPreexisting=NO;
+    else if (visible && !self.wasVisible) self.sheetPreexisting=YES;
+    self.wasVisible=visible;
+    // 0.0.138: the sheet shows the original wallpaper only when it is NOT the
+    // pre-existing unlock/withdrawal cover.
+    BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;
+    // 0.0.138: while a cover or a SpringBoard presentation is up, the surface is
+    // only HIDDEN, never torn down - a teardown restores the wallpaper lease and
+    // the original wallpaper showed through the translucent switcher (the
+    // reported leak). The switcher/CC/NC states are all "the desktop is behind
+    // something", not "the desktop is gone".
+    BOOL appForeground=!definitiveAway && !visible &&
+        (retainedAttachment || switcherPresented || ccPresented || sheetCover);
     if (visible) {
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
             [self.lease restore];self.lease=nil;[self.host removeFromSuperview];
@@ -630,7 +686,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 0.0.124: do not composite a layer that nothing can see. The layer stays
         // attached to the same superview, so it is back the instant the cover goes
         // away; this only removes wasted work and cannot hide the desktop.
-        if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;
+        BOOL hostHidden=opaqueCover || sheetWallpaper;
+        if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
         NSUInteger mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
         if(geometryChanged || !CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))
@@ -645,7 +702,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // (it stays in the same superview, so recovery is instant and the wallpaper
         // can never flash); `covered` is the geometry proof that hiding it cannot
         // be seen. Without that proof the layer stays visible, i.e. unchanged.
-        if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;
+        BOOL hostHidden=opaqueCover || sheetWallpaper;
+        if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
     } else {
         if (self.host.superview!=nil) self.teardowns++;
         self.host.hidden=YES;[self.lease restore];self.lease=nil;
@@ -656,8 +714,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // the video never disagree. The flip syncs the Desktop audio directly (no
     // timer beat in either direction): pausing the instant the desktop becomes
     // invisible, resuming the instant it is back.
-    if (!(sheetCover && covered)) self.sheetWallpaperShown=NO;
-    BOOL audioCovered=appForeground || (visible && covered && (switcherCover || ccCover || sheetCover || foreground!=1));
+    if (!sheetWallpaper) self.sheetWallpaperShown=NO;
+    BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||
+        (visible && covered && (switcherCover || ccCover || foreground!=1));
     BOOL wasCovered=self.coveredNow;
     self.coveredNow=audioCovered;
     if (audioCovered!=wasCovered && LMVDesktopAudioCoverHook) LMVDesktopAudioCoverHook(audioCovered);
@@ -670,22 +729,29 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // resumes the instant the desktop is visible again - the per-frame
         // watcher catches the reveal within ~16 ms. Only a FULL notification
         // pull shows the original wallpaper on purpose (the lease restores).
-        BOOL freeze=appForeground || (visible && covered && (switcherCover || ccCover || sheetCover || foreground!=1)),
-            play=visible && !covered;
+        BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||
+            (visible && covered && (switcherCover || ccCover || foreground!=1)),
+            play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
             if(self.playback.wantsPlayback || !self.playback.frozen) {
                 [self.playback holdCurrentFrame:YES];
-                // 0.0.131: the freeze IS the audio-off moment - do not wait for
-                // the audio timer to re-read the state on its own cadence.
-                if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();
             }
+            // 0.0.131/0.0.138: the freeze IS the audio-off moment, and it is
+            // re-asserted on every frozen tick - a resume from any other path
+            // (source change, the 10 Hz sync) can never leave the sound playing
+            // under a cover.
+            if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();
             // 0.0.137: a FULL notification-sheet pull shows the original
             // wallpaper on purpose ("下滑到底才出现原壁纸"); a partial pull keeps
             // the video visible through the blur. The lease re-acquires as soon
             // as the sheet slides back and the desktop is exposed again.
-            if (sheetCover && covered) {
+            // 0.0.138: ANY notification pull shows the original wallpaper behind
+            // the sheet ("下滑一半就是原生壁纸"), not just the full pull - the
+            // layer is hidden above and the lease is released, so the blur
+            // samples the wallpaper instead of the video.
+            if (sheetWallpaper) {
                 if (self.lease) {[self.lease restore];self.lease=nil;}
                 self.sheetWallpaperShown=YES;
             }
