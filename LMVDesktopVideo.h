@@ -653,6 +653,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // something", not "the desktop is gone".
     BOOL appForeground=!definitiveAway && !visible &&
         (retainedAttachment || switcherPresented || ccPresented || sheetCover);
+    BOOL attachedBefore= self.host.superview!=nil;
     if (visible) {
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
             [self.lease restore];self.lease=nil;[self.host removeFromSuperview];
@@ -675,18 +676,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             UIView *anchor=LMVLockVideoBackgroundAnchor(container,self.host);
             NSUInteger expected=anchor?[container.subviews indexOfObjectIdenticalTo:anchor]+1:0;
             NSUInteger own=[container.subviews indexOfObjectIdenticalTo:self.host];
-            if(self.host.superview!=container || own!=expected){
-                // Only a REAL attach counts (the surface went from detached to
-                // attached); the every-tick order correction re-inserts into the
-                // same container and must not re-classify the sheet.
-                BOOL wasDetached=self.host.superview!=container;
-                [self.host removeFromSuperview];[container insertSubview:self.host atIndex:expected];
-                // 0.0.140: attaching UNDER a sheet means the sheet pre-existed this
-                // surface (unlock/resume withdrawal) - the warm video binds instead
-                // of the wallpaper. A sheet pulled down onto an already-attached
-                // surface never takes this path and keeps the normal pull behaviour.
-                if (wasDetached) self.sheetPreexisting=sheetCover;
-            }
+            if(self.host.superview!=container || own!=expected){[self.host removeFromSuperview];[container insertSubview:self.host atIndex:expected];}
         }
         BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,container.bounds);
         [CATransaction begin];[CATransaction setDisableActions:YES];
@@ -746,7 +736,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // resumes the instant the desktop is visible again - the per-frame
         // watcher catches the reveal within ~16 ms. Only a FULL notification
         // pull shows the original wallpaper on purpose (the lease restores).
-        // 0.0.140: ANY notification pull shows the original wallpaper behind the
+        // 0.0.140: a surface that ATTACHED while the sheet was already up is the
+    // unlock/resume withdrawal - the warm video binds there instead of the
+    // wallpaper. A sheet pulled onto an already-attached surface stays a normal
+    // pull. Measured across the whole branch chain so every attach site counts.
+    if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;
+    if (!sheetCover) self.sheetPreexisting=NO;
+    // 0.0.140: ANY notification pull shows the original wallpaper behind the
         // sheet (the layer is hidden above and the lease is released) - this must
         // run whenever the sheet is up, NOT only while frozen, or a partial pull
         // would keep the wallpaper suppressed with no way to see it.
