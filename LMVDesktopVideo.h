@@ -1341,9 +1341,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
                 if (window.hidden || window.alpha<.01) continue;
-                [windowList appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f/L%.0f ",NSStringFromClass(window.class),
-                    window.frame.origin.x,window.frame.origin.y,window.frame.size.width,window.frame.size.height,
-                    window.windowLevel];
+                [windowList appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f ",NSStringFromClass(window.class),
+                    window.frame.origin.x,window.frame.origin.y,window.frame.size.width,window.frame.size.height];
             }
         }
         if (![windowList isEqualToString:self.windowListStatus]) {
