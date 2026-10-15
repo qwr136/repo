@@ -162,6 +162,11 @@ static BOOL LMVDesktopUpdatePending;
 // 10 Hz timer - without the hook the desktop sound kept playing for up to half
 // a second after an app covered the desktop.
 static void (^LMVDesktopAudioPauseHook)(void);
+// 0.0.135: fired when coveredNow FLIPS - covered=YES pauses the Desktop channel
+// the instant anything covers the desktop, covered=NO resumes it the instant
+// the cover leaves (seeking to the video player's current time). The 10 Hz
+// audio sync alone added up to one timer beat to both directions.
+static void (^LMVDesktopAudioCoverHook)(BOOL covered,CMTime time);
 static void LMVDesktopRequestUpdate(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVDesktopUpdatePending)return;
     LMVDesktopUpdatePending=YES;
@@ -518,7 +523,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (screenKnown && !blank && lockKnown && !locked && !unknownCover &&
         (foreground==1 || homeConfirmed)) self.authenticatedSession=YES;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover);
+    // 0.0.135: the cover flip syncs the Desktop audio directly - no timer beat
+    // in either direction.
+    BOOL wasCovered=self.coveredNow;
     self.coveredNow=covered;
+    if (covered!=wasCovered && LMVDesktopAudioCoverHook)
+        LMVDesktopAudioCoverHook(covered,self.playback.player.currentTime);
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and

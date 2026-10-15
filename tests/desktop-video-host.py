@@ -101,7 +101,19 @@ assert 'cover-watch-reveal' in h
 # keep playing for up to half a second after an app covered the desktop.
 assert 'static void (^LMVDesktopAudioPauseHook)(void);' in h
 assert 'if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();' in h
-assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s, 'the audio sync gates on the cover, not just the player state'
+assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
+# 0.0.135: the coveredNow FLIP syncs the Desktop audio directly in both
+# directions - pause the instant anything covers the desktop, resume (seeked to
+# the video player's current time) the instant it clears. No timer beat.
+assert 'static void (^LMVDesktopAudioCoverHook)(BOOL covered,CMTime time);' in h
+assert 'BOOL wasCovered=self.coveredNow;' in h
+assert 'if (covered!=wasCovered && LMVDesktopAudioCoverHook)' in h
+assert 'LMVDesktopAudioCoverHook(covered,self.playback.player.currentTime);' in h
+assert "LMVDesktopAudioCoverHook=^(BOOL covered,CMTime time){" in s
+assert 'else LMVAudioResumeTarget(@"Desktop",time);' in s
+audio=(r/'LMVMediaAudio.h').read_text()
+assert 'static void LMVAudioResumeTarget(NSString *target,CMTime time) {' in audio
+assert "[c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();" in audio, 'the audio sync gates on the cover, not just the player state'
 
 # 0.0.129: any OTHER visible window whose root view covers ~the whole screen is a
 # SHEET cover - the Control Center root slides in and out, and full-screen

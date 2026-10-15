@@ -68,6 +68,22 @@ static void LMVAudioPauseTarget(NSString *target) {
     LMVAudioChannel *c=LMVAudioChannels[target];if(!c)return;
     c.visible=NO;[c.player pause];
 }
+// 0.0.135: direct resume mirroring the consume() visible path - seek to the
+// video player's current time, then play. The 10 Hz audio sync alone made the
+// sound return up to one timer beat late after the cover left the desktop.
+static void LMVAudioResumeTarget(NSString *target,CMTime time) {
+    if(!LMVAudioChannels)return;
+    LMVAudioChannel *c=LMVAudioChannels[target];if(!c || !c.enabled || c.volume<=0 || c.loading)return;
+    if(!c.player)return; // nothing loaded yet; the regular sync builds and starts it
+    c.visible=YES;
+    if(LMVAudioActivateMixing()) {
+        c.player.volume=c.volume;
+        if(c.player.rate==0) {
+            if(CMTIME_IS_NUMERIC(time))[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
+            [c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();
+        }
+    }
+}
 static void LMVAudioConsume(NSString *target,NSString *path,NSString *revision,BOOL visible,CMTime time) {
     LMVAudioChannel *c=LMVAudioChannels[target];if(!c)return;
     visible=visible && c.enabled && c.volume>0 && path.length && revision.length;
