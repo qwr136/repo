@@ -132,11 +132,23 @@ static void LMVDesktopVideoSuspend(void);
 // cover probe flaps for a frame or two.
 @property(nonatomic) CFTimeInterval coveredSince;
 @property(nonatomic) NSUInteger teardowns;
+// 0.0.128: while the video layer is hidden behind an opaque app, updates only
+// run on the ~0.4 s hook/tick cadence - the exit cross-fade could therefore
+// show the visible wallpaper content through the fading app for up to a full
+// tick (the reported occasional flash). This watcher runs ONLY while the layer
+// is hidden and re-checks the cheap cover geometry every frame; the moment the
+// fade starts revealing the desktop it requests one full update, so the layer
+// is back within ~16 ms - imperceptible.
+@property(nonatomic,strong) CADisplayLink *coverWatch;
 - (void)refresh:(BOOL)reload;
 - (void)primePoster;
 - (void)update;
 - (void)syncGeometry;
 - (void)suspend;
+// 0.0.128: per-frame cover watcher active only while the layer is hidden.
+- (void)startCoverWatch;
+- (void)stopCoverWatch;
+- (void)coverWatchTick:(CADisplayLink *)link;
 @end
 static LMVDesktopVideoManager *LMVDesktopVideo;
 static BOOL LMVDesktopUpdatePending;
@@ -320,7 +332,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     }
     return self;
 }
-- (void)dealloc {[_timer invalidate];[_lease restore];[_host removeFromSuperview];}
+- (void)dealloc {[_timer invalidate];[_coverWatch invalidate];[_lease restore];[_host removeFromSuperview];}
 - (void)syncGeometry {
     if(self.updating || self.suspended || self.host.hidden || self.host.superview!=self.container)return;
     UIView *container=self.container;if(!container || !LMVLockVideoRectValid(container.bounds))return;
@@ -377,6 +389,29 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 - (void)suspend {
     self.suspended=YES;[self.playback setVisible:NO];self.host.hidden=YES;
     [self.lease restore];self.lease=nil;[self.timer invalidate];self.timer=nil;
+    [self stopCoverWatch];
+}
+// 0.0.128: see the coverWatch property. The tick deliberately repeats only the
+// CHEAP half of -update (window enumeration + geometry + frontmost probe); the
+// moment the reveal starts it hands over to one full update.
+- (void)startCoverWatch {
+    if (self.coverWatch || self.suspended || !LMVLaunchReady) return;
+    self.coverWatch=[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)];
+    [self.coverWatch addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+}
+- (void)stopCoverWatch {
+    [self.coverWatch invalidate];self.coverWatch=nil;
+}
+- (void)coverWatchTick:(CADisplayLink *)link {
+    if (self.suspended || self.host.superview==nil || !self.host.hidden || self.container==nil) {[self stopCoverWatch];return;}
+    BOOL unknown=NO,appCover=NO,sheetCover=NO;
+    CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&sheetCover);
+    // Still provably hidden (fully covered, app frontmost): nothing to do. An
+    // unknown cover keeps waiting for the regular tick to decide.
+    if (unknown || (LMVDesktopFullyCovered(self.container,cover) && LMVDesktopForeground()!=1)) return;
+    [self stopCoverWatch];
+    LMVDiagnostic(@"desktop-video cover-watch-reveal");
+    LMVDesktopRequestUpdate();
 }
 - (void)update {
     if (self.updating || self.suspended) return;self.updating=YES;
@@ -566,6 +601,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         UIView *held=self.lease.content;
         if (held && !self.lease.baselineHidden) {if(!held.hidden)held.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
+    // 0.0.128: watch every frame ONLY while the layer is hidden behind an opaque
+    // app, so the exit cross-fade is caught within ~16 ms instead of the ~0.4 s
+    // update cadence (which let the wallpaper content show through).
+    if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];
+    else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {
     // 0.0.124: `composited` is the layer that backboardd actually has to composite

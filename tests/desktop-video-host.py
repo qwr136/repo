@@ -60,6 +60,22 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&shee
 assert 'BOOL freeze=appForeground || (visible && covered && (sheetCover || foreground!=1)),' in h
 assert 'play=visible && (!covered || (appWindowCover && foreground==1));' in h
 assert 'opaque=%d sheet=%d appc=%d' in h
+
+# 0.0.128: while the layer is hidden behind an opaque app, a per-frame watcher
+# re-checks the cheap cover geometry and hands over to a full update the moment
+# the exit cross-fade starts revealing the desktop - the wallpaper content that
+# shows through the fading app was visible for up to one ~0.4 s update tick
+# (the reported occasional flash); now the unhide lands within ~16 ms.
+assert '@property(nonatomic,strong) CADisplayLink *coverWatch;' in h
+assert '- (void)startCoverWatch {' in h and '- (void)stopCoverWatch {' in h
+assert '- (void)coverWatchTick:(CADisplayLink *)link {' in h
+assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)]' in h
+assert 'if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];' in h
+assert 'else [self stopCoverWatch];' in h
+assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
+assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
+assert '[_coverWatch invalidate];' in h, 'dealloc cleans the watcher up'
+assert 'cover-watch-reveal' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -261,9 +277,18 @@ int main(void){@autoreleasepool {
  // still up) -> RESUME in the same update instead of waiting for removal.
  for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
  assert(m.host.hidden && m.playback.frozen);
- record.visible=YES;
- UIApplication.sharedApplication.frontmost=nil;[m update];
- assert(!m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
+ // 0.0.128: while hidden the cover watcher is active but silent (still fully
+ // covered, app frontmost); the moment the reveal starts it requests one full
+ // update and the layer is back WITHOUT waiting for the ~0.4 s cadence.
+ assert(m.coverWatch!=nil);
+ [m coverWatchTick:nil];
+ // still provably covered (fg==-1, full cover): the watcher must NOT fire yet
+ assert(m.host.hidden);
+ scene.windows=@[homeWindow,wallWindow,nc];
+ [m coverWatchTick:nil];
+ [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
+ assert(m.coverWatch==nil, 'the watcher stops itself after firing');
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
