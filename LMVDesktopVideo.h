@@ -233,7 +233,17 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown) {
                 NSString *name=NSStringFromClass(window.class);
                 if (window==destination || LMVDesktopHomeWindow(window) ||
                     (![name containsString:@"AppWindow"] && ![name containsString:@"Switcher"])) continue;
-                CGRect converted=[window convertRect:window.bounds toWindow:destination];
+                // 0.0.126: the MODEL frame of an app window stays full-screen for
+                // the whole open/close zoom, so judging by it kept the desktop
+                // hidden until the animation ended - exactly the reported "原壁纸
+                // 闪一下才恢复视频" on entering OR leaving an app. The PRESENTATION
+                // frame is what is actually on screen: while the zoom leaves any
+                // desktop exposed, the cover disappears immediately, so the layer
+                // unhides and the player resumes the instant the app starts
+                // revealing the desktop (frozen frame -> playing, never wallpaper);
+                // when the zoom fully covers, the 0.3 s grace then freezes+hides.
+                CALayer *presentation=window.layer.presentationLayer;
+                CGRect converted=[window convertRect:(presentation?presentation.frame:window.frame) toWindow:destination];
                 if (!LMVLockVideoRectValid(converted)) continue;
                 if (!CGRectIsEmpty(converted)) combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);
                 continue;

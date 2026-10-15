@@ -45,6 +45,11 @@ assert 'shown=%d composited=%d decode=%d opaque=%d' in h
 assert 'window==destination || LMVDesktopHomeWindow(window) ||' in h
 assert "(![name containsString:@\"AppWindow\"] && ![name containsString:@\"Switcher\"])) continue;" in h
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
+# 0.0.126: the cover follows the app's ANIMATED frame, not the model frame that
+# stays full-screen for the whole zoom - otherwise the wallpaper flashes on
+# entering or leaving an app until the animation ends.
+assert 'CALayer *presentation=window.layer.presentationLayer;' in h
+assert 'CGRect converted=[window convertRect:(presentation?presentation.frame:window.frame) toWindow:destination];' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -227,6 +232,13 @@ int main(void){@autoreleasepool {
  record.visible=YES;
  for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
  assert(m.host.superview==wall && m.host.hidden && m.playback.frozen);
+ // 0.0.126: mid-transition the app no longer covers the desktop (the zoomed
+ // presentation frame, here the shrunk model frame). The cover must drop
+ // IMMEDIATELY - unhide and resume in the same update, before the app window
+ // actually leaves - so the revealed area shows the video, never the wallpaper.
+ appWindow.frame=CGRectMake(0,0,390,400);
+ [m update];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
