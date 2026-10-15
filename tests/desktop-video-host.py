@@ -288,7 +288,8 @@ int main(void){@autoreleasepool {
  [m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
- assert(m.coverWatch==nil, 'the watcher stops itself after firing');
+ // the watcher stops itself after firing
+ assert(m.coverWatch==nil);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && wallPixels.hidden);
