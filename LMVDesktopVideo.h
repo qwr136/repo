@@ -383,7 +383,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     if (screenKnown && !blank && lockKnown && !locked && !unknownCover &&
         (foreground==1 || homeConfirmed)) self.authenticatedSession=YES;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover);
-    BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession && foreground>=0 &&
+    // 0.0.123: opening an app made the desktop video fall back to the system
+    // wallpaper for a moment. `home=1` (the Home view is still on screen) held
+    // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
+    // the surface was torn down to its poster. A confirmed Home view is DIRECT
+    // evidence that the desktop is on display - the frontmost probe is only
+    // circumstantial and must not be able to veto it. `foreground>=0` was
+    // redundant on top of `(foreground==1 || homeConfirmed)` and turned a
+    // transient probe reading into a visible teardown.
+    BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession &&
         (foreground==1 || homeConfirmed) && !unknownCover;
     BOOL configured=self.enabled && self.path.length && self.revision.length;
     LMVDesktopControllerRecord *ownerRecord=objc_getAssociatedObject(self.attachmentController,&LMVDesktopControllerRecordKey);

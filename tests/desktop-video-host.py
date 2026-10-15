@@ -15,6 +15,13 @@ assert 'if (diagnostics)' in h
 assert 'static void LMVDesktopRequestUpdate' in h and '- (void)syncGeometry' in h
 assert 'LMVRequestSafeUpdate' not in h, 'Desktop hooks must not trigger global full passes'
 assert 'BOOL geometryChanged=' in h and 'if(!content.hidden)' in h
+
+# 0.0.123: opening an app must not fall back to the original wallpaper. `home=1`
+# holds steady while the frontmost probe flips to -1 for the launch, so the probe
+# may never veto a confirmed Home view (it did, and the surface was torn down).
+assert 'foreground>=0 &&' not in h
+assert 'BOOL environment=screenKnown && !blank && lockKnown && self.authenticatedSession &&' in h
+assert '(foreground==1 || homeConfirmed) && !unknownCover;' in h
 # Stub only the production diagnostic switch; execute all actual geometry,
 # ownership and presentation logic with diagnostics off, as in normal use.
 h=h.replace('LMVDiagnosticsEnabled.load()', 'NO')
@@ -172,8 +179,23 @@ int main(void){@autoreleasepool {
  for(int n=0;n<100;n++){[m update];assert(m.host.superview==wall && wallPixels.hidden);originalTree(wall,wallOriginal);}
  // 0.0.91: the app transition freezes the Desktop surface in place instead of
  // tearing it down, so the launch animation never flashes the system wallpaper.
- TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";UIApplication.sharedApplication.frontmost=app;[m update];
- assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);UIApplication.sharedApplication.frontmost=nil;[m update];assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
+ // 0.0.123: a real app reaching the foreground takes the Home view OUT of the
+ // hierarchy (viewDidDisappear -> record.visible=NO), and THAT is the state the
+ // launch transition freezes in - no wallpaper, last frame kept. Merely flipping
+ // the frontmost probe while the Home view is still on screen is not a launch.
+ TestApplication *app=[TestApplication new];app.bundleIdentifier=@"com.apple.mobilesafari";
+ UIApplication.sharedApplication.frontmost=app;record.visible=NO;[m update];
+ assert(m.host.superview==wall && !m.playback.wantsPlayback && m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);
+ // The probe flips while the desktop is plainly on screen: the surface must keep
+ // playing (this is what used to show the original wallpaper on every app launch).
+ record.visible=YES;[m update];
+ assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && !m.playback.renderLayer.hidden && wallPixels.hidden);
+ for(int flip=0;flip<200;flip++) {
+  UIApplication.sharedApplication.frontmost=flip%2 ? app : nil;[m update];
+  assert(m.host.superview==wall && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden);
+ }
+ record.visible=YES;UIApplication.sharedApplication.frontmost=nil;[m update];
+ assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback);
  // Measured fast enter/exit: no intermediate setHidden:YES on render/host,
  // no background lease release, and one retained player through transient zero bounds.
  watchFastTransitions=YES;watchedHost=m.host;watchedContent=wallPixels;
