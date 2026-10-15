@@ -79,6 +79,7 @@ assert 'if (sheetCover && covered) {' in h
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!(sheetCover && covered)) self.sheetWallpaperShown=NO;' in h
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'
+assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 # 0.0.134: the Control Center does not freeze the video at fg==1 either - the
 # close needs no resume (instant like the user asked); coveredNow keeps the

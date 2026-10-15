@@ -698,7 +698,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     BOOL pixels=(visible || appForeground) && !self.playback.renderLayer.hidden && !self.playback.error;
     if (pixels && visible && content && content.superview==container) {
         if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];self.lease.content=content;self.lease.parent=container;self.lease.baselineHidden=content.hidden;}
-        if (!self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}
+        // 0.0.137: nil guard - with the full-sheet wallpaper shown the lease is
+        // intentionally nil, and messaging nil made this guard pass, hiding the
+        // wallpaper again the same update the restore had revealed it.
+        if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}
     } else if (pixels && appForeground && retainedAttachment && self.lease) {
         // Geometry/lifecycle discovery may transiently return no wallpaper while
         // the exact already-owned parent is still attached. Do not release that
