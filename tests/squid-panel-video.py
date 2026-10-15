@@ -27,7 +27,18 @@ assert 'MSHookMessageEx' not in module and 'class_getInstanceMethod' not in modu
 assert 'static UIView *LMVSquidPanelCard(UIWindow *window) {' in module
 assert 'if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;' in module
 assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;' in module
-assert 'if(area>bestArea){bestArea=area;best=child;}' in module
+# 1.25: the panel keeps SEVERAL cards (device log: two 430x435 views, one on
+# screen at y=497 and one parked at y=1459 in a 932-high window) - scoring by area
+# made the choice flip and the video kept landing on the parked one.
+assert 'static CGFloat LMVSquidPanelVisibleArea(CGRect frame,CGRect bounds) {' in module
+assert 'return visible/total>=.5?visible:0;' in module
+assert 'CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);' in module
+assert 'if(visible<=0)continue;   // parked off screen - never a candidate' in module
+assert 'if(visible>bestArea){bestArea=visible;best=child;}' in module
+assert 'static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {' in module
+assert 'UIView *material=LMVSquidPanelMaterial(card,window);' in module
+assert 'if(!material)material=LMVSquidPanelMaterial(window,window);' in module
+assert 'vis=%.0f' in module
 # Attached under everything the card draws, and re-sized to the card every poll.
 # 1.23: the card may BE the panel's blur material, and a UIVisualEffectView refuses
 # direct subviews - adding one raises, and an exception in a run-loop callback

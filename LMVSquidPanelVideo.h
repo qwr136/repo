@@ -1,5 +1,5 @@
 #pragma once
-// 1.24: the SquidGesturePro panel background (鱿鱼面板背景视频).
+// 1.25: the SquidGesturePro panel background (鱿鱼面板背景视频).
 //
 // Device diagnostics settled the shape of that panel: it lives in SGPanelWindow,
 // a FULL-SCREEN window (430x932) whose first two levels are full-screen as well,
@@ -40,6 +40,22 @@ static UIWindow *LMVSquidPanelWindow(void) {
     return nil;
 }
 static NSInteger const LMVSquidPanelHostTag=0x5A17;
+// 1.25: how much of this view is REALLY on screen. The panel keeps SEVERAL activity
+// panel views - the device log shows two of them, both 430x435, one on screen at
+// y=497 and one parked at y=1459 in a 932-high window. Scoring by raw area alone
+// made the choice flip between them as the tree order changed, so the video kept
+// jumping onto the parked (invisible) card - which is what "看不到视频背景" was.
+// A candidate now only qualifies while at least half of it is inside the window,
+// and the one with the largest visible area wins.
+static CGFloat LMVSquidPanelVisibleArea(CGRect frame,CGRect bounds) {
+    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
+    CGRect onScreen=CGRectIntersection(frame,bounds);
+    if(CGRectIsEmpty(onScreen))return 0;
+    CGFloat total=frame.size.width*frame.size.height;
+    if(total<=0)return 0;
+    CGFloat visible=onScreen.size.width*onScreen.size.height;
+    return visible/total>=.5?visible:0;
+}
 // The card: the largest visible descendant that does NOT fill the window (at least
 // half its width and an eighth of its height). That rule skips the full-screen
 // containers - the window content and the tweak's activity container - and our own
@@ -59,18 +75,21 @@ static UIView *LMVSquidPanelCard(UIWindow *window) {
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
             if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;
-            CGFloat area=frame.size.width*frame.size.height;
-            if(area>bestArea){bestArea=area;best=child;}
+            CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);
+            if(visible<=0)continue;   // parked off screen - never a candidate
+            if(visible>bestArea){bestArea=visible;best=child;}
         }
     }
     return best;
 }
-// 1.24: the panel's blur material - the effect view that gives the card its
+// 1.25: the panel's blur material - the effect view that gives the card its
 // background. It is what the video has to sit ABOVE (otherwise the material hides
-// it: the 1.24 report) and what the icons sit above.
-static UIView *LMVSquidPanelMaterial(UIWindow *window) {
+// it: the 1.25 report) and what the icons sit above.
+static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {
+    if(!root || !window)return nil;
+    CGRect bounds=window.bounds;
     UIView *best=nil;CGFloat bestArea=0;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)root];
     NSUInteger budget=300;
     while(pending.count && budget) {
         UIView *node=pending.lastObject;[pending removeLastObject];
@@ -79,8 +98,9 @@ static UIView *LMVSquidPanelMaterial(UIWindow *window) {
             [pending addObject:child];
             if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
-            CGFloat area=frame.size.width*frame.size.height;
-            if(area>bestArea){bestArea=area;best=child;}
+            CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);
+            if(visible<=0)continue;
+            if(visible>bestArea){bestArea=visible;best=child;}
         }
     }
     return best;
@@ -127,8 +147,8 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
     self.card=nil;self.mode=nil;
 }
-// 1.24: a UIVisualEffectView REFUSES direct subviews - addSubview: raises, and an
-// exception escaping a run-loop callback ABORTS SpringBoard (the 1.24 safe-mode
+// 1.25: a UIVisualEffectView REFUSES direct subviews - addSubview: raises, and an
+// exception escaping a run-loop callback ABORTS SpringBoard (the 1.25 safe-mode
 // crash: UIVisualEffectView _addSubview:positioned:relativeTo: thrown from this
 // module's timer). So the effect view is never used as the container: the host
 // goes into its superview directly BELOW it, which keeps the blur sampling the
@@ -156,14 +176,15 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     self.playback.posterLayer.hidden=YES;
     BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
-    // 1.24: WHERE in the panel the video belongs. 1.24 put it directly BELOW the
+    // 1.25: WHERE in the panel the video belongs. 1.25 put it directly BELOW the
     // panel's blur material, and the material simply hid it (device report: 视频太
     // 靠下面 / 看不到视频背景). The video belongs UNDER the icons but ABOVE the
     // material: inside the material's contentView when there is one (that is above
     // the blur and below anything the material draws), otherwise directly above the
     // material in the same superview. Either way it keeps the material's exact
     // frame, so a panel that grows with its icons moves the video with it.
-    UIView *material=LMVSquidPanelMaterial(window);
+    UIView *material=LMVSquidPanelMaterial(card,window);
+    if(!material)material=LMVSquidPanelMaterial(window,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
     if([material isKindOfClass:UIVisualEffectView.class]) {
         UIView *content=((UIVisualEffectView *)material).contentView;
@@ -194,11 +215,11 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
-            (int)live,self.host.bounds.size.width,self.host.bounds.size.height];
+            LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
