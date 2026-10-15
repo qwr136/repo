@@ -29,8 +29,22 @@ assert 'if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.si
 assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;' in module
 assert 'if(area>bestArea){bestArea=area;best=child;}' in module
 # Attached under everything the card draws, and re-sized to the card every poll.
-assert '[card insertSubview:self.host atIndex:0];' in module
-assert 'if(!CGRectEqualToRect(self.host.frame,card.bounds))self.host.frame=card.bounds;' in module
+# 1.23: the card may BE the panel's blur material, and a UIVisualEffectView refuses
+# direct subviews - adding one raises, and an exception in a run-loop callback
+# aborts SpringBoard (the 1.22 safe-mode crash). The effect view is therefore never
+# the container: the host goes into its superview directly below it.
+assert '- (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {' in module
+assert 'if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;' in module
+assert '@try {[container insertSubview:self.host atIndex:index];}' in module
+assert '@catch(NSException *exception) {[self.host removeFromSuperview];return NO;}' in module
+assert 'BOOL sibling=[card isKindOfClass:UIVisualEffectView.class];' in module
+assert 'UIView *container=sibling?card.superview:card;' in module
+assert 'CGRect target=sibling?card.frame:card.bounds;' in module
+assert 'if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;' in module
+# Defence in depth: no failure in this channel may ever abort SpringBoard.
+assert '@try {[LMVSquidPanelVideo update];}' in module
+assert '@catch(NSException *exception) {[LMVSquidPanelVideo detach];}' in module
+assert 'mode=%@' in module
 assert 'UIViewAutoresizing mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;' in module
 assert 'if(self.host.layer.cornerRadius!=card.layer.cornerRadius)self.host.layer.cornerRadius=card.layer.cornerRadius;' in module
 # Our own host can never be mistaken for the card while the search walks the tree.

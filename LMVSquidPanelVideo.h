@@ -1,5 +1,5 @@
 #pragma once
-// 1.22: the SquidGesturePro panel background (鱿鱼面板背景视频).
+// 1.23: the SquidGesturePro panel background (鱿鱼面板背景视频).
 //
 // Device diagnostics settled the shape of that panel: it lives in SGPanelWindow,
 // a FULL-SCREEN window (430x932) whose first two levels are full-screen as well,
@@ -83,7 +83,7 @@ static UIView *LMVSquidPanelCard(UIWindow *window) {
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) LMVSquidPanelVideoHost *host;
 @property(nonatomic,weak) UIView *card;
-@property(nonatomic) BOOL updating;
+@property(nonatomic) BOOL updating,asSibling;
 - (void)detach;
 - (void)update;
 @end
@@ -104,7 +104,21 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
-    self.card=nil;
+    self.card=nil;self.asSibling=NO;
+}
+// 1.23: a UIVisualEffectView REFUSES direct subviews - addSubview: raises, and an
+// exception escaping a run-loop callback ABORTS SpringBoard (the 1.23 safe-mode
+// crash: UIVisualEffectView _addSubview:positioned:relativeTo: thrown from this
+// module's timer). So the effect view is never used as the container: the host
+// goes into its superview directly BELOW it, which keeps the blur sampling the
+// video (the look we want) and cannot raise. Anything unexpected is caught here
+// and simply leaves the panel alone.
+- (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {
+    if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;
+    [self.host removeFromSuperview];
+    @try {[container insertSubview:self.host atIndex:index];}
+    @catch(NSException *exception) {[self.host removeFromSuperview];return NO;}
+    return self.host.superview==container;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
@@ -121,11 +135,24 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     self.playback.posterLayer.hidden=YES;
     BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
-    if(self.host.superview!=card || card.subviews.firstObject!=self.host) {
-        [self.host removeFromSuperview];[card insertSubview:self.host atIndex:0];
+    // The card may BE the panel's blur material; then the host lives one level up,
+    // directly below it. Either way the host keeps the card's exact frame, so the
+    // panel growing with its icons moves the video with it.
+    BOOL sibling=[card isKindOfClass:UIVisualEffectView.class];
+    UIView *container=sibling?card.superview:card;
+    if(!container) {[self detach];self.updating=NO;return;}
+    NSUInteger index=sibling?(NSUInteger)[container.subviews indexOfObjectIdenticalTo:card]:0;
+    if(index==NSNotFound) {[self detach];self.updating=NO;return;}
+    BOOL placed=sibling?(([container.subviews indexOfObjectIdenticalTo:self.host]+1)==
+                         [container.subviews indexOfObjectIdenticalTo:card])
+                       :(self.host.superview==card && card.subviews.firstObject==self.host);
+    self.asSibling=sibling;
+    if(!placed) {
+        if(![self insertHostInto:container at:index]) {[self detach];self.updating=NO;return;}
     }
     [CATransaction begin];[CATransaction setDisableActions:YES];
-    if(!CGRectEqualToRect(self.host.frame,card.bounds))self.host.frame=card.bounds;
+    CGRect target=sibling?card.frame:card.bounds;
+    if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;
     UIViewAutoresizing mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
     if(self.host.layer.cornerRadius!=card.layer.cornerRadius)self.host.layer.cornerRadius=card.layer.cornerRadius;
@@ -135,8 +162,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f card=%@@%.0f,%.0f,%.0f,%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            self.asSibling?@"sibling":@"child",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             (int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
@@ -173,7 +201,11 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
     if(!LMVSquidPanelEnvironment() || !LMVSquidPanelWindow()) {[LMVSquidPanelVideo detach];return;}
     // Hook install/preferences/launch alone never construct UI or a player.
     if(!LMVSquidPanelVideo)LMVSquidPanelVideo=[LMVSquidPanelVideoManager new];
-    [LMVSquidPanelVideo update];
+    // A timer callback is a run-loop callback: an uncaught exception here aborts
+    // SpringBoard. Every failure inside this channel stands the channel down
+    // instead, and the next tick tries again.
+    @try {[LMVSquidPanelVideo update];}
+    @catch(NSException *exception) {[LMVSquidPanelVideo detach];}
 }
 static void LMVSquidPanelVideoSuspend(void) {
     if(!NSThread.isMainThread)return;
