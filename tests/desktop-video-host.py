@@ -99,6 +99,7 @@ assert 'BOOL hostHidden=opaqueCover || sheetWallpaper;' in h
 assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetWallpaper) self.sheetWallpaperShown=NO;' in h
+assert 'self.wasAuthenticated=NO;self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'else if (self.authenticatedSession && !self.wasAuthenticated) self.sheetPreexisting=YES;' in h
