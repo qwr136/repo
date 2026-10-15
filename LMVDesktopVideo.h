@@ -646,9 +646,6 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // expiry could restore the wallpaper before a long app-return/Reachability
     // transition finished. Hold it paused until exposure returns or a definitive
     // teardown occurs; do not acquire a new host while this evidence is missing.
-    // 0.0.138: the sheet shows the original wallpaper only when it is NOT the
-    // pre-existing unlock/withdrawal cover.
-    BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;
     // 0.0.138: while a cover or a SpringBoard presentation is up, the surface is
     // only HIDDEN, never torn down - a teardown restores the wallpaper lease and
     // the original wallpaper showed through the translucent switcher (the
@@ -703,7 +700,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // frame must stay VISIBLE (the user asked for exactly that, and the
         // suppress-lease stays applied so no wallpaper can show through).
         BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);
-        BOOL hostHidden=opaqueAppCover || sheetWallpaper;
+        BOOL hostHidden=opaqueAppCover || (sheetCover && !self.sheetPreexisting);
         if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
         NSUInteger mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
@@ -722,7 +719,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 0.0.139: same rule on the held-surface path - a translucent cover
         // keeps the frozen frame visible.
         BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);
-        BOOL hostHidden=opaqueAppCover || sheetWallpaper;
+        BOOL hostHidden=opaqueAppCover || (sheetCover && !self.sheetPreexisting);
         if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
     } else {
         if (self.host.superview!=nil) self.teardowns++;
@@ -734,8 +731,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // the video never disagree. The flip syncs the Desktop audio directly (no
     // timer beat in either direction): pausing the instant the desktop becomes
     // invisible, resuming the instant it is back.
-    if (!sheetWallpaper) self.sheetWallpaperShown=NO;
-    BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||
+    if (!sheetCover) self.sheetWallpaperShown=NO;
+    BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || (sheetCover && !self.sheetPreexisting))) ||
         (visible && covered && (switcherCover || ccCover || foreground!=1));
     BOOL wasCovered=self.coveredNow;
     self.coveredNow=audioCovered;
@@ -753,7 +750,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // sheet (the layer is hidden above and the lease is released) - this must
         // run whenever the sheet is up, NOT only while frozen, or a partial pull
         // would keep the wallpaper suppressed with no way to see it.
-        if (sheetWallpaper) {
+        if (sheetCover && !self.sheetPreexisting) {
             if (self.lease) {[self.lease restore];self.lease=nil;}
             self.sheetWallpaperShown=YES;
         }
@@ -765,7 +762,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // presented, and a full cover of any kind freezes.
         BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
             (visible && covered && (sheetCover || switcherCover || ccCover || foreground!=1)),
-            play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;
+            play=visible && !covered && !switcherPresented && !ccPresented && !(sheetCover && !self.sheetPreexisting);
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
@@ -786,7 +783,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             else if(!self.playback.wantsPlayback || self.playback.posterOnlyVisible)
                 [self.playback setVisible:YES];
             else [self.playback resumeIfNeeded];
-        } else if(!sheetWallpaper && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))
+        } else if(!(sheetCover && !self.sheetPreexisting) && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))
             // 0.0.140: while the sheet is up the layer is hidden on purpose but
             // the player must KEEP RUNNING - stopping it here is what made the
             // release feel slow (a stopped player has to restart from scratch).

@@ -97,28 +97,27 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 # release resumes with zero delay. Switcher/CC freeze as soon as presented.
 assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h
 assert '(visible && covered && (sheetCover || switcherCover || ccCover || foreground!=1)),' in h
-assert 'play=visible && !covered && !switcherPresented && !ccPresented && !sheetWallpaper;' in h
+assert 'play=visible && !covered && !switcherPresented && !ccPresented && !(sheetCover && !self.sheetPreexisting);' in h
 # the sheet hides the layer but must NOT stop the player - a stopped player is
 # what made the release feel slow.
-assert '} else if(!sheetWallpaper && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))' in h
+assert '} else if(!(sheetCover && !self.sheetPreexisting) && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))' in h
 # 0.0.139: the layer hides only behind an OPAQUE APP cover or under a
 # notification pull - behind the translucent switcher/CC the FROZEN frame stays
 # visible (and the lease keeps the wallpaper hidden, so nothing leaks).
 assert h.count('BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);') == 2
-assert h.count('BOOL hostHidden=opaqueAppCover || sheetWallpaper;') == 2
+assert h.count('BOOL hostHidden=opaqueAppCover || (sheetCover && !self.sheetPreexisting);') == 2
 assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
-assert 'if (!sheetWallpaper) self.sheetWallpaperShown=NO;' in h
+assert 'if (!sheetCover) self.sheetWallpaperShown=NO;' in h
 assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
 assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'BOOL wasDetached=self.host.superview!=container;' in h
 assert 'if (wasDetached) self.sheetPreexisting=sheetCover;' in h, 'only a REAL attach marks the sheet pre-existing'
-assert 'BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;' in h
-assert 'if (sheetWallpaper) {' in h, 'a user pull shows the wallpaper'
+assert 'if (sheetCover && !self.sheetPreexisting) {' in h, 'a user pull shows the wallpaper'
 assert 'self.sheetWallpaperShown=YES;' in h
-assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'
+assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the sheet shows the wallpaper'
 assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 # 0.0.134: the Control Center does not freeze the video at fg==1 either - the
@@ -133,7 +132,7 @@ assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredS
 # disagree; the flip syncs the Desktop audio directly with no timer beat.
 assert '@property(nonatomic) BOOL coveredNow;' in h
 assert 'self.coveredNow=audioCovered;' in h
-assert 'BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || sheetWallpaper)) ||' in h
+assert 'BOOL audioCovered=appForeground || (visible && (switcherPresented || ccPresented || (sheetCover && !self.sheetPreexisting))) ||' in h
 assert 'if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();' in h
 assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # 0.0.132: the app switcher is NOT an app exit - covering the desktop with the
@@ -591,20 +590,20 @@ int main(void){@autoreleasepool {
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
   if(n==0){
     // closed sheet: the desktop plays and the lease stays
-    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
+    assert(m.playback.wantsPlayback && wallPixels.hidden && !m.(sheetCover && !self.sheetPreexisting)Shown && !m.coveredNow);
   } else if(n<100){
     // 0.0.140: while the sheet is being pulled the ORIGINAL WALLPAPER is what the
     // blur shows (layer hidden, lease released) but the VIDEO KEEPS PLAYING - it
     // is not paused, which is what makes the release resume with zero delay. The
     // SOUND is already off from the first pull tick.
     assert(m.playback.wantsPlayback && !m.playback.frozen);
-    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
+    assert(m.host.hidden && !wallPixels.hidden && m.(sheetCover && !self.sheetPreexisting)Shown);
     assert(m.coveredNow);
   } else {
     // pulled to the bottom: the video AND the sound freeze.
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
-    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
+    assert(m.host.hidden && !wallPixels.hidden && m.(sheetCover && !self.sheetPreexisting)Shown);
     assert(m.coveredNow);
   }
  }
