@@ -39,7 +39,12 @@ assert 'if (covered && (foreground!=1 || switcherCover || ccCover || sheetCover)
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
 assert 'BOOL definitiveAway=!configured || !screenKnown || blank || !lockKnown || locked ||' in h
 assert 'self.playback.error!=nil;' in h
-assert 'unknownCover || self.playback.error' not in h, 'unknown cover must HOLD, not tear down'
+# 0.0.137: a GENUINE unknown (no CoverSheet content) still fails closed, while
+# the transient invalid-rect flap is a silent skip - that flap was restoring the
+# wallpaper lease and leaking the original wallpaper through the switcher blur.
+assert 'unknownCover || self.playback.error' in h, 'a genuine unknown cover still tears down (fail closed)'
+assert 'if (!content) {*unknown=YES;continue;}' in h
+assert h.count('if (!LMVLockVideoRectValid(converted)) continue;') >= 2, 'the CoverSheet transient flap is a silent skip'
 assert h.count('if(self.host.hidden!=opaqueCover)self.host.hidden=opaqueCover;') == 2, 'both live branches use one rule'
 assert 'self.host.hidden=YES;' in h, 'the real teardown still hides it'
 assert 'shown=%d composited=%d decode=%d opaque=%d' in h
@@ -509,11 +514,10 @@ int main(void){@autoreleasepool {
   // ("下滑到底才出现原壁纸").
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
   if(n==100){
-    printf("DBG-NC100 lease=%d flag=%d coveredNow=%d hostHidden=%d frozen=%d wallHidden=%d superview=%d\n",
-        m.lease!=nil,m.sheetWallpaperShown,m.coveredNow,m.host.hidden,m.playback.frozen,m.host.superview!=nil);
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
     assert(!wallPixels.hidden);
+    assert(m.sheetWallpaperShown);
   }
   else assert(m.playback.wantsPlayback && wallPixels.hidden);
  }

@@ -329,7 +329,10 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
             if (!content) {*unknown=YES;continue;}
             CGRect rect=LMVLockVideoVisibleRect(content,window);if(CGRectIsEmpty(rect))continue;
             CGRect converted=[window convertRect:rect toWindow:destination];
-            if (!LMVLockVideoRectValid(converted)) {*unknown=YES;continue;}
+            // 0.0.137: a transient invalid rect (the geometry flaps for a frame
+            // during the app -> switcher transition) is skipped SILENTLY. Only a
+            // genuinely missing content view sets *unknown (fail closed).
+            if (!LMVLockVideoRectValid(converted)) continue;
             if (!CGRectIsEmpty(converted)) {combined=CGRectIsEmpty(combined)?converted:CGRectUnion(combined,converted);*sheetCover=YES;}
         }
     }
@@ -560,14 +563,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // restored the wallpaper and re-attached a frame later -- the visible hitch on
     // "quickly open an app, then leave it". Definitive reasons (screen off, locked,
     // unknown cover, feature off, decode error) still tear down immediately.
-    // 0.0.137: an UNKNOWN cover is no longer a teardown reason. During the
-    // in-app swipe-up into the switcher the window conversion flaps unknown for
-    // a frame; tearing down there restored the wallpaper lease and the original
-    // wallpaper showed through the translucent switcher - the reported leak.
-    // Hold instead: the surface, the frozen frame and the lease stay, and the
-    // watcher resumes within ~16 ms once the geometry resolves.
+    // 0.0.137: a GENUINE unknown cover (the CoverSheet has no content to
+    // measure) still fails closed. What no longer tears the desktop down is a
+    // transient geometry flap: the CoverSheet conversion dropping invalid for a
+    // frame during the in-app swipe-up used to restore the wallpaper lease, and
+    // the original wallpaper showed through the translucent switcher - the
+    // reported leak. That case is now a silent skip in the probe.
     BOOL definitiveAway=!configured || !screenKnown || blank || !lockKnown || locked ||
-        self.playback.error!=nil;
+        unknownCover || self.playback.error!=nil;
     CFTimeInterval holdNow=CACurrentMediaTime();
     if (!visible && self.host.superview!=nil && !definitiveAway) {
         if (self.holdSince<=0) self.holdSince=holdNow;
