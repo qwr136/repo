@@ -395,6 +395,16 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     return report;
 }
 @implementation LMVControlCenterVideoManager
+// 1.15: published for the Desktop probe (reached through the runtime - the two
+// modules are separate translation units). YES means "the Control Center is not
+// on screen" according to the module that tracks the CC content, which knows it
+// up to 0.74 s before SBControlCenterWindow itself leaves. An unconfigured
+// module answers nothing at all, so the Desktop keeps its own probe.
++ (BOOL)controlCenterWindowIsEmpty {
+    LMVControlCenterVideoManager *live=LMVControlCenterVideo;
+    if (!live || !live.enabled || !live.path.length) return NO;
+    return !live.presented;
+}
 - (instancetype)init {
     if((self=[super init])) {
         _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;

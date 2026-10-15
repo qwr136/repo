@@ -3,7 +3,7 @@ name: build-deb
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, fix/1.14-roothide ]
+    branches: [ main, master, fix/1.15-roothide ]
     paths-ignore:
       - 'Packages/**'
       - 'Release/**'
