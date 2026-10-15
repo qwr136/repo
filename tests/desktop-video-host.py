@@ -109,11 +109,11 @@ assert h.count('BOOL hostHidden=opaqueAppCover || sheetWallpaper;') == 2
 assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
 assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetWallpaper) self.sheetWallpaperShown=NO;' in h
-assert 'self.wasAttached=NO;self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
-assert 'self.wasAttached=NO;self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
+assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
+assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
-assert 'else if (surfaceAttached && !self.wasAttached) self.sheetPreexisting=YES;' in h
+assert 'self.sheetPreexisting=sheetCover;' in h, 'attaching under a sheet marks it pre-existing'
 assert 'BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;' in h
 assert 'if (sheetWallpaper) {' in h, 'a user pull shows the wallpaper'
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'

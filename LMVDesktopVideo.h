@@ -145,7 +145,7 @@ static void LMVDesktopVideoSuspend(void);
 // unlock/withdrawal case - the warm video must bind there (waiting for the sheet
 // to clear flashes the wallpaper). Only a sheet the user pulled down onto an
 // already-visible desktop shows the original wallpaper.
-@property(nonatomic) BOOL sheetPreexisting,wasAttached;
+@property(nonatomic) BOOL sheetPreexisting;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
 // run on the ~0.4 s hook/tick cadence - the exit cross-fade could therefore
@@ -496,7 +496,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // forget it here - the next update after a wake with the CoverSheet still
     // up must classify that sheet as pre-existing (the warm video binds and the
     // unlock does not flash the wallpaper).
-    self.wasAttached=NO;self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;
+    self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;
 }
 // 0.0.128: see the coverWatch property. The tick deliberately repeats only the
 // CHEAP half of -update (window enumeration + geometry + frontmost probe); the
@@ -646,15 +646,6 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // expiry could restore the wallpaper before a long app-return/Reachability
     // transition finished. Hold it paused until exposure returns or a definitive
     // teardown occurs; do not acquire a new host while this evidence is missing.
-    // The withdrawal sheet is identified by ORDER, not by a probe flip: the
-    // surface re-appears (unlock / resume) while the sheet is ALREADY up. A
-    // sheet the user pulls down onto a surface that was already there is a
-    // normal pull. (Probe/authentication flips were both mis-classified across
-    // suspend/resume cycles.)
-    BOOL surfaceAttached=self.host.superview!=nil;
-    if (!sheetCover) self.sheetPreexisting=NO;
-    else if (surfaceAttached && !self.wasAttached) self.sheetPreexisting=YES;
-    self.wasAttached=surfaceAttached;
     // 0.0.138: the sheet shows the original wallpaper only when it is NOT the
     // pre-existing unlock/withdrawal cover.
     BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;
@@ -687,7 +678,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             UIView *anchor=LMVLockVideoBackgroundAnchor(container,self.host);
             NSUInteger expected=anchor?[container.subviews indexOfObjectIdenticalTo:anchor]+1:0;
             NSUInteger own=[container.subviews indexOfObjectIdenticalTo:self.host];
-            if(self.host.superview!=container || own!=expected){[self.host removeFromSuperview];[container insertSubview:self.host atIndex:expected];}
+            if(self.host.superview!=container || own!=expected){
+                [self.host removeFromSuperview];[container insertSubview:self.host atIndex:expected];
+                // 0.0.140: attaching UNDER a sheet means the sheet pre-existed this
+                // surface (unlock/resume withdrawal) - the warm video binds instead
+                // of the wallpaper. A sheet pulled down onto an already-attached
+                // surface never takes this path and keeps the normal pull behaviour.
+                self.sheetPreexisting=sheetCover;
+            }
         }
         BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,container.bounds);
         [CATransaction begin];[CATransaction setDisableActions:YES];
