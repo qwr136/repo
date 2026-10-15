@@ -70,12 +70,21 @@ assert '@property(nonatomic,strong) CADisplayLink *coverWatch;' in h
 assert '- (void)startCoverWatch {' in h and '- (void)stopCoverWatch {' in h
 assert '- (void)coverWatchTick:(CADisplayLink *)link {' in h
 assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)]' in h
-assert 'if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];' in h
+# 0.0.131: the watcher covers BOTH waiting states - the hidden layer (exit
+# reveal) AND the visible layer frozen under a sheet (CC close -> resume).
+assert 'if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
+assert 'if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}' in h
+assert 'if (fullyCovered && (layerHidden ? LMVDesktopForeground()!=1 : YES)) return;' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
 assert '[self.coverWatch invalidate];self.coverWatch=nil;' in h
 assert '[_coverWatch invalidate];' in h, 'dealloc cleans the watcher up'
 assert 'cover-watch-reveal' in h
+# 0.0.131: the desktop freeze pauses the Desktop audio channel directly through
+# the Tweak.xm-wired hook - the 10 Hz audio timer alone let the desktop sound
+# keep playing for up to half a second after an app covered the desktop.
+assert 'static void (^LMVDesktopAudioPauseHook)(void);' in h
+assert 'if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();' in h
 
 # 0.0.129: any OTHER visible window whose root view covers ~the whole screen is a
 # SHEET cover - the Control Center root slides in and out, and full-screen
@@ -340,9 +349,20 @@ int main(void){@autoreleasepool {
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
+ // 0.0.131: the sheet-frozen state is watched too - silent while the sheet
+ // still fully covers (both with the app probe and at fg==1), and the moment
+ // the sheet leaves the watcher fires and the resume lands in ~16 ms.
+ assert(m.coverWatch!=nil);
+ [m coverWatchTick:nil];
+ assert(m.playback.frozen);
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
+ assert(m.coverWatch!=nil);
  scene.windows=@[homeWindow,wallWindow,nc];
+ [m coverWatchTick:nil];
+ [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
+ assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
+ assert(m.coverWatch==nil);
  [m update];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
  // 0.0.130: the 0.0.129 regression guard - a plain UIWindow with a full-screen

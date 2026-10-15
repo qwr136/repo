@@ -15,7 +15,7 @@ for forbidden in ['LMVEasterTargets','VideoOpacity','videosFilter','LMVMaterialP
 # 0.0.122: the page gained a floating-panel appearance section (corner radius,
 # width, height) that both entry points share.
 assert 'return LMVEasterImagePanelSection() + 1;' in image and 'LMVEasterImageDisplayKeys().count : 2;' in image and '启用小彩蛋' not in image
-assert 'if (section == LMVEasterImagePanelSection()) return 5;' in image
+assert 'if (section == LMVEasterImagePanelSection()) return 6;' in image
 assert 'LMVEasterResolvedPanelCorner(' in overlay
 assert '#import "LMVEasterImageSettings.h"' in video
 assert 'pushViewController:[LMVEasterImageSettings new]' in video
@@ -110,6 +110,10 @@ assert 'while (modal.presentedViewController)' not in overlay
 assert 'canBecomeKeyWindow { return self.panel != nil' in overlay and '[self restoreKey]' in overlay
 assert 'blankKnown' in overlay and 'home-nc-cc:not-visible-or-locked' in overlay
 assert 'LMVEasterNCPolicy' in overlay and 'recordScreenBlank' in overlay
+# 0.0.131: the ball tap fires a haptic (medium impact), gated by the shared
+# 悬浮球震动 switch (default ON) read at tap time.
+assert 'if (LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES)) {' in overlay
+assert 'UIImpactFeedbackGenerator' in overlay and 'impactOccurred' in overlay
 assert '@[@"Message", @"Options", @"Clear"]' in original  # Main renderer remains limited to the original three roles.
 assert 'LMVLayoutLockOverlay' not in original
 assert not (r/'LMVLockBackground.h').exists()

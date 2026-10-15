@@ -98,7 +98,7 @@ for key in ('EasterPanelCornerEnabled', 'EasterPanelCorner', 'EasterPanelSizeEna
             'EasterPanelWidthScale', 'EasterPanelHeightScale'):
     assert key in header, key
     assert key in image, key
-assert 'if (section == LMVEasterImagePanelSection()) return 5;' in image
+assert 'if (section == LMVEasterImagePanelSection()) return 6;' in image
 # A bad edit once made the new helper call ITSELF (compiles into infinite recursion
 # and passes every string check), so the chain and the section count are pinned here.
 import re as _re
@@ -110,8 +110,13 @@ for _helper in ('LMVEasterImageSection', 'LMVEasterImageDisplaySection',
 assert 'static NSInteger LMVEasterImagePanelSection(void) { return LMVEasterImageRotationSection() + 1; }' in image
 assert 'numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImagePanelSection() + 1; }' in image
 assert 'return @"悬浮窗外观";' in image
-for selector in ('panelCornerToggled:', 'panelCornerChanged:', 'panelSizeToggled:', 'panelScaleChanged:'):
+for selector in ('panelCornerToggled:', 'panelCornerChanged:', 'panelSizeToggled:', 'panelScaleChanged:', 'panelHapticToggled:'):
     assert 'action:@selector(%s)' % selector in image, selector
+# 0.0.131: the ball tap haptic - on by default, toggled from this shared page so
+# both entries (settings and the floating panel) change the same switch.
+assert '@"悬浮球震动"' in image
+assert 'EasterBallHapticEnabled' in image
+assert 'LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES)' in image
 # Ranges and defaults keep the previous behaviour when the user never touches them.
 assert '#define LMVEasterPanelCornerFallback 20.0' in header
 assert '#define LMVEasterPanelCornerMin 0.0' in header and '#define LMVEasterPanelCornerMax 60.0' in header

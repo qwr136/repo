@@ -152,6 +152,11 @@ static void LMVDesktopVideoSuspend(void);
 @end
 static LMVDesktopVideoManager *LMVDesktopVideo;
 static BOOL LMVDesktopUpdatePending;
+// 0.0.131: wired by Tweak.xm to LMVAudioPauseTarget(@"Desktop"). The freeze is
+// applied on this manager's update tick, but the audio sync runs on its own
+// 10 Hz timer - without the hook the desktop sound kept playing for up to half
+// a second after an app covered the desktop.
+static void (^LMVDesktopAudioPauseHook)(void);
 static void LMVDesktopRequestUpdate(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVDesktopUpdatePending)return;
     LMVDesktopUpdatePending=YES;
@@ -432,12 +437,20 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     [self.coverWatch invalidate];self.coverWatch=nil;
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
-    if (self.suspended || self.host.superview==nil || !self.host.hidden || self.container==nil) {[self stopCoverWatch];return;}
+    if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
+    BOOL layerHidden=self.host.hidden;
+    // Two watched states: the layer hidden behind an opaque app (reveal), and
+    // the layer visible but frozen under a sheet (0.0.131: Control Center
+    // close -> resume). Anything else has nothing to wait for.
+    if (!layerHidden && !self.playback.frozen) {[self stopCoverWatch];return;}
     BOOL unknown=NO,appCover=NO,sheetCover=NO;
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&sheetCover);
-    // Still provably hidden (fully covered, app frontmost): nothing to do. An
-    // unknown cover keeps waiting for the regular tick to decide.
-    if (unknown || (LMVDesktopFullyCovered(self.container,cover) && LMVDesktopForeground()!=1)) return;
+    if (unknown) return;
+    BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
+    // hidden mode: silent while fully covered AND an app is frontmost;
+    // frozen-visible mode (sheet): silent while the sheet still fully covers -
+    // the moment it drops (slide-out or window hidden) the resume is requested.
+    if (fullyCovered && (layerHidden ? LMVDesktopForeground()!=1 : YES)) return;
     [self stopCoverWatch];
     LMVDiagnostic(@"desktop-video cover-watch-reveal");
     LMVDesktopRequestUpdate();
@@ -609,6 +622,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if(freeze) {
             if(self.playback.wantsPlayback || !self.playback.frozen) {
                 [self.playback holdCurrentFrame:YES];
+                // 0.0.131: the freeze IS the audio-off moment - do not wait for
+                // the audio timer to re-read the state on its own cadence.
+                if(LMVDesktopAudioPauseHook)LMVDesktopAudioPauseHook();
             }
         } else if(play) {
             if(self.playback.frozen)[self.playback holdCurrentFrame:NO];
@@ -630,10 +646,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         UIView *held=self.lease.content;
         if (held && !self.lease.baselineHidden) {if(!held.hidden)held.hidden=YES;self.lease.applied=YES;}
     } else if (self.lease) {[self.lease restore];self.lease=nil;}
-    // 0.0.128: watch every frame ONLY while the layer is hidden behind an opaque
-    // app, so the exit cross-fade is caught within ~16 ms instead of the ~0.4 s
-    // update cadence (which let the wallpaper content show through).
-    if (opaqueCover && self.host.superview!=nil) [self startCoverWatch];
+    // 0.0.128/0.0.131: watch every frame in BOTH waiting states - the layer
+    // hidden behind an opaque app (exit reveal), AND the layer visible but
+    // frozen under a sheet like Control Center (0.0.130 device data: the CC
+    // window disappears from the list while closed) - so the exit cross-fade
+    // and the sheet close are caught within ~16 ms instead of the ~0.4 s update
+    // cadence (which let the wallpaper content show through / delayed resume).
+    if ((opaqueCover && self.host.superview!=nil) || (visible && covered && sheetCover)) [self startCoverWatch];
     else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {

@@ -699,6 +699,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
 }
 - (void)openPanel {
+    // 0.0.131: tap haptic on the ball - on by default, toggled by the shared
+    // appearance page (悬浮球震动). Fires on every tap, panel open or not.
+    if (LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES)) {
+        UIImpactFeedbackGenerator *haptic=[[UIImpactFeedbackGenerator alloc] initWithUIImpactFeedbackStyle:UIImpactFeedbackStyleMedium];
+        [haptic impactOccurred];
+    }
     if (self.panel || self.window.hidden || self.displayScene==LMVEasterDisplayLockScreen) return;
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
     panel.close = ^{ [weakSelf closePanel]; };

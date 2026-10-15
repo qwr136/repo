@@ -141,7 +141,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.130 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=0.0.131 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -726,7 +726,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=0.0.130 diagnostics-enabled");
+        LMVDiagnostic(@"version=0.0.131 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1526,6 +1526,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         %init;
         LMVLockVideoInstallHooks();
         LMVDesktopVideoInstallHooks();
+        // 0.0.131: the desktop freeze pauses the Desktop audio channel directly
+        // instead of waiting for the 10 Hz audio timer to re-read the state.
+        LMVDesktopAudioPauseHook=^{ LMVAudioPauseTarget(@"Desktop"); };
         LMVCCInstallHooks();
         LMVHomeMenuVideoInstallHooks();
         Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");

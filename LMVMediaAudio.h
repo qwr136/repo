@@ -59,6 +59,15 @@ static BOOL LMVAudioAnyEnabled(void) {
 static void LMVAudioPauseAll(void) {
     for(LMVAudioChannel *c in LMVAudioChannels.allValues){c.visible=NO;[c.player pause];}
 }
+// 0.0.131: direct pause for a channel whose owning manager already KNOWS the
+// surface froze or hid. The desktop freeze happens on the ~0.4 s update tick
+// while the audio timer runs at 10 Hz - the timer alone let the desktop sound
+// keep playing for up to half a second after an app covered the desktop.
+static void LMVAudioPauseTarget(NSString *target) {
+    if(!LMVAudioChannels)return;
+    LMVAudioChannel *c=LMVAudioChannels[target];if(!c)return;
+    c.visible=NO;[c.player pause];
+}
 static void LMVAudioConsume(NSString *target,NSString *path,NSString *revision,BOOL visible,CMTime time) {
     LMVAudioChannel *c=LMVAudioChannels[target];if(!c)return;
     visible=visible && c.enabled && c.volume>0 && path.length && revision.length;
