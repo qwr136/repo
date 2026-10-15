@@ -264,11 +264,6 @@ static void LMVDesktopDiscover(void) {
         }
     }
 }
-// 1.14: the Control Center video module already tracks the CC content as it
-// slides away (its own window/material probe) and it reported the content gone
-// 0.74 s before the window itself left (device log). When it is configured it
-// publishes that answer here, so the desktop releases on the same evidence.
-static BOOL (*LMVDesktopControlCenterPresentedHook)(void);
 // 1.14: how much of the window's visible CONTENT is still on screen (0..1).
 // A window keeps its full-screen frame while the content inside shrinks away -
 // that is exactly what an app exit and a Control Center dismiss look like, and
@@ -316,8 +311,6 @@ static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appW
                 // sheet cover -> freeze under the blur (never hide, fg==1).
                 UIView *root=window.rootViewController.viewIfLoaded;
                 if (!root || root.hidden || root.alpha<.01) continue;
-                // 1.14: the window can outlive its content by most of a second.
-                if (LMVDesktopControlCenterPresentedHook && !LMVDesktopControlCenterPresentedHook()) continue;
                 // 0.0.132: a FADING Control Center window is closing - the root
                 // stays full-screen through the fade, so without this gate the
                 // cover (and the freeze) outlived the visible sheet by the whole
@@ -694,13 +687,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // cover, so the resume lands on the very frame the probe changes. A switcher
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
+    NSInteger foreground=LMVDesktopForeground();
     if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
         if (appNow-self.appLeftAt<=0.8) {switcherCover=NO;ccCover=NO;appWindowCover=NO;}
     }
-    NSInteger foreground=LMVDesktopForeground();
     // A fresh authenticated unlock is authoritative even while CoverSheet is
     // still withdrawing. Waiting for cover==empty makes Home's first exposed
     // transaction show the original wallpaper before the warm video attaches.

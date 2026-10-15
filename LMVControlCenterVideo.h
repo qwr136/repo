@@ -609,11 +609,8 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     self.updating=NO;
 }
 @end
-// 1.13: publish the CC presentation to the Desktop probe (see the note there).
-static BOOL LMVCCDesktopPresentedBridge(void);
 static void LMVCCRefresh(BOOL reload) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
-    LMVDesktopControlCenterPresentedHook=LMVCCDesktopPresentedBridge;
     static CFTimeInterval lastDiscovery=0;CFTimeInterval now=CACurrentMediaTime();
     if(!LMVCCControllers.count && (reload || !lastDiscovery || now-lastDiscovery>=.5)){LMVCCDiscover();lastDiscovery=now;}
     if(!LMVControlCenterVideo){LMVControlCenterVideo=[LMVControlCenterVideoManager new];reload=YES;}
@@ -710,8 +707,3 @@ static void LMVCCInstallHooks(void) {
     if(owner)LMV_CC_INSTALL(owner,@"controlCenterViewController:significantPresentationProgressChange:",significant,2,LMVCCHookSignificant,LMVCCOrigSignificant);
 #undef LMV_CC_INSTALL
 }
-
-// 1.13: publish the Control Center presentation to the Desktop probe. The CC
-// module knows the content is gone as soon as its material/geometry leaves,
-// which is up to 0.74 s before the SBControlCenterWindow itself disappears.
-static BOOL LMVCCDesktopPresentedBridge(void) {return LMVControlCenterVideo.presented;}
