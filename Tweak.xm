@@ -1534,9 +1534,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         // state; the coveredNow flip (any cover appearing or leaving) pauses or
         // resumes it the same way - no timer beat in either direction.
         LMVDesktopAudioPauseHook=^{ LMVAudioPauseTarget(@"Desktop"); };
-        LMVDesktopAudioCoverHook=^(BOOL covered,CMTime time){
+        LMVDesktopAudioCoverHook=^(BOOL covered){
             if (covered) LMVAudioPauseTarget(@"Desktop");
-            else LMVAudioResumeTarget(@"Desktop",time);
+            else LMVAudioResumeTarget(@"Desktop",LMVDesktopVideo.playback.player?LMVDesktopVideo.playback.player.currentTime:kCMTimeZero);
         };
         LMVCCInstallHooks();
         LMVHomeMenuVideoInstallHooks();

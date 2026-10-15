@@ -105,12 +105,12 @@ assert '!LMVDesktopVideo.coveredNow && LMVAudioLayerExposed' in s
 # 0.0.135: the coveredNow FLIP syncs the Desktop audio directly in both
 # directions - pause the instant anything covers the desktop, resume (seeked to
 # the video player's current time) the instant it clears. No timer beat.
-assert 'static void (^LMVDesktopAudioCoverHook)(BOOL covered,CMTime time);' in h
+assert 'static void (^LMVDesktopAudioCoverHook)(BOOL covered);' in h
 assert 'BOOL wasCovered=self.coveredNow;' in h
 assert 'if (covered!=wasCovered && LMVDesktopAudioCoverHook)' in h
-assert 'LMVDesktopAudioCoverHook(covered,self.playback.player.currentTime);' in h
-assert "LMVDesktopAudioCoverHook=^(BOOL covered,CMTime time){" in s
-assert 'else LMVAudioResumeTarget(@"Desktop",time);' in s
+assert 'LMVDesktopAudioCoverHook(covered);' in h
+assert "LMVDesktopAudioCoverHook=^(BOOL covered){" in s
+assert 'else LMVAudioResumeTarget(@"Desktop",LMVDesktopVideo.playback.player?LMVDesktopVideo.playback.player.currentTime:kCMTimeZero);' in s
 audio=(r/'LMVMediaAudio.h').read_text()
 assert 'static void LMVAudioResumeTarget(NSString *target,CMTime time) {' in audio
 assert "[c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();" in audio, 'the audio sync gates on the cover, not just the player state'

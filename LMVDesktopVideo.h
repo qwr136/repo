@@ -164,9 +164,9 @@ static BOOL LMVDesktopUpdatePending;
 static void (^LMVDesktopAudioPauseHook)(void);
 // 0.0.135: fired when coveredNow FLIPS - covered=YES pauses the Desktop channel
 // the instant anything covers the desktop, covered=NO resumes it the instant
-// the cover leaves (seeking to the video player's current time). The 10 Hz
-// audio sync alone added up to one timer beat to both directions.
-static void (^LMVDesktopAudioCoverHook)(BOOL covered,CMTime time);
+// the cover leaves (the wiring seeks to the video player's current time). The
+// 10 Hz audio sync alone added up to one timer beat to both directions.
+static void (^LMVDesktopAudioCoverHook)(BOOL covered);
 static void LMVDesktopRequestUpdate(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVDesktopUpdatePending)return;
     LMVDesktopUpdatePending=YES;
@@ -527,8 +527,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // in either direction.
     BOOL wasCovered=self.coveredNow;
     self.coveredNow=covered;
-    if (covered!=wasCovered && LMVDesktopAudioCoverHook)
-        LMVDesktopAudioCoverHook(covered,self.playback.player.currentTime);
+    if (covered!=wasCovered && LMVDesktopAudioCoverHook) LMVDesktopAudioCoverHook(covered);
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
