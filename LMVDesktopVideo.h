@@ -635,7 +635,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         BOOL appSurfaceUp=appCover;
         BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);
         if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;
-        if (appReleaseWindow || !appSurfaceUp) {
+        if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {
             fullyCovered=NO;
             appCover=NO;
             switcherCover=NO;
@@ -718,12 +718,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // played, stopped, played: the reported "卡一下". Only a real switcher
         // CARD (the app surface coming back) ends the release.
         if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;
-        if (appReleaseWindow || !appSurfaceUp) {
+        // The release only has something to release when the app surface or the
+        // remnant switcher shell is actually there - otherwise it must not touch
+        // the geometry at all (the notification sheet and the Control Center are
+        // judged entirely by their own rules).
+        if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {
             appExitRelease=YES;
             appWindowCover=NO;                                     // the app surface never holds
             switcherCover=NO;                                      // ...nor the remnant shell
-            // The Control Center is NOT part of an app exit: its own shell and its
-            // module answer decide, so it keeps freezing when it opens.
         }
     }
     // A fresh authenticated unlock is authoritative even while CoverSheet is
