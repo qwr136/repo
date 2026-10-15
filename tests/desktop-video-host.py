@@ -113,7 +113,8 @@ assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend fo
 assert 'self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;' in h, 'suspend forgets the sheet classification'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
-assert 'self.sheetPreexisting=sheetCover;' in h, 'attaching under a sheet marks it pre-existing'
+assert 'BOOL wasDetached=self.host.superview!=container;' in h
+assert 'if (wasDetached) self.sheetPreexisting=sheetCover;' in h, 'only a REAL attach marks the sheet pre-existing'
 assert 'BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;' in h
 assert 'if (sheetWallpaper) {' in h, 'a user pull shows the wallpaper'
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'

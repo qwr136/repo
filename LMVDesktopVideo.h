@@ -679,12 +679,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             NSUInteger expected=anchor?[container.subviews indexOfObjectIdenticalTo:anchor]+1:0;
             NSUInteger own=[container.subviews indexOfObjectIdenticalTo:self.host];
             if(self.host.superview!=container || own!=expected){
+                // Only a REAL attach counts (the surface went from detached to
+                // attached); the every-tick order correction re-inserts into the
+                // same container and must not re-classify the sheet.
+                BOOL wasDetached=self.host.superview!=container;
                 [self.host removeFromSuperview];[container insertSubview:self.host atIndex:expected];
                 // 0.0.140: attaching UNDER a sheet means the sheet pre-existed this
                 // surface (unlock/resume withdrawal) - the warm video binds instead
                 // of the wallpaper. A sheet pulled down onto an already-attached
                 // surface never takes this path and keeps the normal pull behaviour.
-                self.sheetPreexisting=sheetCover;
+                if (wasDetached) self.sheetPreexisting=sheetCover;
             }
         }
         BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,container.bounds);
