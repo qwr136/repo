@@ -492,6 +492,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     self.suspended=YES;[self.playback setVisible:NO];self.host.hidden=YES;
     [self.lease restore];self.lease=nil;[self.timer invalidate];self.timer=nil;
     [self stopCoverWatch];
+    // 0.0.138: the suspended updates never reach the sheet classification, so
+    // forget it here - the next update after a wake with the CoverSheet still
+    // up must classify that sheet as pre-existing (the warm video binds and the
+    // unlock does not flash the wallpaper).
+    self.wasAuthenticated=NO;self.sheetPreexisting=NO;self.sheetWallpaperShown=NO;
 }
 // 0.0.128: see the coverWatch property. The tick deliberately repeats only the
 // CHEAP half of -update (window enumeration + geometry + frontmost probe); the
