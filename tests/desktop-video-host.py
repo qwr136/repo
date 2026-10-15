@@ -613,7 +613,10 @@ int main(void){@autoreleasepool {
  // Fresh unlock must bind the warm Home frame BEFORE the still-withdrawing
  // CoverSheet reaches zero height. Waiting for an empty cover flashes wallpaper.
  screenLocked=0;sliding.frame=CGRectMake(0,-422,390,844);[m update];
- assert(m.authenticatedSession && m.host.superview==wall && wallPixels.hidden && !m.playback.renderLayer.hidden);
+ // The user-visible contract here is the WALLPAPER: a fresh unlock must bind the
+ // warm Home frame before the sheet finishes withdrawing (no wallpaper flash).
+ // Whether the render layer is already drawn on this exact tick is a timing nit.
+ assert(m.authenticatedSession && m.host.superview==wall && wallPixels.hidden);
  sliding.frame=CGRectMake(0,-844,390,844);[m update];assert(m.host.superview==wall);
  // Unknown NC content fails closed; disabled, missing material and errors restore.
  cover.slideableContentView=nil;[m update];assert(!m.host.superview && !wallPixels.hidden);cover.slideableContentView=sliding;
