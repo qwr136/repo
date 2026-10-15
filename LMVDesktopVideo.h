@@ -749,6 +749,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // resumes the instant the desktop is visible again - the per-frame
         // watcher catches the reveal within ~16 ms. Only a FULL notification
         // pull shows the original wallpaper on purpose (the lease restores).
+        // 0.0.140: ANY notification pull shows the original wallpaper behind the
+        // sheet (the layer is hidden above and the lease is released) - this must
+        // run whenever the sheet is up, NOT only while frozen, or a partial pull
+        // would keep the wallpaper suppressed with no way to see it.
+        if (sheetWallpaper) {
+            if (self.lease) {[self.lease restore];self.lease=nil;}
+            self.sheetWallpaperShown=YES;
+        }
         // 0.0.140: the notification sheet only FREEZES at the bottom of the pull
         // (`covered`); while it is still being pulled the player keeps RUNNING
         // (the layer is hidden above so the sheet shows the wallpaper, but the
@@ -773,14 +781,6 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             // wallpaper on purpose ("下滑到底才出现原壁纸"); a partial pull keeps
             // the video visible through the blur. The lease re-acquires as soon
             // as the sheet slides back and the desktop is exposed again.
-            // 0.0.138: ANY notification pull shows the original wallpaper behind
-            // the sheet ("下滑一半就是原生壁纸"), not just the full pull - the
-            // layer is hidden above and the lease is released, so the blur
-            // samples the wallpaper instead of the video.
-            if (sheetWallpaper) {
-                if (self.lease) {[self.lease restore];self.lease=nil;}
-                self.sheetWallpaperShown=YES;
-            }
         } else if(play) {
             if(self.playback.frozen)[self.playback holdCurrentFrame:NO];
             else if(!self.playback.wantsPlayback || self.playback.posterOnlyVisible)

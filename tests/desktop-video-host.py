@@ -117,6 +117,7 @@ assert 'BOOL wasDetached=self.host.superview!=container;' in h
 assert 'if (wasDetached) self.sheetPreexisting=sheetCover;' in h, 'only a REAL attach marks the sheet pre-existing'
 assert 'BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;' in h
 assert 'if (sheetWallpaper) {' in h, 'a user pull shows the wallpaper'
+assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'
 assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
@@ -588,9 +589,6 @@ int main(void){@autoreleasepool {
   // lease stays); the FULL pull freezes and restores the wallpaper on purpose
   // ("下滑到底才出现原壁纸").
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
-  if(n==1||n==50||n==99)
-    printf("DBG-NC n=%d pre=%d shown=%d covered=%d hidden=%d frozen=%d wants=%d wallHidden=%d\n",
-        n,m.sheetPreexisting,m.sheetWallpaperShown,m.coveredNow,m.host.hidden,m.playback.frozen,m.playback.wantsPlayback,wallPixels.hidden);
   if(n==0){
     // closed sheet: the desktop plays and the lease stays
     assert(m.playback.wantsPlayback && wallPixels.hidden && !m.sheetWallpaperShown && !m.coveredNow);
