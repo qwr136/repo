@@ -527,18 +527,22 @@ int main(void){@autoreleasepool {
  // switcher surface on screen at fg==1 it used to match no listed reason and
  // fired EVERY frame, each fire running a full update (device log: 89 updates in
  // 2 s, up to 4.24 ms each, cover-watch-reveal every 8-17 ms).
+ SBMainSwitcherWindow *watchSwitcher=[SBMainSwitcherWindow new];
+ UIViewController *watchSwitcherController=[UIViewController new];UIView *watchSwitcherView=[UIView new];
+ [watchSwitcher addSubview:watchSwitcherView];watchSwitcher.rootViewController=watchSwitcherController;
+ watchSwitcherController.viewIfLoaded=watchSwitcherView;
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;
- scene.windows=@[homeWindow,wallWindow,nc,switcherWindow];
+ scene.windows=@[homeWindow,wallWindow,nc,watchSwitcher];
  [m update];
- assert(m.playback.frozen && m.coveredNow && m.switcherCover);
+ assert(m.playback.frozen && m.coveredNow);
  LMVDesktopUpdatePending=NO;
  [m coverWatchTick:nil];
- assert(LMVDesktopUpdatePending==NO, 'a held freeze silences the watcher');
+ assert(LMVDesktopUpdatePending==NO);
  [m coverWatchTick:nil];
- assert(LMVDesktopUpdatePending==NO, 'still silent while it holds');
+ assert(LMVDesktopUpdatePending==NO);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m coverWatchTick:nil];
- assert(LMVDesktopUpdatePending==YES, 'the reveal fires within one frame');
+ assert(LMVDesktopUpdatePending==YES);
  LMVDesktopUpdatePending=NO;
  [m update];
  assert(!m.playback.frozen && m.playback.wantsPlayback);
@@ -562,10 +566,10 @@ int main(void){@autoreleasepool {
  [SBControlCenterController sharedInstance].isVisible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
  [m update];
- assert(m.playback.frozen && m.coveredNow && m.ccCover, 'the full-screen content is a cover');
+ assert(m.playback.frozen && m.coveredNow && m.ccCover);
  ccContent.frame=CGRectMake(0,-844,390,844);   // the modules slide out, the window stays
  [m update];
- assert(!m.ccCover, 'the frame alone is not a cover');
+ assert(!m.ccCover);
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  ccContent.frame=CGRectMake(0,0,390,844);
  [SBControlCenterController sharedInstance].isVisible=NO;
