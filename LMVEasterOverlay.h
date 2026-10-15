@@ -701,9 +701,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 - (void)openPanel {
     // 0.0.131: tap haptic on the ball - on by default, toggled by the shared
     // appearance page (悬浮球震动). Fires on every tap, panel open or not.
+    // Built through the runtime: the pinned iOS 15.6 SDK headers do not expose
+    // the UIImpactFeedbackGenerator initializer to this compile unit.
     if (LMVEasterPanelToggle(LMVEasterRead(@"EasterBallHapticEnabled"), YES)) {
-        UIImpactFeedbackGenerator *haptic=[[UIImpactFeedbackGenerator alloc] initWithUIImpactFeedbackStyle:UIImpactFeedbackStyleMedium];
-        [haptic impactOccurred];
+        Class generatorClass=NSClassFromString(@"UIImpactFeedbackGenerator");
+        id generator=generatorClass?((id(*)(id,SEL))objc_msgSend)(generatorClass,sel_registerName("alloc")):nil;
+        generator=generator?((id(*)(id,SEL,long))objc_msgSend)(generator,sel_registerName("initWithUIImpactFeedbackStyle:"),1):nil;
+        if (generator) ((void(*)(id,SEL))objc_msgSend)(generator,sel_registerName("impactOccurred"));
     }
     if (self.panel || self.window.hidden || self.displayScene==LMVEasterDisplayLockScreen) return;
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
