@@ -520,10 +520,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     NSInteger fg=LMVDesktopForeground();
     BOOL presented=LMVDesktopSwitcherPresented()||LMVDesktopControlCenterPresented();
     if (self.host.hidden || self.playback.frozen) {
-        // waiting for the visible state: fire the moment the cover drops OR the
-        // switcher/CC stops being presented (whichever releases first), so the
-        // resume is one frame instead of one update tick.
-        if (fullyCovered && (presented || fg!=1)) return;
+        // 0.0.141: EVERY reason the layer can legitimately be hidden must return
+        // here, or the tick fires, the update restarts the watcher and the next
+        // frame fires again - an endless 60 Hz update loop (device log: the
+        // reveal marker spammed every ~10 ms while the sheet was half pulled,
+        // which is what made the desktop video disappear into the wallpaper).
+        if (presented) return;                       // switcher / CC is up
+        if (fullyCovered && fg!=1) return;           // opaque cover, no desktop evidence
+        if (sheetCover) return;                      // the sheet hides it on purpose (partial pull)
     } else {
         // playing: fire only when the video really must freeze - a presented
         // switcher/CC, or a FULL cover with no desktop evidence. A sheet that is

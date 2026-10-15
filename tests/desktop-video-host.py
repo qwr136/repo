@@ -157,7 +157,8 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 assert 'if (self.host.superview!=nil) [self startCoverWatch];' in h
 assert 'else [self stopCoverWatch];' in h
 assert 'if (self.host.hidden || self.playback.frozen) {' in h
-assert 'if (fullyCovered && (presented || fg!=1)) return;' in h
+assert 'if (presented) return;' in h and 'if (sheetCover) return;' in h, 'every hidden reason returns (no 60 Hz fire loop)'
+assert 'if (fullyCovered && fg!=1) return;' in h
 assert 'if (!(presented || (fullyCovered && (fg!=1 || switcherCover || ccCover || sheetCover)))) return;' in h
 assert 'BOOL presented=LMVDesktopSwitcherPresented()||LMVDesktopControlCenterPresented();' in h
 assert '[self stopCoverWatch];' in h, 'suspend and the tick both stop the watcher'
