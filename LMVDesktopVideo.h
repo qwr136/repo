@@ -145,7 +145,7 @@ static void LMVDesktopVideoSuspend(void);
 // unlock/withdrawal case - the warm video must bind there (waiting for the sheet
 // to clear flashes the wallpaper). Only a sheet the user pulled down onto an
 // already-visible desktop shows the original wallpaper.
-@property(nonatomic) BOOL sheetPreexisting,wasVisible;
+@property(nonatomic) BOOL sheetPreexisting,wasAuthenticated;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
 // run on the ~0.4 s hook/tick cadence - the exit cross-fade could therefore
@@ -576,8 +576,6 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // freezes and the audio stops even when no covering window matched.
     BOOL switcherPresented=LMVDesktopSwitcherPresented();
     BOOL ccPresented=LMVDesktopControlCenterPresented();
-    if (!sheetCover) self.sheetPreexisting=NO;
-    // set after `visible` is computed below (see sheetWallpaper).
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
@@ -642,9 +640,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // expiry could restore the wallpaper before a long app-return/Reachability
     // transition finished. Hold it paused until exposure returns or a definitive
     // teardown occurs; do not acquire a new host while this evidence is missing.
+    // The withdrawal sheet is identified by the AUTHENTICATION flip, not by the
+    // visible flip: on the lock screen the desktop can already be "visible"
+    // behind a half-pulled sheet, so only a session that just authenticated
+    // while the sheet is still up marks the sheet as pre-existing.
     if (!sheetCover) self.sheetPreexisting=NO;
-    else if (visible && !self.wasVisible) self.sheetPreexisting=YES;
-    self.wasVisible=visible;
+    else if (self.authenticatedSession && !self.wasAuthenticated) self.sheetPreexisting=YES;
+    self.wasAuthenticated=self.authenticatedSession;
     // 0.0.138: the sheet shows the original wallpaper only when it is NOT the
     // pre-existing unlock/withdrawal cover.
     BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;

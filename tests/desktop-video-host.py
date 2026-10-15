@@ -101,7 +101,7 @@ assert 'self.sheetWallpaperShown=YES;' in h
 assert 'if (!sheetWallpaper) self.sheetWallpaperShown=NO;' in h
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
-assert 'else if (visible && !self.wasVisible) self.sheetPreexisting=YES;' in h
+assert 'else if (self.authenticatedSession && !self.wasAuthenticated) self.sheetPreexisting=YES;' in h
 assert 'BOOL sheetWallpaper=sheetCover && !self.sheetPreexisting;' in h
 assert 'if (sheetWallpaper) {' in h, 'a user pull shows the wallpaper'
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the full sheet shows the wallpaper'
