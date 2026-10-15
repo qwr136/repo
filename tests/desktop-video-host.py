@@ -508,7 +508,8 @@ int main(void){@autoreleasepool {
   // ("下滑到底才出现原壁纸").
   assert(m.host.superview==wall);originalTree(wall,wallOriginal);originalTree(home,homeOriginal);
   if(n==100){
-    printf("DBG-NC100 %s\n", m.status.UTF8String);
+    printf("DBG-NC100 lease=%d flag=%d coveredNow=%d hostHidden=%d frozen=%d wallHidden=%d superview=%d\n",
+        m.lease!=nil,m.sheetWallpaperShown,m.coveredNow,m.host.hidden,m.playback.frozen,m.host.superview!=nil);
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
     assert(!wallPixels.hidden);
