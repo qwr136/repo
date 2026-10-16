@@ -80,6 +80,9 @@ assert 'return @[@"右边上滑",@"右边上上滑",@"左边上滑",@"左边上�
 assert 'LMVSquidPanelSlotIsShort' not in module
 for name in re.findall(r'^static [\w \*]+?(LMVSquidPanel\w+)\(', module, re.M):
     assert module.count(name) + tweak.count(name) > 1, f'unused static {name} (the build is -Werror)'
+# ...and no C TYPE NAME used as a variable: `short` broke 1.51 and 1.53 the same way.
+for m in re.finditer(r'\b(?:CGFloat|NSInteger|NSUInteger|int|double|float|BOOL) (short|long|register|auto|signed)\b', module):
+    raise AssertionError(f"{m.group(1)} is a C type name, not a variable name")
 # 1.47/1.48 identity, now per slot: a CONTENT signature that carries no height and no
 # width - the icon count - because the device log killed both of the earlier keys
 # keys (the card object is re-created on every open; the height is what the user edits).

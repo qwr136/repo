@@ -308,10 +308,10 @@ static void LMVSquidPanelMoveSlot(NSInteger from,NSInteger to) {
 // when the record agrees (or cannot say), 1 when it had to swap them.
 static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot,BOOL landscape) {
     if(!LMVSquidPanelSlotSigs[tallSlot].length || !LMVSquidPanelSlotSigs[shortSlot].length)return 0;
-    CGFloat tall=LMVSquidPanelHeightInOrientation(tallSlot,landscape);
-    CGFloat short=LMVSquidPanelHeightInOrientation(shortSlot,landscape);
+    CGFloat tallHeight=LMVSquidPanelHeightInOrientation(tallSlot,landscape);
+    CGFloat shortHeight=LMVSquidPanelHeightInOrientation(shortSlot,landscape);
     int order=0;
-    if(tall>0 && short>0 && fabs(tall-short)>4) order=(short>tall)?-1:1;
+    if(tallHeight>0 && shortHeight>0 && fabs(tallHeight-shortHeight)>4) order=(shortHeight>tallHeight)?-1:1;
     else {
         // Different orientations (or a tie): the icon count is orientation-proof, so it
         // is the only thing left that may decide - and it only decides when it is a
