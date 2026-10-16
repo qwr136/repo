@@ -124,18 +124,28 @@ assert 'return [NSString stringWithFormat:@"icons%lu|pc%d|dots%.0f",(unsigned lo
 assert 'if([NSStringFromClass(sub.class) containsString:@"PageControlContentView"])' in module
 assert 'static NSUInteger LMVSquidPanelSignatureIcons(NSString *sig) {' in module
 assert 'static NSString *LMVSquidPanelShapeSig=@"none";' in module
-assert 'if(LMVSquidPanelShortSig.length && [sig isEqualToString:LMVSquidPanelShortSig]) {' in module
+assert 'BOOL hasTall=LMVSquidPanelTallSig.length>0, hasShort=LMVSquidPanelShortSig.length>0;' in module
+assert 'if(hasShort && [sig isEqualToString:LMVSquidPanelShortSig]) {' in module
 assert 'LMVSquidPanelShapeReason=@"sig-short";return YES;' in module
-assert 'if(LMVSquidPanelTallSig.length && [sig isEqualToString:LMVSquidPanelTallSig]) {' in module
+assert 'if(hasTall && [sig isEqualToString:LMVSquidPanelTallSig]) {' in module
 assert 'LMVSquidPanelShapeReason=@"sig-tall";return NO;' in module
-assert 'BOOL tallSameIcons=(LMVSquidPanelTallSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelTallSig)==icons);' in module
-assert 'BOOL shortSameIcons=(LMVSquidPanelShortSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelShortSig)==icons);' in module
-assert 'if(tallSameIcons!=shortSameIcons) {' in module
-assert 'LMVSquidPanelShapeReason=shortPanel?@"icons-short":@"icons-tall";' in module
+# 1.48 (b): only one shape learned and this is not it -> this is the OTHER panel, by
+# elimination. That is the case that was broken (a panel that was only made taller), and
+# it stops the two signatures from pushing each other out of the record.
+assert 'if(hasTall != hasShort) {' in module
+assert 'BOOL shortPanel=hasTall;                 // the tall one is known -> this is short' in module
+assert 'LMVSquidPanelShapeReason=@"other-panel";' in module
+# 1.48 (c): both learned, new signature -> nearest by icon count.
+assert 'NSUInteger dt=(icons>ti)?icons-ti:ti-icons;' in module
+assert 'LMVSquidPanelShapeReason=shortPanel?@"nearest-short":@"nearest-tall";' in module
+# 1.48: a signature taken while the panel is still assembling is never recorded.
+assert 'if(LMVSquidPanelSignatureIcons(sig)>0)LMVSquidPanelRememberShape(shortPanel,sig);' in module
+# 1.48: a new key generation, so the wrong verdict 1.47 left on the device is forgotten.
+assert 'CFSTR("SquidPanelShortSig2")' in module and 'CFSTR("SquidPanelTallSig2")' in module
+assert 'CFSTR("SquidPanelTallSig")' not in module
 assert 'static void LMVSquidPanelRememberShape(BOOL shortPanel,NSString *sig) {' in module
 assert 'CFPreferencesSetAppValue(key,(__bridge CFStringRef)sig,kLMVPrefsID);' in module
 assert 'CFPreferencesAppSynchronize(kLMVPrefsID);' in module
-assert 'CFSTR("SquidPanelTallSig")' in module and 'CFSTR("SquidPanelShortSig")' in module
 assert 'static NSString *LMVSquidPanelShapeReason=@"none";' in module
 assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];' in module
 # 1.44/1.45: the shape picks the slot, and the two slots are INDEPENDENT - there is

@@ -209,7 +209,7 @@ static NSUInteger LMVSquidPanelSignatureIcons(NSString *sig) {
 static NSString *LMVSquidPanelShapeSig=@"none";
 static void LMVSquidPanelRememberShape(BOOL shortPanel,NSString *sig) {
     if(!sig.length || [sig isEqualToString:@"none"])return;
-    CFStringRef key=shortPanel?CFSTR("SquidPanelShortSig"):CFSTR("SquidPanelTallSig");
+    CFStringRef key=shortPanel?CFSTR("SquidPanelShortSig2"):CFSTR("SquidPanelTallSig2");
     CFPreferencesSetAppValue(key,(__bridge CFStringRef)sig,kLMVPrefsID);
     CFPreferencesAppSynchronize(kLMVPrefsID);
     if(shortPanel)LMVSquidPanelShortSig=[sig copy]; else LMVSquidPanelTallSig=[sig copy];
@@ -218,28 +218,42 @@ static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
     if(!card)return NO;
     NSString *sig=LMVSquidPanelContentSignature(card,window);
     LMVSquidPanelShapeSig=sig;
-    // 1.47 (a) the signature was seen before: that settles it, whatever the panel's
-    // size or object identity may be now.
-    if(LMVSquidPanelShortSig.length && [sig isEqualToString:LMVSquidPanelShortSig]) {
+    BOOL hasTall=LMVSquidPanelTallSig.length>0, hasShort=LMVSquidPanelShortSig.length>0;
+    // (a) a signature seen before settles it, whatever the panel's size or object is.
+    if(hasShort && [sig isEqualToString:LMVSquidPanelShortSig]) {
         LMVSquidPanelShapeReason=@"sig-short";return YES;
     }
-    if(LMVSquidPanelTallSig.length && [sig isEqualToString:LMVSquidPanelTallSig]) {
+    if(hasTall && [sig isEqualToString:LMVSquidPanelTallSig]) {
         LMVSquidPanelShapeReason=@"sig-tall";return NO;
     }
-    // (b) a signature we have not seen - the panel was edited. If exactly one of the
-    // remembered ones carries the same ICON COUNT, this is that panel, only taller or
-    // wider: "I made the short panel as tall as the tall one" lands here and keeps its
-    // own material.
-    NSUInteger icons=LMVSquidPanelSignatureIcons(sig);
-    BOOL tallSameIcons=(LMVSquidPanelTallSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelTallSig)==icons);
-    BOOL shortSameIcons=(LMVSquidPanelShortSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelShortSig)==icons);
-    if(tallSameIcons!=shortSameIcons) {
-        BOOL shortPanel=shortSameIcons;
-        LMVSquidPanelShapeReason=shortPanel?@"icons-short":@"icons-tall";
+    // (b) only ONE shape has ever been learned, and this is not it - so this is the
+    // OTHER panel, by elimination. This is the case that was broken: the short panel
+    // was made taller, its signature changed, and the old code re-ran the content test
+    // (page control visible -> "tall") on top of the tall panel's recorded signature
+    // and then OVERWROTE it, so the two signatures kept pushing each other out.
+    if(hasTall != hasShort) {
+        BOOL shortPanel=hasTall;                 // the tall one is known -> this is short
+        LMVSquidPanelShapeReason=@"other-panel";
         LMVSquidPanelRememberShape(shortPanel,sig);
         return shortPanel;
     }
-    // (c) genuinely new: the content test decides, and the verdict is remembered.
+    // (c) both shapes are known and this signature matches neither: the panel was edited
+    // again. The icon count decides - whichever remembered panel it is closest to.
+    if(hasTall && hasShort) {
+        NSUInteger icons=LMVSquidPanelSignatureIcons(sig);
+        NSUInteger ti=LMVSquidPanelSignatureIcons(LMVSquidPanelTallSig);
+        NSUInteger si=LMVSquidPanelSignatureIcons(LMVSquidPanelShortSig);
+        NSUInteger dt=(icons>ti)?icons-ti:ti-icons;
+        NSUInteger ds=(icons>si)?icons-si:si-icons;
+        if(ds!=dt) {
+            BOOL shortPanel=(ds<dt);
+            LMVSquidPanelShapeReason=shortPanel?@"nearest-short":@"nearest-tall";
+            LMVSquidPanelRememberShape(shortPanel,sig);
+            return shortPanel;
+        }
+    }
+    // (d) nothing learned yet (or a tie): the content test decides. Remember it - but
+    // never a signature taken while the panel is still assembling (no icons yet).
     UIPageControl *page=LMVSquidPanelPageControl(card,window);
     BOOL shortPanel;
     if(page) {
@@ -251,7 +265,7 @@ static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
         shortPanel=(height>0 && cardFrame.size.height<height*.45);
         LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];
     }
-    LMVSquidPanelRememberShape(shortPanel,sig);
+    if(LMVSquidPanelSignatureIcons(sig)>0)LMVSquidPanelRememberShape(shortPanel,sig);
     return shortPanel;
 }
 @interface LMVSquidPanelVideoHost:UIView
@@ -436,8 +450,10 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         id swap=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelSwapShapes"),kLMVPrefsID);
         LMVSquidPanelSwapShapes=[swap isKindOfClass:NSNumber.class] && [swap boolValue];
         // 1.47: the content signature each shape was last seen as.
-        id tallSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelTallSig"),kLMVPrefsID);
-        id shortSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelShortSig"),kLMVPrefsID);
+        // 1.48: "2" - 1.47 saved one wrong verdict (icons29 as tall) on the device; a new
+        // key generation makes every device start from a clean slate instead of migrating it.
+        id tallSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelTallSig2"),kLMVPrefsID);
+        id shortSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelShortSig2"),kLMVPrefsID);
         LMVSquidPanelTallSig=[tallSig isKindOfClass:NSString.class]?tallSig:nil;
         LMVSquidPanelShortSig=[shortSig isKindOfClass:NSString.class]?shortSig:nil;
     }
