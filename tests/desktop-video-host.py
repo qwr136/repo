@@ -312,8 +312,13 @@ assert 'LMVDesktopDockInset' not in h and 'LMVDesktopMenuView' not in h, \
 assert 'static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {\n    (void)homeHost;\n    return geometryTarget.bounds;\n}' in h, \
     'the surface is the full container again (1.32)'
 assert 'LMVDesktopIsolateFromBackdrop(self.host);' in h, 'the mounted surface is isolated from backdrop capture'
-assert '[target performSelector:sel withObject:kLMVDesktopBackdropGroup];' in h, \
-    'the isolation uses the guarded private selector'
+# ARC refuses performSelector:withObject: here (-Werror,-Warc-performSelector-leaks),
+# which is what failed the first 1.38 build; the IMP route must stay.
+assert 'performSelector:sel withObject:' not in h, \
+    'performSelector:withObject: is an error under ARC - use the IMP'
+assert 'IMP imp=[target methodForSelector:sel];' in h, 'the isolation takes the IMP'
+assert '((void(*)(id,SEL,id))imp)(target,sel,kLMVDesktopBackdropGroup);' in h, \
+    'the isolation calls through the IMP'
 assert 'candidates=@[@"_setBackdropGroupName:",@"_setGroupName:",@"setBackdropGroupName:"];' in h, \
     'the selector names are tried in order'
 assert 'gateNow-self.probeFullAt<1.0' in h, 'the watcher ceiling is back to a second'

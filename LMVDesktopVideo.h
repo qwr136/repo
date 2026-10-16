@@ -615,7 +615,13 @@ static void LMVDesktopIsolateFromBackdrop(UIView *view) {
         if(view.layer && [view.layer respondsToSelector:sel])target=view.layer;
         else if([view respondsToSelector:sel])target=view;
         if(!target)continue;
-        [target performSelector:sel withObject:kLMVDesktopBackdropGroup];
+        // ARC turns performSelector:withObject: into an error here
+        // (-Werror,-Warc-performSelector-leaks) - that is what failed the first 1.38
+        // build. Take the IMP and call it: identical semantics, and it does not go
+        // through ARC's unknown-selector check.
+        IMP imp=[target methodForSelector:sel];
+        if(!imp)continue;
+        ((void(*)(id,SEL,id))imp)(target,sel,kLMVDesktopBackdropGroup);
         return;
     }
 }
