@@ -570,31 +570,50 @@ static void LMVSquidPanelScanGesturePrefs(void) {
 static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {
     if(!view)return;
     Class cls=view.class;
-    [out appendFormat:@" %s[",class_getName(cls)];
+    NSString *className=NSStringFromClass(cls);
+    [out appendFormat:@" %@",className];
+    // 1.58: UIKit's own layers (UIControl, UIView) carry dozens of properties that other
+    // tweaks bolt on - adPrivacyData, pointerInteraction, cardSectionViewIdentifier, a
+    // shared UUID every panel reports identically. They drown the two lines that matter,
+    // so only the plugin's own classes are asked anything.
+    if([className hasPrefix:@"UI"])return;
+    [out appendString:@"["];
     unsigned count=0;
     objc_property_t *properties=class_copyPropertyList(cls,&count);
     NSMutableArray *names=[NSMutableArray array];
     for(unsigned i=0;i<count && names.count<24;i++)
         [names addObject:@(property_getName(properties[i]))];
     [out appendFormat:@"%@]",[names componentsJoinedByString:@","]];
+    // 1.58: read EVERY property a layer has, not only the ones whose names look like
+    // identifiers. The 1.57 log proved why: SFActivityAction carries `location` and
+    // `title`, and `location` matched none of the guessed names, so it was never read -
+    // the one field that looked most like a fixed gesture name stayed invisible. The
+    // identifier-shaped ones are printed first so they survive the cap, then the rest.
     NSArray *interesting=@[@"ident",@"name",@"title",@"key",@"type",@"index",@"kind",
-                           @"action",@"activity",@"gesture",@"panel",@"uuid",@"tag",@"direction",@"edge",@"side"];
+                           @"action",@"activity",@"gesture",@"panel",@"uuid",@"tag",
+                           @"direction",@"edge",@"side",@"location",@"row",@"showing"];
+    NSArray *skip=@[@"hash",@"superclass",@"description",@"debugDescription"];
     NSUInteger shown=0;
-    for(unsigned i=0;i<count && shown<10;i++) {
-        NSString *name=@(property_getName(properties[i]));
-        NSString *lower=name.lowercaseString;
-        BOOL hit=NO;
-        for(NSString *needle in interesting)if([lower containsString:needle])hit=YES;
-        if(!hit)continue;
-        if(![view respondsToSelector:NSSelectorFromString(name)])continue;
-        id value=[view valueForKey:name];
-        NSString *text=nil;
-        if([value isKindOfClass:NSString.class])text=value;
-        else if([value isKindOfClass:NSNumber.class])text=[value stringValue];
-        if(!text.length)continue;
-        if(text.length>40)text=[text substringToIndex:40];
-        shown++;
-        [out appendFormat:@" %@=%@",name,text];
+    for(NSUInteger pass=0;pass<2;pass++) {
+        NSUInteger limit=pass?14:10;
+        for(unsigned i=0;i<count && shown<limit;i++) {
+            NSString *name=@(property_getName(properties[i]));
+            if([skip containsObject:name])continue;
+            NSString *lower=name.lowercaseString;
+            BOOL hit=NO;
+            for(NSString *needle in interesting)if([lower containsString:needle])hit=YES;
+            if(pass ? hit : !hit)continue;          // pass 0: the likely ones, pass 1: the rest
+            if(![view respondsToSelector:NSSelectorFromString(name)])continue;
+            id value=[view valueForKey:name];
+            NSString *text=nil;
+            if([value isKindOfClass:NSString.class])text=value;
+            else if([value isKindOfClass:NSNumber.class])text=[value stringValue];
+            else if(!value)text=@"nil";
+            else text=[NSString stringWithFormat:@"<%@>",NSStringFromClass([value class])];
+            if(text.length>40)text=[text substringToIndex:40];
+            shown++;
+            [out appendFormat:@" %@=%@",name,text];
+        }
     }
     free(properties);
 }

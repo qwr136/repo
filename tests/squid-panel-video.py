@@ -173,16 +173,25 @@ assert 'static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot
 assert 'NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;' in module
 assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0) {' in module
 assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
-# 1.57: the 1.56 log named the chain SFActivityPanelView > UIControl > SFActivityAction -
-# SFActivityAction is the gesture plugin's own object, so it is asked what it calls
-# itself. Only identifier-shaped properties, only where the getter exists: no side
-# effects, no unguarded valueForKey, and the property list is freed.
+# 1.57/1.58: the 1.56 log named the chain SFActivityPanelView > UIControl >
+# SFActivityAction - SFActivityAction is the gesture plugin's own object, so it is asked
+# what it calls itself. 1.58 reads EVERY property: the 1.57 log showed SFActivityAction
+# carrying `location` and `title`, and `location` matched none of the names 1.57 guessed,
+# so the field that looked most like a fixed gesture name was never read at all.
+# Read-only, only where the getter exists: no side effects, no unguarded valueForKey.
 assert 'static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {' in module
 assert 'class_copyPropertyList' in module and 'free(properties)' in module
 assert 'squid-panel-identity ptr=%p%@' in module
 probe = module[module.index('static void LMVSquidPanelDescribeIdentity'):module.index('// The chain of class names')]
 assert 'performSelector' not in probe and '@try' not in probe
 assert probe.count('respondsToSelector') == 1 and 'valueForKey' in probe
+assert 'for(NSUInteger pass=0;pass<2;pass++) {' in probe        # likely names first, then the rest
+# UIKit layers are named and left alone: their property lists are dozens of tweaks'
+# additions (adPrivacyData, pointerInteraction, a cardSectionViewIdentifier every panel
+# reports identically) and they drown the two lines that matter.
+assert 'if([className hasPrefix:@"UI"])return;' in probe
+assert '@"location"' in probe and '@"title"' in probe
+assert '@"hash",@"superclass",@"description",@"debugDescription"' in probe
 for needle in ('direction', 'edge', 'side', 'gesture'):
     assert needle in probe, f'the fixed name would probably read as {needle}'
 

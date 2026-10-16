@@ -1,5 +1,35 @@
 # 锁屏消息视频
 
+## 1.58：把 `location` 读出来（固定名就在 SFActivityAction 上）
+
+**1.57 的日志已经把门打开了**。`squid-panel-identity` 给出了 `SFActivityAction` 的完整属性表：
+
+```
+SFActivityAction[activityWidth, rowHeight, numberOfActivitiesInRow, blurEffect,
+                 blurEffectView, title, isShowing, location, directActionEnabled]
+```
+
+**`location` 就是那个字段** —— 手势的位置/方向，由插件写、你改布局换 App 都动不了它。可惜 1.57 只按"名字像标识"去读，`location` 不在猜测的词表里，**所以它的值没被读出来**。
+
+**1.58 两处修正：**
+
+| 改动 | 说明 |
+|---|---|
+| **读出每一层的全部属性值** | 不再猜名字。像标识的先打（保证不被截断），其余补上，`nil` 也打出来 |
+| **跳过 UIKit 自带层的属性表** | `UIControl` / `UIView` 上趴着几十个别插件加的属性（`adPrivacyData`、`pointerInteraction`，还有个 `cardSectionViewIdentifier` **四块面板报的都是同一个 UUID**），纯噪音，会把关键两行淹掉 |
+
+所以下一份日志会长这样：
+
+```
+squid-panel-identity ptr=0x… SFActivityPanelView[title,delegate,…] title=nil
+  UIControl SFActivityAction[activityWidth,rowHeight,…] activityWidth=85 rowHeight=85
+  numberOfActivitiesInRow=5 title=nil isShowing=1 location=2 directActionEnabled=0 UIView
+```
+
+**需要你做一次（务必四块都开）**：装 1.58 → 点重置 → 按 **右一→右二→左一→左二 各开一次**（上次只开了三块，`slots=1110`）→ 把 4 行 **`squid-panel-identity`** 发我。
+
+只要 `location` 在四块上是四个不同的值（比如 `0/1/2/3` 或 `right-up / right-up-up / left-up / left-up-up`），**1.59 就拿它当固定名 —— 从此改任何东西都不会再串**。
+
 ## 1.57：找到固定名的最后一步（问 SFActivityAction 自己叫什么）
 
 **1.56 的日志先带来一个好消息**：你把「右一」面板里的动作全换掉（开关VPN/手电筒… → 排查插件/快捷编辑…），图标数 44→50，日志是
