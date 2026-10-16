@@ -33,6 +33,52 @@ static BOOL LMVDesktopPureContent(UIView *view,UIView *own) {
 static BOOL LMVDesktopHomeWindow(UIWindow *window) {
     return LMVLockVideoClass(window,@"SBHomeScreenWindow") && window.screen==UIScreen.mainScreen;
 }
+// 1.31: the surface the desktop video belongs on. The device log pins the tree:
+//
+//   SBHomeScreenWindow
+//     SBHomeScreenView [ SBFStatusBarLegibilityView, SBIconContentView,
+//                        SBHomeScreenBackdropView>MTMaterialView, UIImageView ]
+//
+// The wallpaper view the channel attached to until 1.30 lives a whole window BELOW
+// this one, in _SBWallpaperSecureWindow - so SBHomeScreenWindow covered the video
+// completely ("开始桌面视频 不在桌面"). The video now goes into the Home window
+// itself, directly UNDER the icon container: on the desktop, under the icons,
+// above the wallpaper.
+static UIWindow *LMVDesktopHomeViewWindow(void) {
+    // Scenes only. UIApplication.windows is deprecated AND absent from some host
+    // harnesses, and the Home window always has a scene on iOS 13+ - the double on
+    // this path is the same one LMVCoverRect already walks.
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows)
+            if (!window.hidden && window.alpha>=.01 && LMVDesktopHomeWindow(window)) return window;
+    }
+    return nil;
+}
+// The Home view plus the icon container the video must sit under. Only a DIRECT
+// subview is ever returned as the anchor: insertSubview:belowSubview: raises on a
+// descendant, and an exception escaping this path would abort SpringBoard.
+static UIView *LMVDesktopHomeHostView(UIView **iconsOut) {
+    if (iconsOut) *iconsOut = nil;
+    UIWindow *window = LMVDesktopHomeViewWindow();
+    if (!window) return nil;
+    // Found by class name, never through rootViewController: only the coverage probe
+    // touches that property, so the harness for this path cannot be assumed to
+    // double it. The Home view is a direct subview of its own window either way.
+    UIView *home = nil;
+    for (UIView *child in window.subviews) {
+        if ([NSStringFromClass(child.class) containsString:@"HomeScreenView"]) { home = child; break; }
+    }
+    if (!home && window.subviews.count) home = window.subviews.firstObject;
+    if (!home || !LMVLockVideoRectValid(home.bounds)) return nil;
+    for (UIView *child in home.subviews) {
+        if ([NSStringFromClass(child.class) containsString:@"IconContentView"]) {
+            if (iconsOut) *iconsOut = child;
+            return home;
+        }
+    }
+    return nil;
+}
 static BOOL LMVDesktopGeometryVisible(UIView *view) {
     UIWindow *window=view.window;
     if (!window || window.hidden || window.alpha<.01 || !LMVLockVideoRectValid(view.bounds)) return NO;
@@ -878,7 +924,27 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if(wallpaperValid){self.explicitSource=container;self.explicitWindow=container.window;}
         self.wallpaperAttachment=wallpaperValid;
         self.attachmentController=homeOwner ?: poster;
-        if (content && content.superview==container) {
+        UIView *homeIcons=nil;
+        UIView *homeHost=LMVDesktopHomeHostView(&homeIcons);
+        BOOL usingHomeHost=(homeHost!=nil && homeIcons!=nil);
+        if (usingHomeHost) {
+            // 1.31: the desktop video draws on the desktop itself - under the icon
+            // container, above the wallpaper. No wallpaper lease is taken on this
+            // path: the video sits ON TOP of the wallpaper rather than replacing it,
+            // so nothing of the system's own background has to be hidden (and none of
+            // the lease side effects can show up).
+            if (self.lease) {[self.lease restore];self.lease=nil;}
+            // insertSubview:atIndex: rather than belowSubview: - the same position
+            // (the icon container's OWN index, so the video lands directly under it),
+            // with an API the host harness already implements and no exception path.
+            NSInteger iconIdx=(NSInteger)[homeHost.subviews indexOfObjectIdenticalTo:homeIcons];
+            NSUInteger target=(iconIdx>0)?(NSUInteger)iconIdx:0;
+            if (self.host.superview!=homeHost ||
+                (NSInteger)[homeHost.subviews indexOfObjectIdenticalTo:self.host]!=(NSInteger)target) {
+                [self.host removeFromSuperview];
+                [homeHost insertSubview:self.host atIndex:target];
+            }
+        } else if (content && content.superview==container) {
             NSUInteger back=[container.subviews indexOfObjectIdenticalTo:content],own=[container.subviews indexOfObjectIdenticalTo:self.host];
             if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:content];}
         } else if (poster && container==poster.viewIfLoaded) {
@@ -901,16 +967,17 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // stays right above the wallpaper view, under the icons, so the menu
         // blurs the video instead of nothing.
         UIView *hostParent=container;
-        if ((container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;
+        if (!usingHomeHost && (container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;
         if (hostParent!=container) {
             if(self.host.superview!=hostParent) {
                 [self.host removeFromSuperview];
                 [hostParent insertSubview:self.host aboveSubview:container];
             }
         }
-        BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,container.bounds);
+        UIView *geometryTarget=usingHomeHost?homeHost:container;
+        BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,geometryTarget.bounds);
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        if(geometryChanged)self.host.frame=container.bounds;
+        if(geometryChanged)self.host.frame=geometryTarget.bounds;
         if(self.host.alpha!=1)self.host.alpha=1;
         // 0.0.124: do not composite a layer that nothing can see. The layer stays
         // attached to the same superview, so it is back the instant the cover goes
@@ -1095,6 +1162,28 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             self.host.superview?(long)[self.host.superview.subviews indexOfObjectIdenticalTo:self.host]:-1];
         static NSString *lastHostStatus=nil;
         if (![hostStatus isEqualToString:lastHostStatus]) {lastHostStatus=[hostStatus copy];LMVDiagnostic(hostStatus);}
+        // 1.31: where the surface actually landed on the Home window. One line tells
+        // "the video is not on the desktop" apart from "it went to another window":
+        // our own view is marked with *, next to the icon container's index.
+        {
+            UIView *homeIcons=nil;
+            UIView *home=LMVDesktopHomeHostView(&homeIcons);
+            if (home) {
+                NSMutableString *order=[NSMutableString new];
+                NSUInteger i=0;
+                for (UIView *child in home.subviews) {
+                    if (i++>=8) {[order appendString:@"…"];break;}
+                    [order appendFormat:@"%@%@ ",child==self.host?@"*":@"",NSStringFromClass(child.class)];
+                }
+                NSString *homeStatus=[NSString stringWithFormat:@"desktop-home win=%@ subviews=[%@] icons=%ld host=%ld attached=%d %.0fx%.0f",
+                    NSStringFromClass(home.window.class),order,
+                    (long)[home.subviews indexOfObjectIdenticalTo:homeIcons],
+                    (long)[home.subviews indexOfObjectIdenticalTo:self.host],
+                    (int)(self.host.superview!=nil),home.bounds.size.width,home.bounds.size.height];
+                static NSString *lastHomeStatus=nil;
+                if (![homeStatus isEqualToString:lastHomeStatus]) {lastHomeStatus=[homeStatus copy];LMVDiagnostic(homeStatus);}
+            }
+        }
     }
     // 1.25: WHY the video cannot be seen while a system overlay is up (the
     // long-press context menu reads as blank behind it). Everything else in this

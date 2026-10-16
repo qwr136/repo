@@ -147,7 +147,15 @@ assert 'for (UIView *child in root.subviews) {' in h
 assert 'CGFloat ccContent=LMVDesktopContentCoverage(window,root,destination);' in h and 'if (ccContent>=0 && ccContent<0.6) continue; // the content has left' in h, 'the CC window frame is not a cover once the content slid away'
 assert 'CGFloat appContent=LMVDesktopContentCoverage(window,window.rootViewController.viewIfLoaded,destination);' in h and 'if (appContent>=0 && appContent<0.4) continue;' in h, 'an app/switcher window frame is not a cover once its content shrinks away'
 assert 'desktop-cover-owner %@' in h, 'the log names the surface that holds the cover'
-assert 'UIView *hostParent=container;' in h and 'if ((container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;' in h, 'a hidden wallpaper branch is bypassed (1.25)'
+assert 'UIView *hostParent=container;' in h and 'if (!usingHomeHost && (container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;' in h, 'a hidden wallpaper branch is bypassed (1.25)'
+# 1.31: the surface belongs on the Home window itself, under the icon container -
+# the wallpaper it attached to until 1.30 lives a whole window BELOW, so
+# SBHomeScreenWindow covered the video completely ("开始桌面视频 不在桌面").
+assert 'static UIView *LMVDesktopHomeHostView(UIView **iconsOut) {' in h, 'the Home host probe exists'
+assert 'if ([NSStringFromClass(child.class) containsString:@"IconContentView"]) {' in h, 'the icon container is found by class name'
+assert 'if (usingHomeHost) {' in h and '[homeHost insertSubview:self.host atIndex:target];' in h, 'the surface lands directly under the icon container'
+assert 'UIView *geometryTarget=usingHomeHost?homeHost:container;' in h, 'the Home host sizes the surface'
+assert 'desktop-home win=%@ subviews=[' in h, 'where the surface landed is one diagnostic line'
 assert '[hostParent insertSubview:self.host aboveSubview:container];' in h, 'the layer borrows the wallpaper parent (1.25)'
 assert 'desktop-host container=%@ hidden=%d alpha=%.2f' in h, 'the host chain is diagnosed (1.25)'
 # 1.25: diagnostics only - the window our layer lives in, the full ancestry, the
