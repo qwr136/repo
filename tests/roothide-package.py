@@ -59,12 +59,15 @@ for name in ('build.yml', 'easter-compile.yml'):
         check(token in workflow, name + ': ' + token)
     check('https://github.com/theos/theos.git' not in workflow and 'macos-14' not in workflow, 'no old toolchain: ' + name)
     if name == 'build.yml':
-        # 1.35: 触发方式改成「tag 发版」，并且仓库转 private 后刻意不再对 push main
-        # 构建（macOS runner 计费是普通 runner 的 10 倍，会把免费额度烧光——这正是
-        # 当初改回 public 的原因）。所以断言：tag 触发 + 手动触发都在，且没有分支触发。
-        check('push:' in workflow and "tags: [ 'v*' ]" in workflow and 'workflow_dispatch:' in workflow,
-              'tag-driven release trigger enabled')
-        check('branches:' not in workflow, 'no branch push trigger (private repo runs on quota)')
+        # 触发方式：push 到 main 就构建（不打 tag），外加手动触发。
+        check('push:' in workflow and 'branches: [ main ]' in workflow and 'workflow_dispatch:' in workflow,
+              'push-to-main build trigger enabled')
+        check('tags:' not in workflow, 'no tag trigger')
+        # 仓库是 private，macOS runner 按 10 倍扣 Free 额度，所以 Theos+SDK
+        # 必须走缓存；缓存命中那条路径也要保留落盘前的完整校验。
+        check('actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830' in workflow and
+              'path: ${{ runner.temp }}/rh-theos' in workflow, 'theos+SDK cached (private-repo quota)')
+        check('test -f "$dest/vendor/include/roothide.h"' in workflow, 'cache is re-validated before use')
     else:
         check('push:' not in workflow, 'auxiliary workflow is manual-only')
 base = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:.github/workflows/build.yml'], text=True)
