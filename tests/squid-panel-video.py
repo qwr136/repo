@@ -17,6 +17,7 @@ them) and is therefore claimed automatically and can be re-bound by hand, and th
 video always fills the CARD rather than the full-screen blur material behind it.
 """
 from pathlib import Path
+import re
 
 root = Path(__file__).resolve().parents[1]
 module = (root / 'LMVSquidPanelVideo.h').read_text()
@@ -73,8 +74,12 @@ assert 'static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];' in modu
 assert 'return @[@"SquidPanelVideo",@"SquidPanel2Video",@"SquidPanel3Video",@"SquidPanel4Video"];' in module
 assert 'return @[@"SquidPanelSlot1Sig",@"SquidPanelSlot2Sig",@"SquidPanelSlot3Sig",@"SquidPanelSlot4Sig"];' in module
 assert 'return @[@"右边上滑",@"右边上上滑",@"左边上滑",@"左边上上滑"];' in module
-# Even slot = the tall "上滑" panel, odd = the short "上上滑" one.
-assert 'return slot>=0 && slot<LMVSquidPanelSlotCount && (slot&1)!=0;' in module
+# Even slot = the tall "上滑" panel, odd = the short "上上滑" one; which of the two a
+# panel is comes out of the pair ordering below, never from a helper that could go
+# unused (the build is -Werror, and an unused static in this header fails it).
+assert 'LMVSquidPanelSlotIsShort' not in module
+for name in re.findall(r'^static [\w \*]+?(LMVSquidPanel\w+)\(', module, re.M):
+    assert module.count(name) + tweak.count(name) > 1, f'unused static {name} (the build is -Werror)'
 # 1.47/1.48 identity, now per slot: a CONTENT signature that carries no height and no
 # width - icon count and page-control dots - because the device log killed both earlier
 # keys (the card object is re-created on every open; the height is what the user edits).

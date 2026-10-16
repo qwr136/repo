@@ -49,9 +49,6 @@ static NSArray *LMVSquidPanelSlotHeightKeys(void) {
 static NSArray *LMVSquidPanelSlotTitles(void) {
     return @[@"右边上滑",@"右边上上滑",@"左边上滑",@"左边上上滑"];
 }
-static BOOL LMVSquidPanelSlotIsShort(NSInteger slot) {
-    return slot>=0 && slot<LMVSquidPanelSlotCount && (slot&1)!=0;
-}
 static BOOL LMVSquidPanelSpringBoard(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
 }
