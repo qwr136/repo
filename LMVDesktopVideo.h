@@ -577,17 +577,57 @@ static NSUInteger LMVDesktopVisibleWindowCount(void) {
     }
     return count;
 }
-// 1.33: the height of the floating dock, measured from the dock's own window.
-// Why this matters: 1.31 moved the surface out of _SBWallpaperSecureWindow and
-// into SBHomeScreenWindow. A SECURE window's content is excluded from system
-// backdrop capture; the Home window's content is not. So the dock's floating blur
-// (SBFloatingDockView) started sampling our FULL-SCREEN video, and the dock's own
-// appearance changed with it - reported as the dock vanishing behind the
-// long-press menu. Keeping the surface above the dock strip restores exactly what
-// 1.30 showed there (the system background) without giving up the desktop video.
+// 1.35: is a Home context menu on screen right now. This is the ONLY scene that
+// needs the dock strip vacated (see LMVDesktopDockInset below). Probing the
+// system's own menu classes keeps both menu paths - the presentation-controller
+// one and the newer platter one the floating dock goes through - under a single
+// predicate, without this file having to model a menu lifecycle of its own. One
+// shallow window walk on the geometry turn, not per frame.
+static BOOL LMVDesktopContextMenuUp(void) {
+    static Class listClass,viewClass,platterClass;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        listClass=NSClassFromString(@"_UIContextMenuListView");
+        viewClass=NSClassFromString(@"_UIContextMenuView");
+        platterClass=NSClassFromString(@"_UIContextMenuPlatterTransitionView");
+    });
+    // Class names we do not recognise means we cannot tell a menu from anything
+    // else - keep 1.33's unconditional concession rather than risk the dock.
+    if(!listClass && !viewClass && !platterClass)return YES;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(window.hidden || window.alpha<.01)continue;
+            NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:window.subviews];
+            NSUInteger budget=80;
+            while(pending.count && budget--) {
+                UIView *node=pending.lastObject;[pending removeLastObject];
+                if((listClass && [node isKindOfClass:listClass]) ||
+                   (viewClass && [node isKindOfClass:viewClass]) ||
+                   (platterClass && [node isKindOfClass:platterClass])) return YES;
+                [pending addObjectsFromArray:node.subviews];
+            }
+        }
+    }
+    return NO;
+}
+// 1.35: the height of the floating dock, measured from the dock's own window.
+// Why the dock matters at all: 1.31 moved the surface out of
+// _SBWallpaperSecureWindow and into SBHomeScreenWindow. A SECURE window's content
+// is excluded from system backdrop capture; the Home window's content is not. So
+// the dock's floating blur (SBFloatingDockView) samples our video and the dock's
+// own appearance changes with it - reported as the dock vanishing behind the
+// long-press menu. 1.33 answered that by keeping the surface above the dock strip
+// permanently, which fixed the menu but left that strip showing the system
+// background instead of the video ("dock 下面没有视频背景"). The blob the dock
+// samples is only visible as a DEFECT while a menu is up, so the concession now
+// follows the menu: full-screen normally, strip vacated only under a menu.
 // Measured rather than assumed: the dock moves and resizes with Reachability,
 // rotation and device, so a constant would be wrong on some of them.
 static CGFloat LMVDesktopDockInset(void) {
+    // Cheap first: with no menu up there is nothing to concede, so the dock
+    // subtree walk below is skipped entirely.
+    if(!LMVDesktopContextMenuUp())return 0;
     Class dockWindowClass=NSClassFromString(@"SBFloatingDockWindow");
     Class dockViewClass=NSClassFromString(@"SBFloatingDockView");
     if(!dockWindowClass || !dockViewClass) return 0;

@@ -303,6 +303,18 @@ assert 'if (window.alpha<0.99) continue;' in h, 'a fading Control Center is clos
 assert 'CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);' in h
 assert 'if (full<=0 || area/full<0.9) continue;' in h
 assert 'sheetName' not in h, 'the generalized sheet probe is really gone'
+# 1.35: the dock strip is conceded only while a Home context menu is up. 1.33 made
+# that concession unconditional, which fixed the dock behind the long-press menu but
+# left the strip with no video ("dock 下面没有视频背景"). The probe must read the
+# system's own menu classes - that is what covers the platter path the floating dock
+# uses, which never goes through _UIContextMenuPresentationController - and it must
+# run BEFORE the dock walk so the no-menu case costs nothing.
+assert 'static BOOL LMVDesktopContextMenuUp(void) {' in h, 'the context-menu probe exists'
+assert ('_UIContextMenuListView' in h and '_UIContextMenuView' in h and
+        '_UIContextMenuPlatterTransitionView' in h), 'both menu paths are covered'
+assert 'if(!LMVDesktopContextMenuUp())return 0;' in h, 'no menu means no concession'
+assert h.index('if(!LMVDesktopContextMenuUp())return 0;') < h.index('NSClassFromString(@"SBFloatingDockWindow")'), \
+    'the cheap menu test runs before the dock subtree walk'
 # 0.0.129 diagnostics: the on-screen window class list (changes-only) identifies
 # sheet presenters (e.g. the search pull-down) the probe does not know yet.
 assert 'desktop-windows %@' in h

@@ -24,6 +24,14 @@ assert 'self.host.layer.transform=material.layer.transform' in h
 assert 'if(!CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))' in h
 assert 'now-LMVHomeMenuVideo.lastAudit>=.25' in h
 assert '[material.layer removeFromSuperlayer]' not in h
+# 1.35: the desktop channel now concedes the dock strip only while a menu is up, and
+# it needs the menu's own edges to re-measure on - layoutSubviews as the menu
+# appears, didMoveToWindow as it leaves. Lock both wiring points, and that the flag
+# is edge-only (a plain property read, so repeated layouts cost nothing).
+assert 'static void LMVHomeMenuTellDesktop(BOOL up) {' in h, 'the desktop edge notification exists'
+assert 'if(LMVHomeMenuDesktopToldUp==up)return;' in h, 'the notification is edge-only'
+assert 'if(((UIView *)object).window)LMVHomeMenuTellDesktop(YES);' in h, 'the appear edge is wired'
+assert 'LMVHomeMenuTellDesktop(((UIView *)object).window!=nil);' in h, 'the leave edge is wired'
 if platform.system()!='Darwin' and not os.environ.get('LMV_NATIVE_EXPORT_DIR'):
     print('PASS: HomeMenu source contracts; SKIP native QuartzCore (requires macOS, not device validation)')
     raise SystemExit(0)
