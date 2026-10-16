@@ -17,12 +17,12 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 14
+assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchSquidPanel2:', 'switchAT:', 'switchCV:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 15
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
-for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '鱿鱼面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
+for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '上滑面板背景视频'), ('SquidPanel2', '上上滑面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
     assert f'@"{target}": @"{title}"' in source
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
     assert f'@"{target}": @""' in source
@@ -68,11 +68,11 @@ assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
 assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
 assert '桌面长按菜单视频背景' in home_section and '切换长按菜单素材' in home_section
 squid_section = source[squid_start:at_start]
-assert squid_section.count('cell:PSSwitchCell') == 1 and squid_section.count('cell:PSButtonCell') == 1
+assert squid_section.count('cell:PSSwitchCell') == 1 and squid_section.count('cell:PSButtonCell') == 2
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"]' in squid_section
 assert '[squidPanelEnabled setProperty:@NO forKey:@"default"]' in squid_section
 assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in squid_section
-assert '鱿鱼面板背景视频' in squid_section and '切换鱿鱼面板素材' in squid_section
+assert '鱿鱼面板背景视频' in squid_section and '切换上滑素材' in squid_section and '切换上上滑素材' in squid_section
 # 1.26: the AT (AppTools pop-up) group - same switch/material/sound layout.
 at_section = source[at_start:cv_start]
 assert at_section.count('cell:PSSwitchCell') == 1 and at_section.count('cell:PSButtonCell') == 1
@@ -99,10 +99,10 @@ for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
     assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation
 assert '消息、选项、清除视频透明度' in source
-assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"] containsObject:target];' in source
+assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"AT", @"CV"] containsObject:target];' in source
 assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
 allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotify(')]
-assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV']
+assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'SquidPanel2', 'AT', 'CV']
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
 selection = source[source.index('- (void)selectFile:'):source.index('- (void)switchMessage:')]
@@ -176,7 +176,7 @@ handlers = '\n'.join(['- (void)switchTarget:(NSString *)target { self.calls++; s
 tests = r'''
 @end
 int main(void) { @autoreleasepool {
-    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"]) assert(LMVMaterialTargetAllowed(target));
+    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"AT", @"CV"]) assert(LMVMaterialTargetAllowed(target));
     for (id bad in @[@"", @"Unknown", @"HomeMenuVideo", @"HomeMenuBackgroundEnabled", @"homemenu", @"../HomeMenu", @42, NSNull.null]) assert(!LMVMaterialTargetAllowed(bad));
     assert(!LMVMaterialTargetAllowed(nil));
     LMVPRootListController *controller = [LMVPRootListController new];
@@ -185,7 +185,7 @@ int main(void) { @autoreleasepool {
     row.cellType = PSButtonCell; row.target = controller; row.properties = [NSMutableDictionary new];
     controller.testRow = row;
     NSArray *selectors = @SELECTORS@;
-    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchAT:":@"AT", @"switchCV:":@"CV"};
+    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchSquidPanel2:":@"SquidPanel2", @"switchAT:":@"AT", @"switchCV:":@"CV"};
     for (NSString *selector in selectors) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
@@ -210,7 +210,7 @@ int main(void) { @autoreleasepool {
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all fourteen actions and eleven actual switch wrappers including switchControlCenterDark:/switchControlCenterLight:/switchHomeMenu:/switchSquidPanel:/switchAT:/switchCV:, allowed/invalid material targets, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, all fifteen actions and twelve actual switch wrappers including switchControlCenterDark:/switchControlCenterLight:/switchHomeMenu:/switchSquidPanel:/switchSquidPanel2:/switchAT:/switchCV:, allowed/invalid material targets, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:

@@ -16,7 +16,10 @@
 static void LMVSquidPanelVideoRefresh(BOOL reload);
 static void LMVSquidPanelVideoSuspend(void);
 static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown;
-static NSString *LMVSquidPanelPath,*LMVSquidPanelRevision;
+// 1.44: the panel has two shapes, so it has two material slots - slot 1 for the
+// tall ("swipe up") panel, slot 2 for the short ("swipe up twice") one. The sound
+// switch and volume stay shared: only one of the two is ever on screen.
+static NSString *LMVSquidPanelPath,*LMVSquidPanelRevision,*LMVSquidPanelPath2,*LMVSquidPanelRevision2;
 static NSTimer *LMVSquidPanelTimer;
 static BOOL LMVSquidPanelSpringBoard(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
@@ -85,9 +88,24 @@ static UIView *LMVSquidPanelCard(UIWindow *window) {
 // 1.25: the panel's blur material - the effect view that gives the card its
 // background. It is what the video has to sit ABOVE (otherwise the material hides
 // it: the 1.25 report) and what the icons sit above.
+// 1.44: the panel keeps TWO shapes - the "swipe up" one and the "swipe up twice"
+// one - and in BOTH of them the blur material is sized to the SCREEN, not to the
+// card (landscape: 932x435 of material behind a 814x180 card). Scoring the material
+// with the CARD rule ("at least half of ITSELF on screen", the rule that skips the
+// parked copies) therefore dropped it to 36% and the material was mistaken for a
+// parked copy: the short landscape panel lost its material, the video fell back to
+// the card's first subview - UNDER the material - and became invisible.
+//
+// The material is not a card: it is searched INSIDE the card that was already
+// chosen, so the parked copies are unreachable from here by construction. The only
+// question worth asking is whether it COVERS that card, which is also what the
+// video needs; anything covering >=90% of the card qualifies.
 static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {
     if(!root || !window)return nil;
-    CGRect bounds=window.bounds;
+    CGRect cardFrame=[root convertRect:root.bounds toView:window];
+    if(CGRectIsEmpty(cardFrame))return nil;
+    CGFloat cardArea=cardFrame.size.width*cardFrame.size.height;
+    if(cardArea<=0)return nil;
     UIView *best=nil;CGFloat bestArea=0;
     NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)root];
     NSUInteger budget=300;
@@ -98,12 +116,39 @@ static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {
             [pending addObject:child];
             if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
-            CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);
-            if(visible<=0)continue;
-            if(visible>bestArea){bestArea=visible;best=child;}
+            CGRect cover=CGRectIntersection(frame,cardFrame);
+            if(CGRectIsEmpty(cover))continue;
+            CGFloat area=cover.size.width*cover.size.height;
+            if(area/cardArea<.9)continue;   // must actually cover the card it serves
+            if(area>bestArea){bestArea=area;best=child;}
         }
     }
     return best;
+}
+// 1.44: which of the two panels is on screen - the tall one ("swipe up") or the
+// short one ("swipe up twice"). They are separate objects: each keeps an on-screen
+// and a parked copy of its own SFActivityPanelView, and they differ in height
+// (portrait 435 vs 350, landscape 340 vs 180). Height alone is a fragile test (the
+// short landscape panel is 41.9% of the screen while the tall portrait one is
+// 46.7%), so the shape is read from the page control, which belongs to exactly one
+// of them, sits 20pt above ITS OWN card in every orientation, and is hidden (h1) on
+// the short panel while the tall one keeps it (h0) - the same in landscape and in
+// portrait, in all four copies the device log showed.
+static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
+    CGRect cardFrame=[card convertRect:card.bounds toView:window];
+    UIPageControl *page=nil;CGFloat bestGap=CGFLOAT_MAX;
+    for(UIView *host=card.superview;host;host=host.superview) {
+        for(UIView *node in host.subviews) {
+            if(![node isKindOfClass:UIPageControl.class])continue;
+            CGRect f=[node convertRect:node.bounds toView:window];
+            CGFloat gap=fabs(CGRectGetMaxY(f)-CGRectGetMinY(cardFrame));
+            if(gap<bestGap){bestGap=gap;page=(UIPageControl *)node;}
+        }
+        if(page && bestGap<40)break;
+    }
+    if(page && bestGap<40)return page.hidden;           // the reliable signal
+    CGFloat height=window.bounds.size.height;
+    return height>0 && cardFrame.size.height<height*.45; // fallback: measured heights
 }
 @interface LMVSquidPanelVideoHost:UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
@@ -167,9 +212,18 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     UIView *card=window?LMVSquidPanelCard(window):nil;
     if(!card) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
-    BOOL changed=![self.playback.path isEqualToString:LMVSquidPanelPath] ||
-        ![self.playback.revision isEqualToString:LMVSquidPanelRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVSquidPanelPath revision:LMVSquidPanelRevision];}
+    // 1.44: two panels, two materials. The tall one ("swipe up") plays the first
+    // slot, the short one ("swipe up twice") the second; a slot left empty falls
+    // back to the other one, so an untouched upgrade never shows a blank panel. The
+    // shape does not depend on the orientation, so the tall slot is the tall panel
+    // in landscape too.
+    BOOL shortPanel=LMVSquidPanelCardIsShort(card,window);
+    NSString *wantPath=(shortPanel && LMVSquidPanelPath2.length)?LMVSquidPanelPath2:LMVSquidPanelPath;
+    NSString *wantRevision=(shortPanel && LMVSquidPanelPath2.length)?LMVSquidPanelRevision2:LMVSquidPanelRevision;
+    if(!wantPath.length || !wantRevision.length) {[self detach];self.updating=NO;return;}
+    BOOL changed=![self.playback.path isEqualToString:wantPath] ||
+        ![self.playback.revision isEqualToString:wantRevision];
+    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
     // A still poster is not a panel background: wait for the decoder, exactly like
     // the menu channel does, and simply leave the panel alone until then.
@@ -185,19 +239,28 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // frame, so a panel that grows with its icons moves the video with it.
     UIView *material=LMVSquidPanelMaterial(card,window);
     if(!material)material=LMVSquidPanelMaterial(window,window);
-    UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
+    UIView *container=nil;NSUInteger index=0;NSString *mode=@"card";
     if([material isKindOfClass:UIVisualEffectView.class]) {
         UIView *content=((UIVisualEffectView *)material).contentView;
         if(content && content.subviews.count<40) {
-            container=content;index=0;target=content.bounds;mode=@"content";
+            container=content;index=0;mode=@"content";
         } else if(material.superview) {
             container=material.superview;
             NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
             if(near==NSNotFound) {[self detach];self.updating=NO;return;}
-            index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";
+            index=(NSUInteger)(near+1);mode=@"above-material";
         }
     }
-    if(!container) {container=card;index=0;target=card.bounds;}
+    if(!container) {container=card;index=0;}
+    // 1.44: the video fills the CARD - the surface the user actually sees - not the
+    // container it happens to be inserted into. The material is a full-screen view
+    // in landscape (932x435 against the 814x180 card) and the content view inherits
+    // that size, so sizing the video to the container made it overflow the panel
+    // instead of filling it. Intersecting container and card keeps every shape and
+    // both orientations exact.
+    CGRect cardInContainer=[card convertRect:card.bounds toView:container];
+    CGRect target=CGRectIntersection(container.bounds,cardInContainer);
+    if(CGRectIsEmpty(target))target=cardInContainer;
     self.mode=mode;
     BOOL placed=self.host.superview==container &&
         (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;
@@ -215,8 +278,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f vis=%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f shape=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            shortPanel?@"short":@"tall",
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
@@ -244,9 +308,14 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
             [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
         LMVSquidPanelPath=LMVCCSelectedPath(@"SquidPanelVideo");
         LMVSquidPanelRevision=LMVLockVideoRevision(LMVSquidPanelPath);
+        // 1.44: the second slot, for the short ("swipe up twice") panel.
+        LMVSquidPanelPath2=LMVCCSelectedPath(@"SquidPanel2Video");
+        LMVSquidPanelRevision2=LMVLockVideoRevision(LMVSquidPanelPath2);
     }
     LMVSquidPanelRetune();
-    if(!LMVSquidPanelEnabled || !LMVSquidPanelPath.length || !LMVSquidPanelRevision.length) {
+    BOOL anySlot=(LMVSquidPanelPath.length && LMVSquidPanelRevision.length) ||
+        (LMVSquidPanelPath2.length && LMVSquidPanelRevision2.length);
+    if(!LMVSquidPanelEnabled || !anySlot) {
         [LMVSquidPanelVideo detach];
         if(LMVSquidPanelVideo.playback.path)[LMVSquidPanelVideo.playback clear];
         return;

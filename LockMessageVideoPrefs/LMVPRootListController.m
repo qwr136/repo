@@ -18,7 +18,7 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"] containsObject:target];
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"AT", @"CV"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -111,10 +111,19 @@ static void LMVNotify(void) {
     [squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];
     [squidPanelEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:squidPanelEnabled];
-    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换鱿鱼面板素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);
     [squidPanelMaterial setProperty:@"SquidPanelMaterial" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial];
+    // 1.44: the panel has TWO shapes - the one a swipe-up opens and the shorter one
+    // a swipe-up-twice opens - so each gets its own material. The shape is the same
+    // in landscape and in portrait, hence "swipe up" / "swipe up twice" rather than
+    // "portrait" / "landscape". Sound and volume stay shared: only one of the two
+    // panels can be on screen at a time.
+    PSSpecifier *squidPanelMaterial2 = [PSSpecifier preferenceSpecifierNamed:@"切换上上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    squidPanelMaterial2.buttonAction = @selector(switchSquidPanel2:);
+    [squidPanelMaterial2 setProperty:@"SquidPanel2Material" forKey:@"id"];
+    [_specifiers addObject:squidPanelMaterial2];
     [self appendAudioForTarget:@"SquidPanel" title:@"播放"];
     // 1.26: the AppTools (AT) pop-up background, right below the Squid panel
     // channel (same switch / material / sound / volume layout). This release
@@ -311,7 +320,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"鱿鱼面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"上滑面板背景视频", @"SquidPanel2": @"上上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -320,7 +329,7 @@ static void LMVNotify(void) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"SquidPanel2": @"", @"AT": @"", @"CV": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -337,6 +346,7 @@ static void LMVNotify(void) {
 - (void)switchControlCenterLight:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterLight"]; }
 - (void)switchHomeMenu:(PSSpecifier *)specifier { [self switchTarget:@"HomeMenu"]; }
 - (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }
+- (void)switchSquidPanel2:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel2"]; }
 - (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
 - (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {

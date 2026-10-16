@@ -69,8 +69,8 @@ targets = re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTar
 assert targets[-2:] == ['AT', 'CV'], 'the AT sound channel, then the CopyVault one added by 1.43, close the list'
 
 # ---- shared material plumbing ----------------------------------------------
-assert '"SquidPanel", @"AT", @"CV"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete
+assert '"SquidPanel", @"SquidPanel2", @"AT", @"CV"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
+assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"AT",@"CV"])' in delete
 assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
 assert '"HomeMenu",@"SquidPanel",@"AT",@"CV"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
 

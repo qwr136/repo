@@ -102,7 +102,7 @@ assert '[cvEnabled setProperty:@NO forKey:@"default"];' in prefs
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in prefs
 assert '- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];' in prefs
-assert '"SquidPanel", @"AT", @"CV"] containsObject:target];' in prefs, 'CV is a selectable material target'
+assert '"SquidPanel", @"SquidPanel2", @"AT", @"CV"] containsObject:target];' in prefs, 'CV is a selectable material target'
 assert '[self appendAudioForTarget:@"CV" title:@"播放"];' in prefs
 import re
 at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'
@@ -130,7 +130,7 @@ assert re.findall(r'@"(.*?)"', panel[panel.index('static NSArray *LMVEasterAudio
     'the CV sound channel closes the panel audio list'
 
 # ---- shared material plumbing ----------------------------------------------
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete
+assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"AT",@"CV"])' in delete
 assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the CV selection is cleared when its material is deleted'
 
 print('PASS: CopyVault clipboard-panel channel - settings (Settings + floating panel), '

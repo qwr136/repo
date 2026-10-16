@@ -23,7 +23,7 @@ assert re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTarget
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert 'section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)' in mapping
 assert '(row == 2 || row == 3)) return @"HomeMenu";' in mapping
-assert '(row == 2 || row == 3)) return @"SquidPanel";' in mapping
+assert '(row == 3 || row == 4)) return @"SquidPanel";' in mapping
 assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
@@ -55,7 +55,7 @@ assert '!panel.opacityTracking && !panel.volumeTracking' in panel
 selection = body(panel, '- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:')
 assert 'key = LMVEasterControlCenterKey(index.row);\n        if (!key) return;' in selection
 assert 'if (index.row != 1) return;\n        key = @"HomeMenuVideo";' in selection
-assert 'if (index.row != 1) return;\n        key = @"SquidPanelVideo";' in selection
+assert 'if (index.row != 1 && index.row != 2) return;\n        key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";' in selection
 assert 'if (index.row != 1) return;\n        key = @"ATVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
@@ -70,7 +70,7 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
               '[sound setProperty:volumeKey forKey:@"audioVolumeKey"]'):
     assert exact in append, exact
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
-for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV')):
+for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial2', 'SquidPanel'), ('cvMaterial', 'CV')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
 assert specifiers.count('appendAudioForTarget:') == 7  # One five-target loop, plus five explicit targets (CC dark/light, HomeMenu, SquidPanel, AT, CV).
 set_enabled = body(prefs, '- (void)setEnabled:')
@@ -214,7 +214,7 @@ int main(void) { @autoreleasepool {
    if(section==5&&(row==2||row==3))expected=targets[5];
    if(section==5&&(row==5||row==6))expected=targets[6];
    if(section==6&&(row==2||row==3))expected=targets[7];
-   if(section==7&&(row==2||row==3))expected=targets[8];
+   if(section==7&&(row==3||row==4))expected=targets[8];
    if(section==8&&(row==2||row==3))expected=targets[9];
    if(section==9&&(row==2||row==3))expected=targets[10];
    NSString *actual=LMVEasterAudioTarget(section,row);
@@ -231,7 +231,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==69);
+ assert(rows.count==70);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -282,6 +282,7 @@ int main(void) { @autoreleasepool {
   if(section==5)expected=LMVEasterControlCenterKey(row);
   if(section==6&&row==1)expected=@"HomeMenuVideo";
   if(section==7&&row==1)expected=@"SquidPanelVideo";
+  if(section==7&&row==2)expected=@"SquidPanel2Video";
   if(section==8&&row==1)expected=@"ATVideo";
   if(section==9&&row==1)expected=@"CVVideo";
   [p tableView:p.tableView didSelectRowAtIndexPath:path(section,row)];
@@ -289,7 +290,7 @@ int main(void) { @autoreleasepool {
   else if(section==10&&row==0)assert(p.navigationController.pushes==before+1);
   else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==12&&row==0));}
  }
- puts("PASS: exact production specifiers (69), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
+ puts("PASS: exact production specifiers (70), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
