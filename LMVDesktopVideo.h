@@ -1054,12 +1054,26 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     if (diagnostics) {
+        // 1.30: the lines below (visual / surfaces / panel / overlay) each rebuild a
+        // 3000+ character serialisation of the WHOLE view tree, and they build it on
+        // the main thread - the file write is async, the string is not. That is what
+        // the desktop channel's perf line has been reporting (slow=10, max=6.99 ms
+        // against the CC channel's 0.51 ms). Throttled to 2 s: state changes are
+        // still recorded, but a tick no longer serialises the tree every pass.
+        static NSTimeInterval lastShapeDump=0;
+        NSTimeInterval shapeNow=CACurrentMediaTime();
+        BOOL shapeDump=(shapeNow-lastShapeDump>=2.0);
+        if(shapeDump)lastShapeDump=shapeNow;
     // 0.0.124: `composited` is the layer that backboardd actually has to composite
     // and `decode` is whether the decoder is running - together they tell apart
     // "paused but still on screen" (CPU wasted on compositing) from "still decoding
     // while invisible" (CPU wasted on decode).
-    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d sheetFull=%d appc=%d sw=%d cc=%d swEff=%d ccEff=%d geoSeen=%d",
-        visible,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
+    // 1.30: the format string asked for frozen first but the argument list passed
+    // appForeground there, so every diagnostic line printed appfg under the name
+    // "frozen" - the field that decides whether the decoder is stopped was the one
+    // field the log got wrong. Both are printed now.
+    NSString *status=[NSString stringWithFormat:@"desktop-video visible=%d frozen=%d appfg=%d home=%d host=%@ path=%d layer=%d contentHidden=%d foreground=%ld cover=%d blank=%llu locked=%llu session=%d covered=%d env=%d geo=%d held=%.2f teardown=%lu hostHidden=%d poster=%d shown=%d composited=%d decode=%d opaque=%d sheet=%d sheetFull=%d appc=%d sw=%d cc=%d swEff=%d ccEff=%d geoSeen=%d",
+        visible,(int)self.playback.frozen,(int)appForeground,homeConfirmed,container?NSStringFromClass(container.class):@"none",configured,pixels,self.lease.applied,
         (long)foreground,!CGRectIsEmpty(cover),(unsigned long long)blank,(unsigned long long)locked,
         (int)self.authenticatedSession,(int)covered,(int)environment,(int)(container && LMVDesktopGeometryVisible(container)),
         (self.holdSince>0?holdNow-self.holdSince:0.0),(unsigned long)self.teardowns,
@@ -1152,12 +1166,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             menuShape=[NSString stringWithFormat:@"%@:%@",name,shape.length?shape:@"empty"];
             break;
         }
-        NSString *visual=[NSString stringWithFormat:@"desktop-visual win=%@ idx=%ld/%lu vis=%d chain=%@ above=%@ menus=%@ menuShape=%@",
+        NSString *visual=nil;
+        if(shapeDump)visual=[NSString stringWithFormat:@"desktop-visual win=%@ idx=%ld/%lu vis=%d chain=%@ above=%@ menus=%@ menuShape=%@",
             hostWindow?NSStringFromClass(hostWindow.class):@"none",(long)hostIdx,
             (unsigned long)(wins?wins.count:0),(int)(chainVisible && !self.host.hidden),chain,
             above.length?above:@"none",menus.length?menus:@"none",menuShape];
         static NSString *lastVisual=nil;
-        if (![visual isEqualToString:lastVisual]) {lastVisual=[visual copy];LMVDiagnostic(visual);}
+        if (visual && ![visual isEqualToString:lastVisual]) {lastVisual=[visual copy];LMVDiagnostic(visual);}
     }
     // 1.25/1.25: the blind spots of the window list above. A third-party gesture
     // tweak (SquidGesturePro) keeps its panel in SGPanelWindow, and the window list
@@ -1213,9 +1228,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             [legacy appendFormat:@"%@(h%d/a%.2f) ",NSStringFromClass(window.class),(int)window.hidden,window.alpha];
         }
 #pragma clang diagnostic pop
-        NSString *shape=[NSString stringWithFormat:@"desktop-surfaces %@legacy=%@",scenes,legacy.length?legacy:@"none"];
+        NSString *shape=nil;
+        if(shapeDump)shape=[NSString stringWithFormat:@"desktop-surfaces %@legacy=%@",scenes,legacy.length?legacy:@"none"];
         static NSString *lastShape=nil;
-        if (![shape isEqualToString:lastShape]) {lastShape=[shape copy];LMVDiagnostic(shape);}
+        if (shape && ![shape isEqualToString:lastShape]) {lastShape=[shape copy];LMVDiagnostic(shape);}
     }
     // 1.25: the GEOMETRY the panel feature needs. The SquidGesture panel is a
     // rounded card in the lower part of the screen (the user's screenshot: it does
@@ -1255,9 +1271,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
                 self.host.frame.size.width,self.host.frame.size.height,(int)self.host.hidden,
                 hostWindow?NSStringFromClass(hostWindow.class):@"none"];
         }
-        NSString *geometry=[NSString stringWithFormat:@"desktop-panel %@",panels.length?panels:@"none"];
+        NSString *geometry=nil;
+        if(shapeDump)geometry=[NSString stringWithFormat:@"desktop-panel %@",panels.length?panels:@"none"];
         static NSString *lastGeometry=nil;
-        if (![geometry isEqualToString:lastGeometry]) {lastGeometry=[geometry copy];LMVDiagnostic(geometry);}
+        if (geometry && ![geometry isEqualToString:lastGeometry]) {lastGeometry=[geometry copy];LMVDiagnostic(geometry);}
     }
     // 1.26: the pop-ups that are NOT windows (AppTools and friends). A panel that
     // is PRESENTED into an existing window changes no window class, so neither the
@@ -1291,9 +1308,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
                     window.frame.size.width,window.frame.size.height,LMVDesktopOverlayShape(v,0)];
             }
         }
-        NSString *overlayShape=[NSString stringWithFormat:@"desktop-overlay %@",overlays.length?overlays:@"none"];
+        NSString *overlayShape=nil;
+        if(shapeDump)overlayShape=[NSString stringWithFormat:@"desktop-overlay %@",overlays.length?overlays:@"none"];
         static NSString *lastOverlay=nil;
-        if (![overlayShape isEqualToString:lastOverlay]) {lastOverlay=[overlayShape copy];LMVDiagnostic(overlayShape);}
+        if (overlayShape && ![overlayShape isEqualToString:lastOverlay]) {lastOverlay=[overlayShape copy];LMVDiagnostic(overlayShape);}
     }
     // 1.25: WHICH whitelisted surface currently holds the cover, with its content
     // coverage - so an app-exit log names the window instead of leaving it to
