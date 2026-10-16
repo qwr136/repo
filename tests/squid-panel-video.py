@@ -64,7 +64,7 @@ assert 'if(![node isKindOfClass:UIPageControl.class])continue;' in module
 assert 'CGFloat gap=fabs(CGRectGetMaxY(f)-CGRectGetMinY(cardFrame));' in module
 assert 'return (page && bestGap<40)?page:nil;' in module
 assert 'shortPanel=page.hidden;' in module
-assert 'shortPanel=(height>0 && cardFrame.size.height<height*.45);' in module
+assert 'shortPanel=(screen>0 && height<screen*.45);' in module
 # The slot table itself: four materials, four remembered signatures, four gesture names.
 assert '#define LMVSquidPanelSlotCount 4' in module
 assert 'static NSString *LMVSquidPanelSlotPaths[LMVSquidPanelSlotCount];' in module
@@ -92,26 +92,37 @@ assert 'static NSUInteger LMVSquidPanelSignatureDistance(NSUInteger icons,NSStri
 # (a) a signature seen before settles it outright.
 assert 'static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {' in module
 assert 'NSString *sig=LMVSquidPanelContentSignature(card,window);' in module
-assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"sig-slot%d",(int)i+1];' in module
+assert 'NSString *reason=[NSString stringWithFormat:@"sig-slot%d",(int)i+1];' in module
 # (b) shape first: both shapes learned -> closest icon count; else page control, else height.
-assert 'if(haveTall && haveShort) {' in module
 assert 'NSUInteger d=LMVSquidPanelSignatureDistance(icons,LMVSquidPanelSlotSigs[i]);' in module
-assert 'reason=bestShort?@"nearest-short":@"nearest-tall";' in module
+
 assert 'reason=[NSString stringWithFormat:@"page.hidden=%d",(int)page.hidden];' in module
-assert 'reason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];' in module
-# (c) the SIDE cannot come from the content: an unknown panel takes the free slot of its
-# shape (right first, because that pair exists first on a device), else the closer one.
-assert 'NSInteger right=shortPanel?1:0, left=shortPanel?3:2;' in module
-assert 'reason=[reason stringByAppendingString:@"@claim-left"];' in module
-assert 'reason=[reason stringByAppendingString:@"@claim-right"];' in module
-assert 'reason=[reason stringByAppendingFormat:@"@nearest-of-%d-%d",(int)right+1,(int)left+1];' in module
-# A signature taken while the panel is still assembling (no icons yet) is never recorded,
-# and binding a signature to a slot drops it from whichever slot claimed it before.
-assert 'if(LMVSquidPanelSignatureIcons(sig)!=NSNotFound && LMVSquidPanelSignatureIcons(sig)>0)' in module
-assert 'LMVSquidPanelRememberSlot(slot,sig);' in module
-assert 'static void LMVSquidPanelRememberSlot(NSInteger slot,NSString *sig) {' in module
-assert 'CFPreferencesSetAppValue((__bridge CFStringRef)keys[slot],(__bridge CFStringRef)sig,kLMVPrefsID);' in module
-assert 'CFPreferencesAppSynchronize(kLMVPrefsID);' in module
+# (c) 1.51: the SIDE is inferred - a signature belongs to the side that learned it,
+# and an unknown one belongs to the side that has learned nothing yet.
+assert 'BOOL knownRight=LMVSquidPanelSlotSigs[0].length>0 || LMVSquidPanelSlotSigs[1].length>0;' in module
+assert 'BOOL knownLeft=LMVSquidPanelSlotSigs[2].length>0 || LMVSquidPanelSlotSigs[3].length>0;' in module
+assert 'BOOL leftSide=!knownLeft && knownRight;' in module
+assert 'NSInteger tallSlot=leftSide?2:0, shortSlot=leftSide?3:1;' in module
+# ...and WITHIN a side the two panels order themselves, which is what makes the whole
+# thing automatic: 上滑 is the taller one of the pair (device logs: left 上滑
+# icons8/180pt against left 上上滑 icons4/95pt, right 50/435 against 29/350), with the
+# icon count breaking a tie so a user who made them the same height still sorts out.
+assert 'static CGFloat LMVSquidPanelSlotHeights[LMVSquidPanelSlotCount];' in module
+assert 'return @[@"SquidPanelSlot1H",@"SquidPanelSlot2H",@"SquidPanelSlot3H",@"SquidPanelSlot4H"];' in module
+assert 'static void LMVSquidPanelNoteHeight(NSInteger slot,CGFloat height) {' in module
+assert 'static void LMVSquidPanelMoveSlot(NSInteger from,NSInteger to) {' in module
+assert 'static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot) {' in module
+assert 'if(knownHeight>0 && height>0 && fabs(height-knownHeight)>4) {order=(height>knownHeight)?1:-1;by=@"height";}' in module
+assert 'else if(icons!=NSNotFound && knownIcons!=NSNotFound && icons!=knownIcons) {order=(icons>knownIcons)?1:-1;by=@"icons";}' in module
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"pair-by-%@-%@@slot%d",by,sideTag,(int)wantSlot+1];' in module
+# An already-recorded pair that contradicts its slots swaps itself on sight, and an
+# edited panel keeps the slot it owns (closest icon count, nothing moves).
+assert 'if(LMVSquidPanelOrderPair(tall,short)>0) {' in module
+assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];' in module
+# Nothing to compare yet: the page control, then the absolute height - and never a
+# signature taken while the panel is still assembling (no icons yet).
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"%@@first-%@@slot%d",reason,sideTag,(int)slot+1];' in module
 # (d) and the user can always overrule both: "认领刚用过的面板".
 assert 'static void LMVSquidPanelBindLastSeen(NSInteger slot) {' in module
 assert 'LMVSquidPanelLastSeen=CACurrentMediaTime();' in module
@@ -183,7 +194,8 @@ assert 'NSString *wantPath=LMVSquidPanelSlotPaths[wantSlot];' in module
 assert 'NSString *wantRevision=LMVSquidPanelSlotRevisions[wantSlot];' in module
 # 1.46: the log names the slot, the reason for the verdict and the card object, so a
 # wrong pick is one line away from being explained.
-assert 'slot=%d gesture=%@ play=%@ why=%@ sig=%@ mode=%@' in module
+assert 'slot=%d gesture=%@ play=%@ why=%@ sig=%@ pair=%.0f/%.0f mode=%@' in module
+assert 'slot<2?LMVSquidPanelSlotHeights[0]:LMVSquidPanelSlotHeights[2],' in module
 assert '(int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],' in module
 assert 'LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,' in module
 assert 'ptr=%p' in module and '(void *)self.card,' in module
@@ -273,7 +285,8 @@ assert 'if (self.pick) self.pick(index.row);' in choice
 assert '[self.navigationController popViewControllerAnimated:YES];' in choice
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
 print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, FOUR material '
-      'slots (right and left 上滑/上上滑) told apart by a height-independent CONTENT SIGNATURE '
-      '(icons + page-control dots) with a shape test and an automatic side claim, so a panel that '
-      'was only made taller keeps its own material; a pushed claim chooser that overrules the '
-      'automatic side, a within-side swap override, one shared sound pair, both surfaces')
+      'slots (right and left 上滑/上上滑): a height-independent CONTENT SIGNATURE (icons + '
+      'page-control dots) identifies a panel the user has edited, an unknown one belongs to the side '
+      'that learned nothing yet, and the two panels of that side ORDER THEMSELVES by height (icon '
+      'count as the tiebreak) - so no manual step is needed and an inverted record swaps itself; '
+      'a pushed claim chooser remains as the last resort, one shared sound pair, both surfaces')
