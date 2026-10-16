@@ -55,7 +55,7 @@ assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCVSecti
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', panel) is not None
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"AT",@"CV"]' in delete
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"SquidPanel3",@"SquidPanel4",@"AT",@"CV"]' in delete
 for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV'):
     assert f'@"{target}":@""' in delete
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete

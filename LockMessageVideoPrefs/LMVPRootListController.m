@@ -18,7 +18,7 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"AT", @"CV"] containsObject:target];
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"SquidPanel3", @"SquidPanel4", @"AT", @"CV"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -111,23 +111,41 @@ static void LMVNotify(void) {
     [squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];
     [squidPanelEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:squidPanelEnabled];
-    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换右边上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);
     [squidPanelMaterial setProperty:@"SquidPanelMaterial" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial];
     // 1.44: the panel has TWO shapes - the one a swipe-up opens and the shorter one
     // a swipe-up-twice opens - so each gets its own material. The shape is the same
     // in landscape and in portrait, hence "swipe up" / "swipe up twice" rather than
-    // "portrait" / "landscape". Sound and volume stay shared: only one of the two
+    // "portrait" / "landscape". Sound and volume stay shared: only one of the four
     // panels can be on screen at a time.
-    PSSpecifier *squidPanelMaterial2 = [PSSpecifier preferenceSpecifierNamed:@"切换上上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    // 1.50: and the plugin lets those gestures be configured on BOTH sides, so there
+    // are four materials in all: right 上滑/上上滑 and left 上滑/上上滑.
+    PSSpecifier *squidPanelMaterial2 = [PSSpecifier preferenceSpecifierNamed:@"切换右边上上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial2.buttonAction = @selector(switchSquidPanel2:);
     [squidPanelMaterial2 setProperty:@"SquidPanel2Material" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial2];
-    // 1.46: the two panels are told apart by OBJECT identity (see LMVSquidPanelVideo),
+    PSSpecifier *squidPanelMaterial3 = [PSSpecifier preferenceSpecifierNamed:@"切换左边上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    squidPanelMaterial3.buttonAction = @selector(switchSquidPanel3:);
+    [squidPanelMaterial3 setProperty:@"SquidPanel3Material" forKey:@"id"];
+    [_specifiers addObject:squidPanelMaterial3];
+    PSSpecifier *squidPanelMaterial4 = [PSSpecifier preferenceSpecifierNamed:@"切换左边上上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    squidPanelMaterial4.buttonAction = @selector(switchSquidPanel4:);
+    [squidPanelMaterial4 setProperty:@"SquidPanel4Material" forKey:@"id"];
+    [_specifiers addObject:squidPanelMaterial4];
+    // 1.50: the panel's content says nothing about WHICH gesture opened it, and the
+    // left/right panels differ only in what the user put in them. This row is how the
+    // user settles that: it binds the panel they were just looking at to the gesture
+    // they name (see LMVSquidPanelVideo's claim handling).
+    PSSpecifier *squidPanelClaim = [PSSpecifier preferenceSpecifierNamed:@"认领刚用过的面板" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    squidPanelClaim.buttonAction = @selector(claimSquidPanel:);
+    [squidPanelClaim setProperty:@"SquidPanelClaim" forKey:@"id"];
+    [_specifiers addObject:squidPanelClaim];
+    // 1.46: the two shapes are told apart by CONTENT identity (see LMVSquidPanelVideo),
     // which survives editing a panel. This switch is the manual override for the one
     // case that cannot be automatic: the very first content test guessing the two
-    // panels the other way round. It swaps which material each shape plays.
+    // panels of a side the other way round. It swaps which material each shape plays.
     PSSpecifier *squidPanelSwap = [PSSpecifier preferenceSpecifierNamed:@"对调上滑 / 上上滑素材" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [squidPanelSwap setProperty:@"SquidPanelSwapShapes" forKey:@"key"];
     [squidPanelSwap setProperty:@NO forKey:@"default"];
@@ -328,7 +346,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"上滑面板背景视频", @"SquidPanel2": @"上上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右边上滑面板背景视频", @"SquidPanel2": @"右边上上滑面板背景视频", @"SquidPanel3": @"左边上滑面板背景视频", @"SquidPanel4": @"左边上上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -337,7 +355,7 @@ static void LMVNotify(void) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"SquidPanel2": @"", @"AT": @"", @"CV": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"SquidPanel2": @"", @"SquidPanel3": @"", @"SquidPanel4": @"", @"AT": @"", @"CV": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -355,6 +373,30 @@ static void LMVNotify(void) {
 - (void)switchHomeMenu:(PSSpecifier *)specifier { [self switchTarget:@"HomeMenu"]; }
 - (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }
 - (void)switchSquidPanel2:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel2"]; }
+- (void)switchSquidPanel3:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel3"]; }
+- (void)switchSquidPanel4:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel4"]; }
+// 1.50: "认领刚用过的面板" - the panel's content says nothing about which gesture opened
+// it, so this is the user's word on it: the panel they were just looking at is bound
+// to the gesture they pick (the kernel reads the slot + token on its next refresh).
+- (void)claimSquidPanel:(PSSpecifier *)specifier {
+    if (self.presentedViewController) return;
+    NSArray *gestures = @[@"右边上滑", @"右边上上滑", @"左边上滑", @"左边上上滑"];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"认领刚用过的面板"
+        message:@"先用手势调出那个面板再关掉，然后选它属于哪一套素材。"
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSInteger i = 0; i < (NSInteger)gestures.count; i++) {
+        NSInteger slot = i + 1;
+        [sheet addAction:[UIAlertAction actionWithTitle:gestures[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            CFPreferencesSetAppValue(CFSTR("SquidPanelClaimSlot"), (__bridge CFPropertyListRef)@(slot), kLMVPrefsID);
+            CFPreferencesSetAppValue(CFSTR("SquidPanelClaimToken"), (__bridge CFPropertyListRef)[NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970], kLMVPrefsID);
+            LMVNotify();
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:sheet animated:YES completion:nil];
+}
 - (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
 - (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {

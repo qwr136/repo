@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVEasterChoice.h"
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
 #import "LMVEasterPhotoFlow.h"
@@ -43,10 +44,23 @@ static NSString *LMVEasterControlCenterKey(NSInteger row) {
 static NSArray *LMVEasterAudioTargets(void) {
     return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"];
 }
+// 1.50: the four SquidGesturePro materials, in row order: the right-hand gestures
+// ("swipe up" / "swipe up twice") and then the left-hand ones. Sound and volume are
+// shared between all four - only one panel can be on screen at a time.
+static NSArray *LMVEasterSquidKeys(void) {
+    return @[@"SquidPanelVideo", @"SquidPanel2Video", @"SquidPanel3Video", @"SquidPanel4Video"];
+}
+static NSArray *LMVEasterSquidTitles(void) {
+    return @[@"切换右边上滑素材", @"切换右边上上滑素材", @"切换左边上滑素材", @"切换左边上上滑素材"];
+}
+// The gesture names the "认领" sheet offers.
+static NSArray *LMVEasterSquidGestures(void) {
+    return @[@"右边上滑", @"右边上上滑", @"左边上滑", @"左边上上滑"];
+}
 static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)) return LMVEasterTargets()[section];
     if (section == LMVEasterHomeMenuSection() && (row == 2 || row == 3)) return @"HomeMenu";
-    if (section == LMVEasterSquidPanelSection() && (row == 4 || row == 5)) return @"SquidPanel";
+    if (section == LMVEasterSquidPanelSection() && (row == 7 || row == 8)) return @"SquidPanel";
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
     if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
     if (section == LMVEasterControlCenterSection()) {
@@ -56,7 +70,12 @@ static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     return nil;
 }
 static BOOL LMVEasterAudioVolumeRow(NSInteger section, NSInteger row) {
-    return LMVEasterAudioTarget(section, row) && (row == 3 || row == 6);
+    if (!LMVEasterAudioTarget(section, row)) return NO;
+    // 1.50: the squid section grew to nine rows (four materials + claim + swap +
+    // sound + volume), so its volume row moved to 8 - reporting it as anything else
+    // printed a SECOND "播放声音" switch where the slider belongs.
+    if (section == LMVEasterSquidPanelSection()) return row == 8;
+    return (row == 3 || row == 6);
 }
 static NSString *LMVEasterAudioTargetForTag(NSInteger tag) {
     return tag >= 0 && tag < LMVEasterAudioTargets().count ? LMVEasterAudioTargets()[tag] : nil;
@@ -194,7 +213,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section >= 0 && section < LMVEasterTargets().count) return 4;
     if (section == LMVEasterControlCenterSection()) return 7;
     if (section == LMVEasterHomeMenuSection()) return 4;
-    if (section == LMVEasterSquidPanelSection()) return 6;
+    if (section == LMVEasterSquidPanelSection()) return 9;
     if (section == LMVEasterATSection()) return 4;
     if (section == LMVEasterCVSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
@@ -279,7 +298,28 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterSquidPanelSection();
             toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
-        } else if (index.row == 3) {
+        } else if (index.row >= 1 && index.row <= 4) {
+            // 1.44: each panel shape gets its own material; 1.50: the shape exists on
+            // both gesture sides, so there are four materials and the rows name the
+            // GESTURE (right/left, 上滑/上上滑), not the orientation.
+            cell.textLabel.text = LMVEasterSquidTitles()[index.row - 1];
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id selected = LMVEasterRead(LMVEasterSquidKeys()[index.row - 1]);
+            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
+            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
+            cell.detailTextLabel.numberOfLines = 2;
+        } else if (index.row == 5) {
+            // 1.50: the one thing the runtime cannot know - which gesture opened the
+            // panel it just saw. This row binds the panel the user was last looking
+            // at to the gesture they name, and it overrules an automatic guess.
+            cell.textLabel.text = @"认领刚用过的面板";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id claimed = LMVEasterRead(@"SquidPanelClaimSlot");
+            NSInteger slot = [claimed isKindOfClass:NSNumber.class] ? [claimed integerValue] - 1 : NSNotFound;
+            cell.detailTextLabel.text = (slot >= 0 && slot < (NSInteger)LMVEasterSquidGestures().count)
+                ? [@"上次认领：" stringByAppendingString:LMVEasterSquidGestures()[slot]] : @"把刚才那个面板认给某一套素材";
+            cell.detailTextLabel.numberOfLines = 2;
+        } else if (index.row == 6) {
             // 1.46: the manual override. A button rather than a switch: the panel's
             // switches are told apart by their tag and every tag is a section index,
             // so this row reports its state in the detail label instead.
@@ -287,17 +327,6 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.detailTextLabel.text = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue] ? @"已对调" : @"正常";
             cell.detailTextLabel.numberOfLines = 1;
-        } else if (index.row == 1 || index.row == 2) {
-            // 1.44: the panel has two shapes - "swipe up" (tall) and "swipe up twice"
-            // (short) - and each gets its own material; the shape is the same in
-            // landscape and in portrait, which is why the rows are named after the
-            // gesture and not after the orientation.
-            cell.textLabel.text = index.row == 1 ? @"切换上滑素材" : @"切换上上滑素材";
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
         } else {
             cell.textLabel.text = @""; cell.accessoryView = nil; cell.accessoryType = UITableViewCellAccessoryNone;
         }
@@ -425,6 +454,27 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     LMVEasterSet(@"VideoOpacity", @(MAX(0, MIN(1, slider.value))));
     if (!slider.isTracking) { self.opacityTracking = NO; [self.tableView reloadData]; }
 }
+// 1.50: "认领刚用过的面板" - bind the panel the user was just looking at to the
+// gesture they name. Nothing in a panel's content says which gesture opened it, so
+// this is the one fact only the user can supply; it also overrules an automatic
+// claim, which is what makes four materials usable on both gesture sides.
+//
+// A pushed chooser, not a presented action sheet: inside the floating panel every
+// choice is either a pushed controller or a child view (see tests/panel-roles.py).
+- (void)claimSquidPanel {
+    LMVEasterChoice *choice = [LMVEasterChoice new];
+    choice.title = @"认领刚用过的面板";
+    choice.options = LMVEasterSquidGestures();
+    __weak typeof(self) weakSelf = self;
+    choice.pick = ^(NSInteger index) {
+        // The kernel reads these two on its next refresh and re-binds the panel it saw
+        // last (the token makes a repeated pick work again).
+        LMVEasterSet(@"SquidPanelClaimSlot", @(index + 1));
+        LMVEasterSet(@"SquidPanelClaimToken", [NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970]);
+        [weakSelf.tableView reloadData];
+    };
+    [self.navigationController pushViewController:choice animated:YES];
+}
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES];
     if (self.presentedViewController || self.busy) return;
@@ -442,14 +492,15 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if (index.row != 1) return;
         key = @"HomeMenuVideo";
     } else if (index.section == LMVEasterSquidPanelSection()) {
-        if (index.row == 3) {
+        if (index.row == 5) { [self claimSquidPanel]; return; }
+        if (index.row == 6) {
             BOOL now = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue];
             LMVEasterSet(@"SquidPanelSwapShapes", @(!now));
             [self.tableView reloadData];
             return;
         }
-        if (index.row != 1 && index.row != 2) return;
-        key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";
+        if (index.row < 1 || index.row > 4) return;
+        key = LMVEasterSquidKeys()[index.row - 1];
     } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
         key = @"ATVideo";

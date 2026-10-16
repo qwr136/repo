@@ -23,7 +23,7 @@ assert re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTarget
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert 'section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)' in mapping
 assert '(row == 2 || row == 3)) return @"HomeMenu";' in mapping
-assert '(row == 4 || row == 5)) return @"SquidPanel";' in mapping
+assert '(row == 7 || row == 8)) return @"SquidPanel";' in mapping
 assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
@@ -31,7 +31,8 @@ assert mapping.count('return ') == 8 and mapping.endswith('return nil;\n}')
 cc_key = body(panel, 'static NSString *LMVEasterControlCenterKey(')
 actual_material_rows = {int(row): target for row, target in re.findall(r'row == (\d+) \? @"(\w+)Video"', cc_key)}
 assert actual_material_rows == {1: 'ControlCenterDark', 4: 'ControlCenterLight'}
-assert 'LMVEasterAudioTarget(section, row) && (row == 3 || row == 6)' in helpers
+assert 'if (section == LMVEasterSquidPanelSection()) return row == 8;' in helpers
+assert 'return (row == 3 || row == 6);' in helpers
 assert 'tag >= 0 && tag < LMVEasterAudioTargets().count' in helpers
 assert '[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.5' in helpers
 assert 'isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5' in helpers
@@ -55,7 +56,7 @@ assert '!panel.opacityTracking && !panel.volumeTracking' in panel
 selection = body(panel, '- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:')
 assert 'key = LMVEasterControlCenterKey(index.row);\n        if (!key) return;' in selection
 assert 'if (index.row != 1) return;\n        key = @"HomeMenuVideo";' in selection
-assert 'if (index.row != 1 && index.row != 2) return;\n        key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";' in selection
+assert 'if (index.row < 1 || index.row > 4) return;\n        key = LMVEasterSquidKeys()[index.row - 1];' in selection
 assert 'if (index.row != 1) return;\n        key = @"ATVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
@@ -189,6 +190,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @end
 @implementation LMVEasterPanel
 - (void)importVideo { self.imports++; }
+- (void)claimSquidPanel {}
 @PANEL_METHODS@
 @end
 @interface LMVPRootListController : NSObject { NSMutableArray *_specifiers; }
@@ -275,14 +277,13 @@ int main(void) { @autoreleasepool {
   slider.tracking=NO;slider.value=NAN;[p volumeChanged:slider];assert(!p.volumeTracking&&[store[lastKey] doubleValue]==0.5);
  }
  for(NSNumber *tag in @[@(-1),@11,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;slider.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:slider];assert(writes==before);}
- for(NSInteger section=0;section<13;section++)for(NSInteger row=0;row<8;row++) {
+ for(NSInteger section=0;section<13;section++)for(NSInteger row=0;row<10;row++) {
   NSInteger before=p.navigationController.pushes,imports=p.imports;
   NSString *expected=nil;
   if(section<5&&row==1)expected=[targets[section] stringByAppendingString:@"Video"];
   if(section==5)expected=LMVEasterControlCenterKey(row);
   if(section==6&&row==1)expected=@"HomeMenuVideo";
-  if(section==7&&row==1)expected=@"SquidPanelVideo";
-  if(section==7&&row==2)expected=@"SquidPanel2Video";
+  if(section==7&&row>=1&&row<=4)expected=@[@"SquidPanelVideo",@"SquidPanel2Video",@"SquidPanel3Video",@"SquidPanel4Video"][row-1];
   if(section==8&&row==1)expected=@"ATVideo";
   if(section==9&&row==1)expected=@"CVVideo";
   [p tableView:p.tableView didSelectRowAtIndexPath:path(section,row)];

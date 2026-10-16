@@ -119,7 +119,7 @@ assert '[cvEnabled setProperty:@NO forKey:@"default"];' in prefs
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in prefs
 assert '- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];' in prefs
-assert '"SquidPanel", @"SquidPanel2", @"AT", @"CV"] containsObject:target];' in prefs, 'CV is a selectable material target'
+assert '"SquidPanel", @"SquidPanel2", @"SquidPanel3", @"SquidPanel4", @"AT", @"CV"] containsObject:target];' in prefs, 'CV is a selectable material target'
 assert '[self appendAudioForTarget:@"CV" title:@"播放"];' in prefs
 import re
 at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'
@@ -143,11 +143,12 @@ assert '(row == 2 || row == 3)) return @"CV";' in panel
 assert 'else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled";' in panel
 selection = panel[panel.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:'):]
 assert 'key = @"CVVideo";' in selection and 'index.section == LMVEasterCVSection()' in selection
-assert re.findall(r'@"(.*?)"', panel[panel.index('static NSArray *LMVEasterAudioTargets('):panel.index('static NSString *LMVEasterAudioTarget(')])[-2:] == ['AT', 'CV'], \
+audio_list = re.search(r'static NSArray \*LMVEasterAudioTargets\(void\) \{\s*return @\[(.*?)\];', panel, re.S).group(1)
+assert re.findall(r'@"(.*?)"', audio_list)[-2:] == ['AT', 'CV'], \
     'the CV sound channel closes the panel audio list'
 
 # ---- shared material plumbing ----------------------------------------------
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"AT",@"CV"])' in delete
+assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"SquidPanel3",@"SquidPanel4",@"AT",@"CV"])' in delete
 assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the CV selection is cleared when its material is deleted'
 
 print('PASS: CopyVault clipboard-panel channel - settings (Settings + floating panel), '

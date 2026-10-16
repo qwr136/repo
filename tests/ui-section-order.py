@@ -41,19 +41,19 @@ class UISectionOrder(unittest.TestCase):
         for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
-                     'if (section == LMVEasterSquidPanelSection()) return 6;',
+                     'if (section == LMVEasterSquidPanelSection()) return 9;',
                      'if (section == LMVEasterATSection()) return 4;',
                      'if (section == LMVEasterCVSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
         disp, imp = section('LMVEasterDisplaySection'), section('LMVEasterImportSection')
         squid = section('LMVEasterSquidPanelSection')
-        # 1.44/1.46: the Squid section carries its switch, two material rows and the
-        # swap row on top of the shared sound pair, so it is two rows taller than its
-        # neighbours.
-        rows = [6 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[4]) else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(13)]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 6, 4, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 49)
+        # 1.50: the Squid section carries its switch, FOUR material rows (right and
+        # left, 上滑 and 上上滑), the claim row, the swap row and the shared sound pair,
+        # so it is five rows taller than its neighbours.
+        rows = [9 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[4]) else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(13)]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 9, 4, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 52)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -101,17 +101,16 @@ class UISectionOrder(unittest.TestCase):
         cv_start = old_cells.index('    if (index.section == LMVEasterCVSection()) {')
         cv_end = old_cells.index('    if (index.section == LMVEasterControlCenterSection()) {', cv_start)
         old_cells = old_cells[:cv_start] + old_cells[cv_end:]
-        # 1.44: the Squid block gained its second material row and its single row was
-        # renamed; put the 1.43 text back so the frozen hash keeps proving that every
-        # ORIGINAL cell is byte-identical after the insertion.
-        old_cells = old_cells.replace('''        } else if (index.row == 1 || index.row == 2) {
-            // 1.44: the panel has two shapes - "swipe up" (tall) and "swipe up twice"
-            // (short) - and each gets its own material; the shape is the same in
-            // landscape and in portrait, which is why the rows are named after the
-            // gesture and not after the orientation.
-            cell.textLabel.text = index.row == 1 ? @"切换上滑素材" : @"切换上上滑素材";
+        # 1.50: the Squid block now carries four material rows, the claim row and the
+        # swap row; put the 1.43 text back so the frozen hash keeps proving that every
+        # ORIGINAL cell is byte-identical after the insertions.
+        old_cells = old_cells.replace('''        } else if (index.row >= 1 && index.row <= 4) {
+            // 1.44: each panel shape gets its own material; 1.50: the shape exists on
+            // both gesture sides, so there are four materials and the rows name the
+            // GESTURE (right/left, 上滑/上上滑), not the orientation.
+            cell.textLabel.text = LMVEasterSquidTitles()[index.row - 1];
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video");
+            id selected = LMVEasterRead(LMVEasterSquidKeys()[index.row - 1]);
 ''', '''        } else {
             cell.textLabel.text = @"切换鱿鱼面板素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"SquidPanelVideo");
@@ -121,9 +120,22 @@ class UISectionOrder(unittest.TestCase):
         }
 ''', '''        }
 ''')
-        # 1.46: the swap row was inserted into the Squid block; drop it so the frozen
-        # hash keeps proving that every ORIGINAL cell is byte-identical.
-        old_cells = old_cells.replace('''        } else if (index.row == 3) {
+        # 1.50: the claim row and the 1.46 swap row were inserted into the Squid block;
+        # drop them so the frozen hash keeps proving that every ORIGINAL cell is
+        # byte-identical.
+        old_cells = old_cells.replace('''        } else if (index.row == 5) {
+            // 1.50: the one thing the runtime cannot know - which gesture opened the
+            // panel it just saw. This row binds the panel the user was last looking
+            // at to the gesture they name, and it overrules an automatic guess.
+            cell.textLabel.text = @"认领刚用过的面板";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id claimed = LMVEasterRead(@"SquidPanelClaimSlot");
+            NSInteger slot = [claimed isKindOfClass:NSNumber.class] ? [claimed integerValue] - 1 : NSNotFound;
+            cell.detailTextLabel.text = (slot >= 0 && slot < (NSInteger)LMVEasterSquidGestures().count)
+                ? [@"上次认领：" stringByAppendingString:LMVEasterSquidGestures()[slot]] : @"把刚才那个面板认给某一套素材";
+            cell.detailTextLabel.numberOfLines = 2;
+''', '')
+        old_cells = old_cells.replace('''        } else if (index.row == 6) {
             // 1.46: the manual override. A button rather than a switch: the panel's
             // switches are told apart by their tag and every tag is a section index,
             // so this row reports its state in the detail label instead.
@@ -143,17 +155,20 @@ class UISectionOrder(unittest.TestCase):
         if (index.row != 1) return;
         key = @"CVVideo";
 ''', '')
-        # 1.46: and the swap branch it gained - drop that too.
-        selection_for_digest = selection_for_digest.replace('''        if (index.row == 3) {
+        # 1.50: and the claim branch it gained - drop that too, then the swap branch
+        # added by 1.46.
+        selection_for_digest = selection_for_digest.replace('''        if (index.row == 5) { [self claimSquidPanel]; return; }
+''', '')
+        selection_for_digest = selection_for_digest.replace('''        if (index.row == 6) {
             BOOL now = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue];
             LMVEasterSet(@"SquidPanelSwapShapes", @(!now));
             [self.tableView reloadData];
             return;
         }
 ''', '')
-        # 1.44: the Squid routing branch gained the second slot - restore the 1.43 text.
-        selection_for_digest = selection_for_digest.replace('''        if (index.row != 1 && index.row != 2) return;
-        key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";''', '''        if (index.row != 1) return;
+        # 1.44/1.50: the Squid routing branch gained more slots - restore the 1.43 text.
+        selection_for_digest = selection_for_digest.replace('''        if (index.row < 1 || index.row > 4) return;
+        key = LMVEasterSquidKeys()[index.row - 1];''', '''        if (index.row != 1) return;
         key = @"SquidPanelVideo";''')
         self.assertEqual(digest(selection_for_digest), 'f49b774c5fc80a7200d0c2bebea00126722d21fa89c41ae98571a663c9180349')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
@@ -201,7 +216,7 @@ class UISectionOrder(unittest.TestCase):
             'targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
-            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial', 'squidPanelMaterial2', 'squidPanelSwap',
+            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial', 'squidPanelMaterial2', 'squidPanelMaterial3', 'squidPanelMaterial4', 'squidPanelClaim', 'squidPanelSwap',
             'group:AT 背景视频', 'atEnabled', 'atMaterial',
             'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
@@ -210,7 +225,7 @@ class UISectionOrder(unittest.TestCase):
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 49)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 52)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelSwap', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
@@ -222,7 +237,9 @@ class UISectionOrder(unittest.TestCase):
                        if ('setProperty:' in x or '.buttonAction =' in x)
                        and 'atEnabled' not in x and 'atMaterial' not in x
                        and 'cvEnabled' not in x and 'cvMaterial' not in x
-                       and 'squidPanelMaterial2' not in x and 'squidPanelSwap' not in x)
+                       and 'squidPanelMaterial2' not in x and 'squidPanelSwap' not in x
+                       and 'squidPanelMaterial3' not in x and 'squidPanelMaterial4' not in x
+                       and 'squidPanelClaim' not in x)
         self.assertEqual(digest('\n'.join(props)), 'bf399a42225ee674df0e19bc44010d03a474e0af16cb2b19a76501c245c73469')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
@@ -235,14 +252,25 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = old_handlers.replace(', @"AT": @"AT 背景视频"', '').replace(', @"AT": @""', '')
         old_handlers = old_handlers.replace(', @"CV": @"CopyVault 面板背景视频"', '').replace(', @"CV": @""', '')
         # 1.44: the second Squid material slot, and the one existing Squid title that
-        # was renamed when that slot appeared.
-        old_handlers = old_handlers.replace('- (void)switchSquidPanel2:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel2"]; }\n', '')
-        old_handlers = old_handlers.replace(', @"SquidPanel2": @"上上滑面板背景视频"', '').replace(', @"SquidPanel2": @""', '')
-        old_handlers = old_handlers.replace('@"SquidPanel": @"上滑面板背景视频"', '@"SquidPanel": @"鱿鱼面板背景视频"')
+        # was renamed when that slot appeared. 1.50: the left-hand pair, the claim row
+        # and their handlers.
+        for line in ('- (void)switchSquidPanel2:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel2"]; }',
+                     '- (void)switchSquidPanel3:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel3"]; }',
+                     '- (void)switchSquidPanel4:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel4"]; }'):
+            old_handlers = old_handlers.replace(line + '\n', '')
+        claim_start = old_handlers.index('// 1.50: "认领刚用过的面板" - the panel\'s content says nothing')
+        claim_end = old_handlers.index('- (void)chooseVideo:(PSSpecifier *)specifier {', claim_start)
+        old_handlers = old_handlers[:claim_start] + old_handlers[claim_end:]
+        for target in ('SquidPanel2', 'SquidPanel3', 'SquidPanel4'):
+            old_handlers = old_handlers.replace(f', @"{target}": @""', '')
+        old_handlers = old_handlers.replace(', @"SquidPanel2": @"右边上上滑面板背景视频"', '')
+        old_handlers = old_handlers.replace(', @"SquidPanel3": @"左边上滑面板背景视频"', '')
+        old_handlers = old_handlers.replace(', @"SquidPanel4": @"左边上上滑面板背景视频"', '')
+        old_handlers = old_handlers.replace('@"SquidPanel": @"右边上滑面板背景视频"', '@"SquidPanel": @"鱿鱼面板背景视频"')
         self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
-                               ('switchSquidPanel', 'SquidPanel'), ('switchSquidPanel2', 'SquidPanel2'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
+                               ('switchSquidPanel', 'SquidPanel'), ('switchSquidPanel2', 'SquidPanel2'), ('switchSquidPanel3', 'SquidPanel3'), ('switchSquidPanel4', 'SquidPanel4'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
             self.assertIn(f'- (void){action}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}', handlers)
         self.assertIn('PSSpecifier *row = [self specifierAtIndexPath:indexPath];', handlers)
         self.assertIn('invoke(self, action, row);', handlers)
@@ -262,13 +290,15 @@ class UISectionOrder(unittest.TestCase):
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')
         deletion_for_digest = deletion_for_digest.replace(',@"SquidPanel2":@""', '').replace(',@"SquidPanel2"', '')
+        deletion_for_digest = deletion_for_digest.replace(',@"SquidPanel3":@""', '').replace(',@"SquidPanel3"', '')
+        deletion_for_digest = deletion_for_digest.replace(',@"SquidPanel4":@""', '').replace(',@"SquidPanel4"', '')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel",@"AT"]', '@"SquidPanel"]')
         self.assertEqual(digest(deletion_for_digest), 'b6a7b64b5c62a05698a3a03d7ca5feda863e4a441740db1eb1f3c0310382c2da')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
         self.assertIn('LMVDeleteMaterial(relative,&deleted)', PICKER)
-        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"AT",@"CV"])', DELETION)
+        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"SquidPanel2",@"SquidPanel3",@"SquidPanel4",@"AT",@"CV"])', DELETION)
         self.assertIn('[target stringByAppendingString:@"Video"]', DELETION)
 
 

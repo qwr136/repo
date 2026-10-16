@@ -16,11 +16,35 @@
 static void LMVSquidPanelVideoRefresh(BOOL reload);
 static void LMVSquidPanelVideoSuspend(void);
 static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown,LMVSquidPanelSwapShapes;
-// 1.44: the panel has two shapes, so it has two material slots - slot 1 for the
-// tall ("swipe up") panel, slot 2 for the short ("swipe up twice") one. The sound
-// switch and volume stay shared: only one of the two is ever on screen.
-static NSString *LMVSquidPanelPath,*LMVSquidPanelRevision,*LMVSquidPanelPath2,*LMVSquidPanelRevision2;
+// 1.44: the panel has two shapes; 1.50: each shape exists on BOTH gesture sides, so
+// there are FOUR materials in all. 0 = 右边上滑 (right, "swipe up"), 1 = 右边上上滑
+// (right, "swipe up twice"), 2 = 左边上滑, 3 = 左边上上滑. Even slots are the tall
+// "上滑" panel, odd slots the short "上上滑" one; 0/1 are the right-hand gestures and
+// 2/3 the left-hand ones. The sound switch and volume stay shared: only one of the
+// four can be on screen at a time.
+#define LMVSquidPanelSlotCount 4
+static NSString *LMVSquidPanelSlotPaths[LMVSquidPanelSlotCount];
+static NSString *LMVSquidPanelSlotRevisions[LMVSquidPanelSlotCount];
+// The content signature each slot was last seen as - the 1.47/1.48 identity memory,
+// now one entry per slot instead of one per shape.
+static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];
+static NSTimeInterval LMVSquidPanelLastSeen;
+static NSString *LMVSquidPanelClaimToken;
 static NSTimer *LMVSquidPanelTimer;
+// The user's material selection, by slot.
+static NSArray *LMVSquidPanelSlotKeys(void) {
+    return @[@"SquidPanelVideo",@"SquidPanel2Video",@"SquidPanel3Video",@"SquidPanel4Video"];
+}
+static NSArray *LMVSquidPanelSlotSigKeys(void) {
+    return @[@"SquidPanelSlot1Sig",@"SquidPanelSlot2Sig",@"SquidPanelSlot3Sig",@"SquidPanelSlot4Sig"];
+}
+// The gesture each slot belongs to, for the diagnostics and the claim sheet.
+static NSArray *LMVSquidPanelSlotTitles(void) {
+    return @[@"右边上滑",@"右边上上滑",@"左边上滑",@"左边上上滑"];
+}
+static BOOL LMVSquidPanelSlotIsShort(NSInteger slot) {
+    return slot>=0 && slot<LMVSquidPanelSlotCount && (slot&1)!=0;
+}
 static BOOL LMVSquidPanelSpringBoard(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
 }
@@ -125,28 +149,20 @@ static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {
     }
     return best;
 }
-// 1.44: which of the two panels is on screen - the tall one ("swipe up") or the
-// short one ("swipe up twice"). They are separate objects: each keeps an on-screen
-// and a parked copy of its own SFActivityPanelView, and they differ in height
-// (portrait 435 vs 350, landscape 340 vs 180). Height alone is a fragile test (the
-// short landscape panel is 41.9% of the screen while the tall portrait one is
-// 46.7%), so the shape is read from the page control, which belongs to exactly one
-// of them, sits 20pt above ITS OWN card in every orientation, and is hidden (h1) on
-// the short panel while the tall one keeps it (h0) - the same in landscape and in
-// portrait, in all four copies the device log showed.
-// 1.46: WHAT was classified, not what it looks like.
-//
-// The two panels are two separate, long-lived objects. A card that has been
-// classified once keeps that classification for as long as the object lives, so
-// editing a panel - adding icons, making it taller, giving it a page control it did
-// not have before - can never flip it. That is exactly what broke: the short panel
-// was made taller and started borrowing the tall panel's material, because the test
-// below looks at the panel's CONTENT and the content had changed.
-//
-// 1.47 replaced the object pair below with CONTENT SIGNATURES, because the device
-// log showed the card object being re-created on every open (four different tall-card
-// pointers in 34 seconds) - remembering an object was worth nothing.
-static NSString *LMVSquidPanelTallSig,*LMVSquidPanelShortSig;
+// 1.44: which of the panels is on screen. Height alone is a fragile test (the short
+// landscape panel is 41.9% of the screen while the tall portrait one is 46.7%), so
+// the shape is read from the page control, which belongs to exactly one of them,
+// sits 20pt above ITS OWN card in every orientation, and is hidden on the short
+// panel while the tall one keeps it - the same in landscape and in portrait.
+// 1.46: WHAT was classified, not what it looks like: a card that has been classified
+// once keeps that classification. 1.47 replaced the object pair with CONTENT
+// SIGNATURES, because the device log showed the card object being re-created on
+// every open. 1.48 made the chain survive an edited panel.
+// 1.50: the same chain now reports one of FOUR slots, and it is no longer the only
+// answer: the two sides cannot be told apart from the content, so an unknown panel
+// is claimed by the first free slot of its shape and the user can always re-bind it
+// by hand (see LMVSquidPanelResolveSlot and the "认领刚用过的面板" row).
+static NSString *LMVSquidPanelShapeSig;
 static NSString *LMVSquidPanelShapeReason=@"none";
 // 1.47: a CONTENT signature that does not contain the panel's height or width.
 //
@@ -155,7 +171,7 @@ static NSString *LMVSquidPanelShapeReason=@"none";
 // height is exactly what the user changes ("I made the short panel as tall as the
 // tall one"). What DOES stay put is the content - how many icons the panel carries
 // and how many dots its page control has - and those are the same in landscape and in
-// portrait. The signature is remembered together with the shape it was seen as, so a
+// portrait. The signature is remembered together with the slot it was seen as, so a
 // panel that only grew taller keeps the material it had.
 static NSUInteger LMVSquidPanelIconCount(UIView *card) {
     NSUInteger count=0;
@@ -203,70 +219,119 @@ static NSString *LMVSquidPanelContentSignature(UIView *card,UIWindow *window) {
     return [NSString stringWithFormat:@"icons%lu|pc%d|dots%.0f",(unsigned long)icons,page?1:0,dots];
 }
 static NSUInteger LMVSquidPanelSignatureIcons(NSString *sig) {
-    if(![sig hasPrefix:@"icons"])return NSNotFound;
+    if(![sig isKindOfClass:NSString.class] || ![sig hasPrefix:@"icons"])return NSNotFound;
     return (NSUInteger)[[sig substringFromIndex:5] integerValue];
 }
-static NSString *LMVSquidPanelShapeSig=@"none";
-static void LMVSquidPanelRememberShape(BOOL shortPanel,NSString *sig) {
-    if(!sig.length || [sig isEqualToString:@"none"])return;
-    CFStringRef key=shortPanel?CFSTR("SquidPanelShortSig2"):CFSTR("SquidPanelTallSig2");
-    CFPreferencesSetAppValue(key,(__bridge CFStringRef)sig,kLMVPrefsID);
-    CFPreferencesAppSynchronize(kLMVPrefsID);
-    if(shortPanel)LMVSquidPanelShortSig=[sig copy]; else LMVSquidPanelTallSig=[sig copy];
+static NSUInteger LMVSquidPanelSignatureDistance(NSUInteger icons,NSString *sig) {
+    NSUInteger other=LMVSquidPanelSignatureIcons(sig);
+    if(icons==NSNotFound || other==NSNotFound)return NSNotFound;
+    return (icons>other)?icons-other:other-icons;
 }
-static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
-    if(!card)return NO;
+// 1.50: bind a signature to a slot - and, because a signature only ever names ONE
+// panel, drop it from whichever slot claimed it before. The auto chain does this on
+// first sight; the "认领" row does it on the user's word (see LMVSquidPanelClaimSlot).
+static void LMVSquidPanelRememberSlot(NSInteger slot,NSString *sig) {
+    if(slot<0 || slot>=LMVSquidPanelSlotCount)return;
+    if(![sig isKindOfClass:NSString.class] || !sig.length || [sig isEqualToString:@"none"])return;
+    NSArray *keys=LMVSquidPanelSlotSigKeys();
+    for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+        if(i==slot || !LMVSquidPanelSlotSigs[i].length)continue;
+        if(![sig isEqualToString:LMVSquidPanelSlotSigs[i]])continue;
+        CFPreferencesSetAppValue((__bridge CFStringRef)keys[i],NULL,kLMVPrefsID);
+        LMVSquidPanelSlotSigs[i]=nil;
+    }
+    CFPreferencesSetAppValue((__bridge CFStringRef)keys[slot],(__bridge CFStringRef)sig,kLMVPrefsID);
+    CFPreferencesAppSynchronize(kLMVPrefsID);
+    LMVSquidPanelSlotSigs[slot]=[sig copy];
+}
+// 1.50: which of the four materials this panel plays.
+//
+// (a) A signature seen before settles it outright - this is the whole point of the
+//     identity memory: the panel keeps its material when the user edits it.
+// (b) Otherwise the SHAPE decides first: "上上滑" is the short one. Both shapes
+//     learned -> closest by icon count (the 1.48 rule), else the page control, else
+//     the height.
+// (c) The SIDE cannot be read from the content - the left and right gestures open
+//     panels that differ only in what the user put in them. So an unknown panel is
+//     bound to the slot of its shape that nothing has claimed yet (the right-hand one
+//     first, because that is the pair that exists first on a device), and if both are
+//     taken, to the closer of the two. (d) The user can always overrule that: the
+//     "认领刚用过的面板" row re-binds the panel they just used to the slot they pick.
+static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
+    if(!card)return 0;
     NSString *sig=LMVSquidPanelContentSignature(card,window);
     LMVSquidPanelShapeSig=sig;
-    BOOL hasTall=LMVSquidPanelTallSig.length>0, hasShort=LMVSquidPanelShortSig.length>0;
-    // (a) a signature seen before settles it, whatever the panel's size or object is.
-    if(hasShort && [sig isEqualToString:LMVSquidPanelShortSig]) {
-        LMVSquidPanelShapeReason=@"sig-short";return YES;
+    for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+        if(!LMVSquidPanelSlotSigs[i].length)continue;
+        if(![sig isEqualToString:LMVSquidPanelSlotSigs[i]])continue;
+        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"sig-slot%d",(int)i+1];
+        return i;
     }
-    if(hasTall && [sig isEqualToString:LMVSquidPanelTallSig]) {
-        LMVSquidPanelShapeReason=@"sig-tall";return NO;
+    BOOL haveTall=NO,haveShort=NO;
+    for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+        if(!LMVSquidPanelSlotSigs[i].length)continue;
+        if(LMVSquidPanelSlotIsShort(i))haveShort=YES; else haveTall=YES;
     }
-    // (b) only ONE shape has ever been learned, and this is not it - so this is the
-    // OTHER panel, by elimination. This is the case that was broken: the short panel
-    // was made taller, its signature changed, and the old code re-ran the content test
-    // (page control visible -> "tall") on top of the tall panel's recorded signature
-    // and then OVERWROTE it, so the two signatures kept pushing each other out.
-    if(hasTall != hasShort) {
-        BOOL shortPanel=hasTall;                 // the tall one is known -> this is short
-        LMVSquidPanelShapeReason=@"other-panel";
-        LMVSquidPanelRememberShape(shortPanel,sig);
-        return shortPanel;
-    }
-    // (c) both shapes are known and this signature matches neither: the panel was edited
-    // again. The icon count decides - whichever remembered panel it is closest to.
-    if(hasTall && hasShort) {
+    BOOL shortPanel=NO;NSString *reason=nil;
+    if(haveTall && haveShort) {
         NSUInteger icons=LMVSquidPanelSignatureIcons(sig);
-        NSUInteger ti=LMVSquidPanelSignatureIcons(LMVSquidPanelTallSig);
-        NSUInteger si=LMVSquidPanelSignatureIcons(LMVSquidPanelShortSig);
-        NSUInteger dt=(icons>ti)?icons-ti:ti-icons;
-        NSUInteger ds=(icons>si)?icons-si:si-icons;
-        if(ds!=dt) {
-            BOOL shortPanel=(ds<dt);
-            LMVSquidPanelShapeReason=shortPanel?@"nearest-short":@"nearest-tall";
-            LMVSquidPanelRememberShape(shortPanel,sig);
-            return shortPanel;
+        NSUInteger best=NSNotFound;BOOL bestShort=NO;
+        for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+            if(!LMVSquidPanelSlotSigs[i].length)continue;
+            NSUInteger d=LMVSquidPanelSignatureDistance(icons,LMVSquidPanelSlotSigs[i]);
+            if(d==NSNotFound)continue;
+            if(best==NSNotFound || d<best){best=d;bestShort=LMVSquidPanelSlotIsShort(i);}
+        }
+        if(best!=NSNotFound){shortPanel=bestShort;reason=bestShort?@"nearest-short":@"nearest-tall";}
+    }
+    if(!reason) {
+        UIPageControl *page=LMVSquidPanelPageControl(card,window);
+        if(page) {
+            shortPanel=page.hidden;
+            reason=[NSString stringWithFormat:@"page.hidden=%d",(int)page.hidden];
+        } else {
+            CGRect cardFrame=[card convertRect:card.bounds toView:window];
+            CGFloat height=window.bounds.size.height;
+            shortPanel=(height>0 && cardFrame.size.height<height*.45);
+            reason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];
         }
     }
-    // (d) nothing learned yet (or a tie): the content test decides. Remember it - but
-    // never a signature taken while the panel is still assembling (no icons yet).
-    UIPageControl *page=LMVSquidPanelPageControl(card,window);
-    BOOL shortPanel;
-    if(page) {
-        shortPanel=page.hidden;
-        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"page.hidden=%d",(int)page.hidden];
+    NSInteger right=shortPanel?1:0, left=shortPanel?3:2;
+    NSInteger slot=right;
+    if(!LMVSquidPanelSlotSigs[left].length) {
+        slot=left;reason=[reason stringByAppendingString:@"@claim-left"];
+    } else if(!LMVSquidPanelSlotSigs[right].length) {
+        slot=right;reason=[reason stringByAppendingString:@"@claim-right"];
     } else {
-        CGRect cardFrame=[card convertRect:card.bounds toView:window];
-        CGFloat height=window.bounds.size.height;
-        shortPanel=(height>0 && cardFrame.size.height<height*.45);
-        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];
+        NSUInteger icons=LMVSquidPanelSignatureIcons(sig);
+        NSUInteger dr=LMVSquidPanelSignatureDistance(icons,LMVSquidPanelSlotSigs[right]);
+        NSUInteger dl=LMVSquidPanelSignatureDistance(icons,LMVSquidPanelSlotSigs[left]);
+        slot=(dl!=NSNotFound && dr!=NSNotFound && dl<dr)?left:right;
+        reason=[reason stringByAppendingFormat:@"@nearest-of-%d-%d",(int)right+1,(int)left+1];
     }
-    if(LMVSquidPanelSignatureIcons(sig)>0)LMVSquidPanelRememberShape(shortPanel,sig);
-    return shortPanel;
+    LMVSquidPanelShapeReason=reason;
+    // Never a signature taken while the panel is still assembling (no icons yet).
+    if(LMVSquidPanelSignatureIcons(sig)!=NSNotFound && LMVSquidPanelSignatureIcons(sig)>0)
+        LMVSquidPanelRememberSlot(slot,sig);
+    return slot;
+}
+// 1.50: the manual half of the identity memory - "认领刚用过的面板". Nothing in the
+// content says which gesture opened a panel, so the user gets the last word: the
+// panel they were just looking at (and not one from too long ago to be what they
+// mean) is bound to the slot they pick, and the signature's old binding is dropped
+// in the same move, so a wrong automatic claim is corrected rather than shadowed.
+static void LMVSquidPanelBindLastSeen(NSInteger slot) {
+    if(slot<0 || slot>=LMVSquidPanelSlotCount)return;
+    NSTimeInterval age=LMVSquidPanelLastSeen>0?(CACurrentMediaTime()-LMVSquidPanelLastSeen):-1;
+    BOOL fresh=age>=0 && age<900;
+    NSString *sig=LMVSquidPanelShapeSig;
+    if(fresh && [sig isKindOfClass:NSString.class] && sig.length && ![sig isEqualToString:@"none"])
+        LMVSquidPanelRememberSlot(slot,sig);
+    if(LMVDiagnosticsEnabled.load()) {
+        NSString *line=[NSString stringWithFormat:@"squid-panel-claim slot=%d gesture=%@ sig=%@ age=%.0fs applied=%d",
+            (int)slot+1,LMVSquidPanelSlotTitles()[slot],sig.length?sig:@"none",age<0?0:age,(int)fresh];
+        LMVDiagnostic(line);
+    }
 }
 @interface LMVSquidPanelVideoHost:UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
@@ -330,26 +395,28 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     UIView *card=window?LMVSquidPanelCard(window):nil;
     if(!card) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
-    // 1.44/1.45: two panels, two slots, and they are INDEPENDENT - there is no
-    // fallback between them. The tall one ("swipe up") plays slot 1, the short one
-    // ("swipe up twice") plays slot 2, and a slot left empty means that panel simply
-    // gets no video: it keeps its original look and stays silent (detach also stands
-    // the shared audio channel down, so nothing is heard). The shape does not depend
-    // on the orientation, so slot 1 is the tall panel in landscape too.
-    BOOL shortPanel=LMVSquidPanelCardIsShort(card,window);
-    // 1.46: "对调" - for the case where the very first content test guessed the two
-    // panels the other way round. It flips which slot each shape plays, and it does
-    // not touch the identity memory above (that records the shape, this picks the
-    // material).
-    BOOL useSecond=LMVSquidPanelSwapShapes?!shortPanel:shortPanel;
-    NSString *wantPath=useSecond?LMVSquidPanelPath2:LMVSquidPanelPath;
-    NSString *wantRevision=useSecond?LMVSquidPanelRevision2:LMVSquidPanelRevision;
+    // 1.44/1.45: the panels are INDEPENDENT - there is no fallback between them. A
+    // slot left empty means that panel simply gets no video: it keeps its original
+    // look and stays silent (detach also stands the shared audio channel down, so
+    // nothing is heard). 1.50: four slots, one per gesture side/shape.
+    NSInteger slot=LMVSquidPanelResolveSlot(card,window);
+    // A live panel is also the one the "认领刚用过的面板" row binds later on, so keep
+    // its signature (and when it was last seen) around.
+    LMVSquidPanelLastSeen=CACurrentMediaTime();
+    // 1.46/1.50: "对调上滑 / 上上滑素材" - for the case where the very first content test
+    // guessed the two panels of a side the other way round. It flips which material
+    // each shape plays WITHIN its side (0<->1, 2<->3) and leaves the identity memory
+    // above untouched (that records the panel, this picks the material).
+    NSInteger wantSlot=slot;
+    if(LMVSquidPanelSwapShapes)wantSlot=slot^1;
+    NSString *wantPath=LMVSquidPanelSlotPaths[wantSlot];
+    NSString *wantRevision=LMVSquidPanelSlotRevisions[wantSlot];
     if(!wantPath.length || !wantRevision.length) {
         // 1.45: say so out loud, once per state change - "this panel has no material"
         // is otherwise indistinguishable from "the channel is broken" in a log.
         if(LMVDiagnosticsEnabled.load()) {
-            NSString *empty=[NSString stringWithFormat:@"squid-panel shape=%@ slot=empty (no video, by design)",
-                shortPanel?@"short":@"tall"];
+            NSString *empty=[NSString stringWithFormat:@"squid-panel slot=%d empty=%@ (no video, by design)",
+                (int)wantSlot+1,LMVSquidPanelSlotTitles()[wantSlot]];
             static NSString *lastEmpty=nil;
             if(![empty isEqualToString:lastEmpty]) {lastEmpty=[empty copy];LMVDiagnostic(empty);}
         }
@@ -412,9 +479,10 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f shape=%@ slot=%d why=%@ sig=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
-            shortPanel?@"short":@"tall",useSecond?2:1,LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
+            (int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],
+            LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             (void *)self.card,
@@ -441,25 +509,45 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         id globalValue=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
         LMVSquidPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&
             [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
-        LMVSquidPanelPath=LMVCCSelectedPath(@"SquidPanelVideo");
-        LMVSquidPanelRevision=LMVLockVideoRevision(LMVSquidPanelPath);
-        // 1.44: the second slot, for the short ("swipe up twice") panel.
-        LMVSquidPanelPath2=LMVCCSelectedPath(@"SquidPanel2Video");
-        LMVSquidPanelRevision2=LMVLockVideoRevision(LMVSquidPanelPath2);
-        // 1.46: "对调上滑 / 上上滑素材" - see useSecond in -update.
+        // 1.50: four slots - right 上滑/上上滑 and left 上滑/上上滑 - each with its own
+        // material, plus the 对调 switch and the claim the user asked for in Settings.
+        NSArray *keys=LMVSquidPanelSlotKeys();
+        for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+            LMVSquidPanelSlotPaths[i]=LMVCCSelectedPath(keys[i]);
+            LMVSquidPanelSlotRevisions[i]=LMVLockVideoRevision(LMVSquidPanelSlotPaths[i]);
+        }
+        // 1.46/1.50: "对调上滑 / 上上滑素材" - see wantSlot in -update.
         id swap=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelSwapShapes"),kLMVPrefsID);
         LMVSquidPanelSwapShapes=[swap isKindOfClass:NSNumber.class] && [swap boolValue];
-        // 1.47: the content signature each shape was last seen as.
-        // 1.48: "2" - 1.47 saved one wrong verdict (icons29 as tall) on the device; a new
-        // key generation makes every device start from a clean slate instead of migrating it.
-        id tallSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelTallSig2"),kLMVPrefsID);
-        id shortSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelShortSig2"),kLMVPrefsID);
-        LMVSquidPanelTallSig=[tallSig isKindOfClass:NSString.class]?tallSig:nil;
-        LMVSquidPanelShortSig=[shortSig isKindOfClass:NSString.class]?shortSig:nil;
+        // 1.47: the content signature each slot was last seen as. 1.50: one key per
+        // SLOT; the 1.48 pair (SquidPanelTallSig2/SquidPanelShortSig2) seeds the two
+        // right-hand slots so a device that already knew its right panels keeps that
+        // knowledge instead of starting from scratch.
+        NSArray *sigKeys=LMVSquidPanelSlotSigKeys();
+        NSArray *seeds=@[@"SquidPanelTallSig2",@"SquidPanelShortSig2"];
+        for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+            id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)sigKeys[i],kLMVPrefsID);
+            if(![value isKindOfClass:NSString.class] && i<seeds.count)
+                value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)seeds[i],kLMVPrefsID);
+            LMVSquidPanelSlotSigs[i]=[value isKindOfClass:NSString.class]?value:nil;
+        }
+        // 1.50: "认领刚用过的面板" - both settings surfaces write the slot (1-4) plus a
+        // token; the first refresh that sees a new token binds the panel the user was
+        // just looking at to that slot. That is the one thing the runtime cannot work
+        // out by itself (nothing in the content says which gesture opened the panel).
+        id claim=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelClaimSlot"),kLMVPrefsID);
+        id token=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelClaimToken"),kLMVPrefsID);
+        NSString *tokenText=[token isKindOfClass:NSString.class]?token:(token?[token description]:nil);
+        if(tokenText.length && ![tokenText isEqualToString:LMVSquidPanelClaimToken]) {
+            LMVSquidPanelClaimToken=[tokenText copy];
+            NSInteger claimed=[claim isKindOfClass:NSNumber.class]?[claim integerValue]-1:NSNotFound;
+            if(claimed>=0 && claimed<LMVSquidPanelSlotCount) LMVSquidPanelBindLastSeen(claimed);
+        }
     }
     LMVSquidPanelRetune();
-    BOOL anySlot=(LMVSquidPanelPath.length && LMVSquidPanelRevision.length) ||
-        (LMVSquidPanelPath2.length && LMVSquidPanelRevision2.length);
+    BOOL anySlot=NO;
+    for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++)
+        if(LMVSquidPanelSlotPaths[i].length && LMVSquidPanelSlotRevisions[i].length)anySlot=YES;
     if(!LMVSquidPanelEnabled || !anySlot) {
         [LMVSquidPanelVideo detach];
         if(LMVSquidPanelVideo.playback.path)[LMVSquidPanelVideo.playback clear];
