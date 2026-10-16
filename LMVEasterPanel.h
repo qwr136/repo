@@ -111,7 +111,29 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     [super viewDidLoad]; self.title = @"背景视频";
     self.tableView.sectionHeaderHeight = 26;
     self.tableView.sectionFooterHeight = 6;
+    // 1.41: the panel is a FLOATING card, so its table must never re-inset its
+    // content from the window's top safe area. The automatic adjustment added the
+    // status-bar height ON TOP of the navigation bar whenever the panel was dragged
+    // up until its top reached the safe-area line, so every row dropped about one
+    // status bar lower - the "面板移到最上面时消息背景文字跑到下面" report.
+    // Measured on the device screenshots: card-top -> first row is 123 pt with the
+    // panel at the top vs 70 pt with the panel lower (= 44 pt bar + 26 pt header),
+    // i.e. exactly one extra safe-area inset. The scroll view is pinned to the
+    // navigation-bar height instead, so the content sits in the same place at
+    // every position, and a panel that sits lower looks byte-identical to before.
+    self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(finish)];
+}
+// Keep the pinned top inset in step with the bar (44 pt in this floating panel).
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGFloat bar = self.navigationController.navigationBar.frame.size.height;
+    if (!(bar > 0)) bar = 44;
+    if (fabs(self.tableView.contentInset.top - bar) > .5) {
+        UIEdgeInsets inset = self.tableView.contentInset;
+        inset.top = bar;
+        self.tableView.contentInset = inset;
+    }
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated]; CFPreferencesAppSynchronize(LMVEasterPrefs);

@@ -133,6 +133,12 @@ assert 'LMVEasterPanelToggle(enabled, NO)' in header, 'custom size defaults to o
 assert '#import "LMVEasterPanelAppearance.h"' in overlay and '#import "LMVEasterPanelAppearance.h"' in image
 assert 'pushViewController:[LMVEasterImageSettings new]' in panel
 
+# 1.41: the floating panel pins its scroll inset to the navigation bar, so a panel
+# dragged up until its top touches the safe-area line can no longer drop every row
+# by one extra status bar ("面板移到最上面时消息背景文字跑到下面").
+assert 'self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;' in panel
+assert '- (void)viewDidLayoutSubviews {' in panel and 'inset.top = bar;' in panel
+
 # ---- native: execute the appearance rules where a toolchain exists -------------
 if sys.platform != 'darwin':
     print('SKIP native: appearance-rule execution needs Foundation/UIKit; run on macOS CI')
