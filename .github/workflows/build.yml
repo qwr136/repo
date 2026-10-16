@@ -3,7 +3,7 @@ name: build-deb
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, fix/1.27-roothide, feat/1.28-at-panel-video ]
+    branches: [ main, master, fix/1.27-roothide, feat/1.28-at-panel-video, feat/1.29-instant-resume ]
     paths-ignore:
       - 'Packages/**'
       - 'Release/**'

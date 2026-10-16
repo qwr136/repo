@@ -71,6 +71,12 @@ static void LMVAudioPauseTarget(NSString *target) {
 // 0.0.135: direct resume mirroring the consume() visible path - seek to the
 // video player's current time, then play. The 10 Hz audio sync alone made the
 // sound return up to one timer beat late after the cover left the desktop.
+// 1.29: the UNCONDITIONAL seek here was the remaining "sound comes back half a
+// beat late" cost. A pause leaves currentTime exactly where it was, so that seek
+// only made the decoder and its buffers restart for nothing - which is precisely
+// the gap the user hears when an app exits or the Control Center slides back.
+// Seek now happens only on a real drift (>0.25 s); otherwise the paused player
+// simply plays, so the resume costs one play call on both paths.
 static void LMVAudioResumeTarget(NSString *target,CMTime time) {
     if(!LMVAudioChannels)return;
     LMVAudioChannel *c=LMVAudioChannels[target];if(!c || !c.enabled || c.volume<=0 || c.loading)return;
@@ -79,7 +85,13 @@ static void LMVAudioResumeTarget(NSString *target,CMTime time) {
     if(LMVAudioActivateMixing()) {
         c.player.volume=c.volume;
         if(c.player.rate==0) {
-            if(CMTIME_IS_NUMERIC(time))[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
+            BOOL drift=NO;
+            if(CMTIME_IS_NUMERIC(time)) {
+                CMTime now=c.player.currentTime;
+                if(CMTIME_IS_NUMERIC(now))
+                    drift=fabs(CMTimeGetSeconds(now)-CMTimeGetSeconds(time))>0.25;
+            }
+            if(drift)[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.2,600) toleranceAfter:CMTimeMakeWithSeconds(.2,600)];
             [c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();
         }
     }

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Source invariants + reader-clock model; NOT an on-device AVFoundation test."""
 from pathlib import Path
-import math, plistlib
+import math, plistlib, re
 root=Path(__file__).resolve().parents[1]
 s=(root/'Tweak.xm').read_text()
-assert (root/'control').read_text().count('Version: 1.28')==1
+# 1.29: the version lives in `control` alone - the assertions FOLLOW it instead
+# of repeating the literal. A release bump used to turn these two lines red even
+# though nothing was wrong with the build (it cost two CI runs at 1.28).
+control=(root/'control').read_text()
+lmv_version=re.search(r'^Version:\s*(\S+)\s*$',control,re.M).group(1)
+assert control.count('Version: '+lmv_version)==1
 info=plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
-assert info['CFBundleVersion']==info['CFBundleShortVersionString']=='1.28'
+assert info['CFBundleVersion']==info['CFBundleShortVersionString']==lmv_version
 assert 'LMVCoverHidden' not in s
 assert '<AVPlayerItemOutputPullDelegate>' in s
 assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s

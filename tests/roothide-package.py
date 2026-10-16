@@ -42,7 +42,10 @@ check(re.search(r'^THEOS_PACKAGE_SCHEME\s*=\s*roothide\s*$', make, re.M), 'nativ
 check('TARGET := iphone:clang:15.6:15.0' in make, 'pinned target')
 for target in ('LockMessageVideo', 'LockMessageVideoPrefs'):
     check(target + '_LIBRARIES = roothide' in make, target + ' libroothide linkage')
-check(source['Version'] == '1.28' and source['Architecture'] == 'iphoneos-arm64e', 'control metadata')
+# 1.29: control must agree with the Makefile's LMV_VERSION rather than with a
+# hard-coded release number, so a version bump touches one place per surface.
+make_version = re.search(r'^LMV_VERSION\s*=\s*(\S+)\s*$', make, re.M).group(1)
+check(source['Version'] == make_version and source['Architecture'] == 'iphoneos-arm64e', 'control metadata')
 info = plistlib.loads((ROOT / 'LockMessageVideoPrefs/Info.plist').read_bytes())
 check(info['CFBundleVersion'] == info['CFBundleShortVersionString'] == source['Version'], 'CFBundle versions')
 check(plistlib.loads((ROOT / 'LockMessageVideo.plist').read_bytes()) == plistlib.loads((ROOT / 'layout/Library/MobileSubstrate/DynamicLibraries/LockMessageVideo.plist').read_bytes()), 'source/staged filter parity')
@@ -135,7 +138,7 @@ check(shutil.which('dpkg-deb') is not None, 'dpkg-deb required for actual archiv
 with tempfile.TemporaryDirectory(prefix='lmv-rh-test-') as directory:
     root = Path(directory) / 'stage'
     (root / 'DEBIAN').mkdir(parents=True)
-    control = 'Package: com.minis.lockmessagevideo\nVersion: 1.28\nArchitecture: iphoneos-arm64e\nMaintainer: Test <test@example.invalid>\nDescription: synthetic verifier fixture only\nDepends: mobilesubstrate, preferenceloader, roothide\n'
+    control = 'Package: com.minis.lockmessagevideo\nVersion: %s\nArchitecture: iphoneos-arm64e\nMaintainer: Test <test@example.invalid>\nDescription: synthetic verifier fixture only\nDepends: mobilesubstrate, preferenceloader, roothide\n' % source['Version']
     (root / 'DEBIAN/control').write_text(control)
     for name, data in ((verify.TWEAK, fat()), (verify.PREFS + '/LockMessageVideoPrefs', fat(False)), (verify.PREFS + '/Info.plist', plistlib.dumps(info)), (verify.TWEAK.replace('.dylib', '.plist'), (ROOT / 'LockMessageVideo.plist').read_bytes()), (verify.ENTRY, (ROOT / 'layout' / verify.ENTRY).read_bytes())):
         dest = root / name

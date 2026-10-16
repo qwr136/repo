@@ -181,7 +181,9 @@ def verify_package(deb, source):
     fields = control_fields(subprocess.check_output(['dpkg-deb', '-f', str(deb)], text=True))
     require(fields.get('Package') == source.get('Package') == 'com.minis.lockmessagevideo', 'wrong package identifier')
     require(fields.get('Architecture') == source.get('Architecture') == 'iphoneos-arm64e', 'not native RootHide architecture')
-    require(fields.get('Version') == source.get('Version') == '1.28', 'wrong package version')
+    # 1.29: the version is compared against control, not against a literal - the
+    # deb must agree with the source it was built from, whatever that version is.
+    require(fields.get('Version') == source.get('Version'), 'wrong package version')
     deps = fields.get('Depends', '')
     for dependency in ('mobilesubstrate', 'preferenceloader', 'roothide'):
         require(re.search(r'(?:^|,)\s*' + dependency + r'(?:\s*\([^)]*\))?\s*(?=,|$)', deps), 'missing control dependency: ' + dependency)
