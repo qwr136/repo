@@ -187,6 +187,20 @@ assert 'return (CGRectIsEmpty(onScreen)?0:onScreen.size.width*onScreen.size.heig
 assert 'CALayer *paint=child.layer.presentationLayer;if (!paint) paint=child.layer;' in h, 'a missing presentation layer means not animating, not unmeasurable'
 assert 'CGRect screenInWindow=[destination convertRect:destination.bounds toWindow:window];' in h, 'the screen rect is carried into the CC window (no cross-tree conversion)'
 assert 'desktop-windows-skipped %@' in h, 'the skipped full-screen windows are listed for diagnosis'
+# 1.42: the clipboard/panel dig-out. CopyVault (CVPanelWindow) keeps a permanent,
+# EMPTY window and the three-level geometry only ever showed `{UIView[]}`, so a
+# per-window level/hidden/root-VC list plus a six-level panel tree (hidden windows
+# included) is what makes a clipboard panel's card and mount level readable.
+assert 'desktop-window-meta %@' in h, 'every window carries level/hidden/root-VC (1.42)'
+assert '(int)window.hidden,window.alpha,rvc?NSStringFromClass(rvc.class):@"none"]' in h, \
+    'the meta line carries the window level, hidden state and root view controller (1.42)'
+assert 'desktop-panel-tree %@' in h, 'panel-like windows get a deep subtree dump (1.42)'
+assert 'static void LMVDesktopPanelTree(UIView *view,NSUInteger depth,NSMutableString *out,NSUInteger *nodes) {' in h, \
+    'the deep panel-tree printer exists (1.42)'
+assert 'if (depth>=6 || view.subviews.count==0) return;' in h, 'the panel tree goes six levels deep (1.42)'
+assert 'static BOOL LMVDesktopPanelName(NSString *name) {' in h, 'panel-like windows are recognised by name (1.42)'
+assert '[name containsString:@"Platter"] || [name containsString:@"Clipboard"]' in h, \
+    'the panel name test covers Clipboard as well as Panel/Menu/Platter (1.42)'
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;' in h, 'an attach under a sheet marks it pre-existing'

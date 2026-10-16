@@ -133,11 +133,17 @@ assert 'LMVEasterPanelToggle(enabled, NO)' in header, 'custom size defaults to o
 assert '#import "LMVEasterPanelAppearance.h"' in overlay and '#import "LMVEasterPanelAppearance.h"' in image
 assert 'pushViewController:[LMVEasterImageSettings new]' in panel
 
-# 1.41: the floating panel pins its scroll inset to the navigation bar, so a panel
-# dragged up until its top touches the safe-area line can no longer drop every row
-# by one extra status bar ("面板移到最上面时消息背景文字跑到下面").
+# 1.41/1.42: the floating panel pins its scroll inset to the navigation bar, so a
+# panel dragged up until its top touches the safe-area line can no longer drop every
+# row by one extra status bar ("面板移到最上面时消息背景文字跑到下面"). The pin is
+# applied from viewDidLoad AND the resting scroll position is seeked, because a
+# `.never` scroll view does not seek to -contentInset itself - without that the first
+# header sat UNDER the bar ("消息背景 太高").
 assert 'self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;' in panel
-assert '- (void)viewDidLayoutSubviews {' in panel and 'inset.top = bar;' in panel
+assert '- (CGFloat)barInset {' in panel and '- (void)pinBarInset:(BOOL)seekTop {' in panel
+assert '[self pinBarInset:YES];' in panel and '[self pinBarInset:NO];' in panel
+assert 'inset.top = bar; self.tableView.contentInset = inset;' in panel
+assert 'self.tableView.contentOffset = CGPointMake(self.tableView.contentOffset.x, -bar);' in panel
 
 # ---- native: execute the appearance rules where a toolchain exists -------------
 if sys.platform != 'darwin':

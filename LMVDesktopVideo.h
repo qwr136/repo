@@ -383,6 +383,39 @@ static void LMVDesktopFindOverlayViews(UIView *view,NSUInteger depth,NSMutableAr
     if ([name containsString:@"TransitionView"] || [name containsString:@"Overlay"]) [found addObject:view];
     for (UIView *child in view.subviews) LMVDesktopFindOverlayViews(child,depth+1,found,nodes);
 }
+// 1.42: which windows are PANEL-like. Same name test the 1.25 geometry uses
+// (Panel/Menu/Platter) plus Clipboard, so a clipboard manager such as CopyVault
+// (CVPanelWindow) is covered by the existing "Panel" rule.
+static BOOL LMVDesktopPanelName(NSString *name) {
+    return [name containsString:@"Panel"] || [name containsString:@"Menu"] ||
+        [name containsString:@"Platter"] || [name containsString:@"Clipboard"];
+}
+// 1.42: the WHOLE subtree of a panel-like window, six levels deep, with frame,
+// hidden, alpha and corner radius on every node.
+// Why the 1.25 panel geometry is not enough: it stops at three levels, prints
+// only up to six children per level, and is built from the same window list that
+// skips hidden windows - which is exactly how CVPanelWindow could read as a
+// permanent empty shell `{UIView[]}` while CopyVault's panel was somewhere the
+// log could not see. This walks deeper and is also called for windows that are
+// currently hidden, so a panel window that only exists while it is open still
+// shows its shape (the panel-open report can then name its card and mount level
+// without another round trip).
+static void LMVDesktopPanelTree(UIView *view,NSUInteger depth,NSMutableString *out,NSUInteger *nodes) {
+    if (!view || *nodes>240) return;
+    (*nodes)++;
+    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f(h%d,a%.2f,r%.0f)",
+        NSStringFromClass(view.class),view.frame.origin.x,view.frame.origin.y,
+        view.frame.size.width,view.frame.size.height,(int)view.hidden,view.alpha,view.layer.cornerRadius];
+    if (depth>=6 || view.subviews.count==0) return;
+    [out appendString:@"{"];
+    NSUInteger n=0;
+    for (UIView *child in view.subviews) {
+        if (n++>=8) {[out appendString:@"…"];break;}
+        LMVDesktopPanelTree(child,depth+1,out,nodes);
+        [out appendString:@","];
+    }
+    [out appendString:@"}"];
+}
 static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *ccCover,BOOL *sheetCover,BOOL *sheetFullCover) {
     CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*ccCover=NO;*sheetCover=NO;*sheetFullCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1459,6 +1492,53 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if(shapeDump)geometry=[NSString stringWithFormat:@"desktop-panel %@",panels.length?panels:@"none"];
         static NSString *lastGeometry=nil;
         if (geometry && ![geometry isEqualToString:lastGeometry]) {lastGeometry=[geometry copy];LMVDiagnostic(geometry);}
+    }
+    // 1.42: every window with its LEVEL, hidden state and root-view-controller
+    // class. CopyVault keeps a permanent CVPanelWindow and only fills it while its
+    // panel is up, so a class-name list alone cannot say which window a panel
+    // belongs to, nor whether a brand-new window appeared for it. Hidden windows
+    // are listed ON PURPOSE - a window that exists only while its panel is open is
+    // precisely what has to be visible here.
+    {
+        NSMutableString *meta=[NSMutableString new];
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+                UIViewController *rvc=window.rootViewController;
+                [meta appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f lvl=%.0f hid=%d a=%.2f rvc=%@ ",
+                    NSStringFromClass(window.class),window.frame.origin.x,window.frame.origin.y,
+                    window.frame.size.width,window.frame.size.height,window.windowLevel,
+                    (int)window.hidden,window.alpha,rvc?NSStringFromClass(rvc.class):@"none"];
+            }
+        }
+        static NSString *lastMeta=nil;
+        if (meta.length && ![meta isEqualToString:lastMeta]) {
+            lastMeta=[meta copy];
+            LMVDiagnostic([NSString stringWithFormat:@"desktop-window-meta %@",meta]);
+        }
+    }
+    // 1.42: the deep subtree of every panel-like window (see LMVDesktopPanelName).
+    // Six levels, including windows that are not currently visible, so the shape of
+    // a clipboard panel is captured even when the shallow three-level geometry only
+    // shows an empty shell.
+    {
+        NSMutableString *trees=[NSMutableString new];
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+                if (!LMVDesktopPanelName(NSStringFromClass(window.class)) || window.alpha<.01) continue;
+                if (trees.length>3000) {[trees appendString:@"…"];break;}
+                NSUInteger nodes=0;
+                [trees appendFormat:@"%@|",NSStringFromClass(window.class)];
+                LMVDesktopPanelTree(window,0,trees,&nodes);
+                [trees appendString:@" "];
+            }
+        }
+        static NSString *lastTrees=nil;
+        if (trees.length && ![trees isEqualToString:lastTrees]) {
+            lastTrees=[trees copy];
+            LMVDiagnostic([NSString stringWithFormat:@"desktop-panel-tree %@",trees]);
+        }
     }
     // 1.26: the pop-ups that are NOT windows (AppTools and friends). A panel that
     // is PRESENTED into an existing window changes no window class, so neither the
