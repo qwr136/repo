@@ -603,6 +603,27 @@ static BOOL LMVDesktopMenuHostWindow(UIWindow *window) {
     if(dockClass && [window isKindOfClass:dockClass])return YES;
     return LMVDesktopHomeWindow(window);
 }
+// Deliberately NOT _UIContextMenuPlatterTransitionView as a CANDIDATE result. That is
+// the full-screen transition container - the log shows it at @0,0,430,932 - and it is
+// the first thing the walk meets inside the window, so comparing IT against the dock
+// strip always concludes "covers the dock". That is exactly why 1.36 still took the
+// strip's video away on every long press.
+// The menu CARD is _UIContextMenuView (@147,389,250,447 in that same dump, ending at
+// y=836) with _UIContextMenuListView inside it, and both menu paths carry those.
+// The platter is used the other way round: as the ENTRY POINT, since the menu is always
+// inside it - entering there also avoids walking the dock's own icon subtree.
+static UIView *LMVDesktopMenuInSubtree(UIView *root,Class listClass,Class viewClass) {
+    NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:root.subviews];
+    NSUInteger budget=120;
+    while(pending.count && budget--) {
+        UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
+        if(!node.hidden && node.alpha>.01 &&
+           ((listClass && [node isKindOfClass:listClass]) ||
+            (viewClass && [node isKindOfClass:viewClass]))) return node;
+        [pending addObjectsFromArray:node.subviews];
+    }
+    return nil;
+}
 static UIView *LMVDesktopMenuView(void) {
     static Class listClass,viewClass,platterClass;
     static BOOL resolved;
@@ -612,22 +633,21 @@ static UIView *LMVDesktopMenuView(void) {
         viewClass=NSClassFromString(@"_UIContextMenuView");
         platterClass=NSClassFromString(@"_UIContextMenuPlatterTransitionView");
     }
-    if(!listClass && !viewClass && !platterClass)return nil;
+    if(!listClass && !viewClass)return nil;
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
         for(UIWindow *window in ((UIWindowScene *)scene).windows) {
             if(window.hidden || window.alpha<.01)continue;
             if(!LMVDesktopMenuHostWindow(window))continue;
-            NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:window.subviews];
-            NSUInteger budget=120;
-            while(pending.count && budget--) {
-                UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
-                if(!node.hidden && node.alpha>.01 &&
-                   ((listClass && [node isKindOfClass:listClass]) ||
-                    (viewClass && [node isKindOfClass:viewClass]) ||
-                    (platterClass && [node isKindOfClass:platterClass]))) return node;
-                [pending addObjectsFromArray:node.subviews];
+            if(platterClass) {
+                for(UIView *child in window.subviews) {
+                    if(![child isKindOfClass:platterClass])continue;
+                    UIView *card=LMVDesktopMenuInSubtree(child,listClass,viewClass);
+                    if(card)return card;
+                }
             }
+            UIView *card=LMVDesktopMenuInSubtree(window,listClass,viewClass);
+            if(card)return card;
         }
     }
     return nil;

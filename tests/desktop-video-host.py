@@ -312,8 +312,19 @@ assert 'sheetName' not in h, 'the generalized sheet probe is really gone'
 # ever built in, and the caller compares that view against the strip first.
 assert 'static UIView *LMVDesktopMenuView(void) {' in h, 'the probe returns the menu view'
 assert 'static BOOL LMVDesktopMenuHostWindow(UIWindow *window) {' in h, 'only menu host windows are searched'
-assert ('_UIContextMenuListView' in h and '_UIContextMenuView' in h and
-        '_UIContextMenuPlatterTransitionView' in h), 'both menu paths are covered'
+# The full-screen platter container must NOT be a candidate result: it is the first
+# node the walk meets inside the window, so comparing it against the strip always
+# concludes "covers the dock" - that is exactly why 1.36 still removed the video.
+# Scan the CODE, not the comments: the comment above the function names it on purpose.
+import re as _re
+_code = _re.sub(r'/\*.*?\*/', '', _re.sub(r'//[^\n]*', '', h), flags=_re.S)
+assert '_UIContextMenuListView' in _code and '_UIContextMenuView' in _code, \
+    'the menu card classes are the ones that get compared'
+# The platter may only be the way IN, never the thing being measured: it spans the
+# whole screen, so measuring it always concludes "covers the dock".
+assert 'platterClass && [node isKindOfClass:platterClass]' not in _code, \
+    'the platter is never itself returned as the menu'
+assert '[child isKindOfClass:platterClass]' in _code, 'the walk enters through the platter'
 assert 'CGRectGetMaxY(onScreen)>host.bounds.size.height-inset' in h, \
     'a menu concedes the strip only when it reaches into it'
 assert 'if(!menu)return 0;' in h, 'no menu means no concession'
