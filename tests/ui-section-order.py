@@ -141,7 +141,7 @@ class UISectionOrder(unittest.TestCase):
             // has to be cleared instead. One tap, then open the four panels once.
             cell.textLabel.text = @"重置面板识别";
             cell.accessoryType = UITableViewCellAccessoryNone;
-            cell.detailTextLabel.text = @"忘记已记的四块面板，重新自动识别";
+            cell.detailTextLabel.text = @"忘记已记的四块面板；之后按 右一→右二→左一→左二 各开一次";
             cell.detailTextLabel.numberOfLines = 2;
 ''', '')
         old_cells = old_cells.replace('''        } else if (index.row == 6) {
@@ -277,10 +277,11 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = old_handlers[:claim_start] + old_handlers[claim_end:]
         for target in ('SquidPanel2', 'SquidPanel3', 'SquidPanel4'):
             old_handlers = old_handlers.replace(f', @"{target}": @""', '')
-        old_handlers = old_handlers.replace(', @"SquidPanel2": @"右边上上滑面板背景视频"', '')
-        old_handlers = old_handlers.replace(', @"SquidPanel3": @"左边上滑面板背景视频"', '')
-        old_handlers = old_handlers.replace(', @"SquidPanel4": @"左边上上滑面板背景视频"', '')
-        old_handlers = old_handlers.replace('@"SquidPanel": @"右边上滑面板背景视频"', '@"SquidPanel": @"鱿鱼面板背景视频"')
+        # 1.54: the four rows are named 右一/右二/左一/左二, the way the user names them.
+        old_handlers = old_handlers.replace(', @"SquidPanel2": @"右二·右上上滑面板背景视频"', '')
+        old_handlers = old_handlers.replace(', @"SquidPanel3": @"左一·左上滑面板背景视频"', '')
+        old_handlers = old_handlers.replace(', @"SquidPanel4": @"左二·左上上滑面板背景视频"', '')
+        old_handlers = old_handlers.replace('@"SquidPanel": @"右一·右上滑面板背景视频"', '@"SquidPanel": @"鱿鱼面板背景视频"')
         self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),

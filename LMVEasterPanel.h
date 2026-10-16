@@ -49,8 +49,10 @@ static NSArray *LMVEasterAudioTargets(void) {
 static NSArray *LMVEasterSquidKeys(void) {
     return @[@"SquidPanelVideo", @"SquidPanel2Video", @"SquidPanel3Video", @"SquidPanel4Video"];
 }
+// 1.54: the four rows are named the way the user names the gestures: 右一 = 右上滑,
+// 右二 = 右上上滑, 左一 = 左上滑, 左二 = 左上上滑.
 static NSArray *LMVEasterSquidTitles(void) {
-    return @[@"切换右边上滑素材", @"切换右边上上滑素材", @"切换左边上滑素材", @"切换左边上上滑素材"];
+    return @[@"切换右一素材（右上滑）", @"切换右二素材（右上上滑）", @"切换左一素材（左上滑）", @"切换左二素材（左上上滑）"];
 }
 // The gesture names the "认领" sheet offers.
 static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
@@ -310,7 +312,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             // has to be cleared instead. One tap, then open the four panels once.
             cell.textLabel.text = @"重置面板识别";
             cell.accessoryType = UITableViewCellAccessoryNone;
-            cell.detailTextLabel.text = @"忘记已记的四块面板，重新自动识别";
+            cell.detailTextLabel.text = @"忘记已记的四块面板；之后按 右一→右二→左一→左二 各开一次";
             cell.detailTextLabel.numberOfLines = 2;
         } else if (index.row == 6) {
             // 1.46: the manual override. A button rather than a switch: the panel's

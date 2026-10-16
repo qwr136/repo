@@ -111,7 +111,7 @@ static void LMVNotify(void) {
     [squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];
     [squidPanelEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:squidPanelEnabled];
-    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换右边上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换右一素材（右上滑）" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);
     [squidPanelMaterial setProperty:@"SquidPanelMaterial" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial];
@@ -122,15 +122,15 @@ static void LMVNotify(void) {
     // panels can be on screen at a time.
     // 1.50: and the plugin lets those gestures be configured on BOTH sides, so there
     // are four materials in all: right 上滑/上上滑 and left 上滑/上上滑.
-    PSSpecifier *squidPanelMaterial2 = [PSSpecifier preferenceSpecifierNamed:@"切换右边上上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial2 = [PSSpecifier preferenceSpecifierNamed:@"切换右二素材（右上上滑）" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial2.buttonAction = @selector(switchSquidPanel2:);
     [squidPanelMaterial2 setProperty:@"SquidPanel2Material" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial2];
-    PSSpecifier *squidPanelMaterial3 = [PSSpecifier preferenceSpecifierNamed:@"切换左边上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial3 = [PSSpecifier preferenceSpecifierNamed:@"切换左一素材（左上滑）" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial3.buttonAction = @selector(switchSquidPanel3:);
     [squidPanelMaterial3 setProperty:@"SquidPanel3Material" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial3];
-    PSSpecifier *squidPanelMaterial4 = [PSSpecifier preferenceSpecifierNamed:@"切换左边上上滑素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial4 = [PSSpecifier preferenceSpecifierNamed:@"切换左二素材（左上上滑）" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial4.buttonAction = @selector(switchSquidPanel4:);
     [squidPanelMaterial4 setProperty:@"SquidPanel4Material" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial4];
@@ -345,7 +345,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右边上滑面板背景视频", @"SquidPanel2": @"右边上上滑面板背景视频", @"SquidPanel3": @"左边上滑面板背景视频", @"SquidPanel4": @"左边上上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"SquidPanel2": @"右二·右上上滑面板背景视频", @"SquidPanel3": @"左一·左上滑面板背景视频", @"SquidPanel4": @"左二·左上上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -381,7 +381,7 @@ static void LMVNotify(void) {
 - (void)resetSquidPanel:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置面板识别"
-        message:@"忘记已记住的四块鱿鱼面板，之后再用手势打开它们就会重新自动识别。"
+        message:@"忘记已记住的四块鱿鱼面板。之后再按 右一→右二→左一→左二 的顺序各打开一次，它们就会各自认回自己的素材。"
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {

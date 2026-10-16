@@ -64,8 +64,6 @@ assert 'static UIPageControl *LMVSquidPanelPageControl(UIView *card,UIWindow *wi
 assert 'if(![node isKindOfClass:UIPageControl.class])continue;' in module
 assert 'CGFloat gap=fabs(CGRectGetMaxY(f)-CGRectGetMinY(cardFrame));' in module
 assert 'return (page && bestGap<40)?page:nil;' in module
-assert 'shortPanel=page.hidden;' in module
-assert 'shortPanel=(screen>0 && height<screen*.45);' in module
 # The slot table itself: four materials, four remembered signatures, four gesture names.
 assert '#define LMVSquidPanelSlotCount 4' in module
 assert 'static NSString *LMVSquidPanelSlotPaths[LMVSquidPanelSlotCount];' in module
@@ -73,7 +71,9 @@ assert 'static NSString *LMVSquidPanelSlotRevisions[LMVSquidPanelSlotCount];' in
 assert 'static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];' in module
 assert 'return @[@"SquidPanelVideo",@"SquidPanel2Video",@"SquidPanel3Video",@"SquidPanel4Video"];' in module
 assert 'return @[@"SquidPanelSlot1Sig",@"SquidPanelSlot2Sig",@"SquidPanelSlot3Sig",@"SquidPanelSlot4Sig"];' in module
-assert 'return @[@"右边上滑",@"右边上上滑",@"左边上滑",@"左边上上滑"];' in module
+# 1.54: the slots are named the way the user names the gestures - 右一 = 右上滑 and so
+# on - so a log line and the four material rows use the same words.
+assert 'return @[@"右一·右上滑",@"右二·右上上滑",@"左一·左上滑",@"左二·左上上滑"];' in module
 # Even slot = the tall "上滑" panel, odd = the short "上上滑" one; which of the two a
 # panel is comes out of the pair ordering below, never from a helper that could go
 # unused (the build is -Werror, and an unused static in this header fails it).
@@ -108,20 +108,26 @@ assert 'static NSUInteger LMVSquidPanelSignatureDistance(NSUInteger icons,NSStri
 assert 'static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {' in module
 assert 'NSString *sig=LMVSquidPanelContentSignature(card,window);' in module
 assert 'NSString *reason=[NSString stringWithFormat:@"sig-slot%d",(int)i+1];' in module
-# (b) shape first: both shapes learned -> closest icon count; else page control, else height.
 assert 'NSUInteger d=LMVSquidPanelSignatureDistance(icons,LMVSquidPanelSlotSigs[i]);' in module
-
-assert 'reason=[NSString stringWithFormat:@"page.hidden=%d",(int)page.hidden];' in module
-# (b) 1.53: an unknown signature is an EDITED panel only when BOTH pairs are complete.
-# The 1.52 device log showed the trap: the left pair held one panel, the right pair was
-# complete, so every later left panel took the edited route - which moves nothing - and
-# 左边上滑 could never be recognised.
-assert 'BOOL rightComplete=LMVSquidPanelSlotSigs[0].length>0 && LMVSquidPanelSlotSigs[1].length>0;' in module
-assert 'BOOL leftComplete=LMVSquidPanelSlotSigs[2].length>0 && LMVSquidPanelSlotSigs[3].length>0;' in module
-assert 'if(rightComplete && leftComplete) {' in module
-assert 'if(!rightComplete && leftComplete) leftSide=NO;' in module
-assert 'else if(!leftComplete && rightComplete) leftSide=YES;' in module
-assert 'NSInteger tallSlot=leftSide?2:0, shortSlot=leftSide?3:1;' in module
+# (b) 1.54: an unknown panel takes the NEXT EMPTY SLOT - 右一 → 右二 → 左一 → 左二 - and
+# NOTHING guesses which side it is on. Guessing is what kept swapping 右二 and 左一: the
+# 1.53 rule sent an unknown panel to "the side that had learned nothing yet", so 右二 -
+# arriving while the left side was empty - was recorded as 左二, and every later panel was
+# then placed relative to that wrong record.
+assert 'NSInteger freeSlot=NSNotFound;' in module
+assert 'if(!LMVSquidPanelSlotSigs[i].length){freeSlot=i;break;}' in module
+assert 'NSString *reason=[NSString stringWithFormat:@"new@slot%d",(int)freeSlot+1];' in module
+assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0)' in module
+assert 'reason=[reason stringByAppendingString:@"+pair-swapped"];' in module
+# ...and a full table means an EDITED panel, placed by the closest icon count.
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];' in module
+# 1.53's side guessing is gone for good - a rule that only ever guessed.
+for dead in ('rightComplete', 'leftComplete', 'leftSide', 'sideTag', 'shortPanel'):
+    assert dead not in module, f'the side-guessing rule is back: {dead}'
+# The slots a previous rule wrote cannot be trusted, so upgrading clears them by itself
+# instead of making the user tap 重置面板识别.
+assert '#define LMVSquidPanelLearnGeneration 2' in module
+assert 'CFSTR("SquidPanelLearnVersion")' in module
 # ...and WITHIN a side the two panels order themselves, which is what makes the whole
 # thing automatic: 上滑 is the taller one of the pair (device logs: left 上滑
 # icons8/180pt against left 上上滑 icons4/95pt, right 50/435 against 29/350), with the
@@ -137,19 +143,12 @@ assert 'return @[@"SquidPanelSlot1H",@"SquidPanelSlot2H",@"SquidPanelSlot3H",@"S
 assert 'static void LMVSquidPanelNoteHeight(NSInteger slot,CGFloat height,BOOL landscape) {' in module
 assert 'static void LMVSquidPanelMoveSlot(NSInteger from,NSInteger to) {' in module
 assert 'static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot,BOOL landscape) {' in module
-assert 'if(knownHeight>0 && height>0 && fabs(height-knownHeight)>4) {order=(height>knownHeight)?1:-1;by=@"height";}' in module
-assert 'CGFloat knownHeight=LMVSquidPanelHeightInOrientation(known,landscape);' in module
-assert 'else if(icons!=NSNotFound && knownIcons!=NSNotFound && icons!=knownIcons) {order=(icons>knownIcons)?1:-1;by=@"icons";}' in module
-assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"pair-by-%@-%@@slot%d",by,sideTag,(int)wantSlot+1];' in module
 # An already-recorded pair that contradicts its slots swaps itself on sight, and an
 # edited panel keeps the slot it owns (closest icon count, nothing moves).
 assert 'NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;' in module
 assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0) {' in module
 assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
 assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];' in module
-# Nothing to compare yet: the page control, then the absolute height - and never a
-# signature taken while the panel is still assembling (no icons yet).
-assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"%@@first-%@@slot%d",reason,sideTag,(int)slot+1];' in module
 # (d) 1.53: nothing manual is left - an unknown panel is always placed by the rules
 # above, and one row ("重置面板识别") exists only to clear a record that went wrong.
 assert 'LMVSquidPanelBindLastSeen' not in module and 'LMVSquidPanelClaimToken' not in module
@@ -225,7 +224,8 @@ assert 'NSString *wantPath=LMVSquidPanelSlotPaths[wantSlot];' in module
 assert 'NSString *wantRevision=LMVSquidPanelSlotRevisions[wantSlot];' in module
 # 1.46: the log names the slot, the reason for the verdict and the card object, so a
 # wrong pick is one line away from being explained.
-assert 'slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f mode=%@' in module
+assert 'slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@' in module
+assert '(int)(LMVSquidPanelSlotSigs[0].length>0),(int)(LMVSquidPanelSlotSigs[1].length>0),' in module
 assert 'pageControl?(int)pageControl.hidden:-1,' in module
 assert 'LMVSquidPanelHeightInOrientation(slot<2?0:2,landscapeNow),' in module
 assert 'LMVSquidPanelHeightInOrientation(slot<2?1:3,landscapeNow),' in module
@@ -269,13 +269,13 @@ assert '[squidPanelMaterial4 setProperty:@"SquidPanel4Material" forKey:@"id"];' 
 assert '- (void)switchSquidPanel4:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel4"]; }' in prefs
 assert '@"SquidPanel3":@"",@"SquidPanel4":@"",@"AT":@""' in delete
 assert '@"SquidPanel3",@"SquidPanel4",@"AT",@"CV"]' in delete
-assert '@"SquidPanel": @"右边上滑面板背景视频"' in prefs
-assert '@"SquidPanel2": @"右边上上滑面板背景视频"' in prefs
-assert '@"SquidPanel3": @"左边上滑面板背景视频"' in prefs
-assert '@"SquidPanel4": @"左边上上滑面板背景视频"' in prefs
+assert '@"SquidPanel": @"右一·右上滑面板背景视频"' in prefs
+assert '@"SquidPanel2": @"右二·右上上滑面板背景视频"' in prefs
+assert '@"SquidPanel3": @"左一·左上滑面板背景视频"' in prefs
+assert '@"SquidPanel4": @"左二·左上上滑面板背景视频"' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];' in prefs
-assert '切换右边上滑素材' in prefs and '切换右边上上滑素材' in prefs
-assert '切换左边上滑素材' in prefs and '切换左边上上滑素材' in prefs
+assert '切换右一素材（右上滑）' in prefs and '切换右二素材（右上上滑）' in prefs
+assert '切换左一素材（左上滑）' in prefs and '切换左二素材（左上上滑）' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.53: nine rows - switch, four materials, the reset row, the swap row, sound, volume.
 # The sound pair sits at 7/8, which is also what stops the volume row from rendering as
@@ -286,7 +286,7 @@ assert 'if (section == LMVEasterSquidPanelSection() && (row == 7 || row == 8)) r
 assert 'if (section == LMVEasterSquidPanelSection()) return row == 8;' in panel
 assert 'static NSArray *LMVEasterSquidKeys(void) {' in panel
 assert 'return @[@"SquidPanelVideo", @"SquidPanel2Video", @"SquidPanel3Video", @"SquidPanel4Video"];' in panel
-assert 'return @[@"切换右边上滑素材", @"切换右边上上滑素材", @"切换左边上滑素材", @"切换左边上上滑素材"];' in panel
+assert 'return @[@"切换右一素材（右上滑）", @"切换右二素材（右上上滑）", @"切换左一素材（左上滑）", @"切换左二素材（左上上滑）"];' in panel
 assert 'toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];' in panel
 assert 'cell.textLabel.text = LMVEasterSquidTitles()[index.row - 1];' in panel
 assert 'id selected = LMVEasterRead(LMVEasterSquidKeys()[index.row - 1]);' in panel

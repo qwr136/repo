@@ -22,7 +22,7 @@ assert len(actions) == 18
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
-for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '右边上滑面板背景视频'), ('SquidPanel2', '右边上上滑面板背景视频'), ('SquidPanel3', '左边上滑面板背景视频'), ('SquidPanel4', '左边上上滑面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
+for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '右一·右上滑面板背景视频'), ('SquidPanel2', '右二·右上上滑面板背景视频'), ('SquidPanel3', '左一·左上滑面板背景视频'), ('SquidPanel4', '左二·左上上滑面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
     assert f'@"{target}": @"{title}"' in source
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
     assert f'@"{target}": @""' in source
@@ -72,8 +72,8 @@ assert squid_section.count('cell:PSSwitchCell') == 2 and squid_section.count('ce
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"]' in squid_section
 assert '[squidPanelEnabled setProperty:@NO forKey:@"default"]' in squid_section
 assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in squid_section
-assert '鱿鱼面板背景视频' in squid_section and '切换右边上滑素材' in squid_section and '切换右边上上滑素材' in squid_section
-assert '切换左边上滑素材' in squid_section and '切换左边上上滑素材' in squid_section
+assert '鱿鱼面板背景视频' in squid_section and '切换右一素材（右上滑）' in squid_section and '切换右二素材（右上上滑）' in squid_section
+assert '切换左一素材（左上滑）' in squid_section and '切换左二素材（左上上滑）' in squid_section
 assert '重置面板识别' in squid_section
 # 1.26: the AT (AppTools pop-up) group - same switch/material/sound layout.
 at_section = source[at_start:cv_start]
