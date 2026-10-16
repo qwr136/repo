@@ -41,19 +41,19 @@ class UISectionOrder(unittest.TestCase):
         for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
-                     'if (section == LMVEasterSquidPanelSection()) return 10;',
+                     'if (section == LMVEasterSquidPanelSection()) return 9;',
                      'if (section == LMVEasterATSection()) return 4;',
                      'if (section == LMVEasterCVSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
         disp, imp = section('LMVEasterDisplaySection'), section('LMVEasterImportSection')
         squid = section('LMVEasterSquidPanelSection')
-        # 1.50/1.52: the Squid section carries its switch, FOUR material rows (right and
-        # left, 上滑 and 上上滑), the claim row, the reset row, the swap row and the shared
-        # sound pair, so it is six rows taller than its neighbours.
-        rows = [10 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[4]) else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(13)]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 10, 4, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 53)
+        # 1.53: the Squid section carries its switch, FOUR material rows (right and left,
+        # 上滑 and 上上滑), the reset row, the swap row and the shared sound pair, so it is
+        # five rows taller than its neighbours.
+        rows = [9 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[4]) else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(13)]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 9, 4, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 52)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -135,7 +135,7 @@ class UISectionOrder(unittest.TestCase):
                 ? [@"上次认领：" stringByAppendingString:LMVEasterSquidGestures()[slot]] : @"把刚才那个面板认给某一套素材";
             cell.detailTextLabel.numberOfLines = 2;
 ''', '')
-        old_cells = old_cells.replace('''        } else if (index.row == 6) {
+        old_cells = old_cells.replace('''        } else if (index.row == 5) {
             // 1.52: the repair for a record that was written wrong - the pair ordering
             // can only sort a side while that side is half unknown, so a corrupt pair
             // has to be cleared instead. One tap, then open the four panels once.
@@ -144,7 +144,7 @@ class UISectionOrder(unittest.TestCase):
             cell.detailTextLabel.text = @"忘记已记的四块面板，重新自动识别";
             cell.detailTextLabel.numberOfLines = 2;
 ''', '')
-        old_cells = old_cells.replace('''        } else if (index.row == 7) {
+        old_cells = old_cells.replace('''        } else if (index.row == 6) {
             // 1.46: the manual override. A button rather than a switch: the panel's
             // switches are told apart by their tag and every tag is a section index,
             // so this row reports its state in the detail label instead.
@@ -168,9 +168,9 @@ class UISectionOrder(unittest.TestCase):
         # added by 1.46.
         selection_for_digest = selection_for_digest.replace('''        if (index.row == 5) { [self claimSquidPanel]; return; }
 ''', '')
-        selection_for_digest = selection_for_digest.replace('''        if (index.row == 6) { [self resetSquidPanel]; return; }
+        selection_for_digest = selection_for_digest.replace('''        if (index.row == 5) { [self resetSquidPanel]; return; }
 ''', '')
-        selection_for_digest = selection_for_digest.replace('''        if (index.row == 7) {
+        selection_for_digest = selection_for_digest.replace('''        if (index.row == 6) {
             BOOL now = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue];
             LMVEasterSet(@"SquidPanelSwapShapes", @(!now));
             [self.tableView reloadData];
@@ -227,7 +227,7 @@ class UISectionOrder(unittest.TestCase):
             'targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
-            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial', 'squidPanelMaterial2', 'squidPanelMaterial3', 'squidPanelMaterial4', 'squidPanelClaim', 'squidPanelReset', 'squidPanelSwap',
+            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial', 'squidPanelMaterial2', 'squidPanelMaterial3', 'squidPanelMaterial4', 'squidPanelReset', 'squidPanelSwap',
             'group:AT 背景视频', 'atEnabled', 'atMaterial',
             'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
@@ -236,7 +236,7 @@ class UISectionOrder(unittest.TestCase):
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 53)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 52)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelSwap', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
@@ -250,7 +250,7 @@ class UISectionOrder(unittest.TestCase):
                        and 'cvEnabled' not in x and 'cvMaterial' not in x
                        and 'squidPanelMaterial2' not in x and 'squidPanelSwap' not in x
                        and 'squidPanelMaterial3' not in x and 'squidPanelMaterial4' not in x
-                       and 'squidPanelClaim' not in x and 'squidPanelReset' not in x)
+                       and 'squidPanelReset' not in x)
         self.assertEqual(digest('\n'.join(props)), 'bf399a42225ee674df0e19bc44010d03a474e0af16cb2b19a76501c245c73469')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')

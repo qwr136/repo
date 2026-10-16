@@ -134,14 +134,6 @@ static void LMVNotify(void) {
     squidPanelMaterial4.buttonAction = @selector(switchSquidPanel4:);
     [squidPanelMaterial4 setProperty:@"SquidPanel4Material" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial4];
-    // 1.50: the panel's content says nothing about WHICH gesture opened it, and the
-    // left/right panels differ only in what the user put in them. This row is how the
-    // user settles that: it binds the panel they were just looking at to the gesture
-    // they name (see LMVSquidPanelVideo's claim handling).
-    PSSpecifier *squidPanelClaim = [PSSpecifier preferenceSpecifierNamed:@"认领刚用过的面板" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    squidPanelClaim.buttonAction = @selector(claimSquidPanel:);
-    [squidPanelClaim setProperty:@"SquidPanelClaim" forKey:@"id"];
-    [_specifiers addObject:squidPanelClaim];
     // 1.52: and the repair row - the pair ordering in LMVSquidPanelVideo can only sort a
     // side while that side is half unknown, so a record written wrong by the manual claim
     // has to be cleared before the automatic rules can take over again.
@@ -385,25 +377,6 @@ static void LMVNotify(void) {
 // 1.50: "认领刚用过的面板" - the panel's content says nothing about which gesture opened
 // it, so this is the user's word on it: the panel they were just looking at is bound
 // to the gesture they pick (the kernel reads the slot + token on its next refresh).
-- (void)claimSquidPanel:(PSSpecifier *)specifier {
-    if (self.presentedViewController) return;
-    NSArray *gestures = @[@"右边上滑", @"右边上上滑", @"左边上滑", @"左边上上滑"];
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"认领刚用过的面板"
-        message:@"先用手势调出那个面板再关掉，然后选它属于哪一套素材。"
-        preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSInteger i = 0; i < (NSInteger)gestures.count; i++) {
-        NSInteger slot = i + 1;
-        [sheet addAction:[UIAlertAction actionWithTitle:gestures[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            CFPreferencesSetAppValue(CFSTR("SquidPanelClaimSlot"), (__bridge CFPropertyListRef)@(slot), kLMVPrefsID);
-            CFPreferencesSetAppValue(CFSTR("SquidPanelClaimToken"), (__bridge CFPropertyListRef)[NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970], kLMVPrefsID);
-            LMVNotify();
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    sheet.popoverPresentationController.sourceView = self.view;
-    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
-    [self presentViewController:sheet animated:YES completion:nil];
-}
 
 - (void)resetSquidPanel:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;

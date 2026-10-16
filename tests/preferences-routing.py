@@ -16,9 +16,9 @@ assert 'Resources/Root.plist' not in (root/'Makefile').read_text()
 assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources automatically.
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
-actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals|claimSquidPanel|resetSquidPanel):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchSquidPanel2:', 'switchSquidPanel3:', 'switchSquidPanel4:', 'claimSquidPanel:', 'resetSquidPanel:', 'switchAT:', 'switchCV:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 19
+actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster|clearOriginals|resetSquidPanel):)\)', source))
+assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchSquidPanel2:', 'switchSquidPanel3:', 'switchSquidPanel4:', 'resetSquidPanel:', 'switchAT:', 'switchCV:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 18
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
@@ -68,12 +68,12 @@ assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
 assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
 assert '桌面长按菜单视频背景' in home_section and '切换长按菜单素材' in home_section
 squid_section = source[squid_start:at_start]
-assert squid_section.count('cell:PSSwitchCell') == 2 and squid_section.count('cell:PSButtonCell') == 6
+assert squid_section.count('cell:PSSwitchCell') == 2 and squid_section.count('cell:PSButtonCell') == 5
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"]' in squid_section
 assert '[squidPanelEnabled setProperty:@NO forKey:@"default"]' in squid_section
 assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in squid_section
 assert '鱿鱼面板背景视频' in squid_section and '切换右边上滑素材' in squid_section and '切换右边上上滑素材' in squid_section
-assert '切换左边上滑素材' in squid_section and '切换左边上上滑素材' in squid_section and '认领刚用过的面板' in squid_section
+assert '切换左边上滑素材' in squid_section and '切换左边上上滑素材' in squid_section
 assert '重置面板识别' in squid_section
 # 1.26: the AT (AppTools pop-up) group - same switch/material/sound layout.
 at_section = source[at_start:cv_start]
