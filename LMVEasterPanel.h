@@ -60,7 +60,7 @@ static NSArray *LMVEasterSquidGestures(void) {
 static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)) return LMVEasterTargets()[section];
     if (section == LMVEasterHomeMenuSection() && (row == 2 || row == 3)) return @"HomeMenu";
-    if (section == LMVEasterSquidPanelSection() && (row == 7 || row == 8)) return @"SquidPanel";
+    if (section == LMVEasterSquidPanelSection() && (row == 8 || row == 9)) return @"SquidPanel";
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
     if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
     if (section == LMVEasterControlCenterSection()) {
@@ -74,7 +74,7 @@ static BOOL LMVEasterAudioVolumeRow(NSInteger section, NSInteger row) {
     // 1.50: the squid section grew to nine rows (four materials + claim + swap +
     // sound + volume), so its volume row moved to 8 - reporting it as anything else
     // printed a SECOND "播放声音" switch where the slider belongs.
-    if (section == LMVEasterSquidPanelSection()) return row == 8;
+    if (section == LMVEasterSquidPanelSection()) return row == 9;
     return (row == 3 || row == 6);
 }
 static NSString *LMVEasterAudioTargetForTag(NSInteger tag) {
@@ -213,7 +213,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section >= 0 && section < LMVEasterTargets().count) return 4;
     if (section == LMVEasterControlCenterSection()) return 7;
     if (section == LMVEasterHomeMenuSection()) return 4;
-    if (section == LMVEasterSquidPanelSection()) return 9;
+    if (section == LMVEasterSquidPanelSection()) return 10;
     if (section == LMVEasterATSection()) return 4;
     if (section == LMVEasterCVSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
@@ -320,6 +320,14 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
                 ? [@"上次认领：" stringByAppendingString:LMVEasterSquidGestures()[slot]] : @"把刚才那个面板认给某一套素材";
             cell.detailTextLabel.numberOfLines = 2;
         } else if (index.row == 6) {
+            // 1.52: the repair for a record that was written wrong - the pair ordering
+            // can only sort a side while that side is half unknown, so a corrupt pair
+            // has to be cleared instead. One tap, then open the four panels once.
+            cell.textLabel.text = @"重置面板识别";
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.detailTextLabel.text = @"忘记已记的四块面板，重新自动识别";
+            cell.detailTextLabel.numberOfLines = 2;
+        } else if (index.row == 7) {
             // 1.46: the manual override. A button rather than a switch: the panel's
             // switches are told apart by their tag and every tag is a section index,
             // so this row reports its state in the detail label instead.
@@ -475,6 +483,12 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     };
     [self.navigationController pushViewController:choice animated:YES];
 }
+// 1.52: clear the learned panels and let the automatic rules start over (see
+// LMVSquidPanelVideo's LMVSquidPanelForgetAll - the kernel reads the token).
+- (void)resetSquidPanel {
+    LMVEasterSet(@"SquidPanelResetToken", [NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970]);
+    [self.tableView reloadData];
+}
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES];
     if (self.presentedViewController || self.busy) return;
@@ -493,7 +507,8 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         key = @"HomeMenuVideo";
     } else if (index.section == LMVEasterSquidPanelSection()) {
         if (index.row == 5) { [self claimSquidPanel]; return; }
-        if (index.row == 6) {
+        if (index.row == 6) { [self resetSquidPanel]; return; }
+        if (index.row == 7) {
             BOOL now = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue];
             LMVEasterSet(@"SquidPanelSwapShapes", @(!now));
             [self.tableView reloadData];

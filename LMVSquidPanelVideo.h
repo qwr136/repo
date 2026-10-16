@@ -33,7 +33,7 @@ static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];
 // the slot it owns.
 static CGFloat LMVSquidPanelSlotHeights[LMVSquidPanelSlotCount];
 static NSTimeInterval LMVSquidPanelLastSeen;
-static NSString *LMVSquidPanelClaimToken;
+static NSString *LMVSquidPanelClaimToken,*LMVSquidPanelResetToken;
 static NSTimer *LMVSquidPanelTimer;
 // The user's material selection, by slot.
 static NSArray *LMVSquidPanelSlotKeys(void) {
@@ -419,6 +419,27 @@ static void LMVSquidPanelBindLastSeen(NSInteger slot) {
         LMVDiagnostic(line);
     }
 }
+// 1.52: forget everything learned here - the four signatures and their heights.
+//
+// The pair ordering above can only sort a side while that side is HALF unknown, so a
+// pair that was written wrong cannot be untangled by it. And a wrong pair really did
+// happen: the 1.50 manual claim binds "the panel the user was last looking at", and
+// the device log then showed the RIGHT 435pt panel recorded under 左边上上滑 - after
+// which every new panel went through "both sides learned", i.e. the edited-panel rule,
+// and the two real left panels were parked on 右边上上滑. One tap clears all four and
+// the automatic rules take over again.
+static void LMVSquidPanelForgetAll(void) {
+    NSArray *sigKeys=LMVSquidPanelSlotSigKeys(),*heightKeys=LMVSquidPanelSlotHeightKeys();
+    for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+        if(LMVSquidPanelSlotSigs[i].length)CFPreferencesSetAppValue((__bridge CFStringRef)sigKeys[i],NULL,kLMVPrefsID);
+        CFPreferencesSetAppValue((__bridge CFStringRef)heightKeys[i],NULL,kLMVPrefsID);
+        LMVSquidPanelSlotSigs[i]=nil;LMVSquidPanelSlotHeights[i]=0;
+    }
+    CFPreferencesSetAppValue(CFSTR("SquidPanelClaimSlot"),NULL,kLMVPrefsID);
+    CFPreferencesAppSynchronize(kLMVPrefsID);
+    LMVSquidPanelLastSeen=0;LMVSquidPanelShapeSig=nil;LMVSquidPanelShapeReason=@"reset";
+    if(LMVDiagnosticsEnabled.load())LMVDiagnostic(@"squid-panel-reset slots=4 (all four will be re-learned)");
+}
 @interface LMVSquidPanelVideoHost:UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @end
@@ -565,10 +586,12 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pair=%.0f/%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
+        UIPageControl *pageControl=LMVSquidPanelPageControl(self.card,window);
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d pair=%.0f/%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             (int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],
             LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
+            pageControl?(int)pageControl.hidden:-1,
             slot<2?LMVSquidPanelSlotHeights[0]:LMVSquidPanelSlotHeights[2],
             slot<2?LMVSquidPanelSlotHeights[1]:LMVSquidPanelSlotHeights[3],
             self.mode?:@"none",
@@ -624,6 +647,13 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
             id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)heightKeys[i],kLMVPrefsID);
             CGFloat height=[value isKindOfClass:NSNumber.class]?[value doubleValue]:0;
             LMVSquidPanelSlotHeights[i]=(height>0)?height:0;
+        }
+        id reset=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelResetToken"),kLMVPrefsID);
+        NSString *resetText=[reset isKindOfClass:NSString.class]?reset:(reset?[reset description]:nil);
+        if(resetText.length && ![resetText isEqualToString:LMVSquidPanelResetToken]) {
+            LMVSquidPanelResetToken=[resetText copy];
+            // before the signatures are read below, so the cleared keys win.
+            LMVSquidPanelForgetAll();
         }
         // 1.50: "认领刚用过的面板" - both settings surfaces write the slot (1-4) plus a
         // token; the first refresh that sees a new token binds the panel the user was

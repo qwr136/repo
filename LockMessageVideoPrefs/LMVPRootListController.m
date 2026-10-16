@@ -142,6 +142,13 @@ static void LMVNotify(void) {
     squidPanelClaim.buttonAction = @selector(claimSquidPanel:);
     [squidPanelClaim setProperty:@"SquidPanelClaim" forKey:@"id"];
     [_specifiers addObject:squidPanelClaim];
+    // 1.52: and the repair row - the pair ordering in LMVSquidPanelVideo can only sort a
+    // side while that side is half unknown, so a record written wrong by the manual claim
+    // has to be cleared before the automatic rules can take over again.
+    PSSpecifier *squidPanelReset = [PSSpecifier preferenceSpecifierNamed:@"重置面板识别" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    squidPanelReset.buttonAction = @selector(resetSquidPanel:);
+    [squidPanelReset setProperty:@"SquidPanelReset" forKey:@"id"];
+    [_specifiers addObject:squidPanelReset];
     // 1.46: the two shapes are told apart by CONTENT identity (see LMVSquidPanelVideo),
     // which survives editing a panel. This switch is the manual override for the one
     // case that cannot be automatic: the very first content test guessing the two
@@ -396,6 +403,19 @@ static void LMVNotify(void) {
     sheet.popoverPresentationController.sourceView = self.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)resetSquidPanel:(PSSpecifier *)specifier {
+    if (self.presentedViewController) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置面板识别"
+        message:@"忘记已记住的四块鱿鱼面板，之后再用手势打开它们就会重新自动识别。"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        CFPreferencesSetAppValue(CFSTR("SquidPanelResetToken"), (__bridge CFPropertyListRef)[NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970], kLMVPrefsID);
+        LMVNotify();
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
 - (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }

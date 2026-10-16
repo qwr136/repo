@@ -23,7 +23,7 @@ assert re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTarget
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert 'section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)' in mapping
 assert '(row == 2 || row == 3)) return @"HomeMenu";' in mapping
-assert '(row == 7 || row == 8)) return @"SquidPanel";' in mapping
+assert '(row == 8 || row == 9)) return @"SquidPanel";' in mapping
 assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
@@ -31,7 +31,7 @@ assert mapping.count('return ') == 8 and mapping.endswith('return nil;\n}')
 cc_key = body(panel, 'static NSString *LMVEasterControlCenterKey(')
 actual_material_rows = {int(row): target for row, target in re.findall(r'row == (\d+) \? @"(\w+)Video"', cc_key)}
 assert actual_material_rows == {1: 'ControlCenterDark', 4: 'ControlCenterLight'}
-assert 'if (section == LMVEasterSquidPanelSection()) return row == 8;' in helpers
+assert 'if (section == LMVEasterSquidPanelSection()) return row == 9;' in helpers
 assert 'return (row == 3 || row == 6);' in helpers
 assert 'tag >= 0 && tag < LMVEasterAudioTargets().count' in helpers
 assert '[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.5' in helpers
@@ -210,18 +210,18 @@ int main(void) { @autoreleasepool {
  store=[NSMutableDictionary new];
  NSArray *targets=LMVEasterAudioTargets();
  for (NSInteger section=0;section<13;section++) {
-  for (NSInteger row=0;row<9;row++) {
+  for (NSInteger row=0;row<10;row++) {
    NSString *expected=nil;
    if(section<5&&(row==2||row==3))expected=targets[section];
    if(section==5&&(row==2||row==3))expected=targets[5];
    if(section==5&&(row==5||row==6))expected=targets[6];
    if(section==6&&(row==2||row==3))expected=targets[7];
-   if(section==7&&(row==7||row==8))expected=targets[8];
+   if(section==7&&(row==8||row==9))expected=targets[8];
    if(section==8&&(row==2||row==3))expected=targets[9];
    if(section==9&&(row==2||row==3))expected=targets[10];
    NSString *actual=LMVEasterAudioTarget(section,row);
    assert((!actual&&!expected)||[actual isEqual:expected]);
-   BOOL volumeRow=(section==7)?(row==8):(row==3||row==6);
+   BOOL volumeRow=(section==7)?(row==9):(row==3||row==6);
    assert(LMVEasterAudioVolumeRow(section,row)==(expected&&volumeRow));
   }
  }
@@ -234,7 +234,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==74);
+ assert(rows.count==75);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -292,11 +292,11 @@ int main(void) { @autoreleasepool {
   else if(section==10&&row==0)assert(p.navigationController.pushes==before+1);
   else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==12&&row==0));}
  }
- puts("PASS: exact production specifiers (74), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
+ puts("PASS: exact production specifiers (75), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
-    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'claimSquidPanel'))
+    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'claimSquidPanel', 'resetSquidPanel'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection)))

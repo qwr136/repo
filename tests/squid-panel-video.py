@@ -134,6 +134,12 @@ assert 'static void LMVSquidPanelBindLastSeen(NSInteger slot) {' in module
 assert 'LMVSquidPanelLastSeen=CACurrentMediaTime();' in module
 assert 'squid-panel-claim slot=%d gesture=%@ sig=%@ age=%.0fs applied=%d' in module
 assert 'CFSTR("SquidPanelClaimSlot")' in module and 'CFSTR("SquidPanelClaimToken")' in module
+# 1.52: and the one repair that pair ordering cannot do by itself - clearing a side that
+# was written wrong (the ordering only sorts a side while it is HALF unknown).
+assert 'static void LMVSquidPanelForgetAll(void) {' in module
+assert 'CFSTR("SquidPanelResetToken")' in module
+assert 'LMVDiagnostic(@"squid-panel-reset slots=4 (all four will be re-learned)");' in module
+assert 'for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {' in module
 # 1.48's pair seeds the two right-hand slots, so a device that already knew its right
 # panels keeps that knowledge; the 1.47 key generation itself is gone.
 assert 'NSArray *seeds=@[@"SquidPanelTallSig2",@"SquidPanelShortSig2"];' in module
@@ -200,7 +206,8 @@ assert 'NSString *wantPath=LMVSquidPanelSlotPaths[wantSlot];' in module
 assert 'NSString *wantRevision=LMVSquidPanelSlotRevisions[wantSlot];' in module
 # 1.46: the log names the slot, the reason for the verdict and the card object, so a
 # wrong pick is one line away from being explained.
-assert 'slot=%d gesture=%@ play=%@ why=%@ sig=%@ pair=%.0f/%.0f mode=%@' in module
+assert 'slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d pair=%.0f/%.0f mode=%@' in module
+assert 'pageControl?(int)pageControl.hidden:-1,' in module
 assert 'slot<2?LMVSquidPanelSlotHeights[0]:LMVSquidPanelSlotHeights[2],' in module
 assert '(int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],' in module
 assert 'LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,' in module
@@ -253,13 +260,13 @@ assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面�
 assert '切换右边上滑素材' in prefs and '切换右边上上滑素材' in prefs
 assert '切换左边上滑素材' in prefs and '切换左边上上滑素材' in prefs and '认领刚用过的面板' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
-# 1.50: nine rows - switch, four materials, the claim row, the swap row, sound, volume.
-# The sound pair moved to 7/8, which is also what stops the volume row from rendering
-# as a second "播放声音" switch (the report that started this release).
-assert 'if (section == LMVEasterSquidPanelSection()) return 9;' in panel
+# 1.50/1.52: ten rows - switch, four materials, the claim row, the reset row, the swap
+# row, sound, volume. The sound pair sits at 8/9, which is also what stops the volume
+# row from rendering as a second "播放声音" switch (the report that started 1.50).
+assert 'if (section == LMVEasterSquidPanelSection()) return 10;' in panel
 assert 'if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";' in panel
-assert 'if (section == LMVEasterSquidPanelSection() && (row == 7 || row == 8)) return @"SquidPanel";' in panel
-assert 'if (section == LMVEasterSquidPanelSection()) return row == 8;' in panel
+assert 'if (section == LMVEasterSquidPanelSection() && (row == 8 || row == 9)) return @"SquidPanel";' in panel
+assert 'if (section == LMVEasterSquidPanelSection()) return row == 9;' in panel
 assert 'static NSArray *LMVEasterSquidKeys(void) {' in panel
 assert 'return @[@"SquidPanelVideo", @"SquidPanel2Video", @"SquidPanel3Video", @"SquidPanel4Video"];' in panel
 assert 'return @[@"切换右边上滑素材", @"切换右边上上滑素材", @"切换左边上滑素材", @"切换左边上上滑素材"];' in panel
@@ -278,6 +285,15 @@ assert 'if (index.row < 1 || index.row > 4) return;\n        key = LMVEasterSqui
 # 1.50: the claim row is a PUSHED chooser, never a presented sheet (the floating panel
 # owns no presentation role - see tests/panel-roles.py), and it writes the slot + token.
 assert 'if (index.row == 5) { [self claimSquidPanel]; return; }' in panel
+# 1.52: and the repair row, for a record the manual claim wrote wrong (the device log
+# showed the right 435pt panel stored under 左边上上滑, which parks every later panel on
+# "edited-nearest"). Clearing is one tap and the automatic rules take over again.
+assert 'if (index.row == 6) { [self resetSquidPanel]; return; }' in panel
+assert 'cell.textLabel.text = @"重置面板识别";' in panel
+assert 'LMVEasterSet(@"SquidPanelResetToken", [NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970]);' in panel
+assert 'squidPanelReset.buttonAction = @selector(resetSquidPanel:);' in prefs
+assert '- (void)resetSquidPanel:(PSSpecifier *)specifier {' in prefs
+assert 'CFPreferencesSetAppValue(CFSTR("SquidPanelResetToken")' in prefs
 assert 'LMVEasterChoice *choice = [LMVEasterChoice new];' in panel
 assert 'choice.options = LMVEasterSquidGestures();' in panel
 assert 'LMVEasterSet(@"SquidPanelClaimSlot", @(index + 1));' in panel
