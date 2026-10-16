@@ -358,7 +358,9 @@ if '- (void)insertSubview:(UIView *)view atIndex:' not in pre:
  pre=pre.replace('- (void)layoutSubviews {}', '- (void)insertSubview:(UIView *)view atIndex:(NSInteger)index {[view removeFromSuperview];[self.subviews insertObject:view atIndex:(NSUInteger)index];view.superview=self;[self.layer insertSublayer:view.layer atIndex:(unsigned)index];}\n- (void)layoutSubviews {}')
 pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated;', '- (void)viewWillDisappear:(BOOL)animated;\n- (void)viewDidDisappear:(BOOL)animated;')
 pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}', '- (void)viewWillDisappear:(BOOL)animated {self.disappearances++;}\n- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}')
-pre=pre.replace('@interface UIWindow:UIView\n', '@interface UIWindow:UIView\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window;\n')
+pre=pre.replace('@interface UIWindow:UIView\n', '@interface UIWindow:UIView\n@property(nonatomic) CGFloat windowLevel;\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window;\n')
+# 1.42: `desktop-window-meta` prints the window level, so the double must carry it
+# (the same fixture gap the 1.26 CI run hit when the window list first printed it).
 pre=pre.replace('- (UIWindow *)window {return self;}','- (UIWindow *)window {return self;}\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window {return [self.layer convertRect:rect toLayer:window.layer];}')
 # 1.33: LMVDesktopDockInset measures SBFloatingDockView inside its window, so the
 # double needs the same UIView coordinate conversion the production code uses.
