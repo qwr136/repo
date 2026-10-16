@@ -493,6 +493,81 @@ static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
     return finalSlot;
 }
 
+// 1.56: the panel's own subtree, printed with the things a plugin uses to name its own
+// views - tag, accessibilityIdentifier, restorationIdentifier and any label text.
+//
+// Why this exists: every identity tried so far was DERIVED FROM THE PANEL'S CONTENT, and
+// the user changes the content (adding an icon, swapping an app), so every one of them
+// broke the moment they edited a panel. A fixed name has to come from something the plugin
+// wrote itself and the user cannot touch, and this log is how it gets found: the next
+// device log will show, node by node, whether such a name is on the card at all.
+static void LMVSquidPanelIdentityTree(UIView *view,NSUInteger depth,NSMutableString *out,NSUInteger *nodes) {
+    if(!view || *nodes>160)return;
+    (*nodes)++;
+    CGRect frame=view.frame;
+    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f",NSStringFromClass(view.class),
+        frame.origin.x,frame.origin.y,frame.size.width,frame.size.height];
+    if(view.tag)[out appendFormat:@"#%ld",(long)view.tag];
+    // accessibilityIdentifier and restorationIdentifier are UIView's own public
+    // properties; `text` is not, so it is asked for only where it really exists.
+    if(view.accessibilityIdentifier.length)[out appendFormat:@"aid=%@",view.accessibilityIdentifier];
+    if(view.restorationIdentifier.length)[out appendFormat:@"rid=%@",view.restorationIdentifier];
+    if([view respondsToSelector:NSSelectorFromString(@"text")]) {
+        id text=[view valueForKey:@"text"];
+        if([text isKindOfClass:NSString.class] && [text length])[out appendFormat:@"txt=%@",text];
+    }
+    if(depth>=6 || view.subviews.count==0)return;
+    [out appendString:@"{"];
+    NSUInteger n=0;
+    for(UIView *child in view.subviews) {
+        if(n++>=8){[out appendString:@"…"];break;}
+        LMVSquidPanelIdentityTree(child,depth+1,out,nodes);
+        [out appendString:@","];
+    }
+    [out appendString:@"}"];
+}
+// 1.56: where the gesture plugin itself keeps its configuration.
+//
+// A panel's content is the user's to change, so no identity derived from it can hold. The
+// one thing that cannot change is the plugin's OWN record of its four gestures, which is
+// a plist somewhere in the preferences directory. This looks for it: read-only, once per
+// session, file names and top-level keys only, so no gesture data is logged. The report
+// tells us where to read a fixed gesture name from - the 1.57 rule.
+static void LMVSquidPanelScanGesturePrefs(void) {
+    static BOOL done=NO;
+    if(done)return;
+    done=YES;
+    if(!LMVDiagnosticsEnabled.load())return;
+    NSArray *roots=@[@"/var/mobile/Library/Preferences",@"/var/jb/var/mobile/Library/Preferences",@"/User/Library/Preferences"];
+    NSArray *needles=@[@"squid",@"sgpanel",@"gesture",@"activity",@"sfactivity"];
+    NSMutableString *report=[NSMutableString new];
+    NSUInteger files=0;
+    for(NSString *root in roots) {
+        NSArray *names=[NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil];
+        if(!names.count)continue;
+        for(NSString *name in names) {
+            NSString *lower=name.lowercaseString;
+            BOOL hit=NO;
+            for(NSString *needle in needles)if([lower containsString:needle])hit=YES;
+            if(!hit || files>=6)continue;
+            files++;
+            NSDictionary *plist=[NSDictionary dictionaryWithContentsOfFile:[root stringByAppendingPathComponent:name]];
+            NSArray *keys=[plist isKindOfClass:NSDictionary.class]?plist.allKeys:@[];
+            NSArray *shown=(keys.count>12)?[keys subarrayWithRange:NSMakeRange(0,12)]:keys;
+            [report appendFormat:@" %@(%lu)[%@]",name,(unsigned long)keys.count,[shown componentsJoinedByString:@","]];
+        }
+    }
+    LMVDiagnostic([NSString stringWithFormat:@"squid-gesture-prefs%@",report.length?report:@" none-found"]);
+}
+// The chain of class names from the window down to the card - short, so it can always be
+// printed, and it is where a gesture-owned container would show up.
+static NSString *LMVSquidPanelCardChain(UIView *card,UIWindow *window) {
+    NSMutableArray *names=[NSMutableArray array];
+    for(UIView *node=card;node && node!=window;node=node.superview)
+        [names addObject:NSStringFromClass(node.class)];
+    [names addObject:NSStringFromClass(window.class)];
+    return [names componentsJoinedByString:@">"];
+}
 // 1.52: forget everything learned here - the four signatures and their heights.
 //
 // The pair ordering above can only sort a side while that side is HALF unknown, so a
@@ -668,6 +743,17 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
         // 1.54: `slots=` is the whole memory in four digits - which of the four slots has
         // been learned - so a log line says on its own whether the next panel is going to
         // be matched (`sig-slotN`) or placed (`new@slotN`).
+        // 1.56: the card's own subtree, once per card that really shows. This is the raw
+        // material for a fixed identity - see LMVSquidPanelIdentityTree.
+        if(live)LMVSquidPanelScanGesturePrefs();
+        static __weak UIView *lastTreeCard=nil;
+        if(live && self.card && lastTreeCard!=self.card) {
+            lastTreeCard=self.card;
+            NSMutableString *tree=[NSMutableString new];NSUInteger nodes=0;
+            LMVSquidPanelIdentityTree(self.card,0,tree,&nodes);
+            LMVDiagnostic([NSString stringWithFormat:@"squid-panel-tree ptr=%p chain=%@ %@",
+                (void *)self.card,LMVSquidPanelCardChain(self.card,window),tree]);
+        }
         NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             (int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],

@@ -173,6 +173,30 @@ assert 'static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot
 assert 'NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;' in module
 assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0) {' in module
 assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
+# 1.56: ...and so is the plugin's OWN configuration - where a fixed gesture name can only
+# come from. Read-only, once per session, names and top-level keys only: no gesture data.
+assert 'static void LMVSquidPanelScanGesturePrefs(void) {' in module
+assert 'squid-gesture-prefs%@' in module
+assert '@"/var/mobile/Library/Preferences"' in module
+scan = module[module.index('static void LMVSquidPanelScanGesturePrefs'):module.index('// The chain of class names')]
+assert 'dictionaryWithContentsOfFile' in scan and 'LMVDiagnostic' in scan
+assert 'setObject' not in scan and 'writeToFile' not in scan      # read-only, never a write
+assert 'if(!LMVDiagnosticsEnabled.load())return;' in scan
+
+# 1.56: a fixed identity has to come from something the plugin wrote and the user cannot
+# edit, so the card's own subtree is logged with tag / accessibilityIdentifier /
+# restorationIdentifier / label text - that log is what the next rule gets built from.
+assert 'static void LMVSquidPanelIdentityTree(UIView *view,NSUInteger depth,NSMutableString *out,NSUInteger *nodes) {' in module
+assert 'if(view.accessibilityIdentifier.length)[out appendFormat:@"aid=%@",view.accessibilityIdentifier];' in module
+assert 'if(view.restorationIdentifier.length)[out appendFormat:@"rid=%@",view.restorationIdentifier];' in module
+assert 'if([view respondsToSelector:NSSelectorFromString(@"text")]) {' in module
+assert 'static NSString *LMVSquidPanelCardChain(UIView *card,UIWindow *window) {' in module
+assert 'LMVDiagnostic([NSString stringWithFormat:@"squid-panel-tree ptr=%p chain=%@ %@",' in module
+# ...and `text` is not a UIView property, so it is only asked for where it exists.
+reader = module[module.index('static void LMVSquidPanelIdentityTree'):module.index('// The chain of class names')]
+assert reader.count('respondsToSelector') == 1 and 'performSelector' not in reader and '@try' not in reader
+assert 'accessibilityIdentifier' in reader and 'restorationIdentifier' in reader
+
 # (d) 1.53: nothing manual is left - an unknown panel is always placed by the rules
 # above, and one row ("重置面板识别") exists only to clear a record that went wrong.
 assert 'LMVSquidPanelBindLastSeen' not in module and 'LMVSquidPanelClaimToken' not in module
