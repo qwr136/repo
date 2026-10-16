@@ -303,33 +303,20 @@ assert 'if (window.alpha<0.99) continue;' in h, 'a fading Control Center is clos
 assert 'CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);' in h
 assert 'if (full<=0 || area/full<0.9) continue;' in h
 assert 'sheetName' not in h, 'the generalized sheet probe is really gone'
-# 1.35: the dock strip is conceded only when a Home context menu actually reaches
-# into it. 1.33 conceded it unconditionally (no video in the strip at all); the
-# first 1.35 cut conceded it whenever a menu merely EXISTED, which the log proved
-# wrong twice over - the strip flipped on and off four times during one long press,
-# and it was given up while no menu was on screen at all. Lock all three
-# properties: the probe returns a view, it searches only the two windows a menu is
-# ever built in, and the caller compares that view against the strip first.
-assert 'static UIView *LMVDesktopMenuView(void) {' in h, 'the probe returns the menu view'
-assert 'static BOOL LMVDesktopMenuHostWindow(UIWindow *window) {' in h, 'only menu host windows are searched'
-# The full-screen platter container must NOT be a candidate result: it is the first
-# node the walk meets inside the window, so comparing it against the strip always
-# concludes "covers the dock" - that is exactly why 1.36 still removed the video.
-# Scan the CODE, not the comments: the comment above the function names it on purpose.
-import re as _re
-_code = _re.sub(r'/\*.*?\*/', '', _re.sub(r'//[^\n]*', '', h), flags=_re.S)
-assert '_UIContextMenuListView' in _code and '_UIContextMenuView' in _code, \
-    'the menu card classes are the ones that get compared'
-# The platter may only be the way IN, never the thing being measured: it spans the
-# whole screen, so measuring it always concludes "covers the dock".
-assert 'platterClass && [node isKindOfClass:platterClass]' not in _code, \
-    'the platter is never itself returned as the menu'
-assert '[child isKindOfClass:platterClass]' in _code, 'the walk enters through the platter'
-assert 'CGRectGetMaxY(onScreen)>host.bounds.size.height-inset' in h, \
-    'a menu concedes the strip only when it reaches into it'
-assert 'if(!menu)return 0;' in h, 'no menu means no concession'
-assert h.index('if(!menu)return 0;') < h.index('CGFloat inset=LMVDesktopMeasureDock();'), \
-    'the cheap menu test runs before the dock measurement'
+# 1.38: the dock-strip concession is gone, and the whole menu-probe chain that
+# 1.35-1.37 grew to decide WHEN to concede went with it. The surface is the full
+# container again (1.32's behaviour), and the cause - the dock's backdrop sampling our
+# video - is handled at its source instead of being stepped around.
+assert 'LMVDesktopDockInset' not in h and 'LMVDesktopMenuView' not in h, \
+    'the dock-strip concession and its menu probe are gone'
+assert 'static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {\n    (void)homeHost;\n    return geometryTarget.bounds;\n}' in h, \
+    'the surface is the full container again (1.32)'
+assert 'LMVDesktopIsolateFromBackdrop(self.host);' in h, 'the mounted surface is isolated from backdrop capture'
+assert '[target performSelector:sel withObject:kLMVDesktopBackdropGroup];' in h, \
+    'the isolation uses the guarded private selector'
+assert 'candidates=@[@"_setBackdropGroupName:",@"_setGroupName:",@"setBackdropGroupName:"];' in h, \
+    'the selector names are tried in order'
+assert 'gateNow-self.probeFullAt<1.0' in h, 'the watcher ceiling is back to a second'
 # 0.0.129 diagnostics: the on-screen window class list (changes-only) identifies
 # sheet presenters (e.g. the search pull-down) the probe does not know yet.
 assert 'desktop-windows %@' in h

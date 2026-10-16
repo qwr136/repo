@@ -577,145 +577,47 @@ static NSUInteger LMVDesktopVisibleWindowCount(void) {
     }
     return count;
 }
-// 1.35: locate the Home context menu, if one is actually on screen.
-//
-// The first cut of this (same release) walked EVERY window under a shared node
-// budget and answered a plain yes/no. The log shows exactly what that cost: the
-// strip flipped on and off four times during ONE long press - vacated at
-// 110944.347, restored at 110946.351, vacated again at 110949.150 - because the
-// budget ran out at a different point each time it was asked. It also conceded the
-// strip while no menu existed at all (the only overlay then was
-// SBIconDragPlatterWindow, i.e. an icon being lifted).
-//
-// Two corrections, both taken straight from the log:
-//   1. A Home menu is only ever built in one of two windows. The dump pins the
-//      dock's long-press menu to SBFloatingDockWindow{_UIContextMenuPlatterTransitionView
-//      {@0,0,430,932}{_UIContextMenuView@147,389,250,447}}. Search those two, no
-//      budget lottery.
-//   2. Return the VIEW, not a yes/no. The caller has to compare it against the dock
-//      strip, because that same dump shows the menu ending at y=836 while the strip
-//      starts at 838.3 - a menu that never reaches the dock has no business taking
-//      the video away from it.
-static BOOL LMVDesktopMenuHostWindow(UIWindow *window) {
-    static Class dockClass;
-    static BOOL resolved;
-    if(!resolved) {resolved=YES;dockClass=NSClassFromString(@"SBFloatingDockWindow");}
-    if(dockClass && [window isKindOfClass:dockClass])return YES;
-    return LMVDesktopHomeWindow(window);
+// 1.38: back to ONE answer - the surface is always the full container (1.32).
+// 1.33 made the Home path stop above the dock strip so the dock's own backdrop could
+// not sample the video; 1.35/1.36/1.37 only narrowed WHEN that happened. The
+// concession always cost something visible (no video in the strip) and never removed
+// the cause, only stepped around it. It is gone; the cause is handled in
+// LMVDesktopIsolateFromBackdrop below.
+static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {
+    (void)homeHost;
+    return geometryTarget.bounds;
 }
-// Deliberately NOT _UIContextMenuPlatterTransitionView as a CANDIDATE result. That is
-// the full-screen transition container - the log shows it at @0,0,430,932 - and it is
-// the first thing the walk meets inside the window, so comparing IT against the dock
-// strip always concludes "covers the dock". That is exactly why 1.36 still took the
-// strip's video away on every long press.
-// The menu CARD is _UIContextMenuView (@147,389,250,447 in that same dump, ending at
-// y=836) with _UIContextMenuListView inside it, and both menu paths carry those.
-// The platter is used the other way round: as the ENTRY POINT, since the menu is always
-// inside it - entering there also avoids walking the dock's own icon subtree.
-static UIView *LMVDesktopMenuInSubtree(UIView *root,Class listClass,Class viewClass) {
-    NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:root.subviews];
-    NSUInteger budget=120;
-    while(pending.count && budget--) {
-        UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
-        if(!node.hidden && node.alpha>.01 &&
-           ((listClass && [node isKindOfClass:listClass]) ||
-            (viewClass && [node isKindOfClass:viewClass]))) return node;
-        [pending addObjectsFromArray:node.subviews];
-    }
-    return nil;
-}
-static UIView *LMVDesktopMenuView(void) {
-    static Class listClass,viewClass,platterClass;
+// 1.38: keep this layer out of the system's backdrop capture.
+// The evidence: 1.30 had the video in _SBWallpaperSecureWindow and the dock was fine
+// - a SECURE window's content is excluded from backdrop capture. 1.31 moved it into
+// SBHomeScreenWindow to make it visible, and the dock's floating blur
+// (SBFloatingDockView) began sampling our full-screen video, so the dock's own
+// appearance changed with it (reported as the dock disappearing while a long-press
+// menu is up).
+// What this does: give the surface an isolated backdrop group. Blur views that do not
+// carry this group name - the dock, the menu platter - sample the DEFAULT group, which
+// should put this layer out of their reach while leaving it fully visible.
+// Every step is guarded by respondsToSelector and the candidate selector names are
+// tried in order, so on a system where none exists this is a no-op and the video just
+// stays full-screen: exactly the 1.32 behaviour, never worse.
+static NSString *const kLMVDesktopBackdropGroup=@"LMVDesktopVideoSurface";
+static void LMVDesktopIsolateFromBackdrop(UIView *view) {
+    if(!view)return;
+    static NSArray<NSString *> *candidates;
     static BOOL resolved;
     if(!resolved) {
         resolved=YES;
-        listClass=NSClassFromString(@"_UIContextMenuListView");
-        viewClass=NSClassFromString(@"_UIContextMenuView");
-        platterClass=NSClassFromString(@"_UIContextMenuPlatterTransitionView");
+        candidates=@[@"_setBackdropGroupName:",@"_setGroupName:",@"setBackdropGroupName:"];
     }
-    if(!listClass && !viewClass)return nil;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if(!LMVDesktopMenuHostWindow(window))continue;
-            if(platterClass) {
-                for(UIView *child in window.subviews) {
-                    if(![child isKindOfClass:platterClass])continue;
-                    UIView *card=LMVDesktopMenuInSubtree(child,listClass,viewClass);
-                    if(card)return card;
-                }
-            }
-            UIView *card=LMVDesktopMenuInSubtree(window,listClass,viewClass);
-            if(card)return card;
-        }
+    for(NSString *name in candidates) {
+        SEL sel=NSSelectorFromString(name);
+        id target=nil;
+        if(view.layer && [view.layer respondsToSelector:sel])target=view.layer;
+        else if([view respondsToSelector:sel])target=view;
+        if(!target)continue;
+        [target performSelector:sel withObject:kLMVDesktopBackdropGroup];
+        return;
     }
-    return nil;
-}
-// 1.35: the height of the floating dock, measured from the dock's own window.
-// Why the dock matters at all: 1.31 moved the surface out of
-// _SBWallpaperSecureWindow and into SBHomeScreenWindow. A SECURE window's content
-// is excluded from system backdrop capture; the Home window's content is not. So
-// the dock's floating blur (SBFloatingDockView) samples our video and the dock's
-// own appearance changes with it - reported as the dock vanishing behind the
-// long-press menu. 1.33 answered that by keeping the surface above the dock strip
-// permanently, which fixed the menu but left that strip showing the system
-// background instead of the video ("dock 下面没有视频背景").
-// Measured rather than assumed: the dock moves and resizes with Reachability,
-// rotation and device, so a constant would be wrong on some of them.
-static CGFloat LMVDesktopMeasureDock(void) {
-    Class dockWindowClass=NSClassFromString(@"SBFloatingDockWindow");
-    Class dockViewClass=NSClassFromString(@"SBFloatingDockView");
-    if(!dockWindowClass || !dockViewClass) return 0;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class]) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (![window isKindOfClass:dockWindowClass] || window.hidden || window.alpha<.01) continue;
-            if (window.screen!=UIScreen.mainScreen || !LMVLockVideoRectValid(window.bounds)) continue;
-            NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:window.subviews];
-            NSUInteger budget=40;
-            while (pending.count && budget--) {
-                UIView *node=pending.lastObject;[pending removeLastObject];
-                if ([node isKindOfClass:dockViewClass]) {
-                    CGRect rect=[node convertRect:node.bounds toView:window];
-                    CGFloat inset=window.bounds.size.height-CGRectGetMinY(rect);
-                    // A sane dock is a bottom strip, not most of the screen.
-                    return (inset>1 && inset<window.bounds.size.height*0.4)?inset:0;
-                }
-                [pending addObjectsFromArray:node.subviews];
-            }
-        }
-    }
-    return 0;
-}
-// 1.35: the dock strip is conceded only when a menu actually reaches into it.
-// The menu that started this (the dock's long-press one) ends at y=836 while the
-// strip begins at 838.3 - measured, see the dump in the log - so it takes nothing
-// away from the dock, and the strip keeps its video. A menu long enough to overlap
-// the strip still vacates it: that is 1.33's fix, kept for the case that needed it.
-static CGFloat LMVDesktopDockInset(void) {
-    // Cheap path first: no menu on screen means nothing to concede, and the dock
-    // subtree walk below is skipped entirely.
-    UIView *menu=LMVDesktopMenuView();
-    if(!menu)return 0;
-    CGFloat inset=LMVDesktopMeasureDock();
-    if(inset<=1)return 0;
-    UIWindow *host=menu.window;
-    if(!host || !LMVLockVideoRectValid(host.bounds))return 0;
-    CGRect onScreen=[menu convertRect:menu.bounds toView:host];
-    if(!LMVLockVideoRectValid(onScreen))return 0;
-    return (CGRectGetMaxY(onScreen)>host.bounds.size.height-inset)?inset:0;
-}
-// 1.33: the single place that answers "how big is the surface". The Home path
-// stops above the dock strip (see LMVDesktopDockInset); every other path keeps the
-// full container, exactly as before.
-static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {
-    CGRect bounds=geometryTarget.bounds;
-    if(homeHost) {
-        CGFloat inset=LMVDesktopDockInset();
-        if(inset>1 && bounds.size.height>inset+1) bounds.size.height-=inset;
-    }
-    return bounds;
 }
 static BOOL LMVDesktopFullyCovered(UIView *view,CGRect cover) {
     CGRect target=LMVLockVideoVisibleRect(view,view.window);if(CGRectIsEmpty(target))return YES;
@@ -905,23 +807,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     //     it is what keeps the app-exit and Control-Center-dismiss resume at zero
     //     delay.
     //   - PLAYING re-measures only when the visible-window count moved or a full
-    //     probe has not run for 0.25s. The count is the one cheap signal every
+    //     probe has not run for a second. The count is the one cheap signal every
     //     transition produces; the ceiling means nothing can be missed for longer
     //     than that, so every edge case keeps a bounded lateness while the steady
     //     state stops paying for a probe whose answer cannot change.
-    //     1.35 tightened that ceiling from a second to a quarter: a Home context
-    //     menu does NOT change the visible-window count (it is a platter inside a
-    //     window that is already up), and the dock strip must be vacated while it
-    //     is showing. At a quarter second the concession lands with the menu's own
-    //     ~0.3s presentation animation instead of visibly trailing it. Four cheap
-    //     probes a second is still two orders of magnitude below the per-frame
-    //     measurement this gate replaced.
     //   - `appAway` bypasses the gate: the exit release is evaluated per frame on
     //     purpose and must never be starved by it.
     if (!self.host.hidden && !self.playback.frozen && !self.appAway) {
         CFTimeInterval gateNow=CACurrentMediaTime();
         NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
-        if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<0.25) return;
+        if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
         self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
     }
     BOOL unknown=NO,appCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
@@ -1173,6 +1068,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
                 [self.host removeFromSuperview];
                 [homeHost insertSubview:self.host atIndex:target];
             }
+            // 1.38: see LMVDesktopIsolateFromBackdrop - keep this layer out of the
+            // system's backdrop capture, which is what the dock samples.
+            LMVDesktopIsolateFromBackdrop(self.host);
         } else if (content && content.superview==container) {
             NSUInteger back=[container.subviews indexOfObjectIdenticalTo:content],own=[container.subviews indexOfObjectIdenticalTo:self.host];
             if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:content];}
@@ -1211,7 +1109,6 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 1.33: on the Home host the surface stops above the dock strip. The dock's
         // floating blur samples this window, and since 1.31 the surface lives here
         // rather than in a SECURE window, so a full-screen surface changed the
-        // dock's own appearance. See LMVDesktopDockInset.
         self.homeHostGeometry=usingHomeHost;
         CGRect videoBounds=LMVDesktopVideoBoundsFor(geometryTarget,usingHomeHost);
         BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,videoBounds);
