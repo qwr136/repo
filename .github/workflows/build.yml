@@ -1,10 +1,13 @@
 name: build-deb
 
 # 触发方式：push 到 main 就构建（不打 tag），外加手动触发。
-#   - push main          -> 跑测试 + 构建，并刷新 latest Release 里的包
+#   - push main          -> 跑测试 + 构建，产物只进 artifacts
 #   - workflow_dispatch  -> 手动触发，对任意分支/commit 都能构建
 #
-# 额度说明（仓库是 private，Free 计划）：
+# 刻意不做的事：不发 Release、不打 tag、不挂任何持久发布。
+# 包由本地取回后直接交付，仓库里不留任何可下载的成品。
+#
+# 额度说明（仓库是 private 时适用，现在是 public，Actions 无限免费）：
 #   免费额度按 Linux 分钟算 2000/月，macOS runner 按 10 倍扣，
 #   实际只有约 200 分钟/月。所以这里做两件事把单次成本压下来：
 #     1) 缓存 Theos 与 iOS SDK（两者版本都钉死在下面 env 里，缓存稳定命中），
@@ -16,9 +19,9 @@ on:
   push:
     branches: [ main ]
 
-# contents: write 是给下面的 Release 步骤用的（GITHUB_TOKEN 默认没有写权限）。
+# 只读。这里没有任何写仓库的步骤（Release 那一步已经删掉）。
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-deb-${{ github.ref }}
@@ -172,18 +175,5 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # main 的每次构建都刷新同一个 latest Release：artifacts 只留 14 天，
-      # Release 是永久的。手机浏览器打开 releases 页就能下到最新包，
-      # 既不用打 tag，也不会过期。先删再建，避免旧版本号的 deb 累积。
-      - name: Refresh latest release (main builds only)
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest --title "latest" \
-            --notes "roothide 包，arm64 + arm64e 双切片，由 CI 自动构建并校验。对应提交 ${GITHUB_SHA}。" \
-            packages/*.deb
-          echo "release assets:"
-          gh release view latest --json assets --jq '.assets[].name'
+      # 这里刻意没有发版步骤。包只留在 artifacts（14 天），由本地取回后直接交付，
+      # 仓库里不产生 Release、不打 tag，也就没有任何对外可下载的成品。

@@ -68,6 +68,11 @@ for name in ('build.yml', 'easter-compile.yml'):
         check('actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830' in workflow and
               'path: ${{ runner.temp }}/rh-theos' in workflow, 'theos+SDK cached (private-repo quota)')
         check('test -f "$dest/vendor/include/roothide.h"' in workflow, 'cache is re-validated before use')
+        # 1.35: 不发 Release、不挂任何持久发布。产物只进 artifacts（14 天），
+        # 包由本地取回后直接交付，仓库里不留任何对外可下载的成品。这条断言
+        # 防止以后有人把发布步骤或写权限加回来。
+        check('gh release' not in workflow and 'contents: write' not in workflow and
+              'permissions:' in workflow, 'no release publishing step, read-only token')
     else:
         check('push:' not in workflow, 'auxiliary workflow is manual-only')
 base = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:.github/workflows/build.yml'], text=True)
