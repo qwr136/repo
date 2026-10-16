@@ -117,7 +117,8 @@ assert 'else if(icons!=NSNotFound && knownIcons!=NSNotFound && icons!=knownIcons
 assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"pair-by-%@-%@@slot%d",by,sideTag,(int)wantSlot+1];' in module
 # An already-recorded pair that contradicts its slots swaps itself on sight, and an
 # edited panel keeps the slot it owns (closest icon count, nothing moves).
-assert 'if(LMVSquidPanelOrderPair(tall,short)>0) {' in module
+assert 'NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;' in module
+assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair)>0) {' in module
 assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
 assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];' in module
 # Nothing to compare yet: the page control, then the absolute height - and never a

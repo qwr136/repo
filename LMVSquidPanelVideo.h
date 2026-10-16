@@ -296,9 +296,9 @@ static void LMVSquidPanelMoveSlot(NSInteger from,NSInteger to) {
 // agrees (or cannot say), 1 when it had to swap them.
 static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot) {
     if(!LMVSquidPanelSlotSigs[tallSlot].length || !LMVSquidPanelSlotSigs[shortSlot].length)return 0;
-    CGFloat tall=LMVSquidPanelSlotHeights[tallSlot],short=LMVSquidPanelSlotHeights[shortSlot];
+    CGFloat tallHeight=LMVSquidPanelSlotHeights[tallSlot],shortHeight=LMVSquidPanelSlotHeights[shortSlot];
     int order=0;
-    if(tall>0 && short>0 && fabs(tall-short)>4) order=(short>tall)?-1:1;
+    if(tallHeight>0 && shortHeight>0 && fabs(tallHeight-shortHeight)>4) order=(shortHeight>tallHeight)?-1:1;
     else {
         NSUInteger ti=LMVSquidPanelSignatureIcons(LMVSquidPanelSlotSigs[tallSlot]);
         NSUInteger si=LMVSquidPanelSignatureIcons(LMVSquidPanelSlotSigs[shortSlot]);
@@ -326,12 +326,12 @@ static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
         if(![sig isEqualToString:LMVSquidPanelSlotSigs[i]])continue;
         LMVSquidPanelNoteHeight(i,height);
         // (c) the pair self-heals: an inverted record is swapped where it is noticed.
-        NSInteger tall=(i<2)?0:2, short=(i<2)?1:3;
+        NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;
         NSString *reason=[NSString stringWithFormat:@"sig-slot%d",(int)i+1];
-        if(LMVSquidPanelOrderPair(tall,short)>0) {
+        if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair)>0) {
             LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];
-            return ([sig isEqualToString:LMVSquidPanelSlotSigs[tall]] || [sig isEqualToString:LMVSquidPanelSlotSigs[short]])?
-                (LMVSquidPanelSlotSigs[tall].length && [sig isEqualToString:LMVSquidPanelSlotSigs[tall]]?tall:short):i;
+            return ([sig isEqualToString:LMVSquidPanelSlotSigs[tallOfPair]] || [sig isEqualToString:LMVSquidPanelSlotSigs[shortOfPair]])?
+                (LMVSquidPanelSlotSigs[tallOfPair].length && [sig isEqualToString:LMVSquidPanelSlotSigs[tallOfPair]]?tallOfPair:shortOfPair):i;
         }
         LMVSquidPanelShapeReason=reason;
         return i;
