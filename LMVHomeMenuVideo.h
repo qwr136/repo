@@ -361,26 +361,14 @@ static void LMVHomeMenuPresentation(id object,BOOL active) {
 static void (*LMVHomeMenuOriginalLayout)(id,SEL),(*LMVHomeMenuOriginalMove)(id,SEL);
 static void (*LMVHomeMenuOriginalWillBegin)(id,SEL),(*LMVHomeMenuOriginalDismiss)(id,SEL);
 static void (*LMVHomeMenuOriginalDidEnd)(id,SEL,bool);
-// 1.35: the desktop channel vacates the dock strip only while a menu is up, and it
-// decides that for itself by probing the menu classes (LMVDesktopContextMenuUp).
-// This notification therefore supplies the TIMING only: these two hooks already
-// bracket the menu's life - layoutSubviews as it appears, didMoveToWindow as it
-// leaves - so the desktop re-measures on the menu's own edge instead of waiting up
-// to a second for its own watcher to notice. Edge-only comparison of a plain
-// property read, so the repeated-layout case costs nothing.
-static BOOL LMVHomeMenuDesktopToldUp;
-static void LMVHomeMenuTellDesktop(BOOL up) {
-    if(LMVHomeMenuDesktopToldUp==up)return;
-    LMVHomeMenuDesktopToldUp=up;
-    LMVDesktopRequestUpdate();
-}
+// 1.35 note: this file deliberately does NOT notify the desktop channel when a menu
+// appears. The desktop decides for itself whether the dock strip must be vacated
+// (LMVDesktopContextMenuUp), which keeps this module free of a compile-time
+// dependency on LMVDesktopVideo.h. The CI harness compiles THIS header on its own
+// with clang, so any reference to a desktop symbol fails the build there.
 static void LMVHomeMenuHookLayout(id object,SEL selector) {
     LMVHomeMenuOriginalLayout(object,selector);
-    if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;
-    // Ahead of the enabled check on purpose: whether this channel is switched on
-    // has no bearing on what the dock's backdrop samples.
-    if(((UIView *)object).window)LMVHomeMenuTellDesktop(YES);
-    if(!LMVHomeMenuEnabled)return;
+    if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady || !LMVHomeMenuEnabled)return;
     if(LMVHomeMenuVideo.list==object && LMVHomeMenuVideo.host.superview) {
         if(!LMVHomeMenuEnvironment() || !LMVHomeMenuOwner(object)) {[LMVHomeMenuVideo detach];return;}
         [LMVHomeMenuVideo syncGeometry];
@@ -393,7 +381,6 @@ static void LMVHomeMenuHookLayout(id object,SEL selector) {
 static void LMVHomeMenuHookMove(id object,SEL selector) {
     LMVHomeMenuOriginalMove(object,selector);
     if(!NSThread.isMainThread)return;
-    LMVHomeMenuTellDesktop(((UIView *)object).window!=nil);
     if(LMVHomeMenuVideo.list==object && !((UIView *)object).window) {
         [LMVHomeMenuVideo detach];if(LMVHomeMenuObservedList==object)LMVHomeMenuObservedList=nil;
     }

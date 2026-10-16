@@ -851,16 +851,23 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     //     it is what keeps the app-exit and Control-Center-dismiss resume at zero
     //     delay.
     //   - PLAYING re-measures only when the visible-window count moved or a full
-    //     probe has not run for a second. The count is the one cheap signal every
-    //     transition produces; the one-second ceiling means nothing can be missed
-    //     for longer than that, so every edge case keeps a bounded lateness while
-    //     the steady state stops paying for a probe whose answer cannot change.
+    //     probe has not run for 0.25s. The count is the one cheap signal every
+    //     transition produces; the ceiling means nothing can be missed for longer
+    //     than that, so every edge case keeps a bounded lateness while the steady
+    //     state stops paying for a probe whose answer cannot change.
+    //     1.35 tightened that ceiling from a second to a quarter: a Home context
+    //     menu does NOT change the visible-window count (it is a platter inside a
+    //     window that is already up), and the dock strip must be vacated while it
+    //     is showing. At a quarter second the concession lands with the menu's own
+    //     ~0.3s presentation animation instead of visibly trailing it. Four cheap
+    //     probes a second is still two orders of magnitude below the per-frame
+    //     measurement this gate replaced.
     //   - `appAway` bypasses the gate: the exit release is evaluated per frame on
     //     purpose and must never be starved by it.
     if (!self.host.hidden && !self.playback.frozen && !self.appAway) {
         CFTimeInterval gateNow=CACurrentMediaTime();
         NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
-        if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
+        if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<0.25) return;
         self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
     }
     BOOL unknown=NO,appCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;

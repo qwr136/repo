@@ -24,14 +24,20 @@ assert 'self.host.layer.transform=material.layer.transform' in h
 assert 'if(!CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))' in h
 assert 'now-LMVHomeMenuVideo.lastAudit>=.25' in h
 assert '[material.layer removeFromSuperlayer]' not in h
-# 1.35: the desktop channel now concedes the dock strip only while a menu is up, and
-# it needs the menu's own edges to re-measure on - layoutSubviews as the menu
-# appears, didMoveToWindow as it leaves. Lock both wiring points, and that the flag
-# is edge-only (a plain property read, so repeated layouts cost nothing).
-assert 'static void LMVHomeMenuTellDesktop(BOOL up) {' in h, 'the desktop edge notification exists'
-assert 'if(LMVHomeMenuDesktopToldUp==up)return;' in h, 'the notification is edge-only'
-assert 'if(((UIView *)object).window)LMVHomeMenuTellDesktop(YES);' in h, 'the appear edge is wired'
-assert 'LMVHomeMenuTellDesktop(((UIView *)object).window!=nil);' in h, 'the leave edge is wired'
+# 1.35: the native fixture compiles THIS header on its own, so a compile-time
+# reference to the desktop channel that the fixture does not provide is a build
+# failure on macOS CI - and the local run cannot see it, because that native step is
+# skipped off Darwin (line 34). That is exactly how the first 1.35 build failed: a
+# call to LMVDesktopRequestUpdate(). Lock the allow-list rather than one symbol name,
+# so the next such reference gets caught instead of shipped.
+# (The desktop side owns the dock-strip decision, LMVDesktopContextMenuUp; this file
+# only refers to it in a comment.)
+import re
+_body = re.sub(r'/\*.*?\*/', '', re.sub(r'//[^\n]*', '', h), flags=re.S)
+_refs = set(re.findall(r'\bLMVDesktop\w+', _body))
+_allowed = {'LMVDesktopForeground', 'LMVDesktopHomeWindow'}
+assert _refs <= _allowed, \
+    'unexpected compile-time dependence on the desktop channel: %s' % sorted(_refs - _allowed)
 if platform.system()!='Darwin' and not os.environ.get('LMV_NATIVE_EXPORT_DIR'):
     print('PASS: HomeMenu source contracts; SKIP native QuartzCore (requires macOS, not device validation)')
     raise SystemExit(0)
