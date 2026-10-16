@@ -1,21 +1,17 @@
 name: build-deb
 
-# 1.35 起改为「main 迭代 + tag 发版」：
-#   - push 到 main        -> 只跑测试和构建（产物进 artifacts，14 天）
-#   - push 一个 v* tag    -> 跑完再自动建 Release 并把 deb 挂上去（永久保存）
-#   - workflow_dispatch   -> 手动触发，对任意分支都能构建
-# 以前是「一个版本一个分支」，因为只有列在这里的分支名才会触发构建，
-# 结果 100 多个版本堆出 82 个分支。现在分支不再承担触发职责。
+# 1.35 起：main 迭代 + tag 发版。
+#   - push 一个 v* tag    -> 跑测试 + 构建 + 建 Release 挂 deb
+#   - workflow_dispatch   -> 手动触发，对任意分支/commit 都能构建
+#
+# 注意这里**没有** push branches 触发，这是刻意的：
+# 仓库现在是 private，而 macOS runner 的计费是普通 runner 的 10 倍，
+# 每次 push main 都构建会把免费额度很快烧光（这正是之前改回 public 的原因）。
+# 所以只保留「打 tag = 发版」这一个自动入口，日常改动的把关交给本地测试。
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
     tags: [ 'v*' ]
-    paths-ignore:
-      - 'Packages/**'
-      - 'Release/**'
-      - 'index.html'
-      - 'depictions/**'
 
 # contents: write 是给下面的 Release 步骤用的（GITHUB_TOKEN 默认没有写权限）。
 permissions:

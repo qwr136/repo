@@ -59,11 +59,12 @@ for name in ('build.yml', 'easter-compile.yml'):
         check(token in workflow, name + ': ' + token)
     check('https://github.com/theos/theos.git' not in workflow and 'macos-14' not in workflow, 'no old toolchain: ' + name)
     if name == 'build.yml':
-        # 1.35: 触发方式改成「main 迭代 + v* tag 发版」。分支不再承担触发职责
-        # —— 以前每加一个版本都要往这个列表里手工补一个分支名，100 多个版本就堆出
-        # 了 82 个分支。现在断言两种触发源都在，而不是某个具体分支名。
-        check('push:' in workflow and 'branches: [ main ]' in workflow and "tags: [ 'v*' ]" in workflow,
-              'authorized push sources enabled')
+        # 1.35: 触发方式改成「tag 发版」，并且仓库转 private 后刻意不再对 push main
+        # 构建（macOS runner 计费是普通 runner 的 10 倍，会把免费额度烧光——这正是
+        # 当初改回 public 的原因）。所以断言：tag 触发 + 手动触发都在，且没有分支触发。
+        check('push:' in workflow and "tags: [ 'v*' ]" in workflow and 'workflow_dispatch:' in workflow,
+              'tag-driven release trigger enabled')
+        check('branches:' not in workflow, 'no branch push trigger (private repo runs on quota)')
     else:
         check('push:' not in workflow, 'auxiliary workflow is manual-only')
 base = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:.github/workflows/build.yml'], text=True)
