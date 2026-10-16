@@ -1,5 +1,23 @@
 # 锁屏消息视频
 
+## 1.40：主屏长按菜单不再串出 AT 面板背景视频的声音
+
+**现象。** 开启视频声音后，先呼出 AT 面板背景视频，再回桌面长按 App 图标弹出菜单 —— 菜单背景视频出现的同时，**AT 面板背景视频的声音还在响**。
+
+**根因。** AT 通道的探测口径太宽。AppTools 没有自己的窗口，它把面板 present 进 `SBHomeScreenWindow`、在 `TransitionView` 下一两层，所以 1.28 的探测是「从 `SBHomeScreenWindow` 出发，认**任何类名带 `TransitionView` 的子树**，取最大可见非全屏卡片」。而**系统长按菜单**用的过渡容器叫 `_UIContextMenuPlatterTransitionView`，**名字里同样有 `TransitionView`**；主屏图标那条菜单又**同样建在 `SBHomeScreenWindow`**。于是 AT 通道把**菜单的卡片当成了 AT 面板**：视频挂上去，音轨可见性随之成立，声音就和菜单一起响了。
+
+对照很清楚：鱿鱼面板通道不会串，因为它锁的是**独立窗口**（类名含 `SGPanel`）；AT 通道锁的是**共享的 home 窗口**，所以必须自己把系统菜单排除掉。
+
+**改法（`LMVATPanelVideo.h`）。**
+
+- `LMVATPanelSystemMenu(view)`：类名含 `ContextMenu` 即判定为系统菜单（`_UIContextMenuPlatterTransitionView` / `_UIContextMenuContainerView` / `_UIContextMenuView` / `_UIContextMenuListView` 全部命中）。
+- `LMVATPanelTransitionRoots`：遇到系统菜单节点**直接 return**，不再把它或它的任何后代当作 AT 的过渡容器。
+- `LMVATPanelCard`：候选卡片命中 `LMVATPanelSystemMenu` 一律跳过。
+
+这样菜单出现时 `LMVATPanelCard` 返回 nil → AT 通道 `detach` → `setVisible:NO` → 音轨在 AT 自身的 0.1s 轮询 / 音频 0.25s 同步内暂停。AppTools 自己的面板是普通 `UITransitionView`、类名不含 `ContextMenu`，挂载不受影响。
+
+顺带把诊断头里的版本号对齐到 1.40（`Tweak.xm` 里那行此前硬编码 `version=1.31`，`LMVThumbnailDiagnosticLog.h` 里是 `version=1.25`）。
+
 ## 1.39：回到 1.30 的挂载位置（视频进安全窗口），dock 消失的根因从窗口层面消除
 
 1.38 的私有 backdrop 分组名方案（LMVDesktopIsolateFromBackdrop）用户实测**无效** —— dock 仍消失。

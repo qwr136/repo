@@ -69,12 +69,24 @@ static CGFloat LMVATPanelVisibleArea(CGRect frame,CGRect bounds) {
     CGFloat visible=onScreen.size.width*onScreen.size.height;
     return visible/total>=.5?visible:0;
 }
+// 1.40: the SYSTEM long-press menu (home icon or dock icon) is presented into the
+// very same SBHomeScreenWindow AppTools uses, through a *_ContextMenu*TransitionView
+// (_UIContextMenuPlatterTransitionView / _UIContextMenuContainerView). That name
+// contains "TransitionView" too, so the 1.27/1.28 scan claimed the menu's card as
+// the AppTools panel - the AT video and, what the user hears, the AT SOUND latched
+// onto the desktop long-press menu and played under a menu it has nothing to do
+// with. A system context menu is never the AppTools panel, so its whole subtree is
+// skipped here AND every *_ContextMenu* candidate is rejected in LMVATPanelCard.
+static BOOL LMVATPanelSystemMenu(UIView *view) {
+    return [NSStringFromClass(view.class) containsString:@"ContextMenu"];
+}
 // Every UITransitionView at or below `view`. 1.27 learned the hard way that
 // AppTools drops its TransitionView one or two levels BELOW the window (under
 // SBHomeScreenView), so a window.subviews-only scan never sees the panel.
 static void LMVATPanelTransitionRoots(UIView *view,NSUInteger depth,NSMutableArray<UIView *> *found,NSUInteger *nodes) {
     if(!view || depth>4 || *nodes>800)return;
     (*nodes)++;
+    if(LMVATPanelSystemMenu(view))return;
     if([NSStringFromClass(view.class) containsString:@"TransitionView"])[found addObject:view];
     for(UIView *child in view.subviews)LMVATPanelTransitionRoots(child,depth+1,found,nodes);
 }
@@ -101,6 +113,7 @@ static UIView *LMVATPanelCard(UIWindow *window) {
                 if(!budget--)break;
                 [pending addObject:child];
                 if(child.tag==LMVATPanelHostTag || child.hidden || child.alpha<.01)continue;
+                if(LMVATPanelSystemMenu(child))continue;
                 CGRect frame=[child convertRect:child.bounds toView:window];
                 if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
                 if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;

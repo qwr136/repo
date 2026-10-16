@@ -140,6 +140,18 @@ assert 'if(!LMVATPanelVideo)LMVATPanelVideo=[LMVATPanelVideoManager new];' in mo
 assert 'NSTimeInterval want=LMVATPanelEnabled?.1:.5;' in module
 assert 'dispatch_async(dispatch_get_main_queue()' not in module  # main run loop only
 
+# ---- 1.40: the desktop long-press menu is NOT the AppTools panel ------------
+# The system context menu is presented into the very same SBHomeScreenWindow
+# AppTools uses, through a *_ContextMenu*TransitionView whose name also contains
+# "TransitionView". Without this guard the AT video - and its SOUND - latched onto
+# the long-press menu card and played under a menu the channel has nothing to do
+# with. A system menu is never the panel: its subtree is skipped, and any
+# *_ContextMenu* view is rejected as a card.
+assert 'static BOOL LMVATPanelSystemMenu(UIView *view) {' in module
+assert 'return [NSStringFromClass(view.class) containsString:@"ContextMenu"];' in module
+assert 'if(LMVATPanelSystemMenu(view))return;' in module, 'menu subtrees are never AT transition roots'
+assert 'if(LMVATPanelSystemMenu(child))continue;' in module, 'a *_ContextMenu* view is never the AT card'
+
 
 def has(text, token, message):
     assert token in text, message
@@ -171,4 +183,5 @@ assert desktop.index('static NSString *LMVDesktopOverlayShape(UIView *view') < \
 
 print('PASS: AT pop-up channel - settings (Settings + floating panel), material/audio plumbing, '
       'the pop-up diagnostics and the 1.28 mount (TransitionView-only search into '
-      'SBHomeScreenWindow, under the icons / above the material)')
+      'SBHomeScreenWindow, under the icons / above the material), and the 1.40 scope '
+      'guard that keeps the SYSTEM long-press menu out of the AT channel')
