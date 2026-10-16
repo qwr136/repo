@@ -303,24 +303,22 @@ assert 'if (window.alpha<0.99) continue;' in h, 'a fading Control Center is clos
 assert 'CGRect converted=CGRectIntersection([window convertRect:rect toWindow:destination],destination.bounds);' in h
 assert 'if (full<=0 || area/full<0.9) continue;' in h
 assert 'sheetName' not in h, 'the generalized sheet probe is really gone'
-# 1.38: the dock-strip concession is gone, and the whole menu-probe chain that
-# 1.35-1.37 grew to decide WHEN to concede went with it. The surface is the full
-# container again (1.32's behaviour), and the cause - the dock's backdrop sampling our
-# video - is handled at its source instead of being stepped around.
+# 1.38/1.39: the dock-strip concession is gone, and with it the whole menu-probe chain
+# 1.35-1.37 grew to decide WHEN to concede. The 1.38 private backdrop-group attempt
+# (LMVDesktopIsolateFromBackdrop) was measured on-device and did NOT stop the dock, so
+# 1.39 reverts the surface to the 1.30 window: _SBWallpaperSecureWindow via the wallpaper
+# lease. The dock's floating blur captures only its OWN window, so a video living in the
+# secure window is outside what the dock samples - the cause is removed by WHERE it lives.
 assert 'LMVDesktopDockInset' not in h and 'LMVDesktopMenuView' not in h, \
     'the dock-strip concession and its menu probe are gone'
 assert 'static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {\n    (void)homeHost;\n    return geometryTarget.bounds;\n}' in h, \
     'the surface is the full container again (1.32)'
-assert 'LMVDesktopIsolateFromBackdrop(self.host);' in h, 'the mounted surface is isolated from backdrop capture'
-# ARC refuses performSelector:withObject: here (-Werror,-Warc-performSelector-leaks),
-# which is what failed the first 1.38 build; the IMP route must stay.
-assert 'performSelector:sel withObject:' not in h, \
-    'performSelector:withObject: is an error under ARC - use the IMP'
-assert 'IMP imp=[target methodForSelector:sel];' in h, 'the isolation takes the IMP'
-assert '((void(*)(id,SEL,id))imp)(target,sel,kLMVDesktopBackdropGroup);' in h, \
-    'the isolation calls through the IMP'
-assert 'candidates=@[@"_setBackdropGroupName:",@"_setGroupName:",@"setBackdropGroupName:"];' in h, \
-    'the selector names are tried in order'
+assert 'LMVDesktopIsolateFromBackdrop' not in h, 'the private backdrop-group attempt is gone (measured, did not help)'
+assert 'LMVDesktopMaskHomeBackdrop' not in h, 'the home-backdrop masking is gone - 1.30 needs none'
+assert 'UIView *homeHost=nil;\n        BOOL usingHomeHost=NO;' in h, \
+    'the surface mounts in the secure wallpaper window, not the Home view (1.30)'
+assert 'else if (content && content.superview==container) {' in h, \
+    'the secure-window lease branch still carries the surface'
 assert 'gateNow-self.probeFullAt<1.0' in h, 'the watcher ceiling is back to a second'
 # 0.0.129 diagnostics: the on-screen window class list (changes-only) identifies
 # sheet presenters (e.g. the search pull-down) the probe does not know yet.

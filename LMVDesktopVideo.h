@@ -581,49 +581,20 @@ static NSUInteger LMVDesktopVisibleWindowCount(void) {
 // 1.33 made the Home path stop above the dock strip so the dock's own backdrop could
 // not sample the video; 1.35/1.36/1.37 only narrowed WHEN that happened. The
 // concession always cost something visible (no video in the strip) and never removed
-// the cause, only stepped around it. It is gone; the cause is handled in
-// LMVDesktopIsolateFromBackdrop below.
+// the cause, only stepped around it. It is gone.
+// 1.39: the cause is removed by WHERE the surface lives, not by anything done to it.
+// The dock's floating blur captures its OWN window (per-window backdrop), so when the
+// video rode in the Home window (1.31+) the dock sampled it and its look tracked the
+// video - the reported "dock vanishes during a long-press menu". 1.30 put the video in
+// _SBWallpaperSecureWindow (via the wallpaper lease) and the dock was fine there,
+// because the secure window is a DIFFERENT window the dock's backdrop does not capture.
+// The Home window is otherwise transparent, so the secure-window video shows through
+// with no extra view-hiding. The 1.38 private backdrop-group attempt
+// (the 1.38 private backdrop-group attempt) was measured on-device and did NOT stop the dock, so
+// this reverts to the 1.30 window, which was confirmed good.
 static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {
     (void)homeHost;
     return geometryTarget.bounds;
-}
-// 1.38: keep this layer out of the system's backdrop capture.
-// The evidence: 1.30 had the video in _SBWallpaperSecureWindow and the dock was fine
-// - a SECURE window's content is excluded from backdrop capture. 1.31 moved it into
-// SBHomeScreenWindow to make it visible, and the dock's floating blur
-// (SBFloatingDockView) began sampling our full-screen video, so the dock's own
-// appearance changed with it (reported as the dock disappearing while a long-press
-// menu is up).
-// What this does: give the surface an isolated backdrop group. Blur views that do not
-// carry this group name - the dock, the menu platter - sample the DEFAULT group, which
-// should put this layer out of their reach while leaving it fully visible.
-// Every step is guarded by respondsToSelector and the candidate selector names are
-// tried in order, so on a system where none exists this is a no-op and the video just
-// stays full-screen: exactly the 1.32 behaviour, never worse.
-static NSString *const kLMVDesktopBackdropGroup=@"LMVDesktopVideoSurface";
-static void LMVDesktopIsolateFromBackdrop(UIView *view) {
-    if(!view)return;
-    static NSArray<NSString *> *candidates;
-    static BOOL resolved;
-    if(!resolved) {
-        resolved=YES;
-        candidates=@[@"_setBackdropGroupName:",@"_setGroupName:",@"setBackdropGroupName:"];
-    }
-    for(NSString *name in candidates) {
-        SEL sel=NSSelectorFromString(name);
-        id target=nil;
-        if(view.layer && [view.layer respondsToSelector:sel])target=view.layer;
-        else if([view respondsToSelector:sel])target=view;
-        if(!target)continue;
-        // ARC turns performSelector:withObject: into an error here
-        // (-Werror,-Warc-performSelector-leaks) - that is what failed the first 1.38
-        // build. Take the IMP and call it: identical semantics, and it does not go
-        // through ARC's unknown-selector check.
-        IMP imp=[target methodForSelector:sel];
-        if(!imp)continue;
-        ((void(*)(id,SEL,id))imp)(target,sel,kLMVDesktopBackdropGroup);
-        return;
-    }
 }
 static BOOL LMVDesktopFullyCovered(UIView *view,CGRect cover) {
     CGRect target=LMVLockVideoVisibleRect(view,view.window);if(CGRectIsEmpty(target))return YES;
@@ -1046,9 +1017,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if(wallpaperValid){self.explicitSource=container;self.explicitWindow=container.window;}
         self.wallpaperAttachment=wallpaperValid;
         self.attachmentController=homeOwner ?: poster;
+        // 1.39: 回到 1.30 的挂载位置 —— 视频挂在 _SBWallpaperSecureWindow 的壁纸
+        // 内容里，而不是主屏窗口。依据是实锤的：安全窗口的内容不参与系统毛玻璃的
+        // 背面采集，dock 在 1.30 因此完全正常；1.31 搬进主屏窗口后 dock 就开始采样
+        // 这块视频。1.38 试过用私有的 backdrop 分组名把这一层摘出去，用户实测无效，
+        // 所以回到唯一被验证过「dock 正常」的位置 —— 安全窗口里靠已有的壁纸
+        // 承租显隐，主屏窗口本就透明透出这一层，不需要额外的遮蔽。
         UIView *homeIcons=nil;
-        UIView *homeHost=LMVDesktopHomeHostView(&homeIcons);
-        BOOL usingHomeHost=(homeHost!=nil && homeIcons!=nil);
+        UIView *homeHost=nil;
+        BOOL usingHomeHost=NO;
         if (usingHomeHost) {
             // 1.31: the desktop video draws on the desktop itself - above the
             // wallpaper, inside the Home view. No wallpaper lease is taken on this
@@ -1074,9 +1051,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
                 [self.host removeFromSuperview];
                 [homeHost insertSubview:self.host atIndex:target];
             }
-            // 1.38: see LMVDesktopIsolateFromBackdrop - keep this layer out of the
-            // system's backdrop capture, which is what the dock samples.
-            LMVDesktopIsolateFromBackdrop(self.host);
+
         } else if (content && content.superview==container) {
             NSUInteger back=[container.subviews indexOfObjectIdenticalTo:content],own=[container.subviews indexOfObjectIdenticalTo:self.host];
             if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:content];}
