@@ -147,18 +147,18 @@ assert 'for (UIView *child in root.subviews) {' in h
 assert 'CGFloat ccContent=LMVDesktopContentCoverage(window,root,destination);' in h and 'if (ccContent>=0 && ccContent<0.6) continue; // the content has left' in h, 'the CC window frame is not a cover once the content slid away'
 assert 'CGFloat appContent=LMVDesktopContentCoverage(window,window.rootViewController.viewIfLoaded,destination);' in h and 'if (appContent>=0 && appContent<0.4) continue;' in h, 'an app/switcher window frame is not a cover once its content shrinks away'
 assert 'desktop-cover-owner %@' in h, 'the log names the surface that holds the cover'
-assert 'UIView *hostParent=container;' in h and 'if (!usingHomeHost && (container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;' in h, 'a hidden wallpaper branch is bypassed (1.25)'
-# 1.31: the surface belongs on the Home window itself - the wallpaper it attached
-# to until 1.30 lives a whole window BELOW, so SBHomeScreenWindow covered the
-# video completely ("开始桌面视频 不在桌面").
-# 1.32: it lands in the Home view's BOTTOM slot. Targeting the icon container's own
-# index displaced that container on every reparent - the video and the icons traded
-# places, which is exactly the reported flicker - and parked the video between the
-# icons and the dock. Index 0 never has to move an existing sibling.
-assert 'static UIView *LMVDesktopHomeHostView(UIView **iconsOut) {' in h, 'the Home host probe exists'
-assert 'if ([NSStringFromClass(child.class) containsString:@"IconContentView"]) {' in h, 'the icon container is found by class name'
-assert 'if (usingHomeHost) {' in h and '[homeHost insertSubview:self.host atIndex:target];' in h and 'NSUInteger target=0;' in h, 'the surface parks in the bottom slot of the Home view so no sibling is ever displaced (1.32)'
-assert 'UIView *geometryTarget=usingHomeHost?homeHost:container;' in h, 'the Home host sizes the surface'
+assert 'UIView *hostParent=container;' in h and 'if ((container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;' in h, 'a hidden wallpaper branch is bypassed (1.25)'
+# 1.39: the surface lives ONLY in the secure wallpaper window (the 1.30 position). The
+# Home-host mount that 1.31 added is gone - it is what put the video inside the Home
+# window where the dock's backdrop could sample it (the reported dock vanishing during
+# a long-press menu). With the Home branch removed, geometryTarget is always the
+# container and homeHostGeometry is always NO.
+assert 'static UIView *LMVDesktopHomeHostView(UIView **iconsOut) {' in h, 'the Home host probe still exists (used by the Home-menu video path)'
+assert 'if ([NSStringFromClass(child.class) containsString:@"IconContentView"]) {' in h, 'the icon container is found by class name (Home-menu path)'
+assert 'if (usingHomeHost) {' not in h and '[homeHost insertSubview:self.host atIndex:target];' not in h and 'NSUInteger target=0;' not in h, 'the desktop Home-host mount branch is gone (1.39)'
+assert 'UIView *geometryTarget=container;' in h, 'the surface sizes from the container (secure window)'
+assert 'self.homeHostGeometry=NO;' in h, 'homeHostGeometry is always NO on the secure-window path'
+assert 'CGRect videoBounds=LMVDesktopVideoBoundsFor(geometryTarget,NO);' in h, 'the surface is the full container (1.32) on the secure window'
 assert 'desktop-home win=%@ subviews=[' in h, 'where the surface landed is one diagnostic line'
 assert '[hostParent insertSubview:self.host atIndex:0];' in h, 'the layer borrows the wallpaper parent without displacing a sibling (1.25/1.32)'
 assert 'desktop-host container=%@ hidden=%d alpha=%.2f' in h, 'the host chain is diagnosed (1.25)'
@@ -315,10 +315,10 @@ assert 'static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeH
     'the surface is the full container again (1.32)'
 assert 'LMVDesktopIsolateFromBackdrop' not in h, 'the private backdrop-group attempt is gone (measured, did not help)'
 assert 'LMVDesktopMaskHomeBackdrop' not in h, 'the home-backdrop masking is gone - 1.30 needs none'
-assert 'UIView *homeHost=nil;\n        BOOL usingHomeHost=NO;' in h, \
-    'the surface mounts in the secure wallpaper window, not the Home view (1.30)'
-assert 'else if (content && content.superview==container) {' in h, \
-    'the secure-window lease branch still carries the surface'
+assert 'usingHomeHost' not in h, \
+    'the Home-host mount path is gone - the surface lives only in the secure wallpaper window (1.30)'
+assert 'if (content && content.superview==container) {' in h, \
+    'the secure-window lease branch carries the surface (no else, it is the only branch now)'
 assert 'gateNow-self.probeFullAt<1.0' in h, 'the watcher ceiling is back to a second'
 # 0.0.129 diagnostics: the on-screen window class list (changes-only) identifies
 # sheet presenters (e.g. the search pull-down) the probe does not know yet.

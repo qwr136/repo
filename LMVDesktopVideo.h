@@ -1023,36 +1023,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 这块视频。1.38 试过用私有的 backdrop 分组名把这一层摘出去，用户实测无效，
         // 所以回到唯一被验证过「dock 正常」的位置 —— 安全窗口里靠已有的壁纸
         // 承租显隐，主屏窗口本就透明透出这一层，不需要额外的遮蔽。
-        UIView *homeIcons=nil;
-        UIView *homeHost=nil;
-        BOOL usingHomeHost=NO;
-        if (usingHomeHost) {
-            // 1.31: the desktop video draws on the desktop itself - above the
-            // wallpaper, inside the Home view. No wallpaper lease is taken on this
-            // path: the video sits ON TOP of the wallpaper rather than replacing it,
-            // so nothing of the system's own background has to be hidden (and none of
-            // the lease side effects can show up).
-            if (self.lease) {[self.lease restore];self.lease=nil;}
-            // 1.32: land the surface at the BOTTOM of the Home view instead of
-            // directly under the icon container. On device the icon container itself
-            // sits at index 0, so the 1.31 target (the icon container's OWN index)
-            // resolved to index 0 too - and every pass then pushed the icon container
-            // up one slot to make room for the video. Icons and video traded places,
-            // which is exactly the reported flicker, and the video ended up sandwiched
-            // between the icons and the dock.
-            // Index 0 has no such hazard: the wallpaper branch is already below the
-            // Home view, so nothing is hidden, and no existing sibling ever has to
-            // move for the video to land there. (The Home-view backing layer is
-            // opaque, so the video still composites above the wallpaper.)
-            NSUInteger target=0;
-            NSUInteger own=(self.host.superview==homeHost)?
-                (NSUInteger)[homeHost.subviews indexOfObjectIdenticalTo:self.host]:NSNotFound;
-            if (self.host.superview!=homeHost || own!=target) {
-                [self.host removeFromSuperview];
-                [homeHost insertSubview:self.host atIndex:target];
-            }
-
-        } else if (content && content.superview==container) {
+        // 1.39: the surface lives ONLY in the secure wallpaper window now (the 1.30
+        // position). The Home-host path that 1.31 added - and 1.33-1.38 kept
+        // narrowing with dock-strip concessions - is gone, because that path is what
+        // put the video INSIDE the Home window where the dock's backdrop could sample
+        // it (the reported dock vanishing during a long-press menu). With no Home
+        // branch to take, there is nothing here but the secure-window mount.
+        if (content && content.superview==container) {
             NSUInteger back=[container.subviews indexOfObjectIdenticalTo:content],own=[container.subviews indexOfObjectIdenticalTo:self.host];
             if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:content];}
         } else if (poster && container==poster.viewIfLoaded) {
@@ -1075,7 +1052,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // stays right above the wallpaper view, under the icons, so the menu
         // blurs the video instead of nothing.
         UIView *hostParent=container;
-        if (!usingHomeHost && (container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;
+        if ((container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;
         if (hostParent!=container) {
             // 1.32: identical rule to the Home branch - park the surface at the
             // bottom of the borrowed parent rather than right above the wallpaper
@@ -1086,12 +1063,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
                 [hostParent insertSubview:self.host atIndex:0];
             }
         }
-        UIView *geometryTarget=usingHomeHost?homeHost:container;
-        // 1.33: on the Home host the surface stops above the dock strip. The dock's
-        // floating blur samples this window, and since 1.31 the surface lives here
-        // rather than in a SECURE window, so a full-screen surface changed the
-        self.homeHostGeometry=usingHomeHost;
-        CGRect videoBounds=LMVDesktopVideoBoundsFor(geometryTarget,usingHomeHost);
+        UIView *geometryTarget=container;
+        // 1.39: the surface is the full container (1.32) and lives in the secure
+        // wallpaper window, so homeHostGeometry is always NO here. The dock's
+        // floating blur samples only its OWN window, and the secure window is a
+        // different one - that is why the dock no longer tracks the video.
+        self.homeHostGeometry=NO;
+        CGRect videoBounds=LMVDesktopVideoBoundsFor(geometryTarget,NO);
         BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,videoBounds);
         [CATransaction begin];[CATransaction setDisableActions:YES];
         if(geometryChanged)self.host.frame=videoBounds;
