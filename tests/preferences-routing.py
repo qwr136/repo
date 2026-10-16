@@ -186,7 +186,7 @@ int main(void) { @autoreleasepool {
     row.cellType = PSButtonCell; row.target = controller; row.properties = [NSMutableDictionary new];
     controller.testRow = row;
     NSArray *selectors = @SELECTORS@;
-    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchSquidPanel2:":@"SquidPanel2", @"switchAT:":@"AT", @"switchCV:":@"CV"};
+    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchSquidPanel2:":@"SquidPanel2", @"switchSquidPanel3:":@"SquidPanel3", @"switchSquidPanel4:":@"SquidPanel4", @"switchAT:":@"AT", @"switchCV:":@"CV"};
     for (NSString *selector in selectors) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
@@ -211,7 +211,7 @@ int main(void) { @autoreleasepool {
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all fifteen actions and twelve actual switch wrappers including switchControlCenterDark:/switchControlCenterLight:/switchHomeMenu:/switchSquidPanel:/switchSquidPanel2:/switchAT:/switchCV:, allowed/invalid material targets, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, all eighteen actions and fourteen actual switch wrappers including the four Squid ones, claimSquidPanel:, switchAT:/switchCV:, allowed/invalid material targets, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:
