@@ -143,15 +143,37 @@ static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {
 // was made taller and started borrowing the tall panel's material, because the test
 // below looks at the panel's CONTENT and the content had changed.
 //
-// The content test now runs ONLY for a card that has never been seen before; from
-// then on the identity decides. (If a panel is ever re-created, the new object gets
-// one fresh content test, and the settings app has a "对调" row for the case where
-// that one test guesses wrong.)
-static __weak UIView *LMVSquidPanelTallCard,*LMVSquidPanelShortCard;
+// 1.47 replaced the object pair below with CONTENT SIGNATURES, because the device
+// log showed the card object being re-created on every open (four different tall-card
+// pointers in 34 seconds) - remembering an object was worth nothing.
+static NSString *LMVSquidPanelTallSig,*LMVSquidPanelShortSig;
 static NSString *LMVSquidPanelShapeReason=@"none";
-static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
-    if(card && card==LMVSquidPanelShortCard){LMVSquidPanelShapeReason=@"remembered";return YES;}
-    if(card && card==LMVSquidPanelTallCard){LMVSquidPanelShapeReason=@"remembered";return NO;}
+// 1.47: a CONTENT signature that does not contain the panel's height or width.
+//
+// Neither of the two obvious keys survives the device: the card object is re-created
+// on every open (one 34-second log showed four different tall-card pointers), and the
+// height is exactly what the user changes ("I made the short panel as tall as the
+// tall one"). What DOES stay put is the content - how many icons the panel carries
+// and how many dots its page control has - and those are the same in landscape and in
+// portrait. The signature is remembered together with the shape it was seen as, so a
+// panel that only grew taller keeps the material it had.
+static NSUInteger LMVSquidPanelIconCount(UIView *card) {
+    NSUInteger count=0;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)card];
+    NSUInteger budget=1200;
+    while(pending.count && budget) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            if(child.tag==LMVSquidPanelHostTag)continue;
+            if([child isKindOfClass:UIButton.class])count++;
+            [pending addObject:child];
+        }
+    }
+    return count;
+}
+// The page control of THIS card - the one pinned to its top edge.
+static UIPageControl *LMVSquidPanelPageControl(UIView *card,UIWindow *window) {
     CGRect cardFrame=[card convertRect:card.bounds toView:window];
     UIPageControl *page=nil;CGFloat bestGap=CGFLOAT_MAX;
     for(UIView *host=card.superview;host;host=host.superview) {
@@ -163,16 +185,73 @@ static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
         }
         if(page && bestGap<40)break;
     }
+    return (page && bestGap<40)?page:nil;
+}
+static NSString *LMVSquidPanelContentSignature(UIView *card,UIWindow *window) {
+    if(!card)return @"none";
+    NSUInteger icons=LMVSquidPanelIconCount(card);
+    UIPageControl *page=LMVSquidPanelPageControl(card,window);
+    CGFloat dots=0;
+    if(page) {
+        for(UIView *sub in page.subviews) {
+            if([NSStringFromClass(sub.class) containsString:@"PageControlContentView"]) {
+                dots=MAX(sub.bounds.size.width,sub.bounds.size.height);
+                break;
+            }
+        }
+    }
+    return [NSString stringWithFormat:@"icons%lu|pc%d|dots%.0f",(unsigned long)icons,page?1:0,dots];
+}
+static NSUInteger LMVSquidPanelSignatureIcons(NSString *sig) {
+    if(![sig hasPrefix:@"icons"])return NSNotFound;
+    return (NSUInteger)[[sig substringFromIndex:5] integerValue];
+}
+static NSString *LMVSquidPanelShapeSig=@"none";
+static void LMVSquidPanelRememberShape(BOOL shortPanel,NSString *sig) {
+    if(!sig.length || [sig isEqualToString:@"none"])return;
+    CFStringRef key=shortPanel?CFSTR("SquidPanelShortSig"):CFSTR("SquidPanelTallSig");
+    CFPreferencesSetAppValue(key,(__bridge CFStringRef)sig,kLMVPrefsID);
+    CFPreferencesAppSynchronize(kLMVPrefsID);
+    if(shortPanel)LMVSquidPanelShortSig=[sig copy]; else LMVSquidPanelTallSig=[sig copy];
+}
+static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
+    if(!card)return NO;
+    NSString *sig=LMVSquidPanelContentSignature(card,window);
+    LMVSquidPanelShapeSig=sig;
+    // 1.47 (a) the signature was seen before: that settles it, whatever the panel's
+    // size or object identity may be now.
+    if(LMVSquidPanelShortSig.length && [sig isEqualToString:LMVSquidPanelShortSig]) {
+        LMVSquidPanelShapeReason=@"sig-short";return YES;
+    }
+    if(LMVSquidPanelTallSig.length && [sig isEqualToString:LMVSquidPanelTallSig]) {
+        LMVSquidPanelShapeReason=@"sig-tall";return NO;
+    }
+    // (b) a signature we have not seen - the panel was edited. If exactly one of the
+    // remembered ones carries the same ICON COUNT, this is that panel, only taller or
+    // wider: "I made the short panel as tall as the tall one" lands here and keeps its
+    // own material.
+    NSUInteger icons=LMVSquidPanelSignatureIcons(sig);
+    BOOL tallSameIcons=(LMVSquidPanelTallSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelTallSig)==icons);
+    BOOL shortSameIcons=(LMVSquidPanelShortSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelShortSig)==icons);
+    if(tallSameIcons!=shortSameIcons) {
+        BOOL shortPanel=shortSameIcons;
+        LMVSquidPanelShapeReason=shortPanel?@"icons-short":@"icons-tall";
+        LMVSquidPanelRememberShape(shortPanel,sig);
+        return shortPanel;
+    }
+    // (c) genuinely new: the content test decides, and the verdict is remembered.
+    UIPageControl *page=LMVSquidPanelPageControl(card,window);
     BOOL shortPanel;
-    if(page && bestGap<40) {                            // the reliable signal
+    if(page) {
         shortPanel=page.hidden;
-        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"page.hidden=%d/gap=%.0f",(int)page.hidden,bestGap];
-    } else {                                            // fallback: measured heights
+        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"page.hidden=%d",(int)page.hidden];
+    } else {
+        CGRect cardFrame=[card convertRect:card.bounds toView:window];
         CGFloat height=window.bounds.size.height;
         shortPanel=(height>0 && cardFrame.size.height<height*.45);
         LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];
     }
-    if(card) {if(shortPanel)LMVSquidPanelShortCard=card; else LMVSquidPanelTallCard=card;}
+    LMVSquidPanelRememberShape(shortPanel,sig);
     return shortPanel;
 }
 @interface LMVSquidPanelVideoHost:UIView
@@ -319,9 +398,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f shape=%@ slot=%d why=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f shape=%@ slot=%d why=%@ sig=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
-            shortPanel?@"short":@"tall",useSecond?2:1,LMVSquidPanelShapeReason,
+            shortPanel?@"short":@"tall",useSecond?2:1,LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             (void *)self.card,
@@ -356,6 +435,11 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         // 1.46: "对调上滑 / 上上滑素材" - see useSecond in -update.
         id swap=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelSwapShapes"),kLMVPrefsID);
         LMVSquidPanelSwapShapes=[swap isKindOfClass:NSNumber.class] && [swap boolValue];
+        // 1.47: the content signature each shape was last seen as.
+        id tallSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelTallSig"),kLMVPrefsID);
+        id shortSig=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelShortSig"),kLMVPrefsID);
+        LMVSquidPanelTallSig=[tallSig isKindOfClass:NSString.class]?tallSig:nil;
+        LMVSquidPanelShortSig=[shortSig isKindOfClass:NSString.class]?shortSig:nil;
     }
     LMVSquidPanelRetune();
     BOOL anySlot=(LMVSquidPanelPath.length && LMVSquidPanelRevision.length) ||

@@ -54,12 +54,14 @@ assert 'if(area/cardArea<.9)continue;   // must actually cover the card it serve
 assert 'UIView *material=LMVSquidPanelMaterial(card,window);' in module
 assert 'if(!material)material=LMVSquidPanelMaterial(window,window);' in module
 assert 'vis=%.0f' in module
-# 1.44: which shape is up. The page control belongs to exactly one of them, sits
-# 20pt above ITS own card in every orientation, and is hidden on the short one.
+# 1.44+: which shape is up. The page control still belongs to exactly one of them and
+# sits 20pt above ITS own card in every orientation - that is how it is found - but the
+# VERDICT (1.47) comes from the content signature below, not from this view.
 assert 'static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {' in module
+assert 'static UIPageControl *LMVSquidPanelPageControl(UIView *card,UIWindow *window) {' in module
 assert 'if(![node isKindOfClass:UIPageControl.class])continue;' in module
 assert 'CGFloat gap=fabs(CGRectGetMaxY(f)-CGRectGetMinY(cardFrame));' in module
-assert 'if(page && bestGap<40) {                            // the reliable signal' in module
+assert 'return (page && bestGap<40)?page:nil;' in module
 assert 'shortPanel=page.hidden;' in module
 assert 'shortPanel=(height>0 && cardFrame.size.height<height*.45);' in module
 # Attached under everything the card draws, and re-sized to the card every poll.
@@ -107,18 +109,34 @@ assert 'LMVSquidPanelRevision=LMVLockVideoRevision(LMVSquidPanelPath);' in modul
 assert 'LMVSquidPanelPath2=LMVCCSelectedPath(@"SquidPanel2Video");' in module
 assert 'LMVSquidPanelRevision2=LMVLockVideoRevision(LMVSquidPanelPath2);' in module
 assert 'LMVSquidPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&' in module
-# 1.46: the shape is decided by IDENTITY, not by what the panel looks like. A card
-# that was classified once keeps its classification while the object lives, so
-# editing a panel (adding icons, making it taller, giving it a page control it never
-# had) cannot flip it - that was the "made the short panel taller and it started
-# using the tall panel's material" report. The content test runs only on first
-# sighting, and its verdict is written into the object memory below.
-assert 'static __weak UIView *LMVSquidPanelTallCard,*LMVSquidPanelShortCard;' in module
-assert 'if(card && card==LMVSquidPanelShortCard){LMVSquidPanelShapeReason=@"remembered";return YES;}' in module
-assert 'if(card && card==LMVSquidPanelTallCard){LMVSquidPanelShapeReason=@"remembered";return NO;}' in module
-assert 'if(card) {if(shortPanel)LMVSquidPanelShortCard=card; else LMVSquidPanelTallCard=card;}' in module
+# 1.47: the shape is decided by a CONTENT SIGNATURE that carries no height and no
+# width - the icon count and the page-control dots - because the device log killed both
+# earlier keys: the card object is re-created on every open (four different tall-card
+# pointers inside 34 seconds, so 1.46's object memory was worth nothing at all), and
+# the height is exactly what the user edits. A signature is remembered per shape, and
+# one that does not match exactly is matched by ICON COUNT - which is what keeps a
+# panel that was only made taller on its own material.assert 'static __weak UIView *LMVSquidPanelTallCard' not in module    # object memory is gone
+assert 'static NSString *LMVSquidPanelTallSig,*LMVSquidPanelShortSig;' in module
+assert 'static NSUInteger LMVSquidPanelIconCount(UIView *card) {' in module
+assert 'if([child isKindOfClass:UIButton.class])count++;' in module
+assert 'static NSString *LMVSquidPanelContentSignature(UIView *card,UIWindow *window) {' in module
+assert 'return [NSString stringWithFormat:@"icons%lu|pc%d|dots%.0f",(unsigned long)icons,page?1:0,dots];' in module
+assert 'if([NSStringFromClass(sub.class) containsString:@"PageControlContentView"])' in module
+assert 'static NSUInteger LMVSquidPanelSignatureIcons(NSString *sig) {' in module
+assert 'static NSString *LMVSquidPanelShapeSig=@"none";' in module
+assert 'if(LMVSquidPanelShortSig.length && [sig isEqualToString:LMVSquidPanelShortSig]) {' in module
+assert 'LMVSquidPanelShapeReason=@"sig-short";return YES;' in module
+assert 'if(LMVSquidPanelTallSig.length && [sig isEqualToString:LMVSquidPanelTallSig]) {' in module
+assert 'LMVSquidPanelShapeReason=@"sig-tall";return NO;' in module
+assert 'BOOL tallSameIcons=(LMVSquidPanelTallSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelTallSig)==icons);' in module
+assert 'BOOL shortSameIcons=(LMVSquidPanelShortSig.length && LMVSquidPanelSignatureIcons(LMVSquidPanelShortSig)==icons);' in module
+assert 'if(tallSameIcons!=shortSameIcons) {' in module
+assert 'LMVSquidPanelShapeReason=shortPanel?@"icons-short":@"icons-tall";' in module
+assert 'static void LMVSquidPanelRememberShape(BOOL shortPanel,NSString *sig) {' in module
+assert 'CFPreferencesSetAppValue(key,(__bridge CFStringRef)sig,kLMVPrefsID);' in module
+assert 'CFPreferencesAppSynchronize(kLMVPrefsID);' in module
+assert 'CFSTR("SquidPanelTallSig")' in module and 'CFSTR("SquidPanelShortSig")' in module
 assert 'static NSString *LMVSquidPanelShapeReason=@"none";' in module
-assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"page.hidden=%d/gap=%.0f",(int)page.hidden,bestGap];' in module
 assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];' in module
 # 1.44/1.45: the shape picks the slot, and the two slots are INDEPENDENT - there is
 # no fallback between them, by request: a panel whose slot is empty gets no video
@@ -136,7 +154,8 @@ assert 'NSString *wantPath=useSecond?LMVSquidPanelPath2:LMVSquidPanelPath;' in m
 assert 'NSString *wantRevision=useSecond?LMVSquidPanelRevision2:LMVSquidPanelRevision;' in module
 # 1.46: the log names the slot, the reason for the verdict and the card object, so a
 # wrong pick is one line away from being explained.
-assert 'shape=%@ slot=%d why=%@ mode=%@' in module
+assert 'shape=%@ slot=%d why=%@ sig=%@ mode=%@' in module
+assert 'LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,' in module
 assert 'shortPanel?@"short":@"tall",useSecond?2:1,LMVSquidPanelShapeReason,' in module
 assert 'ptr=%p' in module and '(void *)self.card,' in module
 assert 'if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}' in module
@@ -190,6 +209,6 @@ assert 'LMVEasterSet(@"SquidPanelSwapShapes", @(!now));' in panel
 assert 'if (index.row != 1 && index.row != 2) return;\n        key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";' in panel
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
 print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, two shapes '
-      '(swipe-up / swipe-up-twice) told apart by OBJECT identity (so editing a panel cannot flip '
-      'them), independent materials with a manual swap override, one shared sound pair, wired in '
-      'both settings surfaces')
+      '(swipe-up / swipe-up-twice) told apart by a height-independent CONTENT SIGNATURE (icons + '
+      'page-control dots), so a panel that was only made taller keeps its own material; '
+      'independent materials with a manual swap override, one shared sound pair, both surfaces')
