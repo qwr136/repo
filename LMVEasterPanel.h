@@ -46,7 +46,7 @@ static NSArray *LMVEasterAudioTargets(void) {
 static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)) return LMVEasterTargets()[section];
     if (section == LMVEasterHomeMenuSection() && (row == 2 || row == 3)) return @"HomeMenu";
-    if (section == LMVEasterSquidPanelSection() && (row == 3 || row == 4)) return @"SquidPanel";
+    if (section == LMVEasterSquidPanelSection() && (row == 4 || row == 5)) return @"SquidPanel";
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
     if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
     if (section == LMVEasterControlCenterSection()) {
@@ -194,7 +194,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section >= 0 && section < LMVEasterTargets().count) return 4;
     if (section == LMVEasterControlCenterSection()) return 7;
     if (section == LMVEasterHomeMenuSection()) return 4;
-    if (section == LMVEasterSquidPanelSection()) return 5;
+    if (section == LMVEasterSquidPanelSection()) return 6;
     if (section == LMVEasterATSection()) return 4;
     if (section == LMVEasterCVSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
@@ -279,6 +279,14 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterSquidPanelSection();
             toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else if (index.row == 3) {
+            // 1.46: the manual override. A button rather than a switch: the panel's
+            // switches are told apart by their tag and every tag is a section index,
+            // so this row reports its state in the detail label instead.
+            cell.textLabel.text = @"对调上滑 / 上上滑素材";
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.detailTextLabel.text = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue] ? @"已对调" : @"正常";
+            cell.detailTextLabel.numberOfLines = 1;
         } else if (index.row == 1 || index.row == 2) {
             // 1.44: the panel has two shapes - "swipe up" (tall) and "swipe up twice"
             // (short) - and each gets its own material; the shape is the same in
@@ -434,6 +442,12 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if (index.row != 1) return;
         key = @"HomeMenuVideo";
     } else if (index.section == LMVEasterSquidPanelSection()) {
+        if (index.row == 3) {
+            BOOL now = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue];
+            LMVEasterSet(@"SquidPanelSwapShapes", @(!now));
+            [self.tableView reloadData];
+            return;
+        }
         if (index.row != 1 && index.row != 2) return;
         key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";
     } else if (index.section == LMVEasterATSection()) {

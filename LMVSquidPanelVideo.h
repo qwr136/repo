@@ -15,7 +15,7 @@
 
 static void LMVSquidPanelVideoRefresh(BOOL reload);
 static void LMVSquidPanelVideoSuspend(void);
-static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown;
+static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown,LMVSquidPanelSwapShapes;
 // 1.44: the panel has two shapes, so it has two material slots - slot 1 for the
 // tall ("swipe up") panel, slot 2 for the short ("swipe up twice") one. The sound
 // switch and volume stay shared: only one of the two is ever on screen.
@@ -134,7 +134,24 @@ static UIView *LMVSquidPanelMaterial(UIView *root,UIWindow *window) {
 // of them, sits 20pt above ITS OWN card in every orientation, and is hidden (h1) on
 // the short panel while the tall one keeps it (h0) - the same in landscape and in
 // portrait, in all four copies the device log showed.
+// 1.46: WHAT was classified, not what it looks like.
+//
+// The two panels are two separate, long-lived objects. A card that has been
+// classified once keeps that classification for as long as the object lives, so
+// editing a panel - adding icons, making it taller, giving it a page control it did
+// not have before - can never flip it. That is exactly what broke: the short panel
+// was made taller and started borrowing the tall panel's material, because the test
+// below looks at the panel's CONTENT and the content had changed.
+//
+// The content test now runs ONLY for a card that has never been seen before; from
+// then on the identity decides. (If a panel is ever re-created, the new object gets
+// one fresh content test, and the settings app has a "对调" row for the case where
+// that one test guesses wrong.)
+static __weak UIView *LMVSquidPanelTallCard,*LMVSquidPanelShortCard;
+static NSString *LMVSquidPanelShapeReason=@"none";
 static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
+    if(card && card==LMVSquidPanelShortCard){LMVSquidPanelShapeReason=@"remembered";return YES;}
+    if(card && card==LMVSquidPanelTallCard){LMVSquidPanelShapeReason=@"remembered";return NO;}
     CGRect cardFrame=[card convertRect:card.bounds toView:window];
     UIPageControl *page=nil;CGFloat bestGap=CGFLOAT_MAX;
     for(UIView *host=card.superview;host;host=host.superview) {
@@ -146,9 +163,17 @@ static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {
         }
         if(page && bestGap<40)break;
     }
-    if(page && bestGap<40)return page.hidden;           // the reliable signal
-    CGFloat height=window.bounds.size.height;
-    return height>0 && cardFrame.size.height<height*.45; // fallback: measured heights
+    BOOL shortPanel;
+    if(page && bestGap<40) {                            // the reliable signal
+        shortPanel=page.hidden;
+        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"page.hidden=%d/gap=%.0f",(int)page.hidden,bestGap];
+    } else {                                            // fallback: measured heights
+        CGFloat height=window.bounds.size.height;
+        shortPanel=(height>0 && cardFrame.size.height<height*.45);
+        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];
+    }
+    if(card) {if(shortPanel)LMVSquidPanelShortCard=card; else LMVSquidPanelTallCard=card;}
+    return shortPanel;
 }
 @interface LMVSquidPanelVideoHost:UIView
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
@@ -219,8 +244,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // the shared audio channel down, so nothing is heard). The shape does not depend
     // on the orientation, so slot 1 is the tall panel in landscape too.
     BOOL shortPanel=LMVSquidPanelCardIsShort(card,window);
-    NSString *wantPath=shortPanel?LMVSquidPanelPath2:LMVSquidPanelPath;
-    NSString *wantRevision=shortPanel?LMVSquidPanelRevision2:LMVSquidPanelRevision;
+    // 1.46: "对调" - for the case where the very first content test guessed the two
+    // panels the other way round. It flips which slot each shape plays, and it does
+    // not touch the identity memory above (that records the shape, this picks the
+    // material).
+    BOOL useSecond=LMVSquidPanelSwapShapes?!shortPanel:shortPanel;
+    NSString *wantPath=useSecond?LMVSquidPanelPath2:LMVSquidPanelPath;
+    NSString *wantRevision=useSecond?LMVSquidPanelRevision2:LMVSquidPanelRevision;
     if(!wantPath.length || !wantRevision.length) {
         // 1.45: say so out loud, once per state change - "this panel has no material"
         // is otherwise indistinguishable from "the channel is broken" in a log.
@@ -289,11 +319,12 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f shape=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f vis=%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f shape=%@ slot=%d why=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
-            shortPanel?@"short":@"tall",
+            shortPanel?@"short":@"tall",useSecond?2:1,LMVSquidPanelShapeReason,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
+            (void *)self.card,
             LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
@@ -322,6 +353,9 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         // 1.44: the second slot, for the short ("swipe up twice") panel.
         LMVSquidPanelPath2=LMVCCSelectedPath(@"SquidPanel2Video");
         LMVSquidPanelRevision2=LMVLockVideoRevision(LMVSquidPanelPath2);
+        // 1.46: "对调上滑 / 上上滑素材" - see useSecond in -update.
+        id swap=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelSwapShapes"),kLMVPrefsID);
+        LMVSquidPanelSwapShapes=[swap isKindOfClass:NSNumber.class] && [swap boolValue];
     }
     LMVSquidPanelRetune();
     BOOL anySlot=(LMVSquidPanelPath.length && LMVSquidPanelRevision.length) ||

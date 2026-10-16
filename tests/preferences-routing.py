@@ -68,7 +68,7 @@ assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
 assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
 assert '桌面长按菜单视频背景' in home_section and '切换长按菜单素材' in home_section
 squid_section = source[squid_start:at_start]
-assert squid_section.count('cell:PSSwitchCell') == 1 and squid_section.count('cell:PSButtonCell') == 2
+assert squid_section.count('cell:PSSwitchCell') == 2 and squid_section.count('cell:PSButtonCell') == 2
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"]' in squid_section
 assert '[squidPanelEnabled setProperty:@NO forKey:@"default"]' in squid_section
 assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in squid_section

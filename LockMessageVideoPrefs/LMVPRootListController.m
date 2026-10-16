@@ -124,6 +124,14 @@ static void LMVNotify(void) {
     squidPanelMaterial2.buttonAction = @selector(switchSquidPanel2:);
     [squidPanelMaterial2 setProperty:@"SquidPanel2Material" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial2];
+    // 1.46: the two panels are told apart by OBJECT identity (see LMVSquidPanelVideo),
+    // which survives editing a panel. This switch is the manual override for the one
+    // case that cannot be automatic: the very first content test guessing the two
+    // panels the other way round. It swaps which material each shape plays.
+    PSSpecifier *squidPanelSwap = [PSSpecifier preferenceSpecifierNamed:@"对调上滑 / 上上滑素材" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [squidPanelSwap setProperty:@"SquidPanelSwapShapes" forKey:@"key"];
+    [squidPanelSwap setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:squidPanelSwap];
     [self appendAudioForTarget:@"SquidPanel" title:@"播放"];
     // 1.26: the AppTools (AT) pop-up background, right below the Squid panel
     // channel (same switch / material / sound / volume layout). This release

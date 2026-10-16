@@ -59,8 +59,9 @@ assert 'vis=%.0f' in module
 assert 'static BOOL LMVSquidPanelCardIsShort(UIView *card,UIWindow *window) {' in module
 assert 'if(![node isKindOfClass:UIPageControl.class])continue;' in module
 assert 'CGFloat gap=fabs(CGRectGetMaxY(f)-CGRectGetMinY(cardFrame));' in module
-assert 'if(page && bestGap<40)return page.hidden;           // the reliable signal' in module
-assert 'return height>0 && cardFrame.size.height<height*.45; // fallback: measured heights' in module
+assert 'if(page && bestGap<40) {                            // the reliable signal' in module
+assert 'shortPanel=page.hidden;' in module
+assert 'shortPanel=(height>0 && cardFrame.size.height<height*.45);' in module
 # Attached under everything the card draws, and re-sized to the card every poll.
 # 1.23: the card may BE the panel's blur material, and a UIVisualEffectView refuses
 # direct subviews - adding one raises, and an exception in a run-loop callback
@@ -106,16 +107,38 @@ assert 'LMVSquidPanelRevision=LMVLockVideoRevision(LMVSquidPanelPath);' in modul
 assert 'LMVSquidPanelPath2=LMVCCSelectedPath(@"SquidPanel2Video");' in module
 assert 'LMVSquidPanelRevision2=LMVLockVideoRevision(LMVSquidPanelPath2);' in module
 assert 'LMVSquidPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&' in module
-# 1.44/1.45: the shape decides the slot, and the two slots are INDEPENDENT - there
-# is no fallback between them, by request: a panel whose slot is empty gets no video
+# 1.46: the shape is decided by IDENTITY, not by what the panel looks like. A card
+# that was classified once keeps its classification while the object lives, so
+# editing a panel (adding icons, making it taller, giving it a page control it never
+# had) cannot flip it - that was the "made the short panel taller and it started
+# using the tall panel's material" report. The content test runs only on first
+# sighting, and its verdict is written into the object memory below.
+assert 'static __weak UIView *LMVSquidPanelTallCard,*LMVSquidPanelShortCard;' in module
+assert 'if(card && card==LMVSquidPanelShortCard){LMVSquidPanelShapeReason=@"remembered";return YES;}' in module
+assert 'if(card && card==LMVSquidPanelTallCard){LMVSquidPanelShapeReason=@"remembered";return NO;}' in module
+assert 'if(card) {if(shortPanel)LMVSquidPanelShortCard=card; else LMVSquidPanelTallCard=card;}' in module
+assert 'static NSString *LMVSquidPanelShapeReason=@"none";' in module
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"page.hidden=%d/gap=%.0f",(int)page.hidden,bestGap];' in module
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"height=%.0f/%.0f",cardFrame.size.height,height];' in module
+# 1.44/1.45: the shape picks the slot, and the two slots are INDEPENDENT - there is
+# no fallback between them, by request: a panel whose slot is empty gets no video
 # (and no sound) at all, rather than borrowing the other panel's material.
 assert 'BOOL shortPanel=LMVSquidPanelCardIsShort(card,window);' in module
-assert 'NSString *wantPath=shortPanel?LMVSquidPanelPath2:LMVSquidPanelPath;' in module
-assert 'NSString *wantRevision=shortPanel?LMVSquidPanelRevision2:LMVSquidPanelRevision;' in module
 assert '?LMVSquidPanelPath:LMVSquidPanelPath2' not in module        # never crosses over
 assert 'if(!wantPath.length || !wantRevision.length) {' in module
 assert 'squid-panel shape=%@ slot=empty (no video, by design)' in module
-assert 'if(!wantPath.length || !wantRevision.length) {\n' in module
+# 1.46: the manual override, for the one case identity cannot fix - the very first
+# content test guessing the two panels the other way round.
+assert 'static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown,LMVSquidPanelSwapShapes;' in module
+assert 'CFSTR("SquidPanelSwapShapes")' in module
+assert 'BOOL useSecond=LMVSquidPanelSwapShapes?!shortPanel:shortPanel;' in module
+assert 'NSString *wantPath=useSecond?LMVSquidPanelPath2:LMVSquidPanelPath;' in module
+assert 'NSString *wantRevision=useSecond?LMVSquidPanelRevision2:LMVSquidPanelRevision;' in module
+# 1.46: the log names the slot, the reason for the verdict and the card object, so a
+# wrong pick is one line away from being explained.
+assert 'shape=%@ slot=%d why=%@ mode=%@' in module
+assert 'shortPanel?@"short":@"tall",useSecond?2:1,LMVSquidPanelShapeReason,' in module
+assert 'ptr=%p' in module and '(void *)self.card,' in module
 assert 'if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}' in module
 # No player/UI while the channel is off (either slot may be the only one set), and a
 # poll that never runs hot when idle.
@@ -151,14 +174,22 @@ assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面�
 assert '切换上滑素材' in prefs and '切换上上滑素材' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.44: five rows - switch, swipe-up material, swipe-up-twice material, sound, volume.
-assert 'if (section == LMVEasterSquidPanelSection()) return 5;' in panel
+assert 'if (section == LMVEasterSquidPanelSection()) return 6;' in panel
 assert 'if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";' in panel
-assert 'if (section == LMVEasterSquidPanelSection() && (row == 3 || row == 4)) return @"SquidPanel";' in panel
+assert 'if (section == LMVEasterSquidPanelSection() && (row == 4 || row == 5)) return @"SquidPanel";' in panel
 assert 'toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];' in panel
 assert 'cell.textLabel.text = index.row == 1 ? @"切换上滑素材" : @"切换上上滑素材";' in panel
 assert 'id selected = LMVEasterRead(index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video");' in panel
+# 1.46: the swap row, in Settings (a switch, keyed) and in the floating panel (a
+# button - the panel's switches are told apart by tag and every tag is a section).
+assert '[squidPanelSwap setProperty:@"SquidPanelSwapShapes" forKey:@"key"];' in prefs
+assert 'squidPanelSwap.buttonAction' not in prefs
+assert 'cell.textLabel.text = @"对调上滑 / 上上滑素材";' in panel
+assert 'cell.detailTextLabel.text = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue] ? @"已对调" : @"正常";' in panel
+assert 'LMVEasterSet(@"SquidPanelSwapShapes", @(!now));' in panel
 assert 'if (index.row != 1 && index.row != 2) return;\n        key = index.row == 1 ? @"SquidPanelVideo" : @"SquidPanel2Video";' in panel
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
 print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, two shapes '
-      '(swipe-up / swipe-up-twice) with their own materials and one shared sound pair, wired in '
+      '(swipe-up / swipe-up-twice) told apart by OBJECT identity (so editing a panel cannot flip '
+      'them), independent materials with a manual swap override, one shared sound pair, wired in '
       'both settings surfaces')
