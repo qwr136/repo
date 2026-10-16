@@ -59,7 +59,11 @@ for name in ('build.yml', 'easter-compile.yml'):
         check(token in workflow, name + ': ' + token)
     check('https://github.com/theos/theos.git' not in workflow and 'macos-14' not in workflow, 'no old toolchain: ' + name)
     if name == 'build.yml':
-        check('push:' in workflow and 'fix/1.27-roothide' in workflow, 'authorized branch push enabled')
+        # 1.35: 触发方式改成「main 迭代 + v* tag 发版」。分支不再承担触发职责
+        # —— 以前每加一个版本都要往这个列表里手工补一个分支名，100 多个版本就堆出
+        # 了 82 个分支。现在断言两种触发源都在，而不是某个具体分支名。
+        check('push:' in workflow and 'branches: [ main ]' in workflow and "tags: [ 'v*' ]" in workflow,
+              'authorized push sources enabled')
     else:
         check('push:' not in workflow, 'auxiliary workflow is manual-only')
 base = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:.github/workflows/build.yml'], text=True)
