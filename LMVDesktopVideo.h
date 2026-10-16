@@ -577,39 +577,60 @@ static NSUInteger LMVDesktopVisibleWindowCount(void) {
     }
     return count;
 }
-// 1.35: is a Home context menu on screen right now. This is the ONLY scene that
-// needs the dock strip vacated (see LMVDesktopDockInset below). Probing the
-// system's own menu classes keeps both menu paths - the presentation-controller
-// one and the newer platter one the floating dock goes through - under a single
-// predicate, without this file having to model a menu lifecycle of its own. One
-// shallow window walk on the geometry turn, not per frame.
-static BOOL LMVDesktopContextMenuUp(void) {
+// 1.35: locate the Home context menu, if one is actually on screen.
+//
+// The first cut of this (same release) walked EVERY window under a shared node
+// budget and answered a plain yes/no. The log shows exactly what that cost: the
+// strip flipped on and off four times during ONE long press - vacated at
+// 110944.347, restored at 110946.351, vacated again at 110949.150 - because the
+// budget ran out at a different point each time it was asked. It also conceded the
+// strip while no menu existed at all (the only overlay then was
+// SBIconDragPlatterWindow, i.e. an icon being lifted).
+//
+// Two corrections, both taken straight from the log:
+//   1. A Home menu is only ever built in one of two windows. The dump pins the
+//      dock's long-press menu to SBFloatingDockWindow{_UIContextMenuPlatterTransitionView
+//      {@0,0,430,932}{_UIContextMenuView@147,389,250,447}}. Search those two, no
+//      budget lottery.
+//   2. Return the VIEW, not a yes/no. The caller has to compare it against the dock
+//      strip, because that same dump shows the menu ending at y=836 while the strip
+//      starts at 838.3 - a menu that never reaches the dock has no business taking
+//      the video away from it.
+static BOOL LMVDesktopMenuHostWindow(UIWindow *window) {
+    static Class dockClass;
+    static BOOL resolved;
+    if(!resolved) {resolved=YES;dockClass=NSClassFromString(@"SBFloatingDockWindow");}
+    if(dockClass && [window isKindOfClass:dockClass])return YES;
+    return LMVDesktopHomeWindow(window);
+}
+static UIView *LMVDesktopMenuView(void) {
     static Class listClass,viewClass,platterClass;
-    static dispatch_once_t once;
-    dispatch_once(&once,^{
+    static BOOL resolved;
+    if(!resolved) {
+        resolved=YES;
         listClass=NSClassFromString(@"_UIContextMenuListView");
         viewClass=NSClassFromString(@"_UIContextMenuView");
         platterClass=NSClassFromString(@"_UIContextMenuPlatterTransitionView");
-    });
-    // Class names we do not recognise means we cannot tell a menu from anything
-    // else - keep 1.33's unconditional concession rather than risk the dock.
-    if(!listClass && !viewClass && !platterClass)return YES;
+    }
+    if(!listClass && !viewClass && !platterClass)return nil;
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
         for(UIWindow *window in ((UIWindowScene *)scene).windows) {
             if(window.hidden || window.alpha<.01)continue;
+            if(!LMVDesktopMenuHostWindow(window))continue;
             NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:window.subviews];
-            NSUInteger budget=80;
+            NSUInteger budget=120;
             while(pending.count && budget--) {
-                UIView *node=pending.lastObject;[pending removeLastObject];
-                if((listClass && [node isKindOfClass:listClass]) ||
-                   (viewClass && [node isKindOfClass:viewClass]) ||
-                   (platterClass && [node isKindOfClass:platterClass])) return YES;
+                UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
+                if(!node.hidden && node.alpha>.01 &&
+                   ((listClass && [node isKindOfClass:listClass]) ||
+                    (viewClass && [node isKindOfClass:viewClass]) ||
+                    (platterClass && [node isKindOfClass:platterClass]))) return node;
                 [pending addObjectsFromArray:node.subviews];
             }
         }
     }
-    return NO;
+    return nil;
 }
 // 1.35: the height of the floating dock, measured from the dock's own window.
 // Why the dock matters at all: 1.31 moved the surface out of
@@ -619,15 +640,10 @@ static BOOL LMVDesktopContextMenuUp(void) {
 // own appearance changes with it - reported as the dock vanishing behind the
 // long-press menu. 1.33 answered that by keeping the surface above the dock strip
 // permanently, which fixed the menu but left that strip showing the system
-// background instead of the video ("dock 下面没有视频背景"). The blob the dock
-// samples is only visible as a DEFECT while a menu is up, so the concession now
-// follows the menu: full-screen normally, strip vacated only under a menu.
+// background instead of the video ("dock 下面没有视频背景").
 // Measured rather than assumed: the dock moves and resizes with Reachability,
 // rotation and device, so a constant would be wrong on some of them.
-static CGFloat LMVDesktopDockInset(void) {
-    // Cheap first: with no menu up there is nothing to concede, so the dock
-    // subtree walk below is skipped entirely.
-    if(!LMVDesktopContextMenuUp())return 0;
+static CGFloat LMVDesktopMeasureDock(void) {
     Class dockWindowClass=NSClassFromString(@"SBFloatingDockWindow");
     Class dockViewClass=NSClassFromString(@"SBFloatingDockView");
     if(!dockWindowClass || !dockViewClass) return 0;
@@ -651,6 +667,24 @@ static CGFloat LMVDesktopDockInset(void) {
         }
     }
     return 0;
+}
+// 1.35: the dock strip is conceded only when a menu actually reaches into it.
+// The menu that started this (the dock's long-press one) ends at y=836 while the
+// strip begins at 838.3 - measured, see the dump in the log - so it takes nothing
+// away from the dock, and the strip keeps its video. A menu long enough to overlap
+// the strip still vacates it: that is 1.33's fix, kept for the case that needed it.
+static CGFloat LMVDesktopDockInset(void) {
+    // Cheap path first: no menu on screen means nothing to concede, and the dock
+    // subtree walk below is skipped entirely.
+    UIView *menu=LMVDesktopMenuView();
+    if(!menu)return 0;
+    CGFloat inset=LMVDesktopMeasureDock();
+    if(inset<=1)return 0;
+    UIWindow *host=menu.window;
+    if(!host || !LMVLockVideoRectValid(host.bounds))return 0;
+    CGRect onScreen=[menu convertRect:menu.bounds toView:host];
+    if(!LMVLockVideoRectValid(onScreen))return 0;
+    return (CGRectGetMaxY(onScreen)>host.bounds.size.height-inset)?inset:0;
 }
 // 1.33: the single place that answers "how big is the surface". The Home path
 // stops above the dock strip (see LMVDesktopDockInset); every other path keeps the

@@ -30,7 +30,7 @@ assert '[material.layer removeFromSuperlayer]' not in h
 # skipped off Darwin (line 34). That is exactly how the first 1.35 build failed: a
 # call to LMVDesktopRequestUpdate(). Lock the allow-list rather than one symbol name,
 # so the next such reference gets caught instead of shipped.
-# (The desktop side owns the dock-strip decision, LMVDesktopContextMenuUp; this file
+# (The desktop side owns the dock-strip decision, LMVDesktopMenuView; this file
 # only refers to it in a comment.)
 import re
 _body = re.sub(r'/\*.*?\*/', '', re.sub(r'//[^\n]*', '', h), flags=re.S)
