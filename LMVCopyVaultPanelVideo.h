@@ -84,12 +84,68 @@ static CGFloat LMVCVPanelVisibleArea(CGRect frame,CGRect bounds) {
     CGFloat visible=onScreen.size.width*onScreen.size.height;
     return visible/total>=.5?visible:0;
 }
+// How much of `inner` lies inside `outer`.
+static CGFloat LMVCVPanelCoverage(CGRect inner,CGRect outer) {
+    if(CGRectIsEmpty(inner) || CGRectIsEmpty(outer))return 0;
+    CGRect inside=CGRectIntersection(inner,outer);
+    if(CGRectIsEmpty(inside))return 0;
+    CGFloat total=inner.size.width*inner.size.height;
+    if(total<=0)return 0;
+    return (inside.size.width*inside.size.height)/total;
+}
+// 1.49: THE CARD IS NAMED. 1.43-1.48 picked "the largest visible surface in the
+// window", and the 2026-10-17 logs show exactly what that costs: the moment a
+// TALLER surface is pushed into the same CVPanelWindow the clipboard panel ends
+// up sharing - CopyVault's own preview/toolbar sheet (portrait: the 498pt
+// UIDropShadowView outranks the 430pt card) - the area race is lost and the video
+// is dragged up over that sheet. Landscape loses the same race to a 916x722
+// _UIRoundedRectShadowView and parks the video on the wrong surface altogether.
+// One failure, both orientations, so identity instead of size: the card is the
+// view the plugin calls CopyVaultView, whatever else is on screen.
+static BOOL LMVCVPanelVaultClass(UIView *view) {
+    NSString *name=NSStringFromClass(view.class);
+    if([name isEqualToString:@"CopyVaultView"])return YES;
+    // Any other CopyVault surface, but never the list content inside the card.
+    return [name containsString:@"CopyVault"] &&
+        ![name containsString:@"Table"] && ![name containsString:@"Cell"] && ![name containsString:@"Scroll"];
+}
+// The named card, best (most visible) first. `existsOut` separates "the plugin is
+// not in the hierarchy / was renamed" from "the card is parked off screen because
+// the panel is closed" - the two need opposite answers (fall back vs stand down).
+static UIView *LMVCVPanelVaultView(UIWindow *window,BOOL *existsOut) {
+    CGRect bounds=window.bounds;
+    if(existsOut)*existsOut=NO;
+    if(CGRectIsEmpty(bounds))return nil;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSUInteger budget=400;
+    UIView *best=nil;CGFloat bestArea=0;
+    while(pending.count && budget) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            [pending addObject:child];
+            if(child.tag==LMVCVPanelHostTag)continue;
+            if(!LMVCVPanelVaultClass(child))continue;
+            if(existsOut)*existsOut=YES;
+            if(child.hidden || child.alpha<.01)continue;
+            CGRect frame=[child convertRect:child.bounds toView:window];
+            CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);
+            if(visible>bestArea){bestArea=visible;best=child;}
+        }
+    }
+    return best;
+}
 // The card: the largest visible descendant that does NOT fill the window. That
 // rule skips the full-screen containers above it (CVPanelView, the UIControl) and
 // our own host is excluded by its tag, so what remains is the panel surface.
+// 1.49: only consulted when the plugin names nothing at all - see
+// LMVCVPanelVaultView above for why size alone cannot pick the card any more.
 static UIView *LMVCVPanelCard(UIWindow *window) {
     CGRect bounds=window.bounds;
     if(CGRectIsEmpty(bounds))return nil;
+    BOOL named=NO;
+    UIView *vault=LMVCVPanelVaultView(window,&named);
+    if(named)return vault;   // nil = parked off screen, i.e. the panel is closed
     NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
     NSUInteger budget=300;
     UIView *best=nil;CGFloat bestArea=0;
@@ -112,7 +168,11 @@ static UIView *LMVCVPanelCard(UIWindow *window) {
 // The panel's blur material - the effect view that gives the card its background.
 // The video has to sit ABOVE it (otherwise the material hides the video, the 1.25
 // Squid report) and BELOW the content container that is its sibling.
-static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window) {
+// 1.49: `clip` is the card, and the material has to actually BELONG to it (>=90%
+// of it inside the card). Without that clamp the window-wide fallback could take a
+// full-screen backdrop that merely overlaps the clipboard and stretch the video
+// over the whole screen - the "video runs up over the panel" report.
+static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window,CGRect clip) {
     if(!root || !window)return nil;
     CGRect bounds=window.bounds;
     UIView *best=nil;CGFloat bestArea=0;
@@ -127,6 +187,7 @@ static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window) {
             CGRect frame=[child convertRect:child.bounds toView:window];
             CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);
             if(visible<=0)continue;
+            if(LMVCVPanelCoverage(frame,clip)<.9)continue;
             if(visible>bestArea){bestArea=visible;best=child;}
         }
     }
@@ -189,6 +250,10 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
     UIWindow *window=LMVCVPanelWindow();
     UIView *card=window?LMVCVPanelCard(window):nil;
     if(!card) {[self detach];self.updating=NO;return;}
+    // 1.49: a card parked off screen (the closed panel, y=1454) is not a target,
+    // whichever way it was found.
+    CGRect cardFrame=[card convertRect:card.bounds toView:window];
+    if(LMVCVPanelVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCVPanelPath] ||
         ![self.playback.revision isEqualToString:LMVCVPanelRevision];
@@ -203,8 +268,8 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
     // Into the material's contentView when it has room (that is above the blur and,
     // because the content container is the material's SIBLING, still below the
     // content); otherwise directly above the material in the same superview.
-    UIView *material=LMVCVPanelMaterial(card,window);
-    if(!material)material=LMVCVPanelMaterial(window,window);
+    UIView *material=LMVCVPanelMaterial(card,window,cardFrame);
+    if(!material)material=LMVCVPanelMaterial(window,window,cardFrame);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
     if([material isKindOfClass:UIVisualEffectView.class]) {
         UIView *content=((UIVisualEffectView *)material).contentView;
@@ -239,12 +304,13 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
     [CATransaction commit];
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
-        CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"cv-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f",
+        CGRect bounds=window.bounds;
+        NSString *status=[NSString stringWithFormat:@"cv-panel win=%@ %.0fx%.0f mode=%@ why=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
-            NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
-            radius,LMVCVPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
+            LMVCVPanelVaultClass(self.card)?@"vault":@"generic",
+            NSStringFromClass(self.card.class),cardFrame.origin.x,cardFrame.origin.y,cardFrame.size.width,cardFrame.size.height,
+            radius,LMVCVPanelVisibleArea(cardFrame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }

@@ -40,10 +40,27 @@ assert 'return visible/total>=.5?visible:0;' in module
 assert 'CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);' in module
 assert 'if(visible<=0)continue;   // parked off screen - never a candidate' in module
 assert 'if(visible>bestArea){bestArea=visible;best=child;}' in module
-assert 'static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window) {' in module
-assert 'UIView *material=LMVCVPanelMaterial(card,window);' in module
-assert 'if(!material)material=LMVCVPanelMaterial(window,window);' in module
+assert 'static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window,CGRect clip) {' in module
+assert 'if(LMVCVPanelCoverage(frame,clip)<.9)continue;' in module
+assert 'UIView *material=LMVCVPanelMaterial(card,window,cardFrame);' in module
+assert 'if(!material)material=LMVCVPanelMaterial(window,window,cardFrame);' in module
 assert 'vis=%.0f' in module
+# ---- 1.49: the card is NAMED -------------------------------------------------
+# 2026-10-17 device logs: the moment a TALLER surface shares CVPanelWindow the
+# "largest visible" race is lost and the video is dragged onto it - portrait, the
+# 498pt CopyVault preview UIDropShadowView outranks the 430pt card; landscape, a
+# 916x722 _UIRoundedRectShadowView does. Identity, never size.
+assert 'static BOOL LMVCVPanelVaultClass(UIView *view) {' in module
+assert 'if([name isEqualToString:@"CopyVaultView"])return YES;' in module
+assert '![name containsString:@"Table"] && ![name containsString:@"Cell"] && ![name containsString:@"Scroll"]' in module
+assert 'static UIView *LMVCVPanelVaultView(UIWindow *window,BOOL *existsOut) {' in module
+assert 'if(named)return vault;' in module, 'the named card wins outright when the plugin names one'
+assert 'LMVCVPanelVaultClass(self.card)?@"vault":@"generic"' in module, 'why= tells the next log which way the card was found'
+# A card parked at y=1454 while closed must be refused on BOTH paths, and the
+# "no card" answer must never be confused with "the plugin is not here at all".
+assert 'if(LMVCVPanelVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}' in module
+assert 'if(existsOut)*existsOut=YES;' in module
+assert 'NSStringFromClass(self.card.class),cardFrame.origin.x' in module
 # A UIVisualEffectView refuses direct subviews - adding one raises, and an exception
 # in a run-loop callback aborts SpringBoard (the 1.23 crash). Never the container.
 assert '- (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {' in module
@@ -134,5 +151,7 @@ assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",
 assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the CV selection is cleared when its material is deleted'
 
 print('PASS: CopyVault clipboard-panel channel - settings (Settings + floating panel), '
-      'material/audio plumbing, and the 1.43 mount (own-window search, parked-card '
-      'rejection, material-derived corner radius, above-blur / below-content placement)')
+      'material/audio plumbing, and the mount (named-card identity so a taller surface '
+      'sharing the window can never steal the video, parked-card rejection on both paths, '
+      'material clamped inside the card, material-derived corner radius, '
+      'above-blur / below-content placement)')
