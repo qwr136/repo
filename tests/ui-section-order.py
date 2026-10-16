@@ -185,7 +185,10 @@ class UISectionOrder(unittest.TestCase):
         # (the synchronous frame grab had no timeout) used to strand a row on 生成中
         # forever, because the key never left `pending`. Nothing about the delete
         # routing changed.
-        self.assertEqual(digest(PICKER), '8893116cbbabc51be107f866be50cd244c68cb891c00ca1de047f87bd7bbab6b')
+        # 1.34: the shared thumbnail state moves to file scope and gains
+        # +prewarmThumbnailCache, and the list now requests every row instead of only
+        # the visible ones. Delete routing is still untouched.
+        self.assertEqual(digest(PICKER), '35174e76a3b73ee3eddb1cbb18b1be0232bcc457581fa51cad0b8b418abf99e7')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')

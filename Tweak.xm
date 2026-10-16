@@ -728,7 +728,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=1.33 diagnostics-enabled");
+        LMVDiagnostic(@"version=1.34 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1584,6 +1584,14 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             // No arbitrary delay and no creating private singleton. For a normal
             // startup, only did-finish/active evidence opens the readiness gate.
             if (LMVAlreadyLaunched(UIApplication.sharedApplication)) LMVMarkLaunchReady();
+            // 1.34: warm the material thumbnails here, NOT inside LMVMarkLaunchReady
+            // - the startup-reentry contract keeps that function minimal, and this
+            // call belongs to the main-queue turn after readiness anyway. Background
+            // queue, no UI, read-only sidecar records; see
+            // +[LMVMaterialPicker prewarmThumbnailCache]. It only matters after a
+            // respring, where the in-memory cache starts empty while the on-disk
+            // posters are still good.
+            [LMVMaterialPicker prewarmThumbnailCache];
         });
     }
 }

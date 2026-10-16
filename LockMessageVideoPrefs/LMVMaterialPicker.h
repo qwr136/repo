@@ -55,6 +55,48 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 - (BOOL)thumbnailIsPending:(NSDictionary *)row;
 - (void)tracePreview:(NSString *)stage row:(NSDictionary *)row;
 @end
+// 1.34: the shared thumbnail state lives at FILE scope rather than inside -init,
+// because +prewarmThumbnailCache has to reach the same cache and the same queue.
+// The names are deliberately left unchanged, so the host contracts describing this
+// shared state still hold.
+static NSCache<NSString *, UIImage *> *sharedThumbnails;
+static NSMutableDictionary<NSString *, NSNumber *> *sharedFailures, *sharedRetries;
+static NSMutableSet<NSString *> *sharedScheduled, *sharedPending;
+static NSOperationQueue *sharedQueue;
+static dispatch_once_t LMVMaterialSharedOnce;
+// 1.34: one initializer for the shared state, reachable from -init AND from
+// +prewarmThumbnailCache (which has to be able to prepare the cache before any
+// picker instance exists).
+static void LMVMaterialSharedState(void) {
+    dispatch_once(&LMVMaterialSharedOnce, ^{
+        // 0.0.125: every picker instance in this process shares ONE thumbnail
+        // cache, ONE queue and ONE retry ledger. The Settings entry and the
+        // floating-panel entry used to build fresh instances, so each open
+        // re-read/re-decoded posters the other entry had just produced; worse,
+        // a retry round was lost whenever its row happened to be off screen in
+        // the instance that scheduled it. (Cross-process sharing stays on disk
+        // via the sidecar records - SpringBoard and Settings cannot share
+        // Objective-C objects.) All shared state is touched on the main thread
+        // only; NSCache itself is thread-safe.
+        sharedThumbnails = [NSCache new];
+        sharedThumbnails.countLimit = 60;
+        sharedThumbnails.totalCostLimit = 6 * 1024 * 1024;
+        sharedFailures = [NSMutableDictionary new];
+        sharedRetries = [NSMutableDictionary new];
+        sharedScheduled = [NSMutableSet new];
+        sharedPending = [NSMutableSet new];
+        sharedQueue = [NSOperationQueue new];
+        // 0.0.123: two workers instead of one.
+        // 1.34: now four. Measured on the reported 9-row catalog, rows 1-5 were on
+        // screen 68 ms after the list appeared while rows 6-9 waited for
+        // UITableView prefetch and showed up 0.65-0.93 s later - that late gap is
+        // the visible 生成中 when scrolling. A disk hit costs about a millisecond,
+        // so the extra workers only matter for the first decode wave; the peak
+        // stays bounded by the pending ceiling inside -requestThumbnail:.
+        sharedQueue.maxConcurrentOperationCount = 4;
+        sharedQueue.qualityOfService = NSQualityOfServiceUtility;
+    });
+}
 
 @implementation LMVMaterialPicker
 
@@ -70,35 +112,8 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 - (instancetype)init {
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) {
-        // 0.0.125: every picker instance in this process shares ONE thumbnail
-        // cache, ONE queue and ONE retry ledger. The Settings entry and the
-        // floating-panel entry used to build fresh instances, so each open
-        // re-read/re-decoded posters the other entry had just produced; worse,
-        // a retry round was lost whenever its row happened to be off screen in
-        // the instance that scheduled it. (Cross-process sharing stays on disk
-        // via the sidecar records - SpringBoard and Settings cannot share
-        // Objective-C objects.) All shared state is touched on the main thread
-        // only; NSCache itself is thread-safe.
-        static NSCache<NSString *, UIImage *> *sharedThumbnails;
-        static NSMutableDictionary<NSString *, NSNumber *> *sharedFailures, *sharedRetries;
-        static NSMutableSet<NSString *> *sharedScheduled, *sharedPending;
-        static NSOperationQueue *sharedQueue;
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            sharedThumbnails = [NSCache new];
-            sharedThumbnails.countLimit = 60;
-            sharedThumbnails.totalCostLimit = 6 * 1024 * 1024;
-            sharedFailures = [NSMutableDictionary new];
-            sharedRetries = [NSMutableDictionary new];
-            sharedScheduled = [NSMutableSet new];
-            sharedPending = [NSMutableSet new];
-            sharedQueue = [NSOperationQueue new];
-            // 0.0.123: two workers instead of one. Decoding a poster is dominated by
-            // I/O + one frame decode, so a second worker doubles the fill rate of a
-            // long list while keeping the peak bounded.
-            sharedQueue.maxConcurrentOperationCount = 2;
-            sharedQueue.qualityOfService = NSQualityOfServiceUtility;
-        });
+        // 0.0.125: the shared-state rules are documented on LMVMaterialSharedState().
+        LMVMaterialSharedState();
         _materials = @[];
         _showsThumbnails = YES;
         _thumbnails = sharedThumbnails;
@@ -139,6 +154,56 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
     for (NSIndexPath *index in self.tableView.indexPathsForVisibleRows)
         if (index.row < self.materials.count) [self requestThumbnail:self.materials[index.row]];
 }
+// 1.34: after the catalog lands, ask for EVERY row instead of only the on-screen
+// ones. A disk hit costs about a millisecond, so a nine-row catalog is fully
+// populated in the time the table takes to appear, and scrolling never runs into a
+// row still showing 生成中. Measured on the reported catalog: rows 1-5 were on
+// screen 68 ms after the list appeared, while rows 6-9 - reachable only through
+// UITableView prefetch - appeared 0.65-0.93 s later. An uncached row still falls
+// through to the same decode + bounded-retry path, and the pending ceiling inside
+// -requestThumbnail: keeps the peak in check.
+- (void)requestAllThumbnails {
+    if (!self.showsThumbnails) return;
+    for (NSDictionary *row in self.materials) [self requestThumbnail:row];
+}
+// 1.34: read the on-disk posters into the shared cache BEFORE the list is opened.
+// A respring restarts this process, so the in-memory cache starts empty while the
+// sidecar records on disk are still perfectly good - a cold open logs every row as
+// disk-hit with a 0.7-9.0 ms decode, and yet the rows still showed 生成中 during
+// that. Warming turns the first open after a respring into something
+// indistinguishable from the second open, which was pure memory-hit.
+// Background queue, no UI and no player: it only reads records that already exist
+// and never decodes - a row with no sidecar is left to the normal path.
++ (void)prewarmThumbnailCache {
+    static BOOL started;
+    if (started) return;
+    started = YES;
+    LMVMaterialSharedState();
+    dispatch_async(LMVMaterialQueue(), ^{
+        @autoreleasepool {
+            NSFileManager *fm = NSFileManager.defaultManager;
+            NSString *base = @"/var/mobile/LockMessageVideo";
+            NSArray *library = [[fm contentsOfDirectoryAtPath:[base stringByAppendingPathComponent:@"library"] error:nil]
+                sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
+            NSMutableArray<NSString *> *paths = [NSMutableArray new];
+            for (NSString *legacy in @[@"message.mov", @"options.mov", @"clear.mov"])
+                if ([fm fileExistsAtPath:[base stringByAppendingPathComponent:legacy]]) [paths addObject:legacy];
+            for (NSString *file in library)
+                if ([@[@"mov", @"mp4", @"m4v"] containsObject:file.pathExtension.lowercaseString])
+                    [paths addObject:[@"library" stringByAppendingPathComponent:file]];
+            for (NSString *relative in paths) {
+                @autoreleasepool {
+                    NSString *revision = LMVThumbnailRevision(relative);
+                    if (!revision.length || [sharedThumbnails objectForKey:revision]) continue;
+                    UIImage *poster = LMVReadThumbnail(relative, revision);
+                    if (!poster) continue; // no sidecar yet: the normal path will build it
+                    NSUInteger cost = poster.CGImage ? CGImageGetBytesPerRow(poster.CGImage) * CGImageGetHeight(poster.CGImage) : 0;
+                    [sharedThumbnails setObject:poster forKey:revision cost:cost];
+                }
+            }
+        }
+    });
+}
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView { [self requestVisibleThumbnails]; }
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate { if (!decelerate) [self requestVisibleThumbnails]; }
 - (void)didReceiveMemoryWarning {
@@ -177,6 +242,9 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
             [picker.previewStages removeAllObjects];
             LMVThumbnailLog([NSString stringWithFormat:@"catalog-ready count=%lu generation=%lu", (unsigned long)rows.count, (unsigned long)generation], @"", nil);
             [picker.tableView reloadData];
+            // 1.34: fill the whole catalog, not only the on-screen part - see
+            // -requestAllThumbnails.
+            [picker requestAllThumbnails];
         });
     });
 }

@@ -56,7 +56,10 @@ assert 'picker.showsThumbnails = YES' in panel
 # whole session (these rows were showing the film symbol), so the failure memory is
 # now a bounded retry, and two workers fill a long list faster.
 _picker = (root / 'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
-assert 'sharedQueue.maxConcurrentOperationCount = 2;' in _picker
+# 1.34: 2 -> 4 workers. Rows below the fold were appearing 0.65-0.93 s late behind
+# UITableView prefetch; a disk hit costs about a millisecond, so widening the queue
+# only shortens the first decode wave.
+assert 'sharedQueue.maxConcurrentOperationCount = 4;' in _picker
 assert 'NSInteger failures = self.thumbnailFailures[key].integerValue;' in _picker
 assert 'if (failures >= LMVMaterialThumbnailMaxFailures)' in _picker
 assert 'picker.thumbnailFailures[key] = @(failures + 1);' in _picker
