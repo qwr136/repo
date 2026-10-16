@@ -56,6 +56,7 @@ jobs:
           check python3 tests/video-audio-controls.py
           check python3 tests/at-channel.py
           check python3 tests/squid-panel-video.py
+          check python3 tests/cv-panel-video.py
           check python3 tests/media-audio-runtime.py
           check python3 tests/lock-video-native.py
           check python3 tests/lock-video-host.py

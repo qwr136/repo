@@ -33,21 +33,23 @@ def section(name):
 
 class UISectionOrder(unittest.TestCase):
     def test_panel_sections_and_row_counts(self):
-        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'Display', 'Opacity', 'Import']
+        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Display', 'Opacity', 'Import']
         actual = [section('LMVEaster' + name + 'Section') for name in names]
-        self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11])
+        self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11, 12])
         total = re.search(r'numberOfSectionsInTableView:.*?\{ return (LMVEaster\w+Section)\(\) \+ 1;', PANEL).group(1)
-        self.assertEqual(section(total) + 1, 12)
+        self.assertEqual(section(total) + 1, 13)
         for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
                      'if (section == LMVEasterSquidPanelSection()) return 4;',
                      'if (section == LMVEasterATSection()) return 4;',
+                     'if (section == LMVEasterCVSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
-        rows = [4 if i < 5 or i in (actual[1], actual[2], actual[3]) else 7 if i == actual[0] else 1 if i in (actual[4], actual[6]) else 2 for i in range(12)]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 43)
+        disp, imp = section('LMVEasterDisplaySection'), section('LMVEasterImportSection')
+        rows = [4 if i < 5 or i in (actual[1], actual[2], actual[3], actual[4]) else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(13)]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 47)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -57,6 +59,7 @@ class UISectionOrder(unittest.TestCase):
                                  'LMVEasterHomeMenuSection': 'HomeMenuBackgroundEnabled',
                                  'LMVEasterSquidPanelSection': 'SquidPanelBackgroundEnabled',
                                  'LMVEasterATSection': 'ATBackgroundEnabled',
+                                 'LMVEasterCVSection': 'CVBackgroundEnabled',
                                  'LMVEasterOpacitySection': 'VideoOpacityEnabled'})
         self.assertIn('toggle.tag < 0', body)
         self.assertIn('else return;', body)
@@ -68,12 +71,12 @@ class UISectionOrder(unittest.TestCase):
         resolved.update({i: target + 'BackgroundEnabled' for i, target in enumerate(TARGETS)})
         def key_for(tag):
             return None if tag < 0 or tag > section(bound) else resolved.get(tag)
-        self.assertEqual([key_for(i) for i in range(12)],
+        self.assertEqual([key_for(i) for i in range(13)],
                          [t + 'BackgroundEnabled' for t in TARGETS] +
                          ['ControlCenterBackgroundEnabled', 'HomeMenuBackgroundEnabled', 'SquidPanelBackgroundEnabled',
-                          'ATBackgroundEnabled', None, 'VideoOpacityEnabled', None])
+                          'ATBackgroundEnabled', 'CVBackgroundEnabled', None, 'VideoOpacityEnabled', None])
         self.assertIsNone(key_for(-1))
-        self.assertIsNone(key_for(12))
+        self.assertIsNone(key_for(13))
 
     def test_panel_selection_cells_import_defaults_unchanged(self):
         cells = PANEL[PANEL.index('- (UITableViewCell *)tableView:'):PANEL.index('- (void)toggle:')]
@@ -87,14 +90,23 @@ class UISectionOrder(unittest.TestCase):
         # block; remove it the same way, so the frozen hash still proves that every
         # ORIGINAL cell is byte-identical after the insertion.
         at_start = old_cells.index('    if (index.section == LMVEasterATSection()) {')
-        at_end = old_cells.index('    if (index.section == LMVEasterControlCenterSection()) {', at_start)
+        at_end = old_cells.index('    if (index.section == LMVEasterCVSection()) {', at_start)
         old_cells = old_cells[:at_start] + old_cells[at_end:]
+        # 1.43: same treatment for the CopyVault block inserted below the AT one,
+        # so the frozen hash keeps proving that every ORIGINAL cell is untouched.
+        cv_start = old_cells.index('    if (index.section == LMVEasterCVSection()) {')
+        cv_end = old_cells.index('    if (index.section == LMVEasterControlCenterSection()) {', cv_start)
+        old_cells = old_cells[:cv_start] + old_cells[cv_end:]
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
         self.assertEqual(digest(old_cells), '7e0a52923e482473468c9523f0b4cff4d28c296318d5f7eee1f2c92b830064fb')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
         key = @"ATVideo";
+''', '')
+        selection_for_digest = selection_for_digest.replace('''    } else if (index.section == LMVEasterCVSection()) {
+        if (index.row != 1) return;
+        key = @"CVVideo";
 ''', '')
         self.assertEqual(digest(selection_for_digest), 'f49b774c5fc80a7200d0c2bebea00126722d21fa89c41ae98571a663c9180349')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
@@ -106,7 +118,7 @@ class UISectionOrder(unittest.TestCase):
             self.assertIn(text, selection)
         # The frozen handlers use helpers, so relocated 6/7/8/9 cannot alias CC or targets.
         self.assertEqual(len({section('LMVEaster' + n + 'Section') for n in
-                             ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'Display', 'Opacity', 'Import']}), 7)
+                             ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Display', 'Opacity', 'Import']}), 8)
 
     def test_settings_top_group_is_the_global_master_switch(self):
         # 0.0.114: the master switch is the FIRST row and defaults to ON, so an
@@ -144,23 +156,25 @@ class UISectionOrder(unittest.TestCase):
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
             'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial',
             'group:AT 背景视频', 'atEnabled', 'atMaterial',
+            'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 44)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 47)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
-        for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT')]:
+        for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
-        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 6)
-        self.assertEqual(44 + (len(TARGETS) + 5) * 2, 64)  # 44 non-audio rows + 10 audio channels x 2
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 16)
+        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 7)
+        self.assertEqual(47 + (len(TARGETS) + 6) * 2, 69)  # 47 non-audio rows + 11 audio channels x 2
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 17)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
                        if ('setProperty:' in x or '.buttonAction =' in x)
-                       and 'atEnabled' not in x and 'atMaterial' not in x)
+                       and 'atEnabled' not in x and 'atMaterial' not in x
+                       and 'cvEnabled' not in x and 'cvMaterial' not in x)
         self.assertEqual(digest('\n'.join(props)), 'bf399a42225ee674df0e19bc44010d03a474e0af16cb2b19a76501c245c73469')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
@@ -168,12 +182,14 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = handlers[:volume_start] + handlers[volume_end:]
         old_handlers = old_handlers.replace(': [specifier propertyForKey:@"audioVolumeKey"];', ': nil;')
         old_handlers = old_handlers.replace('- (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }\n', '')
-        # ...and the two AT entries added to the titles / legacy maps.
+        old_handlers = old_handlers.replace('- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }\n', '')
+        # ...and the AT / CV entries added to the titles and legacy maps.
         old_handlers = old_handlers.replace(', @"AT": @"AT 背景视频"', '').replace(', @"AT": @""', '')
+        old_handlers = old_handlers.replace(', @"CV": @"CopyVault 面板背景视频"', '').replace(', @"CV": @""', '')
         self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
-                               ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT')]:
+                               ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
             self.assertIn(f'- (void){action}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}', handlers)
         self.assertIn('PSSpecifier *row = [self specifierAtIndexPath:indexPath];', handlers)
         self.assertIn('invoke(self, action, row);', handlers)
@@ -191,13 +207,14 @@ class UISectionOrder(unittest.TestCase):
         self.assertEqual(digest(PICKER), '35174e76a3b73ee3eddb1cbb18b1be0232bcc457581fa51cad0b8b418abf99e7')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
-        deletion_for_digest = DELETION.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')
+        deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')
+        deletion_for_digest = deletion_for_digest.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel",@"AT"]', '@"SquidPanel"]')
         self.assertEqual(digest(deletion_for_digest), 'b6a7b64b5c62a05698a3a03d7ca5feda863e4a441740db1eb1f3c0310382c2da')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
         self.assertIn('LMVDeleteMaterial(relative,&deleted)', PICKER)
-        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT"])', DELETION)
+        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])', DELETION)
         self.assertIn('[target stringByAppendingString:@"Video"]', DELETION)
 
 

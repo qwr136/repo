@@ -141,7 +141,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=1.42 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
+                NSString *line=[NSString stringWithFormat:@"%.3f version=1.43 session=%lu pid=%d %@\n",CACurrentMediaTime(),epoch,getpid(),event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
             @finally { [handle closeFile]; }
@@ -155,6 +155,7 @@ static void LMVDiagnostic(NSString *event) {
 #import "LMVHomeMenuVideo.h"
 #import "LMVSquidPanelVideo.h"
 #import "LMVATPanelVideo.h"
+#include "LMVCopyVaultPanelVideo.h"
 #import "LMVMediaAudio.h"
 
 @interface LMVFrameSnapshot : NSObject
@@ -728,7 +729,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=1.42 diagnostics-enabled");
+        LMVDiagnostic(@"version=1.43 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1299,6 +1300,10 @@ static void LMVSyncAudioVisibility(void) {
     BOOL atPanelVisible=atPanel.wantsPlayback && !LMVATPanelVideo.host.hidden &&
         LMVAudioLayerExposed(atPanel.renderLayer,LMVATPanelVideo.host.window);
     LMVAudioConsume(@"AT",atPanel.path,atPanel.revision,atPanelVisible,atPanel.player.currentTime);
+    LMVLockVideoPlayback *cvPanel=LMVCopyVaultPanelVideo.playback;
+    BOOL cvPanelVisible=cvPanel.wantsPlayback && !LMVCopyVaultPanelVideo.host.hidden &&
+        LMVAudioLayerExposed(cvPanel.renderLayer,LMVCopyVaultPanelVideo.host.window);
+    LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPanel.player.currentTime);
 }
 static void LMVReloadAudioControls(void) {
     LMVAudioReload();
@@ -1339,6 +1344,7 @@ static void LMVRefresh(BOOL reload) {
     LMVHomeMenuVideoRefresh(reload);
     LMVSquidPanelVideoRefresh(reload);
     LMVATPanelVideoRefresh(reload);
+    LMVCopyVaultPanelVideoRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
     for (UIView *cell in LMVCells.allObjects) {
         NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -1366,6 +1372,7 @@ static void LMVSuspend(void) {
     LMVHomeMenuVideoSuspend();
     LMVSquidPanelVideoSuspend();
     LMVATPanelVideoSuspend();
+    LMVCopyVaultPanelVideoSuspend();
     LMVReleaseAllPlayers();
 }
 static void LMVSyncDisplayLink(void) {
@@ -1546,6 +1553,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
                     LMVHomeMenuVideoSuspend();
                     LMVSquidPanelVideoSuspend();
                     LMVATPanelVideoSuspend();
+    LMVCopyVaultPanelVideoSuspend();
                     LMVSyncDisplayLink();LMVRequestSafeUpdate();
                 }
             });
@@ -1566,6 +1574,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVHomeMenuVideoInstallHooks();
         LMVSquidPanelVideoInstallHooks();
         LMVATPanelVideoInstallHooks();
+        LMVCopyVaultPanelVideoInstallHooks();
         Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
         if (coverWindow && [coverWindow isSubclassOfClass:UIWindow.class]) %init(LMVCoverWindowHooks);
         for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {

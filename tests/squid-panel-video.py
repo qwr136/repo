@@ -86,7 +86,7 @@ assert '    LMVSquidPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVSquidPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVSquidPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"SquidPanel",panel.path,panel.revision,panelVisible,panel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT"];' in audio
+assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"];' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];' in prefs

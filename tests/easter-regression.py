@@ -50,12 +50,13 @@ assert 'static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacityS
 assert 'static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterControlCenterSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() + 1; }' in panel
-assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterATSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCVSection() + 1; }' in panel
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', panel) is not None
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT"]' in delete
-for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT'):
+assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"]' in delete
+for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV'):
     assert f'@"{target}":@""' in delete
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
 assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1

@@ -5,7 +5,7 @@
 // Separate audio-only chains: visual video-only compositions and success masks
 // are not changed. Default OFF; no session/category work while every switch is OFF.
 static NSArray<NSString *> *LMVAudioTargets(void) {
-    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT"];
+    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"];
 }
 static double LMVAudioVolumeValue(id value) {
     double v=[value isKindOfClass:NSNumber.class]?[value doubleValue]:.5;

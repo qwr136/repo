@@ -18,7 +18,7 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT"] containsObject:target];
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -129,6 +129,18 @@ static void LMVNotify(void) {
     [atMaterial setProperty:@"ATMaterial" forKey:@"id"];
     [_specifiers addObject:atMaterial];
     [self appendAudioForTarget:@"AT" title:@"播放"];
+    // 1.43: the CopyVault clipboard panel background, right below the AT channel
+    // (same switch / material / sound / volume layout).
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];
+    PSSpecifier *cvEnabled = [PSSpecifier preferenceSpecifierNamed:@"CopyVault 面板背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];
+    [cvEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:cvEnabled];
+    PSSpecifier *cvMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 CopyVault 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    cvMaterial.buttonAction = @selector(switchCV:);
+    [cvMaterial setProperty:@"CVMaterial" forKey:@"id"];
+    [_specifiers addObject:cvMaterial];
+    [self appendAudioForTarget:@"CV" title:@"播放"];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -299,7 +311,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"鱿鱼面板背景视频", @"AT": @"AT 背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"鱿鱼面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -308,7 +320,7 @@ static void LMVNotify(void) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -326,6 +338,7 @@ static void LMVNotify(void) {
 - (void)switchHomeMenu:(PSSpecifier *)specifier { [self switchTarget:@"HomeMenu"]; }
 - (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }
 - (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
+- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];

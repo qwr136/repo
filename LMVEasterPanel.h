@@ -30,7 +30,10 @@ static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSect
 // 1.26: the AppTools (AT) pop-up channel sits directly below the Squid panel one,
 // the same way it does in Settings. This release only stores the settings.
 static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() + 1; }
-static NSInteger LMVEasterDisplaySection(void) { return LMVEasterATSection() + 1; }
+// 1.43: the CopyVault clipboard panel sits directly below the AT channel, the
+// same way the AT channel sits below the Squid panel one.
+static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }
+static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCVSection() + 1; }
 static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }
 static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
 static NSString *LMVEasterControlCenterKey(NSInteger row) {
@@ -38,13 +41,14 @@ static NSString *LMVEasterControlCenterKey(NSInteger row) {
 }
 // Audio tags are target indices, never section indices (CC has two targets).
 static NSArray *LMVEasterAudioTargets(void) {
-    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT"];
+    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"];
 }
 static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)) return LMVEasterTargets()[section];
     if (section == LMVEasterHomeMenuSection() && (row == 2 || row == 3)) return @"HomeMenu";
     if (section == LMVEasterSquidPanelSection() && (row == 2 || row == 3)) return @"SquidPanel";
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
+    if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
     if (section == LMVEasterControlCenterSection()) {
         if (row == 2 || row == 3) return @"ControlCenterDark";
         if (row == 5 || row == 6) return @"ControlCenterLight";
@@ -192,6 +196,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterHomeMenuSection()) return 4;
     if (section == LMVEasterSquidPanelSection()) return 4;
     if (section == LMVEasterATSection()) return 4;
+    if (section == LMVEasterCVSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row > 0 ? 60 : 44; }
@@ -201,6 +206,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterHomeMenuSection()) return @"桌面长按菜单视频背景";
     if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";
     if (section == LMVEasterATSection()) return @"AT 背景视频";
+    if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";
     if (section == LMVEasterDisplaySection()) return @"小彩蛋显示设置";
     return section == LMVEasterOpacitySection() ? @"消息、选项、清除视频透明度" : @"独立原片导入";
 }
@@ -297,6 +303,21 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         }
         return cell;
     }
+    if (index.section == LMVEasterCVSection()) {
+        if (index.row == 0) {
+            cell.textLabel.text = @"CopyVault 面板背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCVSection();
+            toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
+            [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else {
+            cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id selected = LMVEasterRead(@"CVVideo");
+            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
+            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
+            cell.detailTextLabel.numberOfLines = 2;
+        }
+        return cell;
+    }
     if (index.section == LMVEasterControlCenterSection()) {
         if (index.row == 0) {
             cell.textLabel.text = @"启用控制中心背景";
@@ -359,6 +380,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     else if (toggle.tag == LMVEasterHomeMenuSection()) key = @"HomeMenuBackgroundEnabled";
     else if (toggle.tag == LMVEasterSquidPanelSection()) key = @"SquidPanelBackgroundEnabled";
     else if (toggle.tag == LMVEasterATSection()) key = @"ATBackgroundEnabled";
+    else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled";
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
@@ -410,6 +432,9 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
         key = @"ATVideo";
+    } else if (index.section == LMVEasterCVSection()) {
+        if (index.row != 1) return;
+        key = @"CVVideo";
     } else {
         if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;
         NSString *target = LMVEasterTargets()[index.section];
