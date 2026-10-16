@@ -210,18 +210,19 @@ int main(void) { @autoreleasepool {
  store=[NSMutableDictionary new];
  NSArray *targets=LMVEasterAudioTargets();
  for (NSInteger section=0;section<13;section++) {
-  for (NSInteger row=0;row<8;row++) {
+  for (NSInteger row=0;row<9;row++) {
    NSString *expected=nil;
    if(section<5&&(row==2||row==3))expected=targets[section];
    if(section==5&&(row==2||row==3))expected=targets[5];
    if(section==5&&(row==5||row==6))expected=targets[6];
    if(section==6&&(row==2||row==3))expected=targets[7];
-   if(section==7&&(row==4||row==5))expected=targets[8];
+   if(section==7&&(row==7||row==8))expected=targets[8];
    if(section==8&&(row==2||row==3))expected=targets[9];
    if(section==9&&(row==2||row==3))expected=targets[10];
    NSString *actual=LMVEasterAudioTarget(section,row);
    assert((!actual&&!expected)||[actual isEqual:expected]);
-   assert(LMVEasterAudioVolumeRow(section,row)==(expected&&(row==3||row==6)));
+   BOOL volumeRow=(section==7)?(row==8):(row==3||row==6);
+   assert(LMVEasterAudioVolumeRow(section,row)==(expected&&volumeRow));
   }
  }
  assert(!LMVEasterAudioTarget(-1,2)&&!LMVEasterAudioTarget(12,2));
