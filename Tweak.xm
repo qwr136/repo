@@ -728,7 +728,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic(@"version=1.31 diagnostics-enabled");
+        LMVDiagnostic(@"version=1.32 diagnostics-enabled");
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
@@ -1303,7 +1303,15 @@ static void LMVSyncAudioVisibility(void) {
 static void LMVReloadAudioControls(void) {
     LMVAudioReload();
     if(LMVAudioAnyEnabled() && !LMVAudioTimer) {
-        LMVAudioTimer=[NSTimer timerWithTimeInterval:.10 repeats:YES block:^(NSTimer *timer){LMVSyncAudioVisibility();}];
+        // 1.32: 10 Hz -> 4 Hz. This timer is the STEADY-STATE audio sync: it walks
+        // every target, then every cell for every target, and touches AVPlayer
+        // state for each enabled channel. It is NOT what makes a resume fast - the
+        // direct pause/resume hooks and the coveredNow flip do that, with no timer
+        // beat in either direction. It only reconciles drift and visibility, so at
+        // 4 Hz it still corrects a stale channel well inside a quarter second while
+        // removing 60% of the calls, the associated-object lookups and the player
+        // property traffic from every second the tweak is loaded.
+        LMVAudioTimer=[NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer){LMVSyncAudioVisibility();}];
         [NSRunLoop.mainRunLoop addTimer:LMVAudioTimer forMode:NSRunLoopCommonModes];
     } else if(!LMVAudioAnyEnabled()) {[LMVAudioTimer invalidate];LMVAudioTimer=nil;LMVAudioPauseAll();}
 }

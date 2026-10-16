@@ -148,15 +148,19 @@ assert 'CGFloat ccContent=LMVDesktopContentCoverage(window,root,destination);' i
 assert 'CGFloat appContent=LMVDesktopContentCoverage(window,window.rootViewController.viewIfLoaded,destination);' in h and 'if (appContent>=0 && appContent<0.4) continue;' in h, 'an app/switcher window frame is not a cover once its content shrinks away'
 assert 'desktop-cover-owner %@' in h, 'the log names the surface that holds the cover'
 assert 'UIView *hostParent=container;' in h and 'if (!usingHomeHost && (container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;' in h, 'a hidden wallpaper branch is bypassed (1.25)'
-# 1.31: the surface belongs on the Home window itself, under the icon container -
-# the wallpaper it attached to until 1.30 lives a whole window BELOW, so
-# SBHomeScreenWindow covered the video completely ("开始桌面视频 不在桌面").
+# 1.31: the surface belongs on the Home window itself - the wallpaper it attached
+# to until 1.30 lives a whole window BELOW, so SBHomeScreenWindow covered the
+# video completely ("开始桌面视频 不在桌面").
+# 1.32: it lands in the Home view's BOTTOM slot. Targeting the icon container's own
+# index displaced that container on every reparent - the video and the icons traded
+# places, which is exactly the reported flicker - and parked the video between the
+# icons and the dock. Index 0 never has to move an existing sibling.
 assert 'static UIView *LMVDesktopHomeHostView(UIView **iconsOut) {' in h, 'the Home host probe exists'
 assert 'if ([NSStringFromClass(child.class) containsString:@"IconContentView"]) {' in h, 'the icon container is found by class name'
-assert 'if (usingHomeHost) {' in h and '[homeHost insertSubview:self.host atIndex:target];' in h, 'the surface lands directly under the icon container'
+assert 'if (usingHomeHost) {' in h and '[homeHost insertSubview:self.host atIndex:target];' in h and 'NSUInteger target=0;' in h, 'the surface parks in the bottom slot of the Home view so no sibling is ever displaced (1.32)'
 assert 'UIView *geometryTarget=usingHomeHost?homeHost:container;' in h, 'the Home host sizes the surface'
 assert 'desktop-home win=%@ subviews=[' in h, 'where the surface landed is one diagnostic line'
-assert '[hostParent insertSubview:self.host aboveSubview:container];' in h, 'the layer borrows the wallpaper parent (1.25)'
+assert '[hostParent insertSubview:self.host atIndex:0];' in h, 'the layer borrows the wallpaper parent without displacing a sibling (1.25/1.32)'
 assert 'desktop-host container=%@ hidden=%d alpha=%.2f' in h, 'the host chain is diagnosed (1.25)'
 # 1.25: diagnostics only - the window our layer lives in, the full ancestry, the
 # windows above ours and the shape of the menu overlay window.
@@ -224,6 +228,14 @@ assert '@property(nonatomic,strong) CADisplayLink *coverWatch;' in h
 assert '- (void)startCoverWatch {' in h and '- (void)stopCoverWatch {' in h
 assert '- (void)coverWatchTick:(CADisplayLink *)link {' in h
 assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)]' in h
+# 1.32: the watcher no longer MEASURES the cover on every frame. On the steady
+# state it re-ran the whole window/subview/layer probe 60-120 times a second for an
+# answer that could not change - the measurable cost of simply "desktop video is
+# on". The gate lets the PLAYING state skip the probe while the FROZEN state keeps
+# every frame, which is what preserves the zero-delay resume.
+assert 'LMVDesktopVisibleWindowCount' in h, 'the cheap visible-window count exists (1.32)'
+assert 'if (!self.host.hidden && !self.playback.frozen && !self.appAway) {' in h, 'only the playing state is gated; the frozen state still probes every frame (1.32)'
+assert 'self.coverWatch.preferredFramesPerSecond=60;' in h, 'the watcher is capped at 60 Hz (1.32)'
 # 0.0.137: the watcher runs while the surface exists and watches BOTH
 # directions - a cover appearing freezes within ~16 ms, the desktop being
 # revealed resumes within ~16 ms.

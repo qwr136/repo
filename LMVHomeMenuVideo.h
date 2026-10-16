@@ -56,6 +56,30 @@ static BOOL LMVHomeMenuIconSource(id presentation) {
     for(NSUInteger n=0;view && n<12;n++,view=view.superview)if([view isKindOfClass:icon])return YES;
     return NO; // Snapshot/unknown source is not evidence of a Home icon.
 }
+// 1.32: the two shapes this channel could not recognise on the reported device.
+// The 1.30 log pins BOTH at once:
+//
+//   SBFloatingDockWindow@0,0,430,932{ ... _UIContextMenuContainerView^UIVisualEffectView,
+//     _UIContextMenuPlatterTransitionView@0,0,430,932{ _UIContextMenuView{
+//       _UIContextMenuListView{ ... }}}}
+//
+// - the dock's long-press menu lives in SBFloatingDockWindow, NOT in the Home
+//   window, so the icon-source test above - which requires LMVDesktopHomeWindow -
+//   could never accept it, no matter what the presentation record said;
+// - and that menu is presented through _UIContextMenuPlatterTransitionView, so the
+//   presentation-controller hooks that create the record never fire either.
+// Either one alone leaves the menu with no video. Both are replaced by the same
+// idea: identify a Home-scope menu from the LIST'S OWN ANCESTRY - under the Home
+// window or under the floating dock window. An in-app menu has neither, and
+// LMVHomeMenuEnvironment still requires the desktop to be frontmost, so the scope
+// stays tight.
+static BOOL LMVHomeMenuHomeScope(UIView *list) {
+    UIWindow *host=list.window;
+    if(!host || host.screen!=UIScreen.mainScreen || host.hidden || host.alpha<.01) return NO;
+    Class dock=NSClassFromString(@"SBFloatingDockWindow");
+    if(dock && [host isKindOfClass:dock]) return YES;
+    return LMVDesktopHomeWindow(host);
+}
 @interface LMVHomeMenuRecord:NSObject
 @property(nonatomic,weak) id presentation;
 @property(nonatomic,weak) UIView *menu;
@@ -70,9 +94,31 @@ static LMVHomeMenuRecord *LMVHomeMenuOwner(UIView *list) {
         if(!budget--)break;
         if(!record.known || !record.active || !record.presentation || !record.menu)continue;
         for(UIView *node=list;node;node=node.superview) {
-            if(node==record.menu)return LMVHomeMenuIconSource(record.presentation)?record:nil;
+            if(node==record.menu) {
+                // 1.32: an icon source OUTSIDE the Home window - i.e. an icon on the
+                // floating dock - is no longer a rejection. It only means this
+                // presentation record cannot PROVE the scope by itself. Returning nil
+                // here is exactly what kept the dock menu unbound while the desktop
+                // menu worked: the record existed, the list matched, and the very
+                // last test threw it away because the dock icon's window is
+                // SBFloatingDockWindow rather than SBHomeScreenWindow. Break instead,
+                // so the ancestry test below can accept it.
+                if(LMVHomeMenuIconSource(record.presentation)) return record;
+                break;
+            }
             if(node==list.window)break;
         }
+    }
+    // 1.32: ancestry fallback - see LMVHomeMenuHomeScope. A platter-era menu has no
+    // usable record at all, and a dock menu's record (when one exists) is rejected
+    // by the icon-source test above because its icon does not live in the Home
+    // window. One shared scope record is enough: the rest of the channel only keys
+    // off the list identity it carries.
+    if(LMVHomeMenuVisible(list) && LMVHomeMenuHomeScope(list)) {
+        static LMVHomeMenuRecord *scopeRecord;
+        if(!scopeRecord) scopeRecord=[LMVHomeMenuRecord new];
+        scopeRecord.known=YES;scopeRecord.active=YES;scopeRecord.menu=list;
+        return scopeRecord;
     }
     return nil;
 }
@@ -135,18 +181,49 @@ static BOOL LMVHomeMenuPureBackground(UIView *view) {
 @end
 static LMVHomeMenuVideoManager *LMVHomeMenuVideo;
 static void LMVHomeMenuRequestUpdate(void);
+// 1.32: find the menu's own material without trusting a private getter name. The
+// platter-era list keeps its blur in a plain UIView wrapper rather than behind
+// `backgroundView`, so walk the list's OWN subtree - bounded, and still filtered by
+// the existing background-only audit before anything is leased.
+static UIView *LMVHomeMenuMaterialIn(UIView *root) {
+    NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithObject:root];
+    NSUInteger budget=80;
+    while(pending.count && budget--) {
+        UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
+        if(node!=root && [node isKindOfClass:UIVisualEffectView.class] && !node.layer.mask) return node;
+        [pending addObjectsFromArray:node.subviews];
+    }
+    return nil;
+}
 // Read only confirmed list getters, check all ancestry/order before UI creation.
 static BOOL LMVHomeMenuSurface(UIView *list,UIView **materialOut,UIView **clipOut,UIView **collectionOut) {
     Class cls=NSClassFromString(@"_UIContextMenuListView");
     if(!cls || ![list isKindOfClass:cls] || !LMVHomeMenuVisible(list))return NO;
     UIView *material=LMVHomeMenuGet(list,@"backgroundView"),*clip=LMVHomeMenuGet(list,@"clippingView");
     UIView *collection=LMVHomeMenuGet(list,@"collectionView");
-    if(![clip isKindOfClass:UIView.class] || ![collection isKindOfClass:UICollectionView.class] ||
-       ![clip isDescendantOfView:list] || ![material isKindOfClass:UIVisualEffectView.class] ||
-       ![material isDescendantOfView:list] || ![collection isDescendantOfView:clip] ||
-       !LMVHomeMenuPureBackground(material) || material.hidden || !LMVLockVideoRectValid(material.bounds))return NO;
-    UIView *parent=material.superview,*foreground=LMVHomeMenuBranch(collection,parent);
-    if(!parent || !foreground || foreground==material || parent.subviews.count>20)return NO;
+    // 1.32: a getter miss is no longer a rejection - locate the material in the
+    // list's own subtree instead. Everything below still has to hold for it to be
+    // used, so this widens the accepted SHAPE without weakening the audit.
+    if(![material isKindOfClass:UIVisualEffectView.class]) material=LMVHomeMenuMaterialIn(list);
+    if(![material isKindOfClass:UIVisualEffectView.class] || ![material isDescendantOfView:list] ||
+       !LMVHomeMenuPureBackground(material) || material.hidden ||
+       !LMVLockVideoRectValid(material.bounds))return NO;
+    // The clipping/collection pair is checked only when both getters answered. A
+    // shape that does not expose them is judged by the material and its siblings.
+    if([clip isKindOfClass:UIView.class] && [collection isKindOfClass:UICollectionView.class]) {
+        if(![clip isDescendantOfView:list] || ![collection isDescendantOfView:clip])return NO;
+    } else {clip=nil;collection=nil;}
+    UIView *parent=material.superview;
+    if(!parent || parent.subviews.count>20)return NO;
+    UIView *foreground=collection ? LMVHomeMenuBranch(collection,parent) : nil;
+    if(!foreground) {
+        // No collection reference: a visible sibling ABOVE the material is the same
+        // evidence the original order check was asking for. A material that is the
+        // topmost sibling is not a menu background and stays rejected.
+        for(UIView *sibling in parent.subviews.reverseObjectEnumerator)
+            if(sibling!=material && !sibling.hidden && sibling.alpha>=.01) {foreground=sibling;break;}
+    }
+    if(!foreground || foreground==material)return NO;
     NSUInteger back=[parent.subviews indexOfObjectIdenticalTo:material],front=[parent.subviews indexOfObjectIdenticalTo:foreground];
     LMVHomeMenuMaterialLease *lease=objc_getAssociatedObject(material,&LMVHomeMenuLeaseKey);
     CGFloat materialAlpha=lease.applied && lease.parent==parent && material.layer.opacity==0?lease.baselineOpacity:material.alpha;
@@ -319,18 +396,29 @@ static BOOL LMVHomeMenuHookMatches(Class cls,SEL selector,BOOL hasBool) {
 }
 static void LMVHomeMenuVideoInstallHooks(void) {
     static BOOL installed;if(installed || !LMVHomeMenuSpringBoard())return;
-    Class list=NSClassFromString(@"_UIContextMenuListView"),presentation=NSClassFromString(@"_UIContextMenuPresentationController");
-    if(!list || ![list isSubclassOfClass:UIView.class] || !presentation || ![presentation isSubclassOfClass:UIPresentationController.class])return;
-    // Atomic evidence gate: without observed presentation methods there is no
-    // safe list scope. Inherited didMoveToWindow is the public UIView contract.
-    if(!LMVHomeMenuHookMatches(list,@selector(layoutSubviews),NO) || !LMVHomeMenuHookMatches(list,@selector(didMoveToWindow),NO) ||
-       !LMVHomeMenuHookMatches(presentation,@selector(presentationTransitionWillBegin),NO) ||
-       !LMVHomeMenuHookMatches(presentation,@selector(presentationTransitionDidEnd:),YES) ||
-       !LMVHomeMenuHookMatches(presentation,@selector(dismissalTransitionWillBegin),NO))return;
+    // 1.32: the LIST hooks are the ones that actually find the menu, and they now
+    // install on their own. Until this change the whole install aborted unless
+    // _UIContextMenuPresentationController existed AND exposed all three
+    // presentation methods - a shape the platter-era UIKit does not use for the
+    // Home/dock long-press menu. Requiring it took the list hooks down with it, so
+    // a menu that WAS on screen never had its list observed. The presentation hooks
+    // are kept as an OPTIONAL extra: on builds that still use them they supply the
+    // icon source; on builds that do not, the ancestry path in LMVHomeMenuOwner
+    // identifies the menu.
+    Class list=NSClassFromString(@"_UIContextMenuListView");
+    if(!list || ![list isSubclassOfClass:UIView.class])return;
+    if(!LMVHomeMenuHookMatches(list,@selector(layoutSubviews),NO) ||
+       !LMVHomeMenuHookMatches(list,@selector(didMoveToWindow),NO))return;
     installed=YES;
     MSHookMessageEx(list,@selector(layoutSubviews),(IMP)LMVHomeMenuHookLayout,(IMP *)&LMVHomeMenuOriginalLayout);
     MSHookMessageEx(list,@selector(didMoveToWindow),(IMP)LMVHomeMenuHookMove,(IMP *)&LMVHomeMenuOriginalMove);
-    MSHookMessageEx(presentation,@selector(presentationTransitionWillBegin),(IMP)LMVHomeMenuHookWillBegin,(IMP *)&LMVHomeMenuOriginalWillBegin);
-    MSHookMessageEx(presentation,@selector(presentationTransitionDidEnd:),(IMP)LMVHomeMenuHookDidEnd,(IMP *)&LMVHomeMenuOriginalDidEnd);
-    MSHookMessageEx(presentation,@selector(dismissalTransitionWillBegin),(IMP)LMVHomeMenuHookDismiss,(IMP *)&LMVHomeMenuOriginalDismiss);
+    Class presentation=NSClassFromString(@"_UIContextMenuPresentationController");
+    if(presentation && [presentation isSubclassOfClass:UIPresentationController.class] &&
+       LMVHomeMenuHookMatches(presentation,@selector(presentationTransitionWillBegin),NO) &&
+       LMVHomeMenuHookMatches(presentation,@selector(presentationTransitionDidEnd:),YES) &&
+       LMVHomeMenuHookMatches(presentation,@selector(dismissalTransitionWillBegin),NO)) {
+        MSHookMessageEx(presentation,@selector(presentationTransitionWillBegin),(IMP)LMVHomeMenuHookWillBegin,(IMP *)&LMVHomeMenuOriginalWillBegin);
+        MSHookMessageEx(presentation,@selector(presentationTransitionDidEnd:),(IMP)LMVHomeMenuHookDidEnd,(IMP *)&LMVHomeMenuOriginalDidEnd);
+        MSHookMessageEx(presentation,@selector(dismissalTransitionWillBegin),(IMP)LMVHomeMenuHookDismiss,(IMP *)&LMVHomeMenuOriginalDismiss);
+    }
 }

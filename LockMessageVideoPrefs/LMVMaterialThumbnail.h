@@ -7,6 +7,9 @@
 #import "LMVMaterialCatalog.h"
 #import <math.h>
 
+// 1.32: hard ceiling on a single frame grab - see LMVThumbnailCopyFrame.
+static const NSTimeInterval LMVThumbnailFrameTimeout = 4.0;
+
 // Independent of playback's .last-frames cache. Never change a video or its name.
 // Call on a background queue; immutable records are atomically shared across processes.
 static NSString *LMVThumbnailRevision(NSString *relative) {
@@ -15,10 +18,18 @@ static NSString *LMVThumbnailRevision(NSString *relative) {
     NSString *path = [LMV_CATALOG_ROOT stringByAppendingPathComponent:relative];
     struct stat s;
     if (stat(path.fileSystemRepresentation, &s) || !S_ISREG(s.st_mode)) return nil;
-    return [NSString stringWithFormat:@"%@|%llu:%llu:%lld:%lld:%ld:%lld:%ld", relative,
+    // 1.32: the ctime pair is gone. ctime is the INODE change time and it moves
+    // for reasons that have nothing to do with the video's content - a permission
+    // fixup, a hard-link count change, a restore pass. Any of those made a poster
+    // that had just been written look STALE to the very next look-up, so the row
+    // re-decoded, discarded its own fresh image as "stale", and went back to
+    // 生成中. inode + size + mtime is the honest content identity: replacing the
+    // file changes the inode and rewriting it moves the mtime, while a metadata
+    // touch no longer throws away a perfectly good poster. Records written before
+    // this change read as stale exactly once and are then rebuilt.
+    return [NSString stringWithFormat:@"%@|%llu:%llu:%lld:%lld:%ld", relative,
         (unsigned long long)s.st_dev, (unsigned long long)s.st_ino, (long long)s.st_size,
-        (long long)s.st_mtimespec.tv_sec, s.st_mtimespec.tv_nsec,
-        (long long)s.st_ctimespec.tv_sec, s.st_ctimespec.tv_nsec];
+        (long long)s.st_mtimespec.tv_sec, s.st_mtimespec.tv_nsec];
 }
 static NSString *LMVThumbnailRecordPath(NSString *relative) {
     NSData *bytes = [relative dataUsingEncoding:NSUTF8StringEncoding];
@@ -143,6 +154,30 @@ static UIImage *LMVThumbnailFromBuffer(CVPixelBufferRef buffer, CGAffineTransfor
     CGContextRelease(small);
     return poster;
 }
+// 1.32: a BOUNDED, CANCELLABLE frame grab. The synchronous -copyCGImageAtTime:
+// has no timeout at all: on a file that is still being written, an unusual codec
+// or a damaged container it can block this worker thread indefinitely. That one
+// stall is what strands a row on 生成中 forever, because its key stays in the
+// shared `pending` set - every later request becomes a skip-pending and the
+// failure ledger never advances, so even the retry budget is never spent. The
+// async form can be cancelled, which caps the wait and lets the caller move on to
+// the next candidate time instead of blocking the worker for good.
+static CGImageRef LMVThumbnailCopyFrame(AVAssetImageGenerator *generator, CMTime time, NSTimeInterval timeout) {
+    __block CGImageRef image = NULL;
+    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+    [generator generateCGImagesAsynchronouslyForTimes:@[[NSValue valueWithCMTime:time]]
+        completionHandler:^(CMTime requested, CGImageRef result, CMTime actual, AVAssetImageGeneratorResult status, NSError *error) {
+            if (status == AVAssetImageGeneratorSucceeded && result) image = CGImageRetain(result);
+            dispatch_semaphore_signal(finished);
+        }];
+    if (dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))) != 0) {
+        // Cancelling reports Cancelled through the same completion, so this second
+        // wait returns promptly rather than leaving the handler alive.
+        [generator cancelAllCGImageGeneration];
+        dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)));
+    }
+    return image;
+}
 static UIImage *LMVDecodeThumbnail(NSString *relative) {
     LMVThumbnailLog(@"decode-start", relative, nil);
     NSString *path = [LMV_CATALOG_ROOT stringByAppendingPathComponent:relative];
@@ -165,12 +200,19 @@ static UIImage *LMVDecodeThumbnail(NSString *relative) {
     // Respect edited clips whose video track starts after zero; avoid out-of-range t=1.
     CMTime start = CMTIME_IS_NUMERIC(track.timeRange.start) ? track.timeRange.start : kCMTimeZero;
     double duration = CMTimeGetSeconds(track.timeRange.duration);
-    for (NSNumber *offset in @[@0, @0.1]) {
+    // 1.32: three candidate times, each bounded by LMVThumbnailFrameTimeout. The
+    // old 0.1 s fallback sat too close to the start for the clips that open on a
+    // black field or a fade-in: the grab SUCCEEDED and produced a BLACK poster,
+    // which was then written to disk and served as the "preview" from then on. Half
+    // a second and a full second step past that lead-in. The timeout also means a
+    // clip that simply cannot produce a frame no longer costs the row its place in
+    // the queue.
+    for (NSNumber *offset in @[@0, @0.5, @1.0]) {
         double seconds = offset.doubleValue;
         if (seconds > 0 && (!isfinite(duration) || seconds >= duration)) continue;
         error = nil;
         LMVThumbnailLog([NSString stringWithFormat:@"generator-start offset=%.3f", seconds], relative, nil);
-        CGImageRef image = [generator copyCGImageAtTime:CMTimeAdd(start, CMTimeMakeWithSeconds(seconds, 600)) actualTime:NULL error:&error];
+        CGImageRef image = LMVThumbnailCopyFrame(generator, CMTimeAdd(start, CMTimeMakeWithSeconds(seconds, 600)), LMVThumbnailFrameTimeout);
         if (image) {
             UIImage *poster = [UIImage imageWithCGImage:image];
             LMVThumbnailLog([NSString stringWithFormat:@"generator-success width=%lu height=%lu", (unsigned long)CGImageGetWidth(image), (unsigned long)CGImageGetHeight(image)], relative, nil);

@@ -284,6 +284,27 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
             });
         }
     }];
+    // 1.32: WATCHDOG for the shared `pending` set. Whatever the worker is doing -
+    // and the synchronous frame grab used to be able to block indefinitely - a row
+    // must never be STRANDED in `pending`, because that is exactly what a permanent
+    // 生成中 is: every later request for that key becomes a skip-pending, the
+    // failure ledger never advances, and so the retry budget is never even spent.
+    // The row simply sits there. If the key is still pending at the deadline and no
+    // poster landed, clear it and count one failure so the existing retry path can
+    // queue it again on a fresh worker.
+    NSMutableSet<NSString *> *watchedPending = sharedPending;
+    NSCache<NSString *, UIImage *> *watchedCache = sharedCache;
+    NSMutableDictionary<NSString *, NSNumber *> *watchedFailures = self.thumbnailFailures;
+    NSString *watchedKey = [key copy];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (![watchedPending containsObject:watchedKey]) return;          // finished normally
+        if ([watchedCache objectForKey:watchedKey]) { [watchedPending removeObject:watchedKey]; return; }
+        [watchedPending removeObject:watchedKey];
+        watchedFailures[watchedKey] = @(watchedFailures[watchedKey].integerValue + 1);
+        LMVThumbnailLog(@"watchdog-timeout", relative, nil);
+        LMVMaterialPicker *picker = weakSelf;
+        if (picker) [picker scheduleRetryForKey:watchedKey];
+    });
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Material"];

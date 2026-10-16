@@ -181,7 +181,11 @@ class UISectionOrder(unittest.TestCase):
 
     def test_shared_picker_delete_routing_unchanged(self):
         # 0.0.117: orientation support is added to the picker (rotation follow).
-        self.assertEqual(digest(PICKER), 'da64be50bc84655b99e139f1fa8f8ac76183ba9f52859d051da2c75028ce151b')
+        # 1.32: a watchdog for the shared `pending` set is added. A stalled worker
+        # (the synchronous frame grab had no timeout) used to strand a row on 生成中
+        # forever, because the key never left `pending`. Nothing about the delete
+        # routing changed.
+        self.assertEqual(digest(PICKER), '8893116cbbabc51be107f866be50cd244c68cb891c00ca1de047f87bd7bbab6b')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')

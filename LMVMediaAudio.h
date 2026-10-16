@@ -132,16 +132,26 @@ static void LMVAudioConsume(NSString *target,NSString *path,NSString *revision,B
             });
         }];
     } else if(c.player && LMVAudioActivateMixing()) {
-        c.player.volume=c.volume;
+        // 1.32: a property WRITE and a `currentTime` READ both reach into the
+        // media daemon, and this branch runs for every enabled channel on every
+        // sync beat - it is the steady-state cost of having any sound on. The
+        // volume is now value-compared, and the drift measurement (the only real
+        // reason to read `currentTime` at all) is throttled to one check per 2 s
+        // by stamping `lastSync` on the CHECK rather than only on the seek. The
+        // seek itself still happens exactly when the measured drift exceeds the
+        // threshold, so playback stays in step with the video.
+        if(c.player.volume!=c.volume)c.player.volume=c.volume;
         if(c.player.rate==0) {
             if(CMTIME_IS_NUMERIC(time))[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
             [c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();
         }
         CFTimeInterval now=CACurrentMediaTime();
-        CMTime current=c.player.currentTime;
-        if(now-c.lastSync>=2 && CMTIME_IS_NUMERIC(current) && CMTIME_IS_NUMERIC(time) &&
-           fabs(CMTimeGetSeconds(CMTimeSubtract(current,time)))>.4) {
-            c.lastSync=now;[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
+        if(now-c.lastSync>=2) {
+            c.lastSync=now;
+            CMTime current=c.player.currentTime;
+            if(CMTIME_IS_NUMERIC(current) && CMTIME_IS_NUMERIC(time) &&
+               fabs(CMTimeGetSeconds(CMTimeSubtract(current,time)))>.4)
+                [c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
         }
     }
 }

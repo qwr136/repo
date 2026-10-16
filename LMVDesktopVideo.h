@@ -217,6 +217,12 @@ static void LMVDesktopVideoSuspend(void);
 // fade starts revealing the desktop it requests one full update, so the layer
 // is back within ~16 ms - imperceptible.
 @property(nonatomic,strong) CADisplayLink *coverWatch;
+// 1.32: the cheap gate for -coverWatchTick:. `probeWindowCount` is the number of
+// VISIBLE windows seen by the last full probe, `probeFullAt` is when that probe
+// ran. While neither moves, the tick has nothing new to measure - see the gate
+// in -coverWatchTick: for why that is safe in both directions.
+@property(nonatomic) NSUInteger probeWindowCount;
+@property(nonatomic) CFTimeInterval probeFullAt;
 - (void)refresh:(BOOL)reload;
 - (void)primePoster;
 - (void)update;
@@ -549,6 +555,24 @@ static BOOL LMVDesktopControlCenterPresented(void) {
     id shared=LMVDesktopSharedInstance(@"SBControlCenterController");
     return LMVDesktopBoolSelector(shared,@"isVisible") || LMVDesktopBoolSelector(shared,@"isPresented");
 }
+// 1.32: the CHEAP half of the cover probe - how many windows are on screen right
+// now. Every transition the cover watch cares about moves this number: an app
+// window appears (launch) or disappears (exit), the Control Center window is
+// unhidden (open) or hidden (dismiss), the switcher shell comes and goes.
+// Reading it costs one property per window - no class lookup, no layer query, no
+// rect conversion - so it is affordable on every frame as a gate in front of the
+// expensive measurement that used to run there. A HALF-pulled notification sheet
+// deliberately does not move it, which matches the rule that a partial pull is
+// not a cover at all.
+static NSUInteger LMVDesktopVisibleWindowCount(void) {
+    NSUInteger count=0;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows)
+            if (!window.hidden && window.alpha>=.01) count++;
+    }
+    return count;
+}
 static BOOL LMVDesktopFullyCovered(UIView *view,CGRect cover) {
     CGRect target=LMVLockVideoVisibleRect(view,view.window);if(CGRectIsEmpty(target))return YES;
     CGRect overlap=CGRectIntersection(target,cover);
@@ -611,8 +635,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 }
 - (void)dealloc {[_timer invalidate];[_coverWatch invalidate];[_lease restore];[_host removeFromSuperview];}
 - (void)syncGeometry {
-    if(self.updating || self.suspended || self.host.hidden || self.host.superview!=self.container)return;
-    UIView *container=self.container;if(!container || !LMVLockVideoRectValid(container.bounds))return;
+    // 1.32: the live superview, never `container` - on the Home path the surface
+    // hangs off the Home view, which is also the geometry target. When the host
+    // is not attached, `container` is the wallpaper and the bounds would be the
+    // wrong size; keep the retained frame and let the next -update repair it.
+    if(self.updating || self.suspended || self.host.hidden)return;
+    UIView *container=self.host.superview;if(!container || !LMVLockVideoRectValid(container.bounds))return;
     // Already-owned local repair only. Never discover windows/scan pure-content
     // trees, change playback intent or enqueue global refresh from layout.
     if(!CGRectEqualToRect(self.host.frame,container.bounds)) {
@@ -620,6 +648,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         self.host.frame=container.bounds;[self.playback layoutInBounds:self.host.bounds];
         [CATransaction commit];
     }
+    // The suppress-lease only ever lives on the wallpaper branch. `held` is nil
+    // on the Home path (no lease is taken there), so this is already a no-op.
     UIView *held=self.lease.content;
     if(self.lease.parent==container && held.superview==container && self.lease.applied &&
        !self.lease.baselineHidden && !held.hidden)held.hidden=YES;
@@ -657,7 +687,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             CFTimeInterval now=CACurrentMediaTime();
             if (now-live.lastRevisionCheck>=1) {live.lastRevisionCheck=now;NSString *revision=LMVLockVideoRevision(live.path);
                 if((revision || live.revision) && ![revision isEqualToString:live.revision]) {live.revision=revision;[live.playback selectPath:live.path revision:revision];}}
-            if(now-live.lastDiscovery>=1){live.lastDiscovery=now;LMVDesktopDiscover();}
+            // 1.32: 1 s -> 2 s. This walks every window's whole controller tree
+            // (budget 160 nodes) and it is a DISCOVERY pass, not a per-frame
+            // signal: the controllers it looks for are created once at Home
+            // setup and survive. Halving the rate removes a periodic full-tree
+            // walk from the steady state with no effect on the cover decisions,
+            // which never read this list.
+            if(now-live.lastDiscovery>=2){live.lastDiscovery=now;LMVDesktopDiscover();}
             [live update];
         }];[NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     } else if (!self.enabled || !self.path.length) {[self.timer invalidate];self.timer=nil;}
@@ -696,6 +732,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 - (void)startCoverWatch {
     if (self.coverWatch || self.suspended || !LMVLaunchReady) return;
     self.coverWatch=[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchTick:)];
+    // 1.32: cap the watcher at 60 Hz. Left unset, ProMotion hardware runs this at
+    // 120 Hz - double the probe rate for a signal whose fastest meaningful change
+    // (the app-exit cross-fade) is one frame wide at 60 Hz anyway, and two frames
+    // of extra latency at worst on the reveal.
+    self.coverWatch.preferredFramesPerSecond=60;
     [self.coverWatch addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 - (void)stopCoverWatch {
@@ -703,6 +744,31 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
     if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
+    // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
+    // full cover measurement - window enumeration, a class match per window, a
+    // subview walk and presentation-layer conversions inside it - on EVERY frame,
+    // 60-120 times a second, forever, on SpringBoard's main thread. On the steady
+    // state it always reached the same conclusion: the desktop is exposed, nothing
+    // is held. That repeat is the measurable cost of simply "desktop video is on",
+    // and it is what made SpringBoard's CPU high while the video was playing.
+    //   - FROZEN (or hidden) runs the full probe every frame, exactly as before.
+    //     This is the state that must catch a REVEAL on the exact frame, and a
+    //     frozen player costs no decode - this is the cheap side of the trade, and
+    //     it is what keeps the app-exit and Control-Center-dismiss resume at zero
+    //     delay.
+    //   - PLAYING re-measures only when the visible-window count moved or a full
+    //     probe has not run for a second. The count is the one cheap signal every
+    //     transition produces; the one-second ceiling means nothing can be missed
+    //     for longer than that, so every edge case keeps a bounded lateness while
+    //     the steady state stops paying for a probe whose answer cannot change.
+    //   - `appAway` bypasses the gate: the exit release is evaluated per frame on
+    //     purpose and must never be starved by it.
+    if (!self.host.hidden && !self.playback.frozen && !self.appAway) {
+        CFTimeInterval gateNow=CACurrentMediaTime();
+        NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
+        if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
+        self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
+    }
     BOOL unknown=NO,appCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover);
     if (unknown) return;
@@ -928,19 +994,27 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         UIView *homeHost=LMVDesktopHomeHostView(&homeIcons);
         BOOL usingHomeHost=(homeHost!=nil && homeIcons!=nil);
         if (usingHomeHost) {
-            // 1.31: the desktop video draws on the desktop itself - under the icon
-            // container, above the wallpaper. No wallpaper lease is taken on this
+            // 1.31: the desktop video draws on the desktop itself - above the
+            // wallpaper, inside the Home view. No wallpaper lease is taken on this
             // path: the video sits ON TOP of the wallpaper rather than replacing it,
             // so nothing of the system's own background has to be hidden (and none of
             // the lease side effects can show up).
             if (self.lease) {[self.lease restore];self.lease=nil;}
-            // insertSubview:atIndex: rather than belowSubview: - the same position
-            // (the icon container's OWN index, so the video lands directly under it),
-            // with an API the host harness already implements and no exception path.
-            NSInteger iconIdx=(NSInteger)[homeHost.subviews indexOfObjectIdenticalTo:homeIcons];
-            NSUInteger target=(iconIdx>0)?(NSUInteger)iconIdx:0;
-            if (self.host.superview!=homeHost ||
-                (NSInteger)[homeHost.subviews indexOfObjectIdenticalTo:self.host]!=(NSInteger)target) {
+            // 1.32: land the surface at the BOTTOM of the Home view instead of
+            // directly under the icon container. On device the icon container itself
+            // sits at index 0, so the 1.31 target (the icon container's OWN index)
+            // resolved to index 0 too - and every pass then pushed the icon container
+            // up one slot to make room for the video. Icons and video traded places,
+            // which is exactly the reported flicker, and the video ended up sandwiched
+            // between the icons and the dock.
+            // Index 0 has no such hazard: the wallpaper branch is already below the
+            // Home view, so nothing is hidden, and no existing sibling ever has to
+            // move for the video to land there. (The Home-view backing layer is
+            // opaque, so the video still composites above the wallpaper.)
+            NSUInteger target=0;
+            NSUInteger own=(self.host.superview==homeHost)?
+                (NSUInteger)[homeHost.subviews indexOfObjectIdenticalTo:self.host]:NSNotFound;
+            if (self.host.superview!=homeHost || own!=target) {
                 [self.host removeFromSuperview];
                 [homeHost insertSubview:self.host atIndex:target];
             }
@@ -969,9 +1043,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         UIView *hostParent=container;
         if (!usingHomeHost && (container.hidden || container.alpha<0.01) && container.superview!=nil) hostParent=container.superview;
         if (hostParent!=container) {
-            if(self.host.superview!=hostParent) {
+            // 1.32: identical rule to the Home branch - park the surface at the
+            // bottom of the borrowed parent rather than right above the wallpaper
+            // view, so no existing sibling index is ever disturbed.
+            if(self.host.superview!=hostParent ||
+               [hostParent.subviews indexOfObjectIdenticalTo:self.host]!=0) {
                 [self.host removeFromSuperview];
-                [hostParent insertSubview:self.host aboveSubview:container];
+                [hostParent insertSubview:self.host atIndex:0];
             }
         }
         UIView *geometryTarget=usingHomeHost?homeHost:container;
