@@ -223,6 +223,10 @@ static void LMVDesktopVideoSuspend(void);
 // in -coverWatchTick: for why that is safe in both directions.
 @property(nonatomic) NSUInteger probeWindowCount;
 @property(nonatomic) CFTimeInterval probeFullAt;
+// 1.33: whether the surface is currently on the Home host. It decides whether the
+// geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
+// reads it, so it has to be part of the manager rather than a local.
+@property(nonatomic) BOOL homeHostGeometry;
 - (void)refresh:(BOOL)reload;
 - (void)primePoster;
 - (void)update;
@@ -573,6 +577,52 @@ static NSUInteger LMVDesktopVisibleWindowCount(void) {
     }
     return count;
 }
+// 1.33: the height of the floating dock, measured from the dock's own window.
+// Why this matters: 1.31 moved the surface out of _SBWallpaperSecureWindow and
+// into SBHomeScreenWindow. A SECURE window's content is excluded from system
+// backdrop capture; the Home window's content is not. So the dock's floating blur
+// (SBFloatingDockView) started sampling our FULL-SCREEN video, and the dock's own
+// appearance changed with it - reported as the dock vanishing behind the
+// long-press menu. Keeping the surface above the dock strip restores exactly what
+// 1.30 showed there (the system background) without giving up the desktop video.
+// Measured rather than assumed: the dock moves and resizes with Reachability,
+// rotation and device, so a constant would be wrong on some of them.
+static CGFloat LMVDesktopDockInset(void) {
+    Class dockWindowClass=NSClassFromString(@"SBFloatingDockWindow");
+    Class dockViewClass=NSClassFromString(@"SBFloatingDockView");
+    if(!dockWindowClass || !dockViewClass) return 0;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (![window isKindOfClass:dockWindowClass] || window.hidden || window.alpha<.01) continue;
+            if (window.screen!=UIScreen.mainScreen || !LMVLockVideoRectValid(window.bounds)) continue;
+            NSMutableArray<UIView *> *pending=[NSMutableArray arrayWithArray:window.subviews];
+            NSUInteger budget=40;
+            while (pending.count && budget--) {
+                UIView *node=pending.lastObject;[pending removeLastObject];
+                if ([node isKindOfClass:dockViewClass]) {
+                    CGRect rect=[node convertRect:node.bounds toView:window];
+                    CGFloat inset=window.bounds.size.height-CGRectGetMinY(rect);
+                    // A sane dock is a bottom strip, not most of the screen.
+                    return (inset>1 && inset<window.bounds.size.height*0.4)?inset:0;
+                }
+                [pending addObjectsFromArray:node.subviews];
+            }
+        }
+    }
+    return 0;
+}
+// 1.33: the single place that answers "how big is the surface". The Home path
+// stops above the dock strip (see LMVDesktopDockInset); every other path keeps the
+// full container, exactly as before.
+static CGRect LMVDesktopVideoBoundsFor(UIView *geometryTarget,BOOL homeHost) {
+    CGRect bounds=geometryTarget.bounds;
+    if(homeHost) {
+        CGFloat inset=LMVDesktopDockInset();
+        if(inset>1 && bounds.size.height>inset+1) bounds.size.height-=inset;
+    }
+    return bounds;
+}
 static BOOL LMVDesktopFullyCovered(UIView *view,CGRect cover) {
     CGRect target=LMVLockVideoVisibleRect(view,view.window);if(CGRectIsEmpty(target))return YES;
     CGRect overlap=CGRectIntersection(target,cover);
@@ -641,11 +691,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // wrong size; keep the retained frame and let the next -update repair it.
     if(self.updating || self.suspended || self.host.hidden)return;
     UIView *container=self.host.superview;if(!container || !LMVLockVideoRectValid(container.bounds))return;
+    // 1.33: the same size rule the update path uses - on the Home host this stops
+    // above the dock strip, so a layout pass cannot quietly grow it back over the
+    // dock and reintroduce the dock problem.
+    CGRect geometry=LMVDesktopVideoBoundsFor(container,self.homeHostGeometry);
     // Already-owned local repair only. Never discover windows/scan pure-content
     // trees, change playback intent or enqueue global refresh from layout.
-    if(!CGRectEqualToRect(self.host.frame,container.bounds)) {
+    if(!CGRectEqualToRect(self.host.frame,geometry)) {
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        self.host.frame=container.bounds;[self.playback layoutInBounds:self.host.bounds];
+        self.host.frame=geometry;[self.playback layoutInBounds:self.host.bounds];
         [CATransaction commit];
     }
     // The suppress-lease only ever lives on the wallpaper branch. `held` is nil
@@ -1053,9 +1107,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             }
         }
         UIView *geometryTarget=usingHomeHost?homeHost:container;
-        BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,geometryTarget.bounds);
+        // 1.33: on the Home host the surface stops above the dock strip. The dock's
+        // floating blur samples this window, and since 1.31 the surface lives here
+        // rather than in a SECURE window, so a full-screen surface changed the
+        // dock's own appearance. See LMVDesktopDockInset.
+        self.homeHostGeometry=usingHomeHost;
+        CGRect videoBounds=LMVDesktopVideoBoundsFor(geometryTarget,usingHomeHost);
+        BOOL geometryChanged=!CGRectEqualToRect(self.host.frame,videoBounds);
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        if(geometryChanged)self.host.frame=geometryTarget.bounds;
+        if(geometryChanged)self.host.frame=videoBounds;
         if(self.host.alpha!=1)self.host.alpha=1;
         // 0.0.124: do not composite a layer that nothing can see. The layer stays
         // attached to the same superview, so it is back the instant the cover goes

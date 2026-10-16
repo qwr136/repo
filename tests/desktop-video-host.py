@@ -329,6 +329,13 @@ pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated;', '- (void)viewWillDis
 pre=pre.replace('- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}', '- (void)viewWillDisappear:(BOOL)animated {self.disappearances++;}\n- (void)viewDidDisappear:(BOOL)animated {self.disappearances++;}')
 pre=pre.replace('@interface UIWindow:UIView\n', '@interface UIWindow:UIView\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window;\n')
 pre=pre.replace('- (UIWindow *)window {return self;}','- (UIWindow *)window {return self;}\n- (CGRect)convertRect:(CGRect)rect toWindow:(UIWindow *)window {return [self.layer convertRect:rect toLayer:window.layer];}')
+# 1.33: LMVDesktopDockInset measures SBFloatingDockView inside its window, so the
+# double needs the same UIView coordinate conversion the production code uses.
+# (No SBFloatingDockWindow class exists in the doubles, so the inset resolves to 0
+# and every existing geometry expectation stays a full container.)
+if 'convertRect:(CGRect)rect toView:' not in pre:
+ pre=pre.replace('@interface UIView:NSObject <CALayerDelegate>', '@interface UIView:NSObject <CALayerDelegate>\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view;')
+ pre=pre.replace('@implementation UIView\n', '@implementation UIView\n- (CGRect)convertRect:(CGRect)rect toView:(UIView *)view {return [self.layer convertRect:rect toLayer:view.layer];}\n')
 pre=pre.replace('@interface UIApplication:NSObject\n','@interface UIApplication:NSObject\n@property(nonatomic,strong) id frontmost;\n- (id)_frontmostApplication;\n')
 # 1.25: the legacy (scene-less) window list the surface diagnostic walks.
 pre=pre.replace('@property(nonatomic,strong) NSArray *connectedScenes;','@property(nonatomic,strong) NSArray *connectedScenes;\n@property(nonatomic,strong) NSArray *windows;')
