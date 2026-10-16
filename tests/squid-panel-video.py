@@ -69,6 +69,14 @@ assert '#define LMVSquidPanelSlotCount 4' in module
 assert 'static NSString *LMVSquidPanelSlotPaths[LMVSquidPanelSlotCount];' in module
 assert 'static NSString *LMVSquidPanelSlotRevisions[LMVSquidPanelSlotCount];' in module
 assert 'static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];' in module
+# 1.55: a slot remembers EVERY signature it was seen as - the 1.54 report is that editing
+# a panel's layout changed its icon count and the panel became a stranger for good.
+assert '#define LMVSquidPanelSlotSignatureMemory 4' in module
+assert 'static NSArray *LMVSquidPanelSlotSigSets[LMVSquidPanelSlotCount];' in module
+assert 'static void LMVSquidPanelStoreSlot(NSInteger slot,NSArray *set) {' in module
+assert 'static void LMVSquidPanelSigSetsClear(NSInteger slot) {' in module
+assert 'if(![LMVSquidPanelSlotSigSets[i] containsObject:sig])continue;' in module
+assert 'while(set.count>(NSUInteger)LMVSquidPanelSlotSignatureMemory)[set removeObjectAtIndex:0];' in module
 assert 'return @[@"SquidPanelVideo",@"SquidPanel2Video",@"SquidPanel3Video",@"SquidPanel4Video"];' in module
 assert 'return @[@"SquidPanelSlot1Sig",@"SquidPanelSlot2Sig",@"SquidPanelSlot3Sig",@"SquidPanelSlot4Sig"];' in module
 # 1.54: the slots are named the way the user names the gestures - 右一 = 右上滑 and so
@@ -88,6 +96,14 @@ for m in re.finditer(r'\b(?:CGFloat|NSInteger|NSUInteger|int|double|float|BOOL) 
 # keys (the card object is re-created on every open; the height is what the user edits).
 assert 'static __weak UIView *LMVSquidPanelTallCard' not in module    # object memory is gone
 assert 'static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];' in module
+# 1.55: a slot remembers EVERY signature it was seen as - the 1.54 report is that editing
+# a panel's layout changed its icon count and the panel became a stranger for good.
+assert '#define LMVSquidPanelSlotSignatureMemory 4' in module
+assert 'static NSArray *LMVSquidPanelSlotSigSets[LMVSquidPanelSlotCount];' in module
+assert 'static void LMVSquidPanelStoreSlot(NSInteger slot,NSArray *set) {' in module
+assert 'static void LMVSquidPanelSigSetsClear(NSInteger slot) {' in module
+assert 'if(![LMVSquidPanelSlotSigSets[i] containsObject:sig])continue;' in module
+assert 'while(set.count>(NSUInteger)LMVSquidPanelSlotSignatureMemory)[set removeObjectAtIndex:0];' in module
 assert 'static NSString *LMVSquidPanelShapeSig;' in module
 assert 'static NSString *LMVSquidPanelShapeReason=@"none";' in module
 assert 'static NSUInteger LMVSquidPanelIconCount(UIView *card) {' in module
@@ -119,14 +135,23 @@ assert 'if(!LMVSquidPanelSlotSigs[i].length){freeSlot=i;break;}' in module
 assert 'NSString *reason=[NSString stringWithFormat:@"new@slot%d",(int)freeSlot+1];' in module
 assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0)' in module
 assert 'reason=[reason stringByAppendingString:@"+pair-swapped"];' in module
-# ...and a full table means an EDITED panel, placed by the closest icon count.
-assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];' in module
+# ...and a full table means an EDITED panel. 1.55: scored by the height in this
+# orientation first (a layout edit moves the icon count, not the size) plus the icon
+# count, and only stored when the winner is clear - a coin flip is played, never saved.
+assert 'CGFloat score=gap+(CGFloat)d*6;' in module
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-%@-slot%d",clear?@"adopted":@"unclear",(int)best+1];' in module
+assert 'BOOL clear=(second==NSNotFound) || (secondScore-bestScore>20);' in module
+# An edit that left the height alone is recognised outright, even while a slot is still
+# empty - otherwise it looked like the panel that slot was waiting for.
+assert 'if(recorded>0 && height>0 && fabs(height-recorded)<=2) { if(!matches)match=i; matches++; }' in module
+assert 'if(matches==1) {' in module
+assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-height-slot%d",(int)match+1];' in module
 # 1.53's side guessing is gone for good - a rule that only ever guessed.
 for dead in ('rightComplete', 'leftComplete', 'leftSide', 'sideTag', 'shortPanel'):
     assert dead not in module, f'the side-guessing rule is back: {dead}'
 # The slots a previous rule wrote cannot be trusted, so upgrading clears them by itself
 # instead of making the user tap 重置面板识别.
-assert '#define LMVSquidPanelLearnGeneration 2' in module
+assert '#define LMVSquidPanelLearnGeneration 3' in module
 assert 'CFSTR("SquidPanelLearnVersion")' in module
 # ...and WITHIN a side the two panels order themselves, which is what makes the whole
 # thing automatic: 上滑 is the taller one of the pair (device logs: left 上滑
@@ -148,7 +173,6 @@ assert 'static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot
 assert 'NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;' in module
 assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0) {' in module
 assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
-assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];' in module
 # (d) 1.53: nothing manual is left - an unknown panel is always placed by the rules
 # above, and one row ("重置面板识别") exists only to clear a record that went wrong.
 assert 'LMVSquidPanelBindLastSeen' not in module and 'LMVSquidPanelClaimToken' not in module

@@ -26,12 +26,22 @@ static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown,LMVSquidPanelSwapShapes
 // 1.54: how the four slots are FILLED. Bumped whenever the rule that decides which
 // slot a brand-new panel belongs to changes, so a device upgrades by forgetting the
 // slots it wrote under the old rule instead of trusting an order that is now wrong.
-#define LMVSquidPanelLearnGeneration 2
+#define LMVSquidPanelLearnGeneration 3
 static NSString *LMVSquidPanelSlotPaths[LMVSquidPanelSlotCount];
 static NSString *LMVSquidPanelSlotRevisions[LMVSquidPanelSlotCount];
 // The content signature each slot was last seen as - the 1.47/1.48 identity memory,
 // now one entry per slot instead of one per shape.
 static NSString *LMVSquidPanelSlotSigs[LMVSquidPanelSlotCount];
+// 1.55: and EVERY signature that slot has ever been seen as, newest last, at most
+// LMVSquidPanelSlotSignatureMemory of them. A slot that only remembered one signature
+// lost the panel the moment the user changed its LAYOUT - the report that started this
+// release: editing a panel changes its icon count, the signature no longer matched, and
+// the panel was treated as a stranger from then on. Keeping the older signatures means a
+// panel that has been edited is still itself, and an edit that is undone is recognised
+// too. The set is what identifies a slot; LMVSquidPanelSlotSigs[] stays the NEWEST one,
+// which is what the comparisons below use.
+#define LMVSquidPanelSlotSignatureMemory 4
+static NSArray *LMVSquidPanelSlotSigSets[LMVSquidPanelSlotCount];
 // 1.53: and how tall each of them was - the pair's own ordering evidence (see
 // LMVSquidPanelOrderPair) - kept SEPARATELY FOR EACH ORIENTATION, because a card is
 // 435pt tall in portrait and 340pt in landscape: comparing a portrait height against a
@@ -243,21 +253,48 @@ static NSUInteger LMVSquidPanelSignatureDistance(NSUInteger icons,NSString *sig)
 // 1.50: bind a signature to a slot - and, because a signature only ever names ONE
 // panel, drop it from whichever slot claimed it before. The auto chain does this on
 // first sight, and a pair that was written wrong is cleared by "重置面板识别".
+// Write a slot's signature set out, and keep the newest signature at the front of the
+// comparisons. The stored order is newest-last, so the array is trimmed from the front.
+static void LMVSquidPanelStoreSlot(NSInteger slot,NSArray *set) {
+    NSArray *keys=LMVSquidPanelSlotSigKeys();
+    if(!set.count) {
+        CFPreferencesSetAppValue((__bridge CFStringRef)keys[slot],NULL,kLMVPrefsID);
+        LMVSquidPanelSlotSigSets[slot]=nil;LMVSquidPanelSlotSigs[slot]=nil;
+        return;
+    }
+    CFPreferencesSetAppValue((__bridge CFStringRef)keys[slot],(__bridge CFArrayRef)set,kLMVPrefsID);
+    LMVSquidPanelSlotSigSets[slot]=[set copy];
+    LMVSquidPanelSlotSigs[slot]=set.lastObject;
+}
+// 1.55: drop every signature a slot knew - used by 重置面板识别 and by the upgrade.
+static void LMVSquidPanelSigSetsClear(NSInteger slot) {
+    if(slot<0 || slot>=LMVSquidPanelSlotCount)return;
+    CFPreferencesSetAppValue((__bridge CFStringRef)LMVSquidPanelSlotSigKeys()[slot],NULL,kLMVPrefsID);
+    LMVSquidPanelSlotSigSets[slot]=nil;LMVSquidPanelSlotSigs[slot]=nil;
+}
+// 1.55: a signature joins the slot it was seen as - it does NOT push the older ones out,
+// unless another slot still claims it (one signature can only belong to one panel).
 static void LMVSquidPanelRememberSlot(NSInteger slot,NSString *sig) {
     if(slot<0 || slot>=LMVSquidPanelSlotCount)return;
     if(![sig isKindOfClass:NSString.class] || !sig.length || [sig isEqualToString:@"none"])return;
-    NSArray *keys=LMVSquidPanelSlotSigKeys();
     for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
-        if(i==slot || !LMVSquidPanelSlotSigs[i].length)continue;
-        if(![sig isEqualToString:LMVSquidPanelSlotSigs[i]])continue;
-        CFPreferencesSetAppValue((__bridge CFStringRef)keys[i],NULL,kLMVPrefsID);
-        CFPreferencesSetAppValue((__bridge CFStringRef)LMVSquidPanelSlotHeightKeys()[i],NULL,kLMVPrefsID);
-        LMVSquidPanelSlotSigs[i]=nil;LMVSquidPanelSlotSeen[i]=0;
-        LMVSquidPanelSlotHeights[i][0]=0;LMVSquidPanelSlotHeights[i][1]=0;
+        if(i==slot)continue;
+        NSMutableArray *set=[(LMVSquidPanelSlotSigSets[i]?:@[]) mutableCopy];
+        if(![set containsObject:sig])continue;
+        [set removeObject:sig];
+        LMVSquidPanelStoreSlot(i,set);
+        if(!set.count) {
+            CFPreferencesSetAppValue((__bridge CFStringRef)LMVSquidPanelSlotHeightKeys()[i],NULL,kLMVPrefsID);
+            LMVSquidPanelSlotSeen[i]=0;
+            LMVSquidPanelSlotHeights[i][0]=0;LMVSquidPanelSlotHeights[i][1]=0;
+        }
     }
-    CFPreferencesSetAppValue((__bridge CFStringRef)keys[slot],(__bridge CFStringRef)sig,kLMVPrefsID);
+    NSMutableArray *set=[(LMVSquidPanelSlotSigSets[slot]?:@[]) mutableCopy];
+    [set removeObject:sig];
+    [set addObject:sig];
+    while(set.count>(NSUInteger)LMVSquidPanelSlotSignatureMemory)[set removeObjectAtIndex:0];
+    LMVSquidPanelStoreSlot(slot,set);
     CFPreferencesAppSynchronize(kLMVPrefsID);
-    LMVSquidPanelSlotSigs[slot]=[sig copy];
 }
 // 1.51: which of the four materials this panel plays - no user step required.
 //
@@ -301,15 +338,15 @@ static void LMVSquidPanelNoteHeight(NSInteger slot,CGFloat height,BOOL landscape
 // Move a remembered panel to the other slot of its pair, heights included.
 static void LMVSquidPanelMoveSlot(NSInteger from,NSInteger to) {
     if(from==to || from<0 || from>=LMVSquidPanelSlotCount || to<0 || to>=LMVSquidPanelSlotCount)return;
-    NSString *sig=LMVSquidPanelSlotSigs[from];
-    if(!sig.length)return;
+    NSArray *set=LMVSquidPanelSlotSigSets[from];
+    if(!set.count)return;
     CGFloat portrait=LMVSquidPanelSlotHeights[from][0],landscape=LMVSquidPanelSlotHeights[from][1];
     CFPreferencesSetAppValue((__bridge CFStringRef)LMVSquidPanelSlotSigKeys()[from],NULL,kLMVPrefsID);
     CFPreferencesSetAppValue((__bridge CFStringRef)LMVSquidPanelSlotHeightKeys()[from],NULL,kLMVPrefsID);
     NSTimeInterval seen=LMVSquidPanelSlotSeen[from];
-    LMVSquidPanelSlotSigs[from]=nil;LMVSquidPanelSlotSeen[from]=0;
+    LMVSquidPanelStoreSlot(from,nil);LMVSquidPanelSlotSeen[from]=0;
     LMVSquidPanelSlotHeights[from][0]=0;LMVSquidPanelSlotHeights[from][1]=0;
-    LMVSquidPanelRememberSlot(to,sig);
+    for(NSString *sig in set)LMVSquidPanelRememberSlot(to,sig);
     LMVSquidPanelSlotSeen[to]=seen;
     if(portrait>0)LMVSquidPanelNoteHeight(to,portrait,NO);
     if(landscape>0)LMVSquidPanelNoteHeight(to,landscape,YES);
@@ -351,9 +388,14 @@ static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
     CGFloat height=cardFrame.size.height;
     BOOL landscape=LMVSquidPanelLandscape(window);
     for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
-        if(!LMVSquidPanelSlotSigs[i].length)continue;
-        if(![sig isEqualToString:LMVSquidPanelSlotSigs[i]])continue;
+        // 1.55: ANY signature this slot has ever been seen as identifies it, so an edited
+        // layout does not turn the panel into a stranger.
+        if(![LMVSquidPanelSlotSigSets[i] containsObject:sig])continue;
         LMVSquidPanelSlotSeen[i]=CACurrentMediaTime();
+        if(![sig isEqualToString:LMVSquidPanelSlotSigs[i]]) {
+            LMVSquidPanelRememberSlot(i,sig);   // keep the newest one at the front
+            LMVSquidPanelSlotSeen[i]=CACurrentMediaTime();
+        }
         LMVSquidPanelNoteHeight(i,height,landscape);
         // (c) the pair self-heals: an inverted record is swapped where it is noticed.
         NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;
@@ -377,24 +419,57 @@ static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
     // fixed slot order puts the first four panels the user opens exactly where they
     // belong, and a pair that is opened the other way round (右二 before 右一) sorts
     // itself out the moment the second one appears.
+    // 1.55: before a new signature is allowed to take an empty slot, check whether it is
+    // a KNOWN panel whose layout was edited. An edit changes the icon count - which IS the
+    // signature - but usually leaves the panel's HEIGHT alone, and two of the four panels
+    // rarely share a height to within 2pt. Without this, editing one of three learned
+    // panels made it look like the fourth one, which was still empty.
+    NSInteger match=NSNotFound; NSUInteger matches=0;
+    for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
+        if(!LMVSquidPanelSlotSigs[i].length)continue;
+        CGFloat recorded=LMVSquidPanelHeightInOrientation(i,landscape);
+        if(recorded>0 && height>0 && fabs(height-recorded)<=2) { if(!matches)match=i; matches++; }
+    }
+    if(matches==1) {
+        LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-height-slot%d",(int)match+1];
+        LMVSquidPanelRememberSlot(match,sig);
+        LMVSquidPanelSlotSeen[match]=CACurrentMediaTime();
+        LMVSquidPanelNoteHeight(match,height,landscape);
+        return match;
+    }
     NSInteger freeSlot=NSNotFound;
     for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
         if(!LMVSquidPanelSlotSigs[i].length){freeSlot=i;break;}
     }
     if(freeSlot==NSNotFound) {
-        // Every slot is taken and this matched none of them: an EDITED panel. The
-        // closest icon count decides, and nothing moves.
+        // 1.55: every slot is taken and this matched none of them, so the panel was
+        // EDITED - most often its layout, which is exactly what changes the icon count
+        // the signature is built on. Which slot it is has to be read off what an edit
+        // does NOT usually change: the panel's HEIGHT in this orientation first, then
+        // the icon count, both as one score.
+        //
+        // Scoring beats the old "closest icon count" rule, because a layout edit can
+        // move the icon count a long way (右一 carries 44 icons, 左二 only 4) while the
+        // height stays put - and an edit that changes the height alone leaves the icon
+        // count alone. Only when the winner is CLEAR is the new signature remembered;
+        // a coin flip is played but not stored, so a wrong guess cannot poison a slot.
         NSUInteger icons=LMVSquidPanelSignatureIcons(sig);
-        NSInteger best=NSNotFound;NSUInteger bestDistance=NSNotFound;
+        NSInteger best=NSNotFound,second=NSNotFound;
+        CGFloat bestScore=CGFLOAT_MAX,secondScore=CGFLOAT_MAX;
         for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
             if(!LMVSquidPanelSlotSigs[i].length)continue;
             NSUInteger d=LMVSquidPanelSignatureDistance(icons,LMVSquidPanelSlotSigs[i]);
             if(d==NSNotFound)continue;
-            if(bestDistance==NSNotFound || d<bestDistance){bestDistance=d;best=i;}
+            CGFloat recorded=LMVSquidPanelHeightInOrientation(i,landscape);
+            CGFloat gap=(recorded>0 && height>0)?fabs(height-recorded):220;
+            CGFloat score=gap+(CGFloat)d*6;
+            if(score<bestScore){secondScore=bestScore;second=best;bestScore=score;best=i;}
+            else if(score<secondScore){secondScore=score;second=i;}
         }
         if(best!=NSNotFound) {
-            LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-nearest-slot%d",(int)best+1];
-            LMVSquidPanelRememberSlot(best,sig);
+            BOOL clear=(second==NSNotFound) || (secondScore-bestScore>20);
+            LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-%@-slot%d",clear?@"adopted":@"unclear",(int)best+1];
+            if(clear)LMVSquidPanelRememberSlot(best,sig);
             LMVSquidPanelSlotSeen[best]=CACurrentMediaTime();
             LMVSquidPanelNoteHeight(best,height,landscape);
             return best;
@@ -411,7 +486,7 @@ static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
         reason=[reason stringByAppendingString:@"+pair-swapped"];
     NSInteger finalSlot=freeSlot;
     for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
-        if(LMVSquidPanelSlotSigs[i].length && [sig isEqualToString:LMVSquidPanelSlotSigs[i]]){finalSlot=i;break;}
+        if([LMVSquidPanelSlotSigSets[i] containsObject:sig]){finalSlot=i;break;}
     }
     LMVSquidPanelSlotSeen[finalSlot]=CACurrentMediaTime();
     LMVSquidPanelShapeReason=reason;
@@ -428,11 +503,11 @@ static NSInteger LMVSquidPanelResolveSlot(UIView *card,UIWindow *window) {
 // and the two real left panels were parked on 右边上上滑. One tap clears all four and
 // the automatic rules take over again.
 static void LMVSquidPanelForgetAll(void) {
-    NSArray *sigKeys=LMVSquidPanelSlotSigKeys(),*heightKeys=LMVSquidPanelSlotHeightKeys();
+    NSArray *heightKeys=LMVSquidPanelSlotHeightKeys();
     for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
-        if(LMVSquidPanelSlotSigs[i].length)CFPreferencesSetAppValue((__bridge CFStringRef)sigKeys[i],NULL,kLMVPrefsID);
         CFPreferencesSetAppValue((__bridge CFStringRef)heightKeys[i],NULL,kLMVPrefsID);
-        LMVSquidPanelSlotSigs[i]=nil;LMVSquidPanelSlotSeen[i]=0;
+        LMVSquidPanelSigSetsClear(i);
+        LMVSquidPanelSlotSeen[i]=0;
         LMVSquidPanelSlotHeights[i][0]=0;LMVSquidPanelSlotHeights[i][1]=0;
     }
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -643,13 +718,25 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         // SLOT; the 1.48 pair (SquidPanelTallSig2/SquidPanelShortSig2) seeds the two
         // right-hand slots so a device that already knew its right panels keeps that
         // knowledge instead of starting from scratch.
+        // 1.55: a slot is a SET of signatures now (newest last), so a panel that was
+        // edited is still itself. A 1.54 device stored one plain string under the same
+        // key and an older one stored nothing at all, which is what the seed pair covers.
         NSArray *sigKeys=LMVSquidPanelSlotSigKeys();
         NSArray *seeds=@[@"SquidPanelTallSig2",@"SquidPanelShortSig2"];
         for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
             id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)sigKeys[i],kLMVPrefsID);
-            if(![value isKindOfClass:NSString.class] && i<seeds.count)
-                value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)seeds[i],kLMVPrefsID);
-            LMVSquidPanelSlotSigs[i]=[value isKindOfClass:NSString.class]?value:nil;
+            NSMutableArray *set=[NSMutableArray array];
+            if([value isKindOfClass:NSArray.class])
+                for(id item in (NSArray *)value)
+                    if([item isKindOfClass:NSString.class] && [item length])[set addObject:item];
+            else if([value isKindOfClass:NSString.class] && [value length])
+                [set addObject:value];
+            else if(i<seeds.count) {
+                id seed=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)seeds[i],kLMVPrefsID);
+                if([seed isKindOfClass:NSString.class] && [seed length])[set addObject:seed];
+            }
+            LMVSquidPanelSlotSigSets[i]=[set copy];
+            LMVSquidPanelSlotSigs[i]=set.lastObject;
         }
         // 1.53: a 1.52-era signature carries `|dots`, whose value changes with the
         // orientation - so it names a panel only half of the time and can never be
@@ -657,13 +744,17 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         // the next time the user opens it, with a signature that survives a rotation.
         BOOL stale=NO;
         for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
-            if([LMVSquidPanelSlotSigs[i] rangeOfString:@"|dots"].location!=NSNotFound) {
-                CFPreferencesSetAppValue((__bridge CFStringRef)sigKeys[i],NULL,kLMVPrefsID);
+            NSMutableArray *set=[(LMVSquidPanelSlotSigSets[i]?:@[]) mutableCopy];
+            NSUInteger before=set.count;
+            for(NSString *item in [set copy])
+                if([item rangeOfString:@"|dots"].location!=NSNotFound)[set removeObject:item];
+            if(set.count==before)continue;
+            LMVSquidPanelStoreSlot(i,set);
+            if(!set.count) {
                 CFPreferencesSetAppValue((__bridge CFStringRef)LMVSquidPanelSlotHeightKeys()[i],NULL,kLMVPrefsID);
-                LMVSquidPanelSlotSigs[i]=nil;
                 LMVSquidPanelSlotHeights[i][0]=0;LMVSquidPanelSlotHeights[i][1]=0;
-                stale=YES;
             }
+            stale=YES;
         }
         if(stale) {
             CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -680,7 +771,7 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
             CFPreferencesSetAppValue(CFSTR("SquidPanelLearnVersion"),(__bridge CFNumberRef)@(LMVSquidPanelLearnGeneration),kLMVPrefsID);
             LMVSquidPanelForgetAll();
             if(LMVDiagnosticsEnabled.load())
-                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-migrate slots=4 (rule v%d: a new panel takes the next empty slot, no side guessing)",(int)LMVSquidPanelLearnGeneration]);
+                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-migrate slots=4 (rule v%d: a slot remembers every signature it was seen as, so editing a layout keeps the panel)",(int)LMVSquidPanelLearnGeneration]);
         }
         NSArray *heightKeys=LMVSquidPanelSlotHeightKeys();
         for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
