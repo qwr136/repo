@@ -106,12 +106,16 @@ assert 'LMVSquidPanelRevision=LMVLockVideoRevision(LMVSquidPanelPath);' in modul
 assert 'LMVSquidPanelPath2=LMVCCSelectedPath(@"SquidPanel2Video");' in module
 assert 'LMVSquidPanelRevision2=LMVLockVideoRevision(LMVSquidPanelPath2);' in module
 assert 'LMVSquidPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&' in module
-# 1.44: the shape decides the slot; an empty slot falls back to the other one so an
-# untouched upgrade never shows a blank panel.
+# 1.44/1.45: the shape decides the slot, and the two slots are INDEPENDENT - there
+# is no fallback between them, by request: a panel whose slot is empty gets no video
+# (and no sound) at all, rather than borrowing the other panel's material.
 assert 'BOOL shortPanel=LMVSquidPanelCardIsShort(card,window);' in module
-assert 'NSString *wantPath=(shortPanel && LMVSquidPanelPath2.length)?LMVSquidPanelPath2:LMVSquidPanelPath;' in module
-assert 'NSString *wantRevision=(shortPanel && LMVSquidPanelPath2.length)?LMVSquidPanelRevision2:LMVSquidPanelRevision;' in module
-assert 'if(!wantPath.length || !wantRevision.length) {[self detach];self.updating=NO;return;}' in module
+assert 'NSString *wantPath=shortPanel?LMVSquidPanelPath2:LMVSquidPanelPath;' in module
+assert 'NSString *wantRevision=shortPanel?LMVSquidPanelRevision2:LMVSquidPanelRevision;' in module
+assert '?LMVSquidPanelPath:LMVSquidPanelPath2' not in module        # never crosses over
+assert 'if(!wantPath.length || !wantRevision.length) {' in module
+assert 'squid-panel shape=%@ slot=empty (no video, by design)' in module
+assert 'if(!wantPath.length || !wantRevision.length) {\n' in module
 assert 'if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}' in module
 # No player/UI while the channel is off (either slot may be the only one set), and a
 # poll that never runs hot when idle.

@@ -212,15 +212,26 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     UIView *card=window?LMVSquidPanelCard(window):nil;
     if(!card) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
-    // 1.44: two panels, two materials. The tall one ("swipe up") plays the first
-    // slot, the short one ("swipe up twice") the second; a slot left empty falls
-    // back to the other one, so an untouched upgrade never shows a blank panel. The
-    // shape does not depend on the orientation, so the tall slot is the tall panel
-    // in landscape too.
+    // 1.44/1.45: two panels, two slots, and they are INDEPENDENT - there is no
+    // fallback between them. The tall one ("swipe up") plays slot 1, the short one
+    // ("swipe up twice") plays slot 2, and a slot left empty means that panel simply
+    // gets no video: it keeps its original look and stays silent (detach also stands
+    // the shared audio channel down, so nothing is heard). The shape does not depend
+    // on the orientation, so slot 1 is the tall panel in landscape too.
     BOOL shortPanel=LMVSquidPanelCardIsShort(card,window);
-    NSString *wantPath=(shortPanel && LMVSquidPanelPath2.length)?LMVSquidPanelPath2:LMVSquidPanelPath;
-    NSString *wantRevision=(shortPanel && LMVSquidPanelPath2.length)?LMVSquidPanelRevision2:LMVSquidPanelRevision;
-    if(!wantPath.length || !wantRevision.length) {[self detach];self.updating=NO;return;}
+    NSString *wantPath=shortPanel?LMVSquidPanelPath2:LMVSquidPanelPath;
+    NSString *wantRevision=shortPanel?LMVSquidPanelRevision2:LMVSquidPanelRevision;
+    if(!wantPath.length || !wantRevision.length) {
+        // 1.45: say so out loud, once per state change - "this panel has no material"
+        // is otherwise indistinguishable from "the channel is broken" in a log.
+        if(LMVDiagnosticsEnabled.load()) {
+            NSString *empty=[NSString stringWithFormat:@"squid-panel shape=%@ slot=empty (no video, by design)",
+                shortPanel?@"short":@"tall"];
+            static NSString *lastEmpty=nil;
+            if(![empty isEqualToString:lastEmpty]) {lastEmpty=[empty copy];LMVDiagnostic(empty);}
+        }
+        [self detach];self.updating=NO;return;
+    }
     BOOL changed=![self.playback.path isEqualToString:wantPath] ||
         ![self.playback.revision isEqualToString:wantRevision];
     if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}
