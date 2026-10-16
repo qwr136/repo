@@ -184,12 +184,24 @@ assert 'class_copyPropertyList' in module and 'free(properties)' in module
 assert 'squid-panel-identity ptr=%p%@' in module
 probe = module[module.index('static void LMVSquidPanelDescribeIdentity'):module.index('// The chain of class names')]
 assert 'performSelector' not in probe and '@try' not in probe
-assert probe.count('respondsToSelector') == 1 and 'valueForKey' in probe
+assert probe.count('respondsToSelector') == 3 and probe.count('valueForKey') == 2
 assert 'for(NSUInteger pass=0;pass<2;pass++) {' in probe        # likely names first, then the rest
 # UIKit layers are named and left alone: their property lists are dozens of tweaks'
 # additions (adPrivacyData, pointerInteraction, a cardSectionViewIdentifier every panel
 # reports identically) and they drown the two lines that matter.
 assert 'if([className hasPrefix:@"UI"])return;' in probe
+# 1.59: the published properties were not enough - location=2 on all four (a constant, not
+# a gesture number) and title=nil - so what the class keeps privately is read too: the
+# ivars (including their values, KVC finds the ivar behind a name) and the methods whose
+# names look like they answer "which gesture is this?".
+assert 'class_copyIvarList' in probe and 'class_copyMethodList' in probe
+assert 'if(![name hasPrefix:@"_"])continue;' in probe
+for needle in ('{i:%@}', '{m:%@}', '~%@=%@'):
+    assert needle in probe, needle
+# ...and WHERE the panel sits: if all four live under one parent, the order is the number.
+assert 'static void LMVSquidPanelDescribeSiblings(UIView *card,UIWindow *window,NSMutableString *out) {' in module
+assert 'SFActivityAction"]){action=node;break;}' in module
+assert 'idx=%lu/%lu' in module
 assert '@"location"' in probe and '@"title"' in probe
 assert '@"hash",@"superclass",@"description",@"debugDescription"' in probe
 for needle in ('direction', 'edge', 'side', 'gesture'):

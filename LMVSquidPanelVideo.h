@@ -616,6 +616,79 @@ static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {
         }
     }
     free(properties);
+    // 1.59: the properties were not enough - the 1.58 log shows location=2 on every one
+    // of the four panels, so it is a constant, not a gesture number, and title is nil.
+    // What a class keeps WITHOUT publishing it is next: the instance variables, and the
+    // methods whose names look like they answer "which gesture is this?".
+    unsigned ivarCount=0;
+    Ivar *ivars=class_copyIvarList(cls,&ivarCount);
+    if(ivars) {
+        NSMutableArray *names=[NSMutableArray array];
+        for(unsigned i=0;i<ivarCount && names.count<24;i++)
+            [names addObject:@(ivar_getName(ivars[i]))];
+        [out appendFormat:@"{i:%@}",[names componentsJoinedByString:@","]];
+        // KVC finds the ivar behind a name even when there is no getter, so the private
+        // fields can be read too - again only the identifier-shaped ones, and only the
+        // values that come back as a string or a number.
+        NSUInteger extra=0;
+        for(unsigned i=0;i<ivarCount && extra<6;i++) {
+            NSString *name=@(ivar_getName(ivars[i]));
+            if(![name hasPrefix:@"_"])continue;
+            NSString *bare=[name substringFromIndex:1];
+            NSString *lower=bare.lowercaseString;
+            BOOL hit=NO;
+            for(NSString *needle in interesting)if([lower containsString:needle])hit=YES;
+            if(!hit)continue;
+            if(![view respondsToSelector:NSSelectorFromString(bare)] &&
+               ![view respondsToSelector:NSSelectorFromString(name)])continue;
+            id value=[view valueForKey:bare];
+            NSString *text=nil;
+            if([value isKindOfClass:NSString.class])text=value;
+            else if([value isKindOfClass:NSNumber.class])text=[value stringValue];
+            else if(!value)text=@"nil";
+            else continue;
+            if(text.length>40)text=[text substringToIndex:40];
+            extra++;
+            [out appendFormat:@" ~%@=%@",bare,text];
+        }
+        free(ivars);
+    }
+    unsigned methodCount=0;
+    Method *methods=class_copyMethodList(cls,&methodCount);
+    if(methods) {
+        NSMutableArray *names=[NSMutableArray array];
+        for(unsigned i=0;i<methodCount && names.count<12;i++) {
+            NSString *name=@(sel_getName(method_getName(methods[i])));
+            NSString *lower=name.lowercaseString;
+            BOOL hit=NO;
+            for(NSString *needle in interesting)if([lower containsString:needle])hit=YES;
+            if(hit)[names addObject:name];
+        }
+        if(names.count)[out appendFormat:@"{m:%@}",[names componentsJoinedByString:@","]];
+        free(methods);
+    }
+}
+// 1.59: WHERE this panel sits. If the gesture plugin keeps all four of its panels alive
+// under one parent - which is what a 1.44 device log suggested, each gesture carrying an
+// on-screen and a parked copy of its own view - then the ORDER under that parent IS the
+// gesture number: a fixed name that editing a layout can never touch. This prints the
+// index, how many siblings there are, and the frame of each, so a parked copy (its y is
+// past the bottom of the screen) can be told from the one on screen.
+static void LMVSquidPanelDescribeSiblings(UIView *card,UIWindow *window,NSMutableString *out) {
+    UIView *action=nil;
+    for(UIView *node=card;node && node!=window;node=node.superview)
+        if([NSStringFromClass(node.class) isEqualToString:@"SFActivityAction"]){action=node;break;}
+    if(!action || !action.superview)return;
+    NSArray *siblings=action.superview.subviews;
+    NSUInteger index=[siblings indexOfObjectIdenticalTo:action];
+    [out appendFormat:@" action=%p idx=%lu/%lu",(void *)action,(unsigned long)index,(unsigned long)siblings.count];
+    NSUInteger shown=0;
+    for(UIView *sib in siblings) {
+        if(shown++>=8)break;
+        CGRect frame=sib.frame;
+        [out appendFormat:@" %@#%ld@%.0f,%.0f,%.0f,%.0f",NSStringFromClass(sib.class),(long)sib.tag,
+            frame.origin.x,frame.origin.y,frame.size.width,frame.size.height];
+    }
 }
 // The chain of class names from the window down to the card - short, so it can always be
 // printed, and it is where a gesture-owned container would show up.
@@ -816,6 +889,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             NSUInteger level=0;
             for(UIView *node=self.card;node && node!=window && level<4;node=node.superview,level++)
                 LMVSquidPanelDescribeIdentity(node,identity);
+            LMVSquidPanelDescribeSiblings(self.card,window,identity);
             LMVDiagnostic([NSString stringWithFormat:@"squid-panel-identity ptr=%p%@",
                 (void *)self.card,identity]);
         }

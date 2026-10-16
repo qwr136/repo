@@ -1,5 +1,30 @@
 # 锁屏消息视频
 
+## 1.59：`location` 是常量，改挖私有字段和兄弟顺序
+
+**1.58 的日志给出明确答案**：
+
+```
+SFActivityAction[…] activityWidth=85 rowHeight=85 numberOfActivitiesInRow=5
+                    title=nil isShowing=1 location=2 …
+```
+
+**四块面板的 `location` 全是 2** —— 它是个固定常量，不是左右编号；`title` 全是 `nil`。**公开属性这条路走到头了。**
+
+**1.59 往下挖两层：**
+
+| 新增探测 | 说明 |
+|---|---|
+| **私有实例变量（ivar）** | 类没公开成属性的字段。列出名字，并把名字像标识的**值**也读出来（KVC 能找到名字背后的 ivar，即使没有 getter） |
+| **私有方法名** | 列出名字含 gesture / direction / location / edge / side / type / index / ident / name 的方法（**只读名字，不调用**） |
+| **兄弟顺序 `idx=N/M`** | 这是最有希望的一条：如果鱿鱼插件把四块面板**都常驻在同一个父视图下**（1.44 的日志就暗示过：每个手势各带一个屏内 + 一个屏外副本），那么**它在父视图里的下标就是手势编号** —— 一个你改任何东西都动不了的固定名。日志会打印下标、总数、以及每个兄弟的类名/tag/frame（y 超出屏幕的就是屏外副本） |
+
+**需要你做一次（务必四块都开）**：装 1.59 → 点重置 → 按 **右一→右二→左一→左二** 各开一次 → 把 4 行 **`squid-panel-identity`** 发我。
+
+看两点：
+- `idx=` 在四块上是不是 **四个不同的数字**（那就是固定名，1.60 直接用）
+- `{i:...}` 里有没有 `_gesture` / `_type` / `_direction` 之类的私有字段
+
 ## 1.58：把 `location` 读出来（固定名就在 SFActivityAction 上）
 
 **1.57 的日志已经把门打开了**。`squid-panel-identity` 给出了 `SFActivityAction` 的完整属性表：
