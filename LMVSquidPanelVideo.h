@@ -559,6 +559,45 @@ static void LMVSquidPanelScanGesturePrefs(void) {
     }
     LMVDiagnostic([NSString stringWithFormat:@"squid-gesture-prefs%@",report.length?report:@" none-found"]);
 }
+// 1.57: what the panel's own objects say about themselves.
+//
+// The 1.56 device log gave the chain SFActivityPanelView > UIControl > SFActivityAction
+// > UIView > SGPanelWindow. SFActivityAction is the gesture plugin's own object - the one
+// place a FIXED name for the gesture could live, because the plugin creates it and the
+// user never edits it (unlike the buttons inside, whose labels the user rewrites at
+// will). This reads only identifier-shaped properties, and only where the getter really
+// exists, so nothing with a side effect is ever called and no valueForKey is unguarded.
+static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {
+    if(!view)return;
+    Class cls=view.class;
+    [out appendFormat:@" %s[",class_getName(cls)];
+    unsigned count=0;
+    objc_property_t *properties=class_copyPropertyList(cls,&count);
+    NSMutableArray *names=[NSMutableArray array];
+    for(unsigned i=0;i<count && names.count<24;i++)
+        [names addObject:@(property_getName(properties[i]))];
+    [out appendFormat:@"%@]",[names componentsJoinedByString:@","]];
+    NSArray *interesting=@[@"ident",@"name",@"title",@"key",@"type",@"index",@"kind",
+                           @"action",@"activity",@"gesture",@"panel",@"uuid",@"tag",@"direction",@"edge",@"side"];
+    NSUInteger shown=0;
+    for(unsigned i=0;i<count && shown<10;i++) {
+        NSString *name=@(property_getName(properties[i]));
+        NSString *lower=name.lowercaseString;
+        BOOL hit=NO;
+        for(NSString *needle in interesting)if([lower containsString:needle])hit=YES;
+        if(!hit)continue;
+        if(![view respondsToSelector:NSSelectorFromString(name)])continue;
+        id value=[view valueForKey:name];
+        NSString *text=nil;
+        if([value isKindOfClass:NSString.class])text=value;
+        else if([value isKindOfClass:NSNumber.class])text=[value stringValue];
+        if(!text.length)continue;
+        if(text.length>40)text=[text substringToIndex:40];
+        shown++;
+        [out appendFormat:@" %@=%@",name,text];
+    }
+    free(properties);
+}
 // The chain of class names from the window down to the card - short, so it can always be
 // printed, and it is where a gesture-owned container would show up.
 static NSString *LMVSquidPanelCardChain(UIView *card,UIWindow *window) {
@@ -753,6 +792,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             LMVSquidPanelIdentityTree(self.card,0,tree,&nodes);
             LMVDiagnostic([NSString stringWithFormat:@"squid-panel-tree ptr=%p chain=%@ %@",
                 (void *)self.card,LMVSquidPanelCardChain(self.card,window),tree]);
+            // 1.57: the same chain, asked what it calls itself - see above.
+            NSMutableString *identity=[NSMutableString new];
+            NSUInteger level=0;
+            for(UIView *node=self.card;node && node!=window && level<4;node=node.superview,level++)
+                LMVSquidPanelDescribeIdentity(node,identity);
+            LMVDiagnostic([NSString stringWithFormat:@"squid-panel-identity ptr=%p%@",
+                (void *)self.card,identity]);
         }
         NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,

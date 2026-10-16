@@ -1,5 +1,33 @@
 # 锁屏消息视频
 
+## 1.57：找到固定名的最后一步（问 SFActivityAction 自己叫什么）
+
+**1.56 的日志先带来一个好消息**：你把「右一」面板里的动作全换掉（开关VPN/手电筒… → 排查插件/快捷编辑…），图标数 44→50，日志是
+
+```
+why=edited-height-slot1 sig=icons50|pc1  … 紧接着 why=sig-slot1
+```
+
+**它认回来了。** 换内容不再丢失身份，正是 1.55 那条规则在起作用。
+
+**同时日志给出了关键线索** —— 面板的真实归属链：
+
+```
+chain=SFActivityPanelView > UIControl > SFActivityAction > UIView > SGPanelWindow
+```
+
+`SFActivityAction` 是**鱿鱼插件自己的对象**：插件创建它、你编辑面板内容时不会动它。真正的"固定命"只可能写在它身上。
+
+**1.57 做的事**：面板一打开，就对这条链上每一层发问 —— 列出它的**所有属性名**，并把名字像标识的那些（`identifier`/`name`/`title`/`key`/`type`/`index`/`kind`/`action`/`gesture`/`direction`/`edge`/`side`…）的**值**读出来：
+
+```
+squid-panel-identity ptr=0x… SFActivityPanelView[…] UIControl[…] SFActivityAction[…] id=3 direction=right …
+```
+
+只读、只问名字像标识的属性、且只在该 getter 确实存在时才读 —— 不会有副作用，也不会因为属性不存在而崩。
+
+**需要你做一次**：装 1.57 → 点重置 → 按 右一→右二→左一→左二 各开一次 → 把 **`squid-panel-identity`** 那几行发我。只要里面出现一个能区分四个手势的字段（比如 `id=1..4`、`direction=right/left`、`type=up/upup`），1.58 就拿它当固定名 —— **从那以后你改什么都不会再串**。
+
 ## 1.56：去找"改不动的固定名"（App 方案已撤回）
 
 **1.56 先撤回了"按面板装了哪些 App 来认"** —— 你一句话点破了：换 App、加 App 一样会变。

@@ -173,6 +173,19 @@ assert 'static int LMVSquidPanelOrderPair(NSInteger tallSlot,NSInteger shortSlot
 assert 'NSInteger tallOfPair=(i<2)?0:2, shortOfPair=(i<2)?1:3;' in module
 assert 'if(LMVSquidPanelOrderPair(tallOfPair,shortOfPair,landscape)>0) {' in module
 assert 'LMVSquidPanelShapeReason=[reason stringByAppendingString:@"+pair-swapped"];' in module
+# 1.57: the 1.56 log named the chain SFActivityPanelView > UIControl > SFActivityAction -
+# SFActivityAction is the gesture plugin's own object, so it is asked what it calls
+# itself. Only identifier-shaped properties, only where the getter exists: no side
+# effects, no unguarded valueForKey, and the property list is freed.
+assert 'static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {' in module
+assert 'class_copyPropertyList' in module and 'free(properties)' in module
+assert 'squid-panel-identity ptr=%p%@' in module
+probe = module[module.index('static void LMVSquidPanelDescribeIdentity'):module.index('// The chain of class names')]
+assert 'performSelector' not in probe and '@try' not in probe
+assert probe.count('respondsToSelector') == 1 and 'valueForKey' in probe
+for needle in ('direction', 'edge', 'side', 'gesture'):
+    assert needle in probe, f'the fixed name would probably read as {needle}'
+
 # 1.56: ...and so is the plugin's OWN configuration - where a fixed gesture name can only
 # come from. Read-only, once per session, names and top-level keys only: no gesture data.
 assert 'static void LMVSquidPanelScanGesturePrefs(void) {' in module
@@ -193,7 +206,7 @@ assert 'if([view respondsToSelector:NSSelectorFromString(@"text")]) {' in module
 assert 'static NSString *LMVSquidPanelCardChain(UIView *card,UIWindow *window) {' in module
 assert 'LMVDiagnostic([NSString stringWithFormat:@"squid-panel-tree ptr=%p chain=%@ %@",' in module
 # ...and `text` is not a UIView property, so it is only asked for where it exists.
-reader = module[module.index('static void LMVSquidPanelIdentityTree'):module.index('// The chain of class names')]
+reader = module[module.index('static void LMVSquidPanelIdentityTree'):module.index('// 1.57: what the panel')]
 assert reader.count('respondsToSelector') == 1 and 'performSelector' not in reader and '@try' not in reader
 assert 'accessibilityIdentifier' in reader and 'restorationIdentifier' in reader
 
