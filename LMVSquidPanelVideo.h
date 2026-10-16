@@ -726,12 +726,13 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {
             id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)sigKeys[i],kLMVPrefsID);
             NSMutableArray *set=[NSMutableArray array];
-            if([value isKindOfClass:NSArray.class])
-                for(id item in (NSArray *)value)
+            if([value isKindOfClass:NSArray.class]) {
+                for(id item in (NSArray *)value) {
                     if([item isKindOfClass:NSString.class] && [item length])[set addObject:item];
-            else if([value isKindOfClass:NSString.class] && [value length])
+                }
+            } else if([value isKindOfClass:NSString.class] && [value length]) {
                 [set addObject:value];
-            else if(i<seeds.count) {
+            } else if(i<seeds.count) {
                 id seed=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)seeds[i],kLMVPrefsID);
                 if([seed isKindOfClass:NSString.class] && [seed length])[set addObject:seed];
             }
