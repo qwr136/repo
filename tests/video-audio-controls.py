@@ -191,6 +191,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @implementation LMVEasterPanel
 - (void)importVideo { self.imports++; }
 - (void)claimSquidPanel {}
+- (void)resetSquidPanel {}
 @PANEL_METHODS@
 @end
 @interface LMVPRootListController : NSObject { NSMutableArray *_specifiers; }
