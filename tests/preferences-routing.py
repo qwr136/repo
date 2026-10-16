@@ -177,7 +177,7 @@ handlers = '\n'.join(['- (void)switchTarget:(NSString *)target { self.calls++; s
 tests = r'''
 @end
 int main(void) { @autoreleasepool {
-    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"AT", @"CV"]) assert(LMVMaterialTargetAllowed(target));
+    for (NSString *target in @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"SquidPanel2", @"SquidPanel3", @"SquidPanel4", @"AT", @"CV"]) assert(LMVMaterialTargetAllowed(target));
     for (id bad in @[@"", @"Unknown", @"HomeMenuVideo", @"HomeMenuBackgroundEnabled", @"homemenu", @"../HomeMenu", @42, NSNull.null]) assert(!LMVMaterialTargetAllowed(bad));
     assert(!LMVMaterialTargetAllowed(nil));
     LMVPRootListController *controller = [LMVPRootListController new];

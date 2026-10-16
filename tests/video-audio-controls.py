@@ -296,7 +296,7 @@ int main(void) { @autoreleasepool {
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
-    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath'))
+    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'claimSquidPanel'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection)))
