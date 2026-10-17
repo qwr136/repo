@@ -1,5 +1,35 @@
 # 锁屏消息视频
 
+## 1.60：面板身上没有固定名，改去读插件自己的配置
+
+**1.59 的四块面板日志给出了最终结论 —— 面板身上确实不存在固定名：**
+
+```
+SFActivityAction{i:_activityItems,_activities,_imageSize,_panelView,_scrollView,
+                 _pageControl,_isShowing,_directActionEnabled,_blurEffect,_blurEffectView,_title,_location}
+                                            ~isShowing=1 ~title=nil ~location=2
+... action=0x65bf11920 idx=0/1 SFActivityAction#0@0,0,430,932
+```
+
+- 私有字段只有**内容**（`_activityItems`、`_activities`）和**外观**（图大小、滚动视图、分页条），**没有手势编号**
+- `location` 四块全是 `2`，`title` 四块全是 `nil`
+- **`idx=0/1`**：父视图下只有它自己 —— 插件**每次开面板现建、关掉就丢**，不保留四块，所以没有"兄弟顺序"可用
+
+**但同一次日志给了决定性线索**：
+
+```
+initWithActivityItems:applicationActivities:imageSize:location:
+com.squidforce.hammerit.clip.plist
+```
+
+**插件是 SquidForce**（`SFActivityPanelView` 的 SF 就是它）。1.56 那次扫描我按**文件名关键词**找配置，结果只撞上一堆苹果自己的 plist（`duetactivityscheduler`、`activityawardsd`），**插件真正的配置文件被漏掉了**。
+
+**1.60 的修正**：列出**所有 `com.squidforce.*` 文件**（外加 `/var/mobile/Library` 顶层），每个都带**结构预览**（顶层键 + 数组长度 / 字典键名），一眼就能看出哪个文件装着四个手势。
+
+那个文件是**唯一可能存在固定名的地方**：插件自己写它，你改动作时它跟着更新 —— 所以把"看到的面板"和"配置里的某个手势"对上，就永远不会因为改动而失效。
+
+**需要你做一次**：装 1.60 → 开一次面板（开哪块都行）→ 把 **`squid-gesture-prefs`** 那一行发我（它每会话只打一次）。
+
 ## 1.59：`location` 是常量，改挖私有字段和兄弟顺序
 
 **1.58 的日志给出明确答案**：

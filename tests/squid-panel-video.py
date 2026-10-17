@@ -212,6 +212,13 @@ for needle in ('direction', 'edge', 'side', 'gesture'):
 assert 'static void LMVSquidPanelScanGesturePrefs(void) {' in module
 assert 'squid-gesture-prefs%@' in module
 assert '@"/var/mobile/Library/Preferences"' in module
+# 1.60: the plugin is SquidForce (its panel is built with initWithActivityItems:
+# applicationActivities:imageSize:location:). Guessing at file NAMES only matched Apple's
+# own activity plists, so every com.squidforce.* file is listed - with a peek at its
+# structure, since that is where a fixed gesture number has to live.
+assert '@"com.squidforce."' in module
+assert '@"/var/mobile/Library"' in module
+assert 'unreadable' in module
 scan = module[module.index('static void LMVSquidPanelScanGesturePrefs'):module.index('// The chain of class names')]
 assert 'dictionaryWithContentsOfFile' in scan and 'LMVDiagnostic' in scan
 assert 'setObject' not in scan and 'writeToFile' not in scan      # read-only, never a write

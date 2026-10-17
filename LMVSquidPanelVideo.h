@@ -538,23 +538,58 @@ static void LMVSquidPanelScanGesturePrefs(void) {
     if(done)return;
     done=YES;
     if(!LMVDiagnosticsEnabled.load())return;
-    NSArray *roots=@[@"/var/mobile/Library/Preferences",@"/var/jb/var/mobile/Library/Preferences",@"/User/Library/Preferences"];
-    NSArray *needles=@[@"squid",@"sgpanel",@"gesture",@"activity",@"sfactivity"];
+    // 1.60: the plugin is SquidForce - the 1.59 log showed the panel being built with
+    // initWithActivityItems:applicationActivities:imageSize:location:, and the only
+    // SquidForce file 1.56 turned up was com.squidforce.hammerit.clip. Guessing at file
+    // NAMES was the mistake: it matched a pile of Apple plists (duetactivityscheduler,
+    // activityawardsd) and missed the plugin's own. Every com.squidforce.* file is listed
+    // now, each with a peek at its structure, because that file is the one place a fixed
+    // gesture number can live - the plugin writes it, and it follows the user's edits
+    // instead of breaking on them.
+    NSArray *roots=@[@"/var/mobile/Library/Preferences",
+                     @"/var/jb/var/mobile/Library/Preferences",
+                     @"/var/mobile/Library",
+                     @"/User/Library/Preferences"];
     NSMutableString *report=[NSMutableString new];
     NSUInteger files=0;
     for(NSString *root in roots) {
         NSArray *names=[NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil];
         if(!names.count)continue;
         for(NSString *name in names) {
+            if(files>=12)break;
             NSString *lower=name.lowercaseString;
-            BOOL hit=NO;
-            for(NSString *needle in needles)if([lower containsString:needle])hit=YES;
-            if(!hit || files>=6)continue;
+            if(![lower containsString:@".plist"])continue;
+            if(![lower hasPrefix:@"com.squidforce."] && ![lower containsString:@"squid"] &&
+               ![lower containsString:@"sfactivity"] && ![lower containsString:@"sgpanel"])continue;
             files++;
-            NSDictionary *plist=[NSDictionary dictionaryWithContentsOfFile:[root stringByAppendingPathComponent:name]];
-            NSArray *keys=[plist isKindOfClass:NSDictionary.class]?plist.allKeys:@[];
-            NSArray *shown=(keys.count>12)?[keys subarrayWithRange:NSMakeRange(0,12)]:keys;
-            [report appendFormat:@" %@(%lu)[%@]",name,(unsigned long)keys.count,[shown componentsJoinedByString:@","]];
+            id plist=[NSDictionary dictionaryWithContentsOfFile:[root stringByAppendingPathComponent:name]];
+            if(![plist isKindOfClass:NSDictionary.class]) {
+                [report appendFormat:@" %@(unreadable)",name];
+                continue;
+            }
+            NSArray *keys=[plist allKeys];
+            NSMutableString *peek=[NSMutableString new];
+            NSUInteger shown=0;
+            for(NSString *key in keys) {
+                if(shown++>=8)break;
+                id value=plist[key];
+                NSString *shape=nil;
+                if([value isKindOfClass:NSArray.class]) {
+                    NSArray *array=(NSArray *)value;
+                    id first=array.firstObject;
+                    NSArray *sub=[first isKindOfClass:NSDictionary.class]?[first allKeys]:@[];
+                    shape=[NSString stringWithFormat:@"[%lu:%@]",(unsigned long)array.count,
+                        [[sub subarrayWithRange:NSMakeRange(0,MIN(sub.count,6))] componentsJoinedByString:@"|"]];
+                } else if([value isKindOfClass:NSDictionary.class]) {
+                    NSArray *sub=[value allKeys];
+                    shape=[NSString stringWithFormat:@"{%lu:%@}",(unsigned long)sub.count,
+                        [[sub subarrayWithRange:NSMakeRange(0,MIN(sub.count,6))] componentsJoinedByString:@"|"]];
+                } else {
+                    shape=NSStringFromClass([value class]);
+                }
+                [peek appendFormat:@" %@=%@",key,shape];
+            }
+            [report appendFormat:@" %@(%lu)%@",name,(unsigned long)keys.count,peek];
         }
     }
     LMVDiagnostic([NSString stringWithFormat:@"squid-gesture-prefs%@",report.length?report:@" none-found"]);
