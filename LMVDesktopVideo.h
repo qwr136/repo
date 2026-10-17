@@ -387,8 +387,12 @@ static void LMVDesktopFindOverlayViews(UIView *view,NSUInteger depth,NSMutableAr
 // (Panel/Menu/Platter) plus Clipboard, so a clipboard manager such as CopyVault
 // (CVPanelWindow) is covered by the existing "Panel" rule.
 static BOOL LMVDesktopPanelName(NSString *name) {
+    // 1.65: VLBYCK is CopyLogX's obfuscated panel host. It carries no
+    // Panel/Menu/Platter/Clipboard word, so the deep subtree walk used to skip
+    // it and the log only ever showed the empty shell `{FJLOLX[]}`.
     return [name containsString:@"Panel"] || [name containsString:@"Menu"] ||
-        [name containsString:@"Platter"] || [name containsString:@"Clipboard"];
+        [name containsString:@"Platter"] || [name containsString:@"Clipboard"] ||
+        [name isEqualToString:@"VLBYCK"];
 }
 // 1.42: the WHOLE subtree of a panel-like window, six levels deep, with frame,
 // hidden, alpha and corner radius on every node.
@@ -1515,6 +1519,20 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if (meta.length && ![meta isEqualToString:lastMeta]) {
             lastMeta=[meta copy];
             LMVDiagnostic([NSString stringWithFormat:@"desktop-window-meta %@",meta]);
+            // 1.65: attribute every panel/suspect class to the dylib that
+            // defines it. An obfuscated window class (VLBYCK) and its
+            // controller (BBTTIO) can then be named as CopyLogX or cleared,
+            // instead of being inferred from "looks like the other panels".
+            NSMutableString *owners=[NSMutableString new];
+            for (NSString *name in @[@"VLBYCK",@"FJLOLX",@"BBTTIO",@"blq_sRvRsJzPulGq",
+                                     @"blq_drXrlngjfxKW",@"SGPanelWindow",@"SGPanelViewController",
+                                     @"CVPanelWindow",@"CVPanelViewController"]) {
+                Class cls=NSClassFromString(name);
+                const char *image=cls?class_getImageName(cls):NULL;
+                NSString *imageName=image?[NSString stringWithUTF8String:image].lastPathComponent:@"?";
+                [owners appendFormat:@"%@=%@ ",name,imageName];
+            }
+            LMVDiagnostic([NSString stringWithFormat:@"window-owner %@",owners]);
         }
     }
     // 1.42: the deep subtree of every panel-like window (see LMVDesktopPanelName).
