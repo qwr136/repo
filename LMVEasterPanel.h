@@ -7,7 +7,9 @@
 
 // Image import and display controls stay on their own settings page.
 @interface LMVEasterPanel : UITableViewController <PHPickerViewControllerDelegate>
-@property(nonatomic) BOOL busy, opacityTracking, volumeTracking, panelVisible;
+@property(nonatomic) BOOL busy, opacityTracking, volumeTracking, panelVisible, restoredScroll, hasPendingScroll;
+@property(nonatomic) CGFloat pendingScrollY;
+- (void)applyPendingScroll;
 @property(nonatomic) NSUInteger catalogGeneration;
 @property(nonatomic, copy) NSDictionary *names;
 @property(nonatomic, strong) LMVEasterPhotoFlow *photoFlow;
@@ -113,6 +115,14 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (void)prepareForClose {
     self.panelVisible=NO;
+    // 1.66: remember the LIST position (contentOffset), not the panel frame:
+    // reopening the panel restores the row the user was looking at instead of
+    // jumping back to 启用/选择素材. Written here because every close path goes
+    // through prepareForClose before the table is torn down.
+    if (self.isViewLoaded) {
+        LMVEasterSet(@"EasterPanelScrollY", @(self.tableView.contentOffset.y));
+        CFPreferencesAppSynchronize(LMVEasterPrefs);
+    }
     if (!self.prompt) return;
     LMVMaterialPrompt *prompt=self.prompt; self.prompt=nil; prompt.complete=nil;
     [prompt.view endEditing:YES]; [prompt willMoveToParentViewController:nil];
@@ -158,6 +168,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     [self pinBarInset:NO];
+    [self applyPendingScroll];
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated]; CFPreferencesAppSynchronize(LMVEasterPrefs);
@@ -165,7 +176,37 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated]; self.panelVisible = YES;
+    // 1.66: restore the list position saved by prepareForClose. The table has a
+    // pinned bar inset, so the legal range starts at -contentInset.top; clamp to
+    // it (and to the real content height) so a shorter catalog cannot scroll
+    // into empty space after an import or a target change.
+    if (!self.restoredScroll) {
+        self.restoredScroll = YES;
+        id saved = LMVEasterRead(@"EasterPanelScrollY");
+        if ([saved isKindOfClass:NSNumber.class] && isfinite([saved doubleValue])) {
+            self.pendingScrollY = [saved doubleValue];
+            self.hasPendingScroll = YES;
+            [self applyPendingScroll];
+        }
+    }
     [self showPendingImportPrompt];
+}
+// 1.66: the saved list position is applied as soon as the table has a real
+// content height. viewDidAppear often runs before the inset-grouped table has
+// settled its contentSize, so the layout pass retries instead of clamping a
+// tall position to the top (and this panel allows no delayed retry).
+- (void)applyPendingScroll {
+    if (!self.hasPendingScroll || !self.isViewLoaded) return;
+    UIScrollView *scroll = self.tableView;
+    CGFloat minY = -scroll.contentInset.top;
+    CGFloat maxY = scroll.contentSize.height + scroll.contentInset.bottom - scroll.bounds.size.height;
+    if (maxY <= minY) return;
+    scroll.contentOffset = CGPointMake(scroll.contentOffset.x, MAX(minY, MIN(maxY, self.pendingScrollY)));
+    self.hasPendingScroll = NO;
+}
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
+    // The user took over; never pull the list back under their finger.
+    self.hasPendingScroll = NO;
 }
 - (void)viewWillDisappear:(BOOL)animated {
     self.panelVisible = NO; [super viewWillDisappear:animated];

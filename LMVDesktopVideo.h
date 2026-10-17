@@ -1558,6 +1558,33 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             LMVDiagnostic([NSString stringWithFormat:@"desktop-panel-tree %@",trees]);
         }
     }
+    // 1.66: CopyLogX is injected into SpringBoard (its Filter names
+    // com.apple.springboard) but owns NO window - its clipboard panel is a view
+    // above the keyboard, inside UITextEffectsWindow / SBMedusaHostedKeyboardWindow.
+    // The window list can never name it, so dump those subtrees whenever they
+    // change: the panel class and its user-set height appear right here.
+    {
+        NSMutableString *trees=[NSMutableString new];
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+                NSString *name=NSStringFromClass(window.class);
+                if (![name isEqualToString:@"UITextEffectsWindow"] &&
+                    ![name isEqualToString:@"SBMedusaHostedKeyboardWindow"]) continue;
+                if (window.hidden || window.alpha<.01) continue;
+                if (trees.length>6000) break;
+                NSUInteger nodes=0;
+                [trees appendFormat:@"%@|",name];
+                LMVDesktopPanelTree(window.rootViewController.viewIfLoaded,0,trees,&nodes);
+                [trees appendString:@" "];
+            }
+        }
+        static NSString *lastKeyboard=nil;
+        if (trees.length && ![trees isEqualToString:lastKeyboard]) {
+            lastKeyboard=[trees copy];
+            LMVDiagnostic([NSString stringWithFormat:@"keyboard-tree %@",trees]);
+        }
+    }
     // 1.26: the pop-ups that are NOT windows (AppTools and friends). A panel that
     // is PRESENTED into an existing window changes no window class, so neither the
     // window list nor the panel geometry above can see it - the device log only
