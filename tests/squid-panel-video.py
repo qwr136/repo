@@ -253,8 +253,7 @@ assert 'hasPrefix:@"SG"' in classes and 'containsString:@"Squid"' in classes
 assert 'hasPrefix:@"SF"' in classes
 # ...and the actions themselves, straight through the ivar: no getter, no KVC, nothing throws
 assert 'class_getInstanceVariable(cls,"_activityItems")' in module
-assert 'object_getIvar(view,itemsIvar)' in module
-assert '(__bridge NSArray *)object_getIvar' in module
+assert 'id items=object_getIvar(view,itemsIvar);' in module
 assert "ivar_getTypeEncoding(itemsIvar)[0]=='@'" in module
 assert '{a:%lu%@}' in module
 

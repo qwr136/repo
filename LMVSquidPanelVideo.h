@@ -635,9 +635,10 @@ static void LMVSquidPanelListPaths(void) {
             if(kept.count>=cap)break;
             if([name.lowercaseString containsString:@"apple"])continue;
             BOOL dir=NO;
+            NSString *entryName=name;
             if([NSFileManager.defaultManager fileExistsAtPath:[root stringByAppendingPathComponent:name] isDirectory:&dir] && dir)
-                name=[name stringByAppendingString:@"/"];
-            [kept addObject:name];
+                entryName=[entryName stringByAppendingString:@"/"];
+            [kept addObject:entryName];
         }
         if(kept.count) {
             NSArray *sorted=[kept sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
@@ -777,8 +778,8 @@ static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {
     // getter is called, no KVC, nothing can throw, and the values are only printed.
     Ivar itemsIvar=class_getInstanceVariable(cls,"_activityItems");
     if(itemsIvar && ivar_getTypeEncoding(itemsIvar)[0]=='@') {
-        NSArray *items=(__bridge NSArray *)object_getIvar(view,itemsIvar);
-        if([items isKindOfClass:NSArray.class] && items.count) {
+        id items=object_getIvar(view,itemsIvar);
+        if([items isKindOfClass:NSArray.class] && [items count]) {
             NSMutableString *list=[NSMutableString new];
             NSUInteger shown=0;
             for(id item in items) {
