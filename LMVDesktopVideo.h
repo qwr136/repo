@@ -1543,6 +1543,34 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             LMVDiagnostic([NSString stringWithFormat:@"window-owner %@",owners]);
         }
     }
+    // 1.69: CopyLogX never appears as a window we can name, and the panel is
+    // gone by the time a log is exported. Its dylib is injected into SpringBoard
+    // though, so enumerate the classes that image defines - the window/view
+    // class names are then known without ever catching the panel open. Runs
+    // ONCE per process: objc_getClassList walks every class in SpringBoard.
+    {
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            int total=objc_getClassList(NULL,0);
+            if (total<=0) return;
+            Class *classes=(Class *)calloc((size_t)total,sizeof(Class));
+            if (!classes) return;
+            total=objc_getClassList(classes,total);
+            NSMutableString *owned=[NSMutableString new];
+            for (int i=0;i<total;i++) {
+                Class cls=classes[i];
+                const char *image=class_getImageName(cls);
+                if (!image) continue;
+                NSString *path=[NSString stringWithUTF8String:image];
+                NSString *leaf=path.lastPathComponent;
+                if (![leaf containsString:@"CopyLog"] && ![leaf containsString:@"copylog"]) continue;
+                [owned appendFormat:@"%@(%@) ",NSStringFromClass(cls),leaf];
+                if (owned.length>2400) {[owned appendString:@"…"];break;}
+            }
+            free(classes);
+            LMVDiagnostic([NSString stringWithFormat:@"copylog-classes %@",owned.length?owned:@"none"]);
+        });
+    }
     // 1.42: the deep subtree of every panel-like window (see LMVDesktopPanelName).
     // Six levels, including windows that are not currently visible, so the shape of
     // a clipboard panel is captured even when the shallow three-level geometry only
