@@ -23,7 +23,7 @@ assert re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTarget
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert 'section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)' in mapping
 assert '(row == 2 || row == 3)) return @"HomeMenu";' in mapping
-assert '(row == 7 || row == 8)) return @"SquidPanel";' in mapping
+assert '(row == 2 || row == 3)) return @"SquidPanel";' in mapping
 assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
@@ -31,7 +31,7 @@ assert mapping.count('return ') == 8 and mapping.endswith('return nil;\n}')
 cc_key = body(panel, 'static NSString *LMVEasterControlCenterKey(')
 actual_material_rows = {int(row): target for row, target in re.findall(r'row == (\d+) \? @"(\w+)Video"', cc_key)}
 assert actual_material_rows == {1: 'ControlCenterDark', 4: 'ControlCenterLight'}
-assert 'if (section == LMVEasterSquidPanelSection()) return row == 8;' in helpers
+assert 'if (section == LMVEasterSquidPanelSection()) return row == 3;' in helpers
 assert 'return (row == 3 || row == 6);' in helpers
 assert 'tag >= 0 && tag < LMVEasterAudioTargets().count' in helpers
 assert '[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.5' in helpers
@@ -56,7 +56,8 @@ assert '!panel.opacityTracking && !panel.volumeTracking' in panel
 selection = body(panel, '- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:')
 assert 'key = LMVEasterControlCenterKey(index.row);\n        if (!key) return;' in selection
 assert 'if (index.row != 1) return;\n        key = @"HomeMenuVideo";' in selection
-assert 'if (index.row < 1 || index.row > 4) return;\n        key = LMVEasterSquidKeys()[index.row - 1];' in selection
+assert 'if (index.row != 1) return;' in selection
+assert 'key = @"SquidPanelVideo";' in selection
 assert 'if (index.row != 1) return;\n        key = @"ATVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
@@ -71,7 +72,7 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
               '[sound setProperty:volumeKey forKey:@"audioVolumeKey"]'):
     assert exact in append, exact
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
-for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelSwap', 'SquidPanel'), ('cvMaterial', 'CV')):
+for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
 assert specifiers.count('appendAudioForTarget:') == 7  # One five-target loop, plus five explicit targets (CC dark/light, HomeMenu, SquidPanel, AT, CV).
 set_enabled = body(prefs, '- (void)setEnabled:')
@@ -284,7 +285,7 @@ int main(void) { @autoreleasepool {
   if(section<5&&row==1)expected=[targets[section] stringByAppendingString:@"Video"];
   if(section==5)expected=LMVEasterControlCenterKey(row);
   if(section==6&&row==1)expected=@"HomeMenuVideo";
-  if(section==7&&row>=1&&row<=4)expected=@[@"SquidPanelVideo",@"SquidPanel2Video",@"SquidPanel3Video",@"SquidPanel4Video"][row-1];
+  if(section==7&&row==1)expected=@"SquidPanelVideo";
   if(section==8&&row==1)expected=@"ATVideo";
   if(section==9&&row==1)expected=@"CVVideo";
   [p tableView:p.tableView didSelectRowAtIndexPath:path(section,row)];
@@ -296,7 +297,7 @@ int main(void) { @autoreleasepool {
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
-    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'resetSquidPanel'))
+    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection)))

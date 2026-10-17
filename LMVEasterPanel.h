@@ -43,22 +43,14 @@ static NSString *LMVEasterControlCenterKey(NSInteger row) {
 static NSArray *LMVEasterAudioTargets(void) {
     return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"];
 }
-// 1.50: the four SquidGesturePro materials, in row order: the right-hand gestures
-// ("swipe up" / "swipe up twice") and then the left-hand ones. Sound and volume are
-// shared between all four - only one panel can be on screen at a time.
-static NSArray *LMVEasterSquidKeys(void) {
-    return @[@"SquidPanelVideo", @"SquidPanel2Video", @"SquidPanel3Video", @"SquidPanel4Video"];
-}
-// 1.54: the four rows are named the way the user names the gestures: 右一 = 右上滑,
-// 右二 = 右上上滑, 左一 = 左上滑, 左二 = 左上上滑.
-static NSArray *LMVEasterSquidTitles(void) {
-    return @[@"切换右一素材（右上滑）", @"切换右二素材（右上上滑）", @"切换左一素材（左上滑）", @"切换左二素材（左上上滑）"];
-}
+// 1.63: the four SquidGesturePro panels (right/left, swipe-up / swipe-up-twice) share
+// ONE material - the user picks a single "切换视频" and every panel plays it.
+
 // The gesture names the "认领" sheet offers.
 static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section >= 0 && section < LMVEasterTargets().count && (row == 2 || row == 3)) return LMVEasterTargets()[section];
     if (section == LMVEasterHomeMenuSection() && (row == 2 || row == 3)) return @"HomeMenu";
-    if (section == LMVEasterSquidPanelSection() && (row == 7 || row == 8)) return @"SquidPanel";
+    if (section == LMVEasterSquidPanelSection() && (row == 2 || row == 3)) return @"SquidPanel";
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
     if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
     if (section == LMVEasterControlCenterSection()) {
@@ -72,7 +64,7 @@ static BOOL LMVEasterAudioVolumeRow(NSInteger section, NSInteger row) {
     // 1.50: the squid section grew to nine rows (four materials + claim + swap +
     // sound + volume), so its volume row moved to 8 - reporting it as anything else
     // printed a SECOND "播放声音" switch where the slider belongs.
-    if (section == LMVEasterSquidPanelSection()) return row == 8;
+    if (section == LMVEasterSquidPanelSection()) return row == 3;
     return (row == 3 || row == 6);
 }
 static NSString *LMVEasterAudioTargetForTag(NSInteger tag) {
@@ -211,7 +203,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section >= 0 && section < LMVEasterTargets().count) return 4;
     if (section == LMVEasterControlCenterSection()) return 7;
     if (section == LMVEasterHomeMenuSection()) return 4;
-    if (section == LMVEasterSquidPanelSection()) return 9;
+    if (section == LMVEasterSquidPanelSection()) return 4;
     if (section == LMVEasterATSection()) return 4;
     if (section == LMVEasterCVSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
@@ -296,34 +288,13 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterSquidPanelSection();
             toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
-        } else if (index.row >= 1 && index.row <= 4) {
-            // 1.44: each panel shape gets its own material; 1.50: the shape exists on
-            // both gesture sides, so there are four materials and the rows name the
-            // GESTURE (right/left, 上滑/上上滑), not the orientation.
-            cell.textLabel.text = LMVEasterSquidTitles()[index.row - 1];
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(LMVEasterSquidKeys()[index.row - 1]);
+        } else if (index.row == 1) {
+            // 1.63: 四个手势面板（右一/右二/左一/左二）共用同一个视频素材
+            cell.textLabel.text = @"切换视频"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id selected = LMVEasterRead(@"SquidPanelVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
             cell.detailTextLabel.numberOfLines = 2;
-        } else if (index.row == 5) {
-            // 1.52: the repair for a record that was written wrong - the pair ordering
-            // can only sort a side while that side is half unknown, so a corrupt pair
-            // has to be cleared instead. One tap, then open the four panels once.
-            cell.textLabel.text = @"重置面板识别";
-            cell.accessoryType = UITableViewCellAccessoryNone;
-            cell.detailTextLabel.text = @"忘记已记的四块面板；之后按 右一→右二→左一→左二 各开一次";
-            cell.detailTextLabel.numberOfLines = 2;
-        } else if (index.row == 6) {
-            // 1.46: the manual override. A button rather than a switch: the panel's
-            // switches are told apart by their tag and every tag is a section index,
-            // so this row reports its state in the detail label instead.
-            cell.textLabel.text = @"对调上滑 / 上上滑素材";
-            cell.accessoryType = UITableViewCellAccessoryNone;
-            cell.detailTextLabel.text = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue] ? @"已对调" : @"正常";
-            cell.detailTextLabel.numberOfLines = 1;
-        } else {
-            cell.textLabel.text = @""; cell.accessoryView = nil; cell.accessoryType = UITableViewCellAccessoryNone;
         }
         return cell;
     }
@@ -449,14 +420,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     LMVEasterSet(@"VideoOpacity", @(MAX(0, MIN(1, slider.value))));
     if (!slider.isTracking) { self.opacityTracking = NO; [self.tableView reloadData]; }
 }
-// 1.52: clear the learned panels and let the automatic rules start over, for a record
-// that went wrong (see LMVSquidPanelVideo's LMVSquidPanelForgetAll).
-- (void)resetSquidPanel {
-    LMVEasterSet(@"SquidPanelResetToken", [NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970]);
-    [self.tableView reloadData];
-}
-// 1.53: nothing manual is left here - the runtime works the four panels out by itself
-// (see LMVSquidPanelVideo) and "重置面板识别" is the only repair row.
+// 1.63: 鱿鱼四个手势面板共用一个视频素材，已删除「重置面板识别」与「对调上滑/上上滑素材」。
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES];
     if (self.presentedViewController || self.busy) return;
@@ -474,15 +438,8 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if (index.row != 1) return;
         key = @"HomeMenuVideo";
     } else if (index.section == LMVEasterSquidPanelSection()) {
-        if (index.row == 5) { [self resetSquidPanel]; return; }
-        if (index.row == 6) {
-            BOOL now = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue];
-            LMVEasterSet(@"SquidPanelSwapShapes", @(!now));
-            [self.tableView reloadData];
-            return;
-        }
-        if (index.row < 1 || index.row > 4) return;
-        key = LMVEasterSquidKeys()[index.row - 1];
+        if (index.row != 1) return;   // 仅第 1 行「切换视频」打开素材选择器
+        key = @"SquidPanelVideo";
     } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
         key = @"ATVideo";

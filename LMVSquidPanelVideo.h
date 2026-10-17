@@ -15,7 +15,7 @@
 
 static void LMVSquidPanelVideoRefresh(BOOL reload);
 static void LMVSquidPanelVideoSuspend(void);
-static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown,LMVSquidPanelSwapShapes;
+static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown;
 // 1.44: the panel has two shapes; 1.50: each shape exists on BOTH gesture sides, so
 // there are FOUR materials in all. 0 = 右边上滑 (right, "swipe up"), 1 = 右边上上滑
 // (right, "swipe up twice"), 2 = 左边上滑, 3 = 左边上上滑. Even slots are the tall
@@ -54,7 +54,6 @@ static CGFloat LMVSquidPanelSlotHeights[LMVSquidPanelSlotCount][2];
 // so the pair that is still open is the one that was touched last.
 static NSTimeInterval LMVSquidPanelSlotSeen[LMVSquidPanelSlotCount];
 // 1.52: the one repair the runtime cannot do by itself - see LMVSquidPanelForgetAll.
-static NSString *LMVSquidPanelResetToken;
 static NSTimer *LMVSquidPanelTimer;
 // The user's material selection, by slot.
 static NSArray *LMVSquidPanelSlotKeys(void) {
@@ -1021,12 +1020,8 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // look and stays silent (detach also stands the shared audio channel down, so
     // nothing is heard). 1.50: four slots, one per gesture side/shape.
     NSInteger slot=LMVSquidPanelResolveSlot(card,window);
-    // 1.46/1.50: "对调上滑 / 上上滑素材" - for the case where the very first content test
-    // guessed the two panels of a side the other way round. It flips which material
-    // each shape plays WITHIN its side (0<->1, 2<->3) and leaves the identity memory
-    // above untouched (that records the panel, this picks the material).
-    NSInteger wantSlot=slot;
-    if(LMVSquidPanelSwapShapes)wantSlot=slot^1;
+    // 1.63: 所有鱿鱼手势面板（右一/右二/左一/左二）共用同一个视频素材，不再按面板区分。
+    NSInteger wantSlot=0;
     NSString *wantPath=LMVSquidPanelSlotPaths[wantSlot];
     NSString *wantRevision=LMVSquidPanelSlotRevisions[wantSlot];
     if(!wantPath.length || !wantRevision.length) {
@@ -1173,9 +1168,6 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
             LMVSquidPanelSlotPaths[i]=LMVCCSelectedPath(keys[i]);
             LMVSquidPanelSlotRevisions[i]=LMVLockVideoRevision(LMVSquidPanelSlotPaths[i]);
         }
-        // 1.46/1.50: "对调上滑 / 上上滑素材" - see wantSlot in -update.
-        id swap=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelSwapShapes"),kLMVPrefsID);
-        LMVSquidPanelSwapShapes=[swap isKindOfClass:NSNumber.class] && [swap boolValue];
         // 1.47: the content signature each slot was last seen as. 1.50: one key per
         // SLOT; the 1.48 pair (SquidPanelTallSig2/SquidPanelShortSig2) seeds the two
         // right-hand slots so a device that already knew its right panels keeps that
@@ -1254,13 +1246,6 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
             } else {
                 LMVSquidPanelSlotHeights[i][0]=0;LMVSquidPanelSlotHeights[i][1]=0;
             }
-        }
-        id reset=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("SquidPanelResetToken"),kLMVPrefsID);
-        NSString *resetText=[reset isKindOfClass:NSString.class]?reset:(reset?[reset description]:nil);
-        if(resetText.length && ![resetText isEqualToString:LMVSquidPanelResetToken]) {
-            LMVSquidPanelResetToken=[resetText copy];
-            // before the signatures are read below, so the cleared keys win.
-            LMVSquidPanelForgetAll();
         }
     }
     LMVSquidPanelRetune();

@@ -293,8 +293,6 @@ assert 'LMVSquidPanelBindLastSeen' not in module and 'LMVSquidPanelClaimToken' n
 # 1.52: and the one repair that pair ordering cannot do by itself - clearing a side that
 # was written wrong (the ordering only sorts a side while it is HALF unknown).
 assert 'static void LMVSquidPanelForgetAll(void) {' in module
-assert 'CFSTR("SquidPanelResetToken")' in module
-assert 'LMVDiagnostic(@"squid-panel-reset slots=4 (all four will be re-learned)");' in module
 assert 'for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {' in module
 # 1.48's pair seeds the two right-hand slots, so a device that already knew its right
 # panels keeps that knowledge; the 1.47 key generation itself is gone.
@@ -352,12 +350,7 @@ assert 'if(!wantPath.length || !wantRevision.length) {' in module
 assert '"squid-panel slot=%d empty=%@ (no video, by design)"' in module
 # 1.46: the manual override, for the one case identity cannot fix - the very first
 # content test guessing the two panels the other way round.
-assert 'static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown,LMVSquidPanelSwapShapes;' in module
-assert 'CFSTR("SquidPanelSwapShapes")' in module
-# 1.50: "对调" now swaps the two shapes WITHIN a side (0<->1, 2<->3), so it can never
-# mix up the left and right materials.
-assert 'NSInteger wantSlot=slot;' in module
-assert 'if(LMVSquidPanelSwapShapes)wantSlot=slot^1;' in module
+assert 'static BOOL LMVSquidPanelEnabled,LMVSquidPanelPrefsKnown;' in module
 assert 'NSString *wantPath=LMVSquidPanelSlotPaths[wantSlot];' in module
 assert 'NSString *wantRevision=LMVSquidPanelSlotRevisions[wantSlot];' in module
 # 1.46: the log names the slot, the reason for the verdict and the card object, so a
@@ -393,77 +386,32 @@ assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"k
 assert '[squidPanelEnabled setProperty:@NO forKey:@"default"];' in prefs
 assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in prefs
 assert '- (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }' in prefs
-# 1.44: the second slot, named after the gesture (the shape is the same in both
-# orientations), and it is routed exactly like the first one.
-assert 'squidPanelMaterial2.buttonAction = @selector(switchSquidPanel2:);' in prefs
-assert '[squidPanelMaterial2 setProperty:@"SquidPanel2Material" forKey:@"id"];' in prefs
-assert '- (void)switchSquidPanel2:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel2"]; }' in prefs
-# 1.50: the left-hand pair, plus the row that settles which gesture owns a panel.
-assert 'squidPanelMaterial3.buttonAction = @selector(switchSquidPanel3:);' in prefs
-assert '[squidPanelMaterial3 setProperty:@"SquidPanel3Material" forKey:@"id"];' in prefs
-assert '- (void)switchSquidPanel3:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel3"]; }' in prefs
-assert 'squidPanelMaterial4.buttonAction = @selector(switchSquidPanel4:);' in prefs
-assert '[squidPanelMaterial4 setProperty:@"SquidPanel4Material" forKey:@"id"];' in prefs
-assert '- (void)switchSquidPanel4:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel4"]; }' in prefs
-assert '@"SquidPanel3":@"",@"SquidPanel4":@"",@"AT":@""' in delete
-assert '@"SquidPanel3",@"SquidPanel4",@"AT",@"CV"]' in delete
+# 1.63: all four SquidGesturePro panels share ONE material (SquidPanelVideo), so there is
+# a single "切换视频" button routed to SquidPanel and no per-shape slots.
+assert '@"SquidPanel":@"",@"AT":@"",@"CV":@""' in delete
+assert '@"SquidPanel",@"AT",@"CV"]' in delete
 assert '@"SquidPanel": @"右一·右上滑面板背景视频"' in prefs
-assert '@"SquidPanel2": @"右二·右上上滑面板背景视频"' in prefs
-assert '@"SquidPanel3": @"左一·左上滑面板背景视频"' in prefs
-assert '@"SquidPanel4": @"左二·左上上滑面板背景视频"' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];' in prefs
-assert '切换右一素材（右上滑）' in prefs and '切换右二素材（右上上滑）' in prefs
-assert '切换左一素材（左上滑）' in prefs and '切换左二素材（左上上滑）' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.53: nine rows - switch, four materials, the reset row, the swap row, sound, volume.
 # The sound pair sits at 7/8, which is also what stops the volume row from rendering as
 # a second "播放声音" switch (the report that started 1.50).
-assert 'if (section == LMVEasterSquidPanelSection()) return 9;' in panel
+assert 'if (section == LMVEasterSquidPanelSection()) return 4;' in panel
 assert 'if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";' in panel
-assert 'if (section == LMVEasterSquidPanelSection() && (row == 7 || row == 8)) return @"SquidPanel";' in panel
-assert 'if (section == LMVEasterSquidPanelSection()) return row == 8;' in panel
-assert 'static NSArray *LMVEasterSquidKeys(void) {' in panel
-assert 'return @[@"SquidPanelVideo", @"SquidPanel2Video", @"SquidPanel3Video", @"SquidPanel4Video"];' in panel
-assert 'return @[@"切换右一素材（右上滑）", @"切换右二素材（右上上滑）", @"切换左一素材（左上滑）", @"切换左二素材（左上上滑）"];' in panel
+assert 'if (section == LMVEasterSquidPanelSection() && (row == 2 || row == 3)) return @"SquidPanel";' in panel
+assert 'if (section == LMVEasterSquidPanelSection()) return row == 3;' in panel
+assert 'static NSArray *LMVEasterSquidKeys(void) {' not in panel
+assert 'LMVEasterSquidTitles' not in panel
 assert 'toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];' in panel
-assert 'cell.textLabel.text = LMVEasterSquidTitles()[index.row - 1];' in panel
-assert 'id selected = LMVEasterRead(LMVEasterSquidKeys()[index.row - 1]);' in panel
-# 1.46: the swap row, in Settings (a switch, keyed) and in the floating panel (a
-# button - the panel's switches are told apart by tag and every tag is a section).
-assert '[squidPanelSwap setProperty:@"SquidPanelSwapShapes" forKey:@"key"];' in prefs
-assert 'squidPanelSwap.buttonAction' not in prefs
-assert 'cell.textLabel.text = @"对调上滑 / 上上滑素材";' in panel
-assert 'cell.detailTextLabel.text = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue] ? @"已对调" : @"正常";' in panel
-assert 'LMVEasterSet(@"SquidPanelSwapShapes", @(!now));' in panel
-assert 'if (index.row < 1 || index.row > 4) return;\n        key = LMVEasterSquidKeys()[index.row - 1];' in panel
+assert 'cell.textLabel.text = @"切换视频";' in panel
+assert 'id selected = LMVEasterRead(@"SquidPanelVideo");' in panel
+# 1.63: all four SquidGesturePro panels share ONE material - the user picks a single
+# "切换视频" and every panel plays it, so the swap/reset/per-shape rows are gone.
 # 1.53: the manual claim is gone - the four panels are worked out by the runtime alone.
 assert 'claimSquidPanel' not in panel and 'LMVEasterChoice' not in panel
 assert 'claimSquidPanel' not in prefs
-assert 'if (index.row == 5) { [self resetSquidPanel]; return; }' in panel
-assert 'cell.textLabel.text = @"重置面板识别";' in panel
-assert 'LMVEasterSet(@"SquidPanelResetToken", [NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970]);' in panel
-assert 'squidPanelReset.buttonAction = @selector(resetSquidPanel:);' in prefs
-assert '- (void)resetSquidPanel:(PSSpecifier *)specifier {' in prefs
-assert 'CFPreferencesSetAppValue(CFSTR("SquidPanelResetToken")' in prefs
-# 1.46: the swap row, in Settings (a switch, keyed) and in the floating panel (a
-# button - the panel's switches are told apart by tag and every tag is a section).
-assert '[squidPanelSwap setProperty:@"SquidPanelSwapShapes" forKey:@"key"];' in prefs
-assert 'squidPanelSwap.buttonAction' not in prefs
-assert 'cell.textLabel.text = @"对调上滑 / 上上滑素材";' in panel
-assert 'cell.detailTextLabel.text = [LMVEasterRead(@"SquidPanelSwapShapes") boolValue] ? @"已对调" : @"正常";' in panel
-assert 'LMVEasterSet(@"SquidPanelSwapShapes", @(!now));' in panel
-assert 'if (index.row < 1 || index.row > 4) return;\n        key = LMVEasterSquidKeys()[index.row - 1];' in panel
-# 1.50: the claim row is a PUSHED chooser, never a presented sheet (the floating panel
-# owns no presentation role - see tests/panel-roles.py), and it writes the slot + token.
-# 1.52: and the repair row, for a record the manual claim wrote wrong (the device log
-# showed the right 435pt panel stored under 左边上上滑, which parks every later panel on
-# "edited-nearest"). Clearing is one tap and the automatic rules take over again.
-assert 'if (index.row == 5) { [self resetSquidPanel]; return; }' in panel
-assert 'cell.textLabel.text = @"重置面板识别";' in panel
-assert 'LMVEasterSet(@"SquidPanelResetToken", [NSString stringWithFormat:@"%.3f", NSDate.date.timeIntervalSince1970]);' in panel
-assert 'squidPanelReset.buttonAction = @selector(resetSquidPanel:);' in prefs
-assert '- (void)resetSquidPanel:(PSSpecifier *)specifier {' in prefs
-assert 'CFPreferencesSetAppValue(CFSTR("SquidPanelResetToken")' in prefs
+assert 'SquidPanelSwapShapes' not in module and 'SquidPanelSwapShapes' not in prefs and 'SquidPanelSwapShapes' not in panel
+assert 'SquidPanelResetToken' not in module and 'SquidPanelResetToken' not in prefs and 'SquidPanelResetToken' not in panel
 assert 'presentViewController:' not in panel
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
 print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, FOUR material '

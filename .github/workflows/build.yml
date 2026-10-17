@@ -19,9 +19,11 @@ on:
   push:
     branches: [ main ]
 
-# 只读。这里没有任何写仓库的步骤（Release 那一步已经删掉）。
+# 只读仓库内容（checkout），但授予 actions: write 以便 upload-artifact 把 deb 作为
+# 产物上传（14 天保留），供本地取回后直接交付。没有任何写仓库/发版步骤。
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: build-deb-${{ github.ref }}
