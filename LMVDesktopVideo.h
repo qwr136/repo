@@ -1557,14 +1557,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 1.68: legacy windows (not attached to any scene) were never opened up.
         // A keyboard-side clipboard panel can be one of these, which explains a
         // panel that is visibly above the keyboard yet absent from every list.
+        NSMutableArray<UIWindow *> *legacyWindows=[NSMutableArray new];
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         for (UIWindow *window in UIApplication.sharedApplication.windows)
-            if (window && ![panelWindows containsObject:window]) [panelWindows addObject:window];
+            if (window && ![panelWindows containsObject:window]) { [panelWindows addObject:window]; [legacyWindows addObject:window]; }
 #pragma clang diagnostic pop
         for (UIWindow *window in panelWindows) {
             NSString *windowName=NSStringFromClass(window.class);
-            BOOL legacy=window.windowScene==nil;
+            BOOL legacy=[legacyWindows containsObject:window];
             // 1.67: a bare window parked at plugin level can still be the
             // real host. CopyLogX keeps two hidden UIWindows with no root
             // controller; neither carries Panel/Menu/Platter/Clipboard, so
