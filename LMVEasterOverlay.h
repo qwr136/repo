@@ -185,6 +185,18 @@ static UIView *LMVEasterCCOverlay(UIWindow *window) {
         }
         if(view.subviews.count<48)[pending addObjectsFromArray:view.subviews];
     }
+    // 1.67: pulling Control Centre down OVER Notification Centre presents a
+    // different hierarchy (the modular overlay layer name does not match), so
+    // the exact search above missed and the ball never appeared there. The CC
+    // window itself is only exposed while the panel is up, so its root view is
+    // a valid host once it covers most of the screen.
+    UIView *root=window.rootViewController.viewIfLoaded;
+    if (root && !root.hidden && root.alpha>.01) {
+        CGRect rect=[root convertRect:root.bounds toView:window];
+        CGRect overlap=CGRectIntersection(rect,window.bounds);
+        if (!CGRectIsNull(overlap) && !CGRectIsEmpty(overlap) &&
+            overlap.size.height>window.bounds.size.height*0.5 && overlap.size.width>1) return root;
+    }
     return nil;
 }
 static BOOL LMVEasterCCWindowExposed(UIWindow *window) { return LMVEasterCCOverlay(window)!=nil; }

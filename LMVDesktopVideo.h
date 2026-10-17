@@ -1544,7 +1544,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-                if (!LMVDesktopPanelName(NSStringFromClass(window.class)) || window.alpha<.01) continue;
+                NSString *windowName=NSStringFromClass(window.class);
+                // 1.67: a bare window parked at plugin level can still be the
+                // real host. CopyLogX keeps two hidden UIWindows with no root
+                // controller; neither carries Panel/Menu/Platter/Clipboard, so
+                // the name test alone left them as unexplained lines in the
+                // window list.
+                BOOL deep=LMVDesktopPanelName(windowName) ||
+                    (window.windowLevel>=1000000 && window.rootViewController==nil);
+                if (!deep || window.alpha<.01) continue;
                 if (trees.length>3000) {[trees appendString:@"…"];break;}
                 NSUInteger nodes=0;
                 [trees appendFormat:@"%@|",NSStringFromClass(window.class)];
