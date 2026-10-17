@@ -1549,24 +1549,34 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // shows an empty shell.
     {
         NSMutableString *trees=[NSMutableString new];
+        NSMutableArray<UIWindow *> *panelWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
-            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-                NSString *windowName=NSStringFromClass(window.class);
-                // 1.67: a bare window parked at plugin level can still be the
-                // real host. CopyLogX keeps two hidden UIWindows with no root
-                // controller; neither carries Panel/Menu/Platter/Clipboard, so
-                // the name test alone left them as unexplained lines in the
-                // window list.
-                BOOL deep=LMVDesktopPanelName(windowName) ||
-                    (window.windowLevel>=1000000 && window.rootViewController==nil);
-                if (!deep || window.alpha<.01) continue;
-                if (trees.length>3000) {[trees appendString:@"…"];break;}
-                NSUInteger nodes=0;
-                [trees appendFormat:@"%@|",NSStringFromClass(window.class)];
-                LMVDesktopPanelTree(window,0,trees,&nodes);
-                [trees appendString:@" "];
-            }
+            [panelWindows addObjectsFromArray:((UIWindowScene *)scene).windows];
+        }
+        // 1.68: legacy windows (not attached to any scene) were never opened up.
+        // A keyboard-side clipboard panel can be one of these, which explains a
+        // panel that is visibly above the keyboard yet absent from every list.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        for (UIWindow *window in UIApplication.sharedApplication.windows)
+            if (window && ![panelWindows containsObject:window]) [panelWindows addObject:window];
+#pragma clang diagnostic pop
+        for (UIWindow *window in panelWindows) {
+            NSString *windowName=NSStringFromClass(window.class);
+            BOOL legacy=window.windowScene==nil;
+            // 1.67: a bare window parked at plugin level can still be the
+            // real host. CopyLogX keeps two hidden UIWindows with no root
+            // controller; neither carries Panel/Menu/Platter/Clipboard, so
+            // the name test alone left them as unexplained lines.
+            BOOL deep=LMVDesktopPanelName(windowName) ||
+                (window.windowLevel>=1000000 && window.rootViewController==nil) || legacy;
+            if (!deep || window.alpha<.01) continue;
+            if (trees.length>3000) {[trees appendString:@"…"];break;}
+            NSUInteger nodes=0;
+            [trees appendFormat:@"%@%@|",legacy?@"legacy:":@"",windowName];
+            LMVDesktopPanelTree(window,0,trees,&nodes);
+            [trees appendString:@" "];
         }
         static NSString *lastTrees=nil;
         if (trees.length && ![trees isEqualToString:lastTrees]) {
@@ -1581,19 +1591,26 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // change: the panel class and its user-set height appear right here.
     {
         NSMutableString *trees=[NSMutableString new];
+        NSMutableArray<UIWindow *> *keyboardWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
-            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-                NSString *name=NSStringFromClass(window.class);
-                if (![name isEqualToString:@"UITextEffectsWindow"] &&
-                    ![name isEqualToString:@"SBMedusaHostedKeyboardWindow"]) continue;
-                if (window.hidden || window.alpha<.01) continue;
-                if (trees.length>6000) break;
-                NSUInteger nodes=0;
-                [trees appendFormat:@"%@|",name];
-                LMVDesktopPanelTree(window.rootViewController.viewIfLoaded,0,trees,&nodes);
-                [trees appendString:@" "];
-            }
+            [keyboardWindows addObjectsFromArray:((UIWindowScene *)scene).windows];
+        }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        for (UIWindow *window in UIApplication.sharedApplication.windows)
+            if (window && ![keyboardWindows containsObject:window]) [keyboardWindows addObject:window];
+#pragma clang diagnostic pop
+        for (UIWindow *window in keyboardWindows) {
+            NSString *name=NSStringFromClass(window.class);
+            if (![name isEqualToString:@"UITextEffectsWindow"] &&
+                ![name isEqualToString:@"SBMedusaHostedKeyboardWindow"]) continue;
+            if (window.hidden || window.alpha<.01) continue;
+            if (trees.length>6000) break;
+            NSUInteger nodes=0;
+            [trees appendFormat:@"%@|",name];
+            LMVDesktopPanelTree(window.rootViewController.viewIfLoaded,0,trees,&nodes);
+            [trees appendString:@" "];
         }
         static NSString *lastKeyboard=nil;
         if (trees.length && ![trees isEqualToString:lastKeyboard]) {
