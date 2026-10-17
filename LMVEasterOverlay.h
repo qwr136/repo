@@ -48,11 +48,11 @@
 @property(nonatomic, strong) NSTimer *visibilityTimer;
 @property(nonatomic, weak) UIWindow *foreignKey, *hostWindow;
 @property(nonatomic) CGFloat keyboardTop;
-// 0.0.122: the panel is draggable by its title bar; the offset is kept for the
-// session so reopening it (or rotating) leaves it where the user put it, and it
-// is re-clamped on every layout so it can never leave the screen.
+// 0.0.122: the panel is draggable by its title bar; 1.64 persists the offset so
+// closing the panel, hiding the egg or respringing all reopen it in the same
+// place. It is re-clamped on every layout so it can never leave the screen.
 @property(nonatomic) CGPoint panelOffset;
-@property(nonatomic) NSUInteger generation, frame;
+@property(nonatomic) NSUInteger generation, frame, lastHostSignature;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
 @property(nonatomic) CGPoint normalized;
 // Cache only physical probes, never permission/scope decisions. Notifications
@@ -242,6 +242,28 @@ static NSInteger LMVEasterForeground(void) {
     }
     return known && !unknown?1:0;
 }
+// 1.64: a cheap change detector for the three display hosts. The full physical
+// snapshot walks every window and probe (hundreds of property reads) and is
+// rate-limited to one second, so collapsing Control Centre used to leave the
+// ball on screen for up to a second after the panel was gone. Comparing only
+// the host windows costs a handful of reads and can therefore run at the
+// timer's own rate: the moment CC/NC/Home appears or disappears the policy is
+// re-evaluated, and the ball leaves with the panel instead of after it.
+static NSUInteger LMVEasterHostSignature(void) {
+    NSUInteger mask=0;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState==UISceneActivationStateUnattached) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            // Window-level only: no subtree walk. The signature exists to notice
+            // that a host window appeared or went away, which the window's own
+            // hidden/alpha state already tells us.
+            if (LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]) && LMVEasterWindowExposed(window)) mask|=1;
+            if (LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) && LMVEasterWindowExposed(window)) mask|=2;
+            if (LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window)) mask|=4;
+        }
+    }
+    return mask;
+}
 static BOOL LMVEasterScopePolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,uint64_t locked,
                                BOOL nc,BOOL cc,BOOL home,BOOL *authenticated) {
     BOOL ncAllowed=LMVEasterNCPolicy(blankKnown,blank,lockKnown,locked,nc,authenticated);
@@ -388,6 +410,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         _normalized = CGPointMake(0.9, 0.35);
         id x = LMVEasterRead(@"EasterEggX"), y = LMVEasterRead(@"EasterEggY");
         if ([x isKindOfClass:NSNumber.class] && [y isKindOfClass:NSNumber.class] && isfinite([x doubleValue]) && isfinite([y doubleValue])) _normalized = CGPointMake(MAX(0, MIN(1, [x doubleValue])), MAX(0, MIN(1, [y doubleValue])));
+        // 1.64: the dragged panel position survives closing, hiding and respring.
+        id ox = LMVEasterRead(@"EasterPanelOffsetX"), oy = LMVEasterRead(@"EasterPanelOffsetY");
+        if ([ox isKindOfClass:NSNumber.class] && [oy isKindOfClass:NSNumber.class] &&
+            isfinite([ox doubleValue]) && isfinite([oy doubleValue]))
+            _panelOffset = CGPointMake([ox doubleValue], [oy doubleValue]);
         for (NSString *name in @[@"com.minis.lockmessagevideo/preferencesChanged", @"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge void *)self, LMVEasterDarwin, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         for (NSString *name in @[UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeHiddenNotification, UIWindowDidBecomeKeyNotification, UIScreenCapturedDidChangeNotification, UISceneDidActivateNotification, UISceneWillDeactivateNotification, UIApplicationDidBecomeActiveNotification, UIApplicationDidReceiveMemoryWarningNotification]) {
             [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(changed:) name:name object:nil];
@@ -473,6 +500,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
+    // 1.64: the cheap host signature runs at every tick, so a panel that has
+    // just collapsed cannot wait for the one-second physical audit.
+    NSUInteger hostSignature = LMVEasterHostSignature();
+    if (hostSignature != self.lastHostSignature) {
+        self.lastHostSignature = hostSignature;
+        self.physicalSnapshot = nil; self.lastPhysicalCheck = 0;
+    }
     uint64_t blank=1,locked=1;
     BOOL blankKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
@@ -505,7 +539,10 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     }
     if (!self.visibilityTimer) {
         __weak typeof(self) weakSelf=self;
-        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
+        // 1.64: 0.1s instead of 0.5s. Each tick is now a handful of window
+        // probes, so the ball can disappear with the collapsing panel rather
+        // than up to half a second later.
+        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
         [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     }
     uint64_t blank=1,locked=1;
@@ -676,6 +713,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.panelOffset = CGPointMake(self.panelOffset.x + translation.x, self.panelOffset.y + translation.y);
     [pan setTranslation:CGPointZero inView:space];
     [self layout];
+    // 1.64: remember where the user dropped the panel. Written on gesture end
+    // only, so a drag does not hammer the preferences tree every frame.
+    if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
+        LMVEasterSet(@"EasterPanelOffsetX", @(self.panelOffset.x));
+        LMVEasterSet(@"EasterPanelOffsetY", @(self.panelOffset.y));
+    }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
     CGPoint translation = [pan translationInView:self.window.rootViewController.view]; CGRect area = [self dragArea];
