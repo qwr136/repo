@@ -1166,6 +1166,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         (visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1));
     BOOL wasCovered=self.coveredNow;
     self.coveredNow=audioCovered;
+    // 1.75: pause DECODING the moment the desktop is not visible (app in front,
+    // switcher, Control Centre, full sheet). The player is only paused, never
+    // torn down, and an AVPlayerLayer keeps its last frame - so the resume is a
+    // single play call and the next frame appears immediately. The old model
+    // kept decoding behind the app for the "instant reveal" feel, which is what
+    // kept the CPU busy.
+    if (LMVLaunchReady && self.playback.player) {
+        if (audioCovered) [self.playback.player pause];
+        else if (self.playback.wantsPlayback) [self.playback.player playImmediatelyAtRate:1.0];
+    }
     if (audioCovered!=wasCovered && LMVDesktopAudioCoverHook) LMVDesktopAudioCoverHook(audioCovered);
     if (LMVLaunchReady) {
         // 0.0.137: the model the user asked for. ANY full cover - the app
