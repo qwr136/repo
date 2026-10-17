@@ -249,15 +249,21 @@ static NSInteger LMVEasterForeground(void) {
 // the host windows costs a handful of reads and can therefore run at the
 // timer's own rate: the moment CC/NC/Home appears or disappears the policy is
 // re-evaluated, and the ball leaves with the panel instead of after it.
-static NSUInteger LMVEasterHostSignature(NSArray<UIWindow *> *windows) {
+// 1.65: host visibility read from OUR OWN scene, every tick. The 1.64 attempt
+// compared a cached window array that -refresh/invalidatePhysicalSnapshot nulls
+// out, so the signature usually read as zero and the ball fell back to the
+// one-second audit: slower than the original half-second poll, exactly as the
+// device felt. scene.windows is live, costs one property read plus a class test
+// per window, and needs no scene enumeration, so the timer can run at 20 Hz and
+// a collapsing Control Centre is noticed in about 50 ms.
+static NSUInteger LMVEasterQuickHostMask(UIWindowScene *scene) {
+    if (!scene) return 0;
+    Class nc=NSClassFromString(@"SBCoverSheetWindow"), cc=NSClassFromString(@"SBControlCenterWindow");
     NSUInteger mask=0;
-    for (UIWindow *window in windows) {
-        // Window-level only: no subtree walk. The signature exists to notice
-        // that a host window appeared or went away, which the window's own
-        // hidden/alpha state already tells us.
-        if (LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]) && LMVEasterWindowExposed(window)) mask|=1;
-        if (LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) && LMVEasterWindowExposed(window)) mask|=2;
-        if (LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window)) mask|=4;
+    for (UIWindow *window in scene.windows) {
+        if (window.hidden || window.alpha<0.01) continue;
+        if (nc && [window isKindOfClass:nc]) mask|=1;
+        if (cc && [window isKindOfClass:cc]) mask|=2;
     }
     return mask;
 }
@@ -497,14 +503,10 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
-    // 1.64: the cheap host signature runs at every tick, so a panel that has
-    // just collapsed cannot wait for the one-second physical audit. It reads
-    // the cached window list only - the windows themselves are long-lived, so
-    // their hidden/alpha state already tells us that a host went away, and the
-    // tick stays free of scene enumeration and preference work.
-    NSUInteger hostSignature = LMVEasterHostSignature(self.physicalWindows);
-    if (hostSignature != self.lastHostSignature) {
-        self.lastHostSignature = hostSignature;
+    // 1.65: live 20 Hz host probe. No cached array, no scene enumeration.
+    NSUInteger hostMask = LMVEasterQuickHostMask(self.window.windowScene);
+    if (hostMask != self.lastHostSignature) {
+        self.lastHostSignature = hostMask;
         self.physicalSnapshot = nil; self.lastPhysicalCheck = 0;
     }
     uint64_t blank=1,locked=1;
@@ -539,10 +541,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     }
     if (!self.visibilityTimer) {
         __weak typeof(self) weakSelf=self;
-        // 1.64: 0.1s instead of 0.5s. Each tick is now a handful of window
-        // probes, so the ball can disappear with the collapsing panel rather
-        // than up to half a second later.
-        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
+        // 1.65: 20 Hz. The tick is now a window-list class test, so a collapsed
+        // Control Centre is seen in ~50 ms instead of waiting for the audit.
+        self.visibilityTimer=[NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
         [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     }
     uint64_t blank=1,locked=1;
@@ -718,6 +719,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
         LMVEasterSet(@"EasterPanelOffsetX", @(self.panelOffset.x));
         LMVEasterSet(@"EasterPanelOffsetY", @(self.panelOffset.y));
+        // 1.65: flush now, so a respring right after the drag still remembers.
+        CFPreferencesAppSynchronize(LMVEasterPrefs);
     }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
