@@ -249,21 +249,17 @@ static NSInteger LMVEasterForeground(void) {
 // the host windows costs a handful of reads and can therefore run at the
 // timer's own rate: the moment CC/NC/Home appears or disappears the policy is
 // re-evaluated, and the ball leaves with the panel instead of after it.
-// 1.65: host visibility read from OUR OWN scene, every tick. The 1.64 attempt
-// compared a cached window array that -refresh/invalidatePhysicalSnapshot nulls
-// out, so the signature usually read as zero and the ball fell back to the
-// one-second audit: slower than the original half-second poll, exactly as the
-// device felt. scene.windows is live, costs one property read plus a class test
-// per window, and needs no scene enumeration, so the timer can run at 20 Hz and
-// a collapsing Control Centre is noticed in about 50 ms.
-static NSUInteger LMVEasterQuickHostMask(UIWindowScene *scene) {
-    if (!scene) return 0;
-    Class nc=NSClassFromString(@"SBCoverSheetWindow"), cc=NSClassFromString(@"SBControlCenterWindow");
+// 1.65: host visibility from the long-lived window object list. The 1.64
+// attempt read a cached array that -refresh/-apply nulled out, so the signature
+// usually read as zero and the ball fell back to the one-second audit: slower
+// than the original half-second poll, exactly as the device felt. The window
+// objects never go away, so their live hidden/alpha state is enough, and the
+// tick needs no scene enumeration.
+static NSUInteger LMVEasterQuickHostMask(NSArray<UIWindow *> *windows) {
     NSUInteger mask=0;
-    for (UIWindow *window in scene.windows) {
-        if (window.hidden || window.alpha<0.01) continue;
-        if (nc && [window isKindOfClass:nc]) mask|=1;
-        if (cc && [window isKindOfClass:cc]) mask|=2;
+    for (UIWindow *window in windows) {
+        if (LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]) && LMVEasterWindowExposed(window)) mask|=1;
+        if (LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) && LMVEasterWindowExposed(window)) mask|=2;
     }
     return mask;
 }
@@ -499,12 +495,16 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     LMVEasterWindowDiagnostic(keyReason);
 }
 - (void)invalidatePhysicalSnapshot {
-    self.physicalSnapshot=nil; self.physicalWindows=nil; self.physicalProbes=nil;
+    // 1.65: keep physicalWindows. It is only the window OBJECT list, and the
+    // objects live for the whole session; nulling it here made the host probe
+    // read zero on almost every tick, so the 1.64 build fell back to the
+    // one-second audit and felt slower than the old poll.
+    self.physicalSnapshot=nil; self.physicalProbes=nil;
 }
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
-    // 1.65: live 20 Hz host probe. No cached array, no scene enumeration.
-    NSUInteger hostMask = LMVEasterQuickHostMask(self.window.windowScene);
+    // 1.65: live 20 Hz host probe over the retained window objects.
+    NSUInteger hostMask = LMVEasterQuickHostMask(self.physicalWindows);
     if (hostMask != self.lastHostSignature) {
         self.lastHostSignature = hostMask;
         self.physicalSnapshot = nil; self.lastPhysicalCheck = 0;
