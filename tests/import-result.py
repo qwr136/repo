@@ -88,6 +88,7 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 @end
 @interface TestTable:NSObject
 @property NSUInteger reloads;
+@property CGPoint contentOffset;
 - (void)reloadData;
 @end
 @implementation TestTable
@@ -103,6 +104,8 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 - (void)prepareForClose;
 - (void)importResultReady:(NSNotification *)notification;
 @end
+static CFStringRef const LMVEasterPrefs=CFSTR("com.minis.lockvideo");
+static void LMVEasterSet(NSString *key,id value){}
 static NSMutableArray<LMVMaterialPrompt *> *LMVEasterPendingImportPrompts;
 static NSString * const LMVEasterImportResultReady=@"LMVEasterImportResultReady";
 static NSUInteger notified;
