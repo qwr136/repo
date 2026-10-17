@@ -457,23 +457,6 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL visible=self.window && !self.window.hidden && self.window.alpha>=0.01 &&
         self.bubble && !self.bubble.hidden && self.bubble.alpha>=0.01 &&
         self.bubbleImage && !self.bubbleImage.hidden && self.bubbleImage.alpha>=0.01 && self.bubbleImage.image!=nil;
-    // 1.74: also stop while something ABOVE us covers the screen. The ball is
-    // invisible then, and a spinning layer that nobody can see is pure waste.
-    // Resolved through the runtime: the rotation fixture has no windowScene, so
-    // a direct property access would not even compile there.
-    if (visible) {
-        SEL sceneSel=NSSelectorFromString(@"windowScene");
-        id scene=[self.window respondsToSelector:sceneSel] ? ((id(*)(id,SEL))objc_msgSend)(self.window,sceneSel) : nil;
-        SEL windowsSel=NSSelectorFromString(@"windows");
-        if (scene && [scene respondsToSelector:windowsSel]) {
-            for (id other in ((id(*)(id,SEL))objc_msgSend)(scene,windowsSel)) {
-                if (other==self.window || ![other isKindOfClass:UIWindow.class]) continue;
-                UIWindow *candidate=(UIWindow *)other;
-                if (candidate.hidden || candidate.alpha<0.01) continue;
-                if (candidate.windowLevel>self.window.windowLevel) { visible=NO; break; }
-            }
-        }
-    }
     LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,
         self.displayControls.enabled && self.displayControls.rotationEnabled,self.displayControls.rotationSpeed);
 }
@@ -532,6 +515,10 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     NSArray *snapshot=self.physicalSnapshot?LMVEasterPhysicalSnapshot(self.physicalWindows,self.physicalProbes,
         LMVEasterForeground(),blankKnown,blank,lockKnown,locked):nil;
     BOOL tracking=[NSRunLoop.mainRunLoop.currentMode isEqualToString:UITrackingRunLoopMode];
+    // 1.74: keep the image rotation in step with the ball's own visibility on
+    // EVERY tick (50 ms), not only when a full refresh happens to run. Hiding
+    // stops the animation immediately; showing resumes it from the same phase.
+    [self syncRotation];
     if (!LMVEasterPhysicalCheckNeeded(!self.physicalSnapshot,![snapshot isEqual:self.physicalSnapshot],
             CACurrentMediaTime(),self.lastPhysicalCheck,tracking)) return;
     [self refresh];
