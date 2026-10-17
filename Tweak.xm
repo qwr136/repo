@@ -612,6 +612,9 @@ static void LMVSourcePause(LMVSharedSource *source) {
     [source.player pause];
     source.playing=NO;
     source.pausedAt=CACurrentMediaTime();
+    // The retained player keeps its exact position; a pending restore flag from
+    // an older stop path must not turn the resume into a seek.
+    source.restoreOnStart=NO;
 }
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {    if (!source) return NO;
     for (UIView *cell in LMVCells.allObjects) {
