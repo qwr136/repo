@@ -805,7 +805,7 @@ static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {
                 }
                 [list appendFormat:@" %@:%@",NSStringFromClass([item class]),text];
             }
-            [out appendFormat:@"{a:%lu%@}",(unsigned long)items.count,list];
+            [out appendFormat:@"{a:%lu%@}",(unsigned long)[items count],list];
         }
     }
     unsigned methodCount=0;
