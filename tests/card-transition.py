@@ -212,6 +212,7 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
 }
 static void LMVStartSource(LMVSharedSource *source) { source.playing=YES; }
 static void LMVStopSource(LMVSharedSource *source) { source.playing=NO; }
+static void LMVSourcePause(LMVSharedSource *source) { source.playing=NO; }
 static void LMVSyncDisplayLink(void) {}
 static void LMVRetryDiscovery(UIView *cell) { retries++; }
 static void LMVUpdate(UIView *cell);

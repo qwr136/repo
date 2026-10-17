@@ -1174,7 +1174,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // kept the CPU busy.
     if (LMVLaunchReady && self.playback.player) {
         if (audioCovered) [self.playback.player pause];
-        else if (self.playback.wantsPlayback) [self.playback.player playImmediatelyAtRate:1.0];
+        else if (self.playback.wantsPlayback) [self.playback.player play];
     }
     if (audioCovered!=wasCovered && LMVDesktopAudioCoverHook) LMVDesktopAudioCoverHook(audioCovered);
     if (LMVLaunchReady) {
