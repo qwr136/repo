@@ -1,5 +1,34 @@
 # 锁屏消息视频
 
+## 1.61：配置不在 Preferences —— 列出所有可能的位置、插件自己的类、面板里的真实动作
+
+**1.60 的扫描结果**：只有两个 SquidForce 文件，**都不是手势配置**：
+
+```
+squid-gesture-prefs prefs=com.squidforce.hammerit.clip.plist(5) remote=Boolean bundle=String content=String type=String unique=String
+                    prefs=com.squidforce.squidextendergptlast.plist(1) lastPrompt=String
+```
+
+- `hammerit.clip` 是**剪贴板**元数据，`squidextendergptlast` 是 **AI 提示词缓存**
+- 日志同时确认了插件身份：**SquidGesture Pro**（`com.lclrc.squidgesturepro`，SquidForce 出品，多动作面板正是 Pro 的功能）—— 但它的配置 plist **不在 Preferences 里**
+
+**教训和 1.56 一样，但更深一层**：按名字猜文件找不到；这次列出所有 `com.squidforce.*` 也不够 —— 插件真正的配置既不在标准目录、也不叫那个前缀。**tweak 把设置藏在自己开的目录里，而 `contentsOfDirectoryAtPath` 不会走进子目录**，所以按名字的扫描永远看不见它。
+
+**1.61 三管齐下（全部只读）：**
+
+| 新探测 | 作用 |
+|---|---|
+| **`squid-paths`** | 列出 `Library`、`Preferences`、`Application Support`、`Documents`、`/var/jb` 下**所有非苹果条目**（目录带 `/` 后缀）—— 插件自己的目录一定会现形 |
+| **`squid-classes`** | 列出运行时里插件自己的类（`SG*` / `Squid*` / `SF*`）—— 手势一定是插件自己的某个对象，"这个面板属于手势 #3"只有它知道 |
+| **`{a:...}` 动作列表** | 直接把面板 `_activityItems` 里的**真实动作**打出来（经 ivar 直读，不调 getter、不碰 KVC）—— 比"图标数"细得多的内容签名：两个手势图标数相同时会撞，动作清单相同几乎不可能 |
+
+**需要你做一次**：装 1.61 → 开面板（四块都开最好，至少开你能开的）→ 把日志里这 **4 种行**发我：
+
+- `squid-classes`（每会话一次）
+- `squid-paths`（每会话一次）
+- `squid-gesture-prefs`（每会话一次）
+- `squid-panel-identity`（每块面板一次，看新增的 `{a:...}`）
+
 ## 1.60：面板身上没有固定名，改去读插件自己的配置
 
 **1.59 的四块面板日志给出了最终结论 —— 面板身上确实不存在固定名：**

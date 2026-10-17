@@ -219,10 +219,44 @@ assert '@"/var/mobile/Library/Preferences"' in module
 assert '@"com.squidforce."' in module
 assert '@"/var/mobile/Library"' in module
 assert 'unreadable' in module
+assert '@"lclrc"' in module          # SquidGesture Pro's own bundle prefix
+assert '@[@"prefs",@"/var/mobile/Library/Preferences"]' in module   # roots now tagged
 scan = module[module.index('static void LMVSquidPanelScanGesturePrefs'):module.index('// The chain of class names')]
 assert 'dictionaryWithContentsOfFile' in scan and 'LMVDiagnostic' in scan
 assert 'setObject' not in scan and 'writeToFile' not in scan      # read-only, never a write
 assert 'if(!LMVDiagnosticsEnabled.load())return;' in scan
+
+# 1.61: the tweak is SquidGesture Pro (com.lclrc.squidgesturepro, author SquidForce - the
+# SF in SFActivityPanelView). Its settings plist is NOT in Preferences either, so three
+# things are read that do not depend on guessing a file name: (a) every non-Apple entry
+# of the places a tweak can keep data, directories marked with a slash - a directory is
+# what a name scan cannot see because contentsOfDirectoryAtPath never walks into one;
+# (b) the plugin's own classes by name (SG*/Squid*/SF*) - the gesture must be an object
+# of its own, and whichever class looks like the gesture model is what the next round
+# reads; (c) the panel's _activityItems through the ivar - the actions are a finer
+# signature than the icon count, which collides the moment two gestures carry the same
+# number of actions.
+assert 'static void LMVSquidPanelListPaths(void) {' in module
+assert 'static void LMVSquidPanelListGestureClasses(void) {' in module
+assert 'squid-paths%@' in module
+assert 'squid-classes %lu:%@' in module
+assert 'objc_copyClassList' in module
+assert '@"/var/mobile/Documents"' in module and 'Application Support' in module
+assert '@"/var/jb/var/mobile/Library"' in module
+assert 'stringByAppendingString:@"/"]' in module
+paths = module[module.index('static void LMVSquidPanelListPaths'):module.index('static void LMVSquidPanelListGestureClasses')]
+assert 'fileExistsAtPath' in paths and 'caseInsensitiveCompare' in paths
+assert 'setObject' not in paths and 'writeToFile' not in paths
+assert 'if(!LMVDiagnosticsEnabled.load())return;' in paths
+classes = module[module.index('static void LMVSquidPanelListGestureClasses'):module.index('// 1.57: what the panel')]
+assert 'hasPrefix:@"SG"' in classes and 'containsString:@"Squid"' in classes
+assert 'hasPrefix:@"SF"' in classes
+# ...and the actions themselves, straight through the ivar: no getter, no KVC, nothing throws
+assert 'class_getInstanceVariable(cls,"_activityItems")' in module
+assert 'object_getIvar(view,itemsIvar)' in module
+assert '(__bridge NSArray *)object_getIvar' in module
+assert "ivar_getTypeEncoding(itemsIvar)[0]=='@'" in module
+assert '{a:%lu%@}' in module
 
 # 1.56: a fixed identity has to come from something the plugin wrote and the user cannot
 # edit, so the card's own subtree is logged with tag / accessibilityIdentifier /
