@@ -420,6 +420,14 @@ static void LMVDesktopPanelTree(UIView *view,NSUInteger depth,NSMutableString *o
     }
     [out appendString:@"}"];
 }
+// 1.67: view + layer.name tree, for the Control Centre layer whose name we
+// cannot guess when it is presented over Notification Centre.
+static void LMVDesktopLayerTree(UIView *view,NSUInteger depth,NSMutableString *out,NSUInteger *nodes) {
+    if (!view || *nodes>120 || depth>4) return;
+    (*nodes)++;
+    [out appendFormat:@"%@|%@ ",NSStringFromClass(view.class),view.layer.name?:@"-"];
+    for (UIView *child in view.subviews) LMVDesktopLayerTree(child,depth+1,out,nodes);
+}
 static CGRect LMVDesktopCoverRect(UIWindow *destination,BOOL *unknown,BOOL *appWindowCover,BOOL *switcherCover,BOOL *ccCover,BOOL *sheetCover,BOOL *sheetFullCover) {
     CGRect combined=CGRectZero;*unknown=NO;*appWindowCover=NO;*switcherCover=NO;*ccCover=NO;*sheetCover=NO;*sheetFullCover=NO;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1591,6 +1599,36 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if (trees.length && ![trees isEqualToString:lastKeyboard]) {
             lastKeyboard=[trees copy];
             LMVDiagnostic([NSString stringWithFormat:@"keyboard-tree %@",trees]);
+        }
+    }
+    // 1.67: name the Control Centre overlay EXACTLY as presented. Pulled down
+    // over Notification Centre it can carry a different layer name than the one
+    // the floating egg looks for, which is why the ball stayed hidden there.
+    {
+        BOOL coverUp=NO;
+        NSMutableArray<UIWindow *> *ccWindows=[NSMutableArray new];
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+                NSString *name=NSStringFromClass(window.class);
+                if ([name isEqualToString:@"SBCoverSheetWindow"] && !window.hidden && window.alpha>=.01) coverUp=YES;
+                if ([name isEqualToString:@"SBControlCenterWindow"] && !window.hidden && window.alpha>=.01)
+                    [ccWindows addObject:window];
+            }
+        }
+        if (coverUp && ccWindows.count) {
+            NSMutableString *cc=[NSMutableString new];
+            for (UIWindow *window in ccWindows) {
+                NSUInteger nodes=0;
+                [cc appendFormat:@"%@{",NSStringFromClass(window.class)];
+                LMVDesktopLayerTree(window.rootViewController.viewIfLoaded,0,cc,&nodes);
+                [cc appendString:@"} "];
+            }
+            static NSString *lastCoverCC=nil;
+            if (cc.length && ![cc isEqualToString:lastCoverCC]) {
+                lastCoverCC=[cc copy];
+                LMVDiagnostic([NSString stringWithFormat:@"cc-over-nc-tree %@",cc]);
+            }
         }
     }
     // 1.26: the pop-ups that are NOT windows (AppTools and friends). A panel that
