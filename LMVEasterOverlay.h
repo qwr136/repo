@@ -174,12 +174,16 @@ static BOOL LMVEasterWindowExposed(UIWindow *window) {
     return !CGRectIsNull(exposed) && !CGRectIsEmpty(exposed) && exposed.size.width>1 && exposed.size.height>1;
 }
 static UIView *LMVEasterCCOverlay(UIWindow *window) {
-    if (!LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) || !LMVEasterWindowExposed(window)) return nil;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:window.rootViewController.viewIfLoaded];NSUInteger budget=128;
+    // 1.70: over Notification Centre the modular panel is a subtree of
+    // SBCoverSheetWindow; SBControlCenterWindow only hosts the swipe affordance.
+    BOOL ccWindow=LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]);
+    BOOL coverWindow=LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]);
+    if ((!ccWindow && !coverWindow) || !LMVEasterWindowExposed(window)) return nil;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:window.rootViewController.viewIfLoaded];NSUInteger budget=400;
     while(pending.count && budget) {
         --budget;UIView *view=pending.lastObject;[pending removeLastObject];
         if(view.hidden || view.alpha<.01)continue;
-        if([view.layer.name hasSuffix:@"CCUIModularControlCenterOverlayViewController"]) {
+        if([view.layer.name containsString:@"CCUIModularControlCenter"]) {
             CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
             return !CGRectIsNull(rect) && !CGRectIsEmpty(rect)?view:nil;
         }

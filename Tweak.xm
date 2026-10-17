@@ -133,7 +133,7 @@ static void LMVDiagnostic(NSString *event) {
             NSFileManager *fm=NSFileManager.defaultManager;
             [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
             NSString *path=[LMVDirectory stringByAppendingPathComponent:@"shared-render.log"];
-            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>65536) {
+            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>2097152) {
                 NSString *old=[path stringByAppendingString:@".1"];
                 [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
             }
@@ -1316,7 +1316,7 @@ static void LMVReloadAudioControls(void) {
         // 4 Hz it still corrects a stale channel well inside a quarter second while
         // removing 60% of the calls, the associated-object lookups and the player
         // property traffic from every second the tweak is loaded.
-        LMVAudioTimer=[NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer){LMVSyncAudioVisibility();}];
+        LMVAudioTimer=[NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer){LMVControlCenterCoveringCached=LMVControlCenterCoveringProbe();LMVSyncAudioVisibility();}];
         [NSRunLoop.mainRunLoop addTimer:LMVAudioTimer forMode:NSRunLoopCommonModes];
     } else if(!LMVAudioAnyEnabled()) {[LMVAudioTimer invalidate];LMVAudioTimer=nil;LMVAudioPauseAll();}
 }

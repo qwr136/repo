@@ -28,7 +28,7 @@ static void LMVThumbnailDiagnosticWrite(NSString *event) {
             [fm createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
             BOOL springboard = [NSProcessInfo.processInfo.processName isEqualToString:@"SpringBoard"];
             NSString *path = [root stringByAppendingPathComponent:springboard ? @"thumbnail-preview-springboard.log" : @"thumbnail-preview-settings.log"];
-            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue] > 262144) {
+            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue] > 2097152) {
                 NSString *previous = [path stringByAppendingString:@".1"];
                 [fm removeItemAtPath:previous error:nil]; [fm moveItemAtPath:path toPath:previous error:nil];
             }
@@ -36,7 +36,7 @@ static void LMVThumbnailDiagnosticWrite(NSString *event) {
             NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line = [NSString stringWithFormat:@"%.3f version=1.69 pid=%d host=%@ %@\n", now, getpid(), springboard ? @"SpringBoard" : @"Settings", records == 1000 ? @"thumbnail budget-reached retry-after-window" : event];
+                NSString *line = [NSString stringWithFormat:@"%.3f version=1.70 pid=%d host=%@ %@\n", now, getpid(), springboard ? @"SpringBoard" : @"Settings", records == 1000 ? @"thumbnail budget-reached retry-after-window" : event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) {} @finally { [handle closeFile]; }
         }
