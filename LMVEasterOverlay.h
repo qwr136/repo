@@ -253,6 +253,11 @@ static NSInteger LMVEasterForeground(void) {
 // the host windows costs a handful of reads and can therefore run at the
 // timer's own rate: the moment CC/NC/Home appears or disappears the policy is
 // re-evaluated, and the ball leaves with the panel instead of after it.
+// 1.71: the Control Centre video module already tracks the panel exactly
+// (control-center-video presented=0/1). Mirroring that flag here is far more
+// reliable than re-deriving the host from window geometry, which flickered
+// between SBCoverSheetWindow and nil while the panel animated.
+static BOOL LMVEasterCCPresented;
 // 1.65: host visibility from the long-lived window object list. The 1.64
 // attempt read a cached array that -refresh/-apply nulled out, so the signature
 // usually read as zero and the ball fell back to the one-second audit: slower
@@ -594,6 +599,16 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.physicalWindows=physical;self.physicalProbes=probes;
     self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
     self.lastPhysicalCheck=CACurrentMediaTime();
+    // 1.71: when the Control Centre video module reports the panel as presented,
+    // trust it over the geometric probe. The probe flickered (host=cover sheet
+    // one tick, nil the next) because the panel animates through several window
+    // states; the module's own flag does not.
+    if (!ccHost && LMVEasterCCPresented) {
+        for (UIWindow *window in windows) {
+            if (window==self.window || window.hidden || window.alpha<.01) continue;
+            ccHost=window; break;
+        }
+    }
     UIWindow *host=ccHost ?: ncHost ?: homeHost;
     BOOL authenticated=self.authenticatedSession;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
