@@ -3,7 +3,14 @@
 
 // Keep user data on the original iOS root. Only installed jailbreak resources
 // are jbroot-relative; this is not a global replacement of every absolute path.
-#define LMV_VERSION_STRING @"1.72"
+#define LMV_VERSION_STRING @"1.74"
+
+// Installed package resources (icons, entry plists, the prefs bundle itself)
+// resolve through jbroot; retained as the single documented mapping helper for
+// every future package-installed resource path. Never use it for user data.
+static inline NSString *LMVPreferenceBundlePath(void) {
+    return LMVInstalledPath(@"/Library/PreferenceBundles/LockMessageVideoPrefs.bundle");
+}
 
 #if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE) && THEOS_PACKAGE_SCHEME_ROOTHIDE
 # if !__has_include(<roothide.h>)
@@ -41,9 +48,3 @@ static inline NSString *LMVUserStorageRoot(void) {
     return @"/var/mobile/LockMessageVideo";
 }
 
-// Installed package resources (icons, entry plists, the prefs bundle itself)
-// resolve through jbroot; retained as the single documented mapping helper for
-// every future package-installed resource path. Never use it for user data.
-static inline NSString *LMVPreferenceBundlePath(void) {
-    return LMVInstalledPath(@"/Library/PreferenceBundles/LockMessageVideoPrefs.bundle");
-}

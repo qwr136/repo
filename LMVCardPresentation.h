@@ -180,45 +180,10 @@ static BOOL LMVCardStateAttached(UIView *owner, LMVVideoState *state) {
         (host==anchor || host==anchor.superview) && state.overlay.superview==host &&
         state.layer.superlayer==state.overlay.layer;
 }
-// 1.70: Control Centre pulled down OVER Notification Centre does not live in
-// SBControlCenterWindow - that window's root controller is only the right-corner
-// swipe affordance (SBBarSwipeAffordanceViewController), and it stays hidden.
-// The modular panel is a subtree of SBCoverSheetWindow. Probe the cover sheet's
-// descendants for the overlay layer name; the result is refreshed by the audio
-// timer (0.25 s) and read by both rendering and audio, so the notification
-// videos freeze while the panel covers them.
-static BOOL LMVControlCenterCoveringCached;
-static BOOL LMVControlCenterCoveringProbe(void) {
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class]) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            NSString *name=NSStringFromClass(window.class);
-            if (![name isEqualToString:@"SBCoverSheetWindow"] &&
-                ![name isEqualToString:@"SBControlCenterWindow"]) continue;
-            if (window.hidden || window.alpha<.01) continue;
-            // KVC, not the property: this header is also compiled by Foundation-
-            // only fixtures whose UIWindow double has no rootViewController.
-            UIView *root=[(id)[window valueForKey:@"rootViewController"] valueForKey:@"view"];
-            if (!root || root.hidden || root.alpha<.01) continue;
-            NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
-            NSUInteger budget=400;
-            while (pending.count && budget) {
-                --budget;
-                UIView *view=pending.lastObject; [pending removeLastObject];
-                if (view.hidden || view.alpha<.01) continue;
-                NSString *layerName=view.layer.name;
-                if ([layerName containsString:@"CCUIModularControlCenter"]) return YES;
-                if (view.subviews.count<48) [pending addObjectsFromArray:view.subviews];
-            }
-        }
-    }
-    return NO;
-}
 static BOOL LMVCardStateVisible(UIView *owner, LMVVideoState *state, NSString *target) {
     return LMVEnabled[target].boolValue && LMVPaths[target].length &&
         [state.path isEqualToString:LMVPaths[target]] && LMVCardStateAttached(owner,state) &&
-        LMVNotificationCenterSurface(owner) && LMVVisible(state.overlay) &&
-        !LMVControlCenterCoveringCached;
+        LMVNotificationCenterSurface(owner) && LMVVisible(state.overlay);
 }
 static BOOL LMVCardColdProbe(UIView *owner, NSDictionary *states) {
     if(!LMVNotificationCenterSurface(owner))return NO;

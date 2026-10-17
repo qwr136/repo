@@ -1316,7 +1316,7 @@ static void LMVReloadAudioControls(void) {
         // 4 Hz it still corrects a stale channel well inside a quarter second while
         // removing 60% of the calls, the associated-object lookups and the player
         // property traffic from every second the tweak is loaded.
-        LMVAudioTimer=[NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer){LMVControlCenterCoveringCached=LMVControlCenterCoveringProbe();LMVSyncAudioVisibility();}];
+        LMVAudioTimer=[NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer){LMVSyncAudioVisibility();}];
         [NSRunLoop.mainRunLoop addTimer:LMVAudioTimer forMode:NSRunLoopCommonModes];
     } else if(!LMVAudioAnyEnabled()) {[LMVAudioTimer invalidate];LMVAudioTimer=nil;LMVAudioPauseAll();}
 }
@@ -1358,13 +1358,6 @@ static void LMVRefresh(BOOL reload) {
         LMVUpdate(cell);
     }
     LMVSyncDisplayLink();
-}
-// 1.71: single entry point for a Control Centre panel transition. Kept outside
-// the constructor so the startup contract (no rendering call in %ctor) still
-// holds, while the 50 ms timer can freeze/restore immediately.
-static void LMVCCStateChanged(void) {
-    LMVSyncAudioVisibility();
-    LMVRefresh(NO);
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
 // Only visibility/readiness/host identity transitions invoke the heavier layout path.
@@ -1578,25 +1571,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             else LMVAudioResumeTarget(@"Desktop",LMVDesktopVideo.playback.player?LMVDesktopVideo.playback.player.currentTime:kCMTimeZero);
         };
         LMVCCInstallHooks();
-        // 1.71: 50 ms mirror of the Control Centre panel state. One property
-        // read per tick - no subtree walk - so freezing the notification videos
-        // and restoring them does not depend on the audio timer (which only runs
-        // while sound is enabled) and does not wait for a 0.25 s audio pass.
-        {
-            static NSTimer *LMVCCStateTimer;
-            if (!LMVCCStateTimer) {
-                LMVCCStateTimer=[NSTimer timerWithTimeInterval:.05 repeats:YES block:^(NSTimer *timer){
-                    if (!LMVInitialized || !LMVLaunchReady) return;
-                    BOOL now=LMVControlCenterVideo.presented;
-                    if (now!=LMVControlCenterCoveringCached) {
-                        LMVControlCenterCoveringCached=now;
-                        LMVDiagnostic([NSString stringWithFormat:@"cc-cover-state %@",now?@"on":@"off"]);
-                        LMVCCStateChanged();
-                    }
-                }];
-                [NSRunLoop.mainRunLoop addTimer:LMVCCStateTimer forMode:NSRunLoopCommonModes];
-            }
-        }
         LMVHomeMenuVideoInstallHooks();
         LMVSquidPanelVideoInstallHooks();
         LMVATPanelVideoInstallHooks();

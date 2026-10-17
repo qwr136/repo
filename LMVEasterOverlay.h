@@ -174,16 +174,12 @@ static BOOL LMVEasterWindowExposed(UIWindow *window) {
     return !CGRectIsNull(exposed) && !CGRectIsEmpty(exposed) && exposed.size.width>1 && exposed.size.height>1;
 }
 static UIView *LMVEasterCCOverlay(UIWindow *window) {
-    // 1.70: over Notification Centre the modular panel is a subtree of
-    // SBCoverSheetWindow; SBControlCenterWindow only hosts the swipe affordance.
-    BOOL ccWindow=LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]);
-    BOOL coverWindow=LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]);
-    if ((!ccWindow && !coverWindow) || !LMVEasterWindowExposed(window)) return nil;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:window.rootViewController.viewIfLoaded];NSUInteger budget=400;
+    if (!LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) || !LMVEasterWindowExposed(window)) return nil;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:window.rootViewController.viewIfLoaded];NSUInteger budget=128;
     while(pending.count && budget) {
         --budget;UIView *view=pending.lastObject;[pending removeLastObject];
         if(view.hidden || view.alpha<.01)continue;
-        if([view.layer.name containsString:@"CCUIModularControlCenter"]) {
+        if([view.layer.name hasSuffix:@"CCUIModularControlCenterOverlayViewController"]) {
             CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
             return !CGRectIsNull(rect) && !CGRectIsEmpty(rect)?view:nil;
         }
@@ -253,11 +249,6 @@ static NSInteger LMVEasterForeground(void) {
 // the host windows costs a handful of reads and can therefore run at the
 // timer's own rate: the moment CC/NC/Home appears or disappears the policy is
 // re-evaluated, and the ball leaves with the panel instead of after it.
-// 1.71: the Control Centre video module already tracks the panel exactly
-// (control-center-video presented=0/1). Mirroring that flag here is far more
-// reliable than re-deriving the host from window geometry, which flickered
-// between SBCoverSheetWindow and nil while the panel animated.
-static BOOL LMVEasterCCPresented;
 // 1.65: host visibility from the long-lived window object list. The 1.64
 // attempt read a cached array that -refresh/-apply nulled out, so the signature
 // usually read as zero and the ball fell back to the one-second audit: slower
@@ -466,6 +457,14 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL visible=self.window && !self.window.hidden && self.window.alpha>=0.01 &&
         self.bubble && !self.bubble.hidden && self.bubble.alpha>=0.01 &&
         self.bubbleImage && !self.bubbleImage.hidden && self.bubbleImage.alpha>=0.01 && self.bubbleImage.image!=nil;
+    // 1.74: also stop while something ABOVE us covers the screen. The ball is
+    // invisible then, and a spinning layer that nobody can see is pure waste.
+    if (visible && self.window.windowScene) {
+        for (UIWindow *other in self.window.windowScene.windows) {
+            if (other==self.window || other.hidden || other.alpha<0.01) continue;
+            if (other.windowLevel>self.window.windowLevel) { visible=NO; break; }
+        }
+    }
     LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,
         self.displayControls.enabled && self.displayControls.rotationEnabled,self.displayControls.rotationSpeed);
 }
