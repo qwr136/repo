@@ -1,10 +1,17 @@
 from pathlib import Path
-import platform,subprocess,tempfile
+import platform,re,subprocess,tempfile
 r=Path(__file__).resolve().parents[1]
 h=(r/'LockMessageVideoPrefs/LMVThumbnailDiagnosticLog.h').read_text()
 p=(r/'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
 t=(r/'LockMessageVideoPrefs/LMVMaterialThumbnail.h').read_text()
 s=(r/'Tweak.xm').read_text()
+# The log must name the running version. Read it from the writer itself and
+# cross-check control, so a release that forgets either place fails here.
+_logver=re.search(r'version=([0-9]+\.[0-9]+) pid=',h)
+assert _logver, 'thumbnail log does not stamp a version'
+_ctrlver=re.search(r'^Version:\s*([0-9]+\.[0-9]+)',(r/'control').read_text(),re.M)
+assert _ctrlver and _logver.group(1)==_ctrlver.group(1), 'thumbnail log version %s != control %s' % (
+    _logver.group(1), _ctrlver.group(1) if _ctrlver else 'missing')
 for stage in ['request','enqueue','memory-hit','skip-previous-failure','skip-pending','defer-queue-full','worker-start','worker-finish','apply-poster','apply-placeholder','display-poster','display-placeholder']:
  assert stage in p,stage
 for stage in ['disk-miss','disk-hit','disk-stale-or-invalid-record','decode-start','generator-start','generator-success','reader-fallback-start','reader-success','decode-stale-discard','disk-write-success']:
@@ -41,7 +48,7 @@ static void flush(void) {dispatch_sync(queue,^{});}
 int main(void) {@autoreleasepool {
  [NSFileManager.defaultManager removeItemAtPath:@"/tmp/lmv-preview-diagnostic-tests" error:nil];
  LMVThumbnailDiagnosticWrite(@"thumbnail item=abc stage=request row=5"); flush();
- NSString *line=readLog(YES); assert([line containsString:@"version=1.62"] && [line containsString:@"host=SpringBoard"] && [line containsString:@"stage=request row=5"]);
+ NSString *line=readLog(YES); assert([line containsString:@"version=@VERSION@"] && [line containsString:@"host=SpringBoard"] && [line containsString:@"stage=request row=5"]);
  for(int i=0;i<1100;i++) LMVThumbnailDiagnosticWrite(@"thumbnail item=abc stage=sample");flush();
  assert([readLog(YES) containsString:@"budget-reached"]);
  NSUInteger before=readLog(YES).length;
@@ -59,6 +66,7 @@ int main(void) {@autoreleasepool {
  puts("PASS: actual preview async file writer, off switch, host-separated files, quota recovery after window, version/PID labels and rotation; no device claim");
 }return 0;}
 '''
+main=main.replace('@VERSION@',_logver.group(1))
 with tempfile.TemporaryDirectory() as tmp:
  src=Path(tmp)/'logger.m';binary=Path(tmp)/'logger';src.write_text(pre+code+main)
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation',str(src),'-o',str(binary)],check=True)
