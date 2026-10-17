@@ -191,7 +191,6 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @end
 @implementation LMVEasterPanel
 - (void)importVideo { self.imports++; }
-- (void)resetSquidPanel {}
 @PANEL_METHODS@
 @end
 @interface LMVPRootListController : NSObject { NSMutableArray *_specifiers; }
@@ -217,12 +216,12 @@ int main(void) { @autoreleasepool {
    if(section==5&&(row==2||row==3))expected=targets[5];
    if(section==5&&(row==5||row==6))expected=targets[6];
    if(section==6&&(row==2||row==3))expected=targets[7];
-   if(section==7&&(row==7||row==8))expected=targets[8];
+   if(section==7&&(row==2||row==3))expected=targets[8];
    if(section==8&&(row==2||row==3))expected=targets[9];
    if(section==9&&(row==2||row==3))expected=targets[10];
    NSString *actual=LMVEasterAudioTarget(section,row);
    assert((!actual&&!expected)||[actual isEqual:expected]);
-   BOOL volumeRow=(section==7)?(row==8):(row==3||row==6);
+   BOOL volumeRow=(section==7)?(row==3):(row==3||row==6);
    assert(LMVEasterAudioVolumeRow(section,row)==(expected&&volumeRow));
   }
  }
@@ -235,7 +234,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==74);
+ assert(rows.count==69);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -293,7 +292,7 @@ int main(void) { @autoreleasepool {
   else if(section==10&&row==0)assert(p.navigationController.pushes==before+1);
   else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==12&&row==0));}
  }
- puts("PASS: exact production specifiers (74), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
+ puts("PASS: exact production specifiers (69), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))

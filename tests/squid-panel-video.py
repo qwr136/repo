@@ -7,14 +7,13 @@ INSIDE the card, re-sized to the card every poll so it follows a panel that grow
 with its icons. Nothing is constructed while the switch is off.
 
 1.44: that panel has TWO shapes - the one a swipe-up opens (tall) and the shorter
-one a swipe-up-twice opens. 1.50: the plugin lets both gestures be configured on the
-LEFT as well, so the channel carries FOUR material slots - right 上滑/上上滑 and left
-上滑/上上滑 - while the sound switch and volume stay shared (only one of the four is
-ever on screen). The shape is read from the page control (hidden on the short panel,
-shown on the tall one, the same in landscape and in portrait), the SIDE cannot be read
-from the content at all (the left and right panels differ only in what the user put in
-them) and is therefore claimed automatically and can be re-bound by hand, and the
-video always fills the CARD rather than the full-screen blur material behind it.
+one a swipe-up-twice opens, and the plugin lets both gestures be configured on the
+LEFT as well. 1.63: all four panels share ONE material (a single "切换视频") - the
+slot machinery still recognises each panel per orientation so the one video is
+filled into whichever card is on screen, but there is only one choice to make and
+one shared sound pair. The shape is read from the page control (hidden on the short
+panel, shown on the tall one, the same in landscape and in portrait) and the video
+always fills the CARD rather than the full-screen blur material behind it.
 """
 from pathlib import Path
 import re
@@ -149,8 +148,7 @@ assert 'LMVSquidPanelShapeReason=[NSString stringWithFormat:@"edited-height-slot
 # 1.53's side guessing is gone for good - a rule that only ever guessed.
 for dead in ('rightComplete', 'leftComplete', 'leftSide', 'sideTag', 'shortPanel'):
     assert dead not in module, f'the side-guessing rule is back: {dead}'
-# The slots a previous rule wrote cannot be trusted, so upgrading clears them by itself
-# instead of making the user tap 重置面板识别.
+# The slots a previous rule wrote cannot be trusted, so upgrading clears them by itself.
 assert '#define LMVSquidPanelLearnGeneration 3' in module
 assert 'CFSTR("SquidPanelLearnVersion")' in module
 # ...and WITHIN a side the two panels order themselves, which is what makes the whole
@@ -287,8 +285,9 @@ reader = module[module.index('static void LMVSquidPanelIdentityTree'):module.ind
 assert reader.count('respondsToSelector') == 1 and 'performSelector' not in reader and '@try' not in reader
 assert 'accessibilityIdentifier' in reader and 'restorationIdentifier' in reader
 
-# (d) 1.53: nothing manual is left - an unknown panel is always placed by the rules
-# above, and one row ("重置面板识别") exists only to clear a record that went wrong.
+# (d) 1.53/1.63: nothing manual is left - an unknown panel is always placed by the
+# rules above, and 1.63 removed the last repair row together with the four
+# per-gesture materials (one shared "切换视频" now).
 assert 'LMVSquidPanelBindLastSeen' not in module and 'LMVSquidPanelClaimToken' not in module
 # 1.52: and the one repair that pair ordering cannot do by itself - clearing a side that
 # was written wrong (the ordering only sorts a side while it is HALF unknown).
@@ -414,10 +413,10 @@ assert 'SquidPanelSwapShapes' not in module and 'SquidPanelSwapShapes' not in pr
 assert 'SquidPanelResetToken' not in module and 'SquidPanelResetToken' not in prefs and 'SquidPanelResetToken' not in panel
 assert 'presentViewController:' not in panel
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
-print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, FOUR material '
-      'slots (right and left 上滑/上上滑): an ORIENTATION-INDEPENDENT CONTENT SIGNATURE (icons + '
-      'page-control presence) identifies a panel the user has edited, an unknown one belongs to the side '
-      'that learned nothing yet, and the two panels of that side ORDER THEMSELVES by height - '
-      'kept per orientation, with the icon count as the orientation-proof tiebreak - so portrait '
-      'and landscape reach the same slot and no manual step is needed; an inverted record swaps '
-      'itself, "重置面板识别" is the only repair row, one shared sound pair, both surfaces')
+print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, ONE shared '
+      'material for all four panels (right/left, 上滑/上上滑): an ORIENTATION-INDEPENDENT CONTENT '
+      'SIGNATURE (icons + page-control presence) identifies a panel the user has edited, an unknown '
+      'one belongs to the side that learned nothing yet, and the two panels of that side ORDER '
+      'THEMSELVES by height - kept per orientation, with the icon count as the orientation-proof '
+      'tiebreak - so portrait and landscape reach the same slot and no manual step is needed; an '
+      'inverted record swaps itself, one shared sound pair, both surfaces')
