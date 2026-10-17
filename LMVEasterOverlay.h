@@ -459,10 +459,19 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.bubbleImage && !self.bubbleImage.hidden && self.bubbleImage.alpha>=0.01 && self.bubbleImage.image!=nil;
     // 1.74: also stop while something ABOVE us covers the screen. The ball is
     // invisible then, and a spinning layer that nobody can see is pure waste.
-    if (visible && self.window.windowScene) {
-        for (UIWindow *other in self.window.windowScene.windows) {
-            if (other==self.window || other.hidden || other.alpha<0.01) continue;
-            if (other.windowLevel>self.window.windowLevel) { visible=NO; break; }
+    // Resolved through the runtime: the rotation fixture has no windowScene, so
+    // a direct property access would not even compile there.
+    if (visible) {
+        SEL sceneSel=NSSelectorFromString(@"windowScene");
+        id scene=[self.window respondsToSelector:sceneSel] ? ((id(*)(id,SEL))objc_msgSend)(self.window,sceneSel) : nil;
+        SEL windowsSel=NSSelectorFromString(@"windows");
+        if (scene && [scene respondsToSelector:windowsSel]) {
+            for (id other in ((id(*)(id,SEL))objc_msgSend)(scene,windowsSel)) {
+                if (other==self.window || ![other isKindOfClass:UIWindow.class]) continue;
+                UIWindow *candidate=(UIWindow *)other;
+                if (candidate.hidden || candidate.alpha<0.01) continue;
+                if (candidate.windowLevel>self.window.windowLevel) { visible=NO; break; }
+            }
         }
     }
     LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,
