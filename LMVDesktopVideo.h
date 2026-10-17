@@ -1173,8 +1173,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // kept decoding behind the app for the "instant reveal" feel, which is what
     // kept the CPU busy.
     if (LMVLaunchReady && self.playback.player) {
-        if (audioCovered) [self.playback.player pause];
-        else if (self.playback.wantsPlayback) [self.playback.player play];
+        SEL pauseSel=NSSelectorFromString(@"pause"), playSel=NSSelectorFromString(@"play");
+        if (audioCovered) {
+            if ([self.playback.player respondsToSelector:pauseSel])
+                ((void(*)(id,SEL))objc_msgSend)(self.playback.player,pauseSel);
+        } else if (self.playback.wantsPlayback) {
+            if ([self.playback.player respondsToSelector:playSel])
+                ((void(*)(id,SEL))objc_msgSend)(self.playback.player,playSel);
+        }
     }
     if (audioCovered!=wasCovered && LMVDesktopAudioCoverHook) LMVDesktopAudioCoverHook(audioCovered);
     if (LMVLaunchReady) {
