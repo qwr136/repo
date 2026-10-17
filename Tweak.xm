@@ -1588,12 +1588,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
                 LMVCCStateTimer=[NSTimer timerWithTimeInterval:.05 repeats:YES block:^(NSTimer *timer){
                     if (!LMVInitialized || !LMVLaunchReady) return;
                     BOOL now=LMVControlCenterVideo.presented;
-                    if (now!=LMVEasterCCPresented) {
-                        LMVEasterCCPresented=now;
-                        [LMVEaster refresh];
-                    }
                     if (now!=LMVControlCenterCoveringCached) {
                         LMVControlCenterCoveringCached=now;
+                        LMVDiagnostic([NSString stringWithFormat:@"cc-cover-state %@",now?@"on":@"off"]);
                         LMVCCStateChanged();
                     }
                 }];

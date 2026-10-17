@@ -599,16 +599,6 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.physicalWindows=physical;self.physicalProbes=probes;
     self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
     self.lastPhysicalCheck=CACurrentMediaTime();
-    // 1.71: when the Control Centre video module reports the panel as presented,
-    // trust it over the geometric probe. The probe flickered (host=cover sheet
-    // one tick, nil the next) because the panel animates through several window
-    // states; the module's own flag does not.
-    if (!ccHost && LMVEasterCCPresented) {
-        for (UIWindow *window in windows) {
-            if (window==self.window || window.hidden || window.alpha<.01) continue;
-            ccHost=window; break;
-        }
-    }
     UIWindow *host=ccHost ?: ncHost ?: homeHost;
     BOOL authenticated=self.authenticatedSession;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
