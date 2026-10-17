@@ -1,5 +1,39 @@
 # 锁屏消息视频
 
+## 1.62：直接读插件自己的二进制 —— 类表和存储路径都写在里面
+
+**1.61 三个探测全部有结果，而且把搜索范围缩到了最小：**
+
+**① 动作标签能读到（树行里就有）** —— 每块面板的真实动作清单：
+
+```
+右一·右上滑   : 开关VPN | 手电筒 | 微信扫一扫 | 微信付款码 | 系统录屏 | 注销 | 截屏仅复制 | 截屏清理
+右一（改完后）: 排查插件 | 快捷编辑 | 右滑底部 | 左滑底部 | 归类 | 设置归类 | 关于本机 | 动态岛替换
+右二·右上上滑 : HammerIt全屏OCR | 唤出CopyVault | CopyVault历史 | CopyVault收藏 | 系统截屏 | 截屏并标记 | HammerIt全屏翻译 | HammerIt最近剪贴板
+左一·左上滑   : 系统截屏 | 截屏并标记 | 通知中心 | Spotlight | HammerIt最近剪贴板 | HammerIt全屏OCR | HammerIt全屏翻译 | Spotlight
+```
+
+（`_activityItems` 里只有个孤立的 `"YES"`，不是动作列表；**真正的动作是滚动视图里那些按钮，标签都在树行里**。）
+
+**② 设备是 rootful**（没有任何 `/var/jb` 条目出现过），且确认：
+
+- `com.lclrc.squidgesturepro.plist` **不在** Preferences（它应排在 `com.junzai` 和 `com.lenglengyu` 之间，没有）
+- `/var/mobile/Library` 下**没有** SquidGesture 自己的目录（应排在 `SpringBoard/` 和 `StatusKit` 之间，没有）
+- 设备上还装着 **SquidExtender**（同一个作者的 JS 插件）
+
+**③ 按前缀列类是死路**：`SG` 前缀被苹果的邮件智能类（`SGSuggestions*`、`SGMail*`）和 SquidExtender 的 JS 类（`SquidExtender.SKJS*`）占满，插件自己的类（`SGPanelWindow`、`SFActivityPanelView`）根本没进列表。但出现了 **`SGPreferenceStorage` / `SGPreferenceManager`** —— 疑似插件的偏好管理类。
+
+**1.62 换根彻底的思路：一个类知道自己在哪个二进制里，而那个二进制就是插件自己。**
+
+| 新探测 | 说明 |
+|---|---|
+| **`squid-plugin image=… classes(N):…`** | 用已知必属插件的类（`SFActivityAction` 等）经 `class_getImageName` 找到插件的 dylib，再列出**该镜像里的全部类**——完整类表，无苹果、无其他插件污染。手势模型类、偏好管理类都会现形 |
+| **`squid-plugin-strings paths(N):…`** | **读插件二进制本身**，抽出所有像路径的可打印串（`/var`、`.plist`、`/Library`、`Preferences`、`Documents`、`Caches`，排除 `/System`）——配置存哪，二进制里一定写着 |
+| **`squid-plugin-keys(N):…`** | 二进制里含 `squid` / `gesture` 的短串——存储文件名和配置键名 |
+| **`squid-paths` 加宽** | 上限提高（Preferences 100 条——上次截断在 `com.simon`，后面的 `com.squidforce.*` 根本没显示），新增 `/Library`、`/Library/PreferenceLoader/Preferences`、`Caches`、`SpringBoard/` |
+
+**需要你做一次**：装 1.62 → 开一次面板 → 把这 4 行发我：`squid-plugin`、`squid-plugin-strings`、`squid-plugin-keys`、`squid-paths`（都是每会话一次）。
+
 ## 1.61：配置不在 Preferences —— 列出所有可能的位置、插件自己的类、面板里的真实动作
 
 **1.60 的扫描结果**：只有两个 SquidForce 文件，**都不是手势配置**：

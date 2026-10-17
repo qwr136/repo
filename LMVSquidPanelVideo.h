@@ -603,26 +603,27 @@ static void LMVSquidPanelScanGesturePrefs(void) {
     }
     LMVDiagnostic([NSString stringWithFormat:@"squid-gesture-prefs%@",report.length?report:@" none-found"]);
 }
-// 1.61: WHERE the plugin keeps its data. The 1.60 scan looked for com.squidforce.*
-// plists and found only HammerIt's clipboard item and an AI prompt cache - the gesture
-// tweak itself is SquidGesture Pro, whose settings file would be com.lclrc.squidgesture-
-// pro.plist, and that is NOT in Preferences either. A tweak that keeps its settings out
-// of Preferences keeps them in a directory of its own - and a directory is exactly what
-// a name scan cannot see, because contentsOfDirectoryAtPath does not walk into
-// subdirectories. Every non-Apple entry of the places a tweak can keep data is listed,
-// directories marked with a trailing slash; that listing is where the next round digs.
+// 1.62: WHERE the plugin keeps its data. The 1.60/1.61 scans proved the gesture config is
+// NOT a plist in Preferences (com.lclrc.squidgesturepro.plist is not there - it would sort
+// between com.junzai and com.lenglengyu and does not) and NOT a directory under
+// /var/mobile/Library (nothing between SpringBoard/ and StatusKit/). The device is rootful
+// (no /var/jb entries ever showed). So the listing is widened to the remaining places a
+// tweak keeps data - /Library itself, the tweak defaults' own folder, Caches, SpringBoard's
+// folder - and the caps go up, because the 1.61 prefs listing stopped at com.simon and
+// everything after it (where com.squidforce.* lives) was never shown.
 static void LMVSquidPanelListPaths(void) {
     static BOOL done=NO;
     if(done)return;
     done=YES;
     if(!LMVDiagnosticsEnabled.load())return;
     NSArray *roots=@[
-        @[@"lib",@"/var/mobile/Library",@(48)],
-        @[@"prefs",@"/var/mobile/Library/Preferences",@(48)],
-        @[@"appsup",@"/var/mobile/Library/Application Support",@(24)],
-        @[@"docs",@"/var/mobile/Documents",@(24)],
-        @[@"jblib",@"/var/jb/var/mobile/Library",@(24)],
-        @[@"jbprefs",@"/var/jb/var/mobile/Library/Preferences",@(24)],
+        @[@"lib",@"/var/mobile/Library",@(80)],
+        @[@"prefs",@"/var/mobile/Library/Preferences",@(100)],
+        @[@"appsup",@"/var/mobile/Library/Application Support",@(30)],
+        @[@"caches",@"/var/mobile/Library/Caches",@(30)],
+        @[@"sb",@"/var/mobile/Library/SpringBoard",@(30)],
+        @[@"rootlib",@"/Library",@(40)],
+        @[@"plroot",@"/Library/PreferenceLoader/Preferences",@(20)],
     ];
     NSMutableString *report=[NSMutableString new];
     for(NSArray *entry in roots) {
@@ -633,6 +634,7 @@ static void LMVSquidPanelListPaths(void) {
         NSMutableArray *kept=[NSMutableArray array];
         for(NSString *name in names) {
             if(kept.count>=cap)break;
+            if([name hasPrefix:@"."])continue;
             if([name.lowercaseString containsString:@"apple"])continue;
             BOOL dir=NO;
             NSString *entryName=name;
@@ -647,35 +649,112 @@ static void LMVSquidPanelListPaths(void) {
     }
     LMVDiagnostic([NSString stringWithFormat:@"squid-paths%@",report.length?report:@" none-found"]);
 }
-// 1.61: WHAT the plugin calls its own objects. The 1.59 ivar dump proved the panel itself
-// carries no gesture number and the 1.60 scan proved the settings are not a plist in
-// Preferences - so the gesture has to be an object of the plugin's own, one that knows
-// "this panel belongs to gesture #3". The runtime knows every class the plugin loaded;
-// the ones whose names carry the plugin's own marks (SG - SGPanelWindow, SF -
-// SFActivityPanelView, Squid) are listed, names only: nothing is instantiated, nothing
-// is called. Whichever of them looks like the gesture model is what the next round reads.
-static void LMVSquidPanelListGestureClasses(void) {
+// 1.62: the plugin's OWN image and every class in it. The 1.61 prefix listing proved the
+// prefix idea useless: SG is shared with Apple's Mail intelligence classes (SGSuggestions*,
+// SGMail*) and with SquidExtender's JS classes (SquidExtender.SKJS*), the cap filled with
+// those, and the plugin's own classes - SGPanelWindow, SFActivityPanelView, both known from
+// the panel chain - never even made the list. A class knows which image it was loaded from,
+// and the image IS the plugin's own binary: so the image is found through a class that is
+// certainly the plugin's, and then every class in that image is listed - the plugin's
+// complete vocabulary, nothing from Apple, nothing from another tweak. Whichever class
+// looks like the gesture model (or the preference manager) is what the next round reads.
+static NSString *LMVSquidPanelPluginImage(void) {
+    NSArray *known=@[@"SFActivityAction",@"SFActivityPanelView",@"SGPanelWindow"];
+    for(NSString *name in known) {
+        Class cls=NSClassFromString(name);
+        if(!cls)continue;
+        const char *image=class_getImageName(cls);
+        if(image)return @(image);
+    }
+    return nil;
+}
+static void LMVSquidPanelListPluginClasses(void) {
     static BOOL done=NO;
     if(done)return;
     done=YES;
     if(!LMVDiagnosticsEnabled.load())return;
+    NSString *image=LMVSquidPanelPluginImage();
+    if(!image.length) {
+        LMVDiagnostic(@"squid-plugin image=none classes=none");
+        return;
+    }
     unsigned total=0;
     Class *classes=objc_copyClassList(&total);
-    if(!classes)return;
     NSMutableArray *own=[NSMutableArray array];
-    NSMutableArray *maybe=[NSMutableArray array];
-    for(unsigned i=0;i<total;i++) {
-        NSString *name=@(class_getName(classes[i]));
-        if([name hasPrefix:@"SG"]||[name containsString:@"Squid"]) {
-            if(own.count<32)[own addObject:name];
-        } else if([name hasPrefix:@"SF"]) {
-            if(maybe.count<16)[maybe addObject:name];
+    if(classes) {
+        for(unsigned i=0;i<total && own.count<60;i++) {
+            const char *img=class_getImageName(classes[i]);
+            if(img && [@(img) isEqualToString:image])[own addObject:@(class_getName(classes[i]))];
         }
+        free(classes);
     }
-    free(classes);
-    [own addObjectsFromArray:maybe];
-    if(own.count)LMVDiagnostic([NSString stringWithFormat:@"squid-classes %lu:%@",
-        (unsigned long)own.count,[own componentsJoinedByString:@","]]);
+    LMVDiagnostic([NSString stringWithFormat:@"squid-plugin image=%@ classes(%lu):%@",
+        image,(unsigned long)own.count,own.count?[own componentsJoinedByString:@","]:@"none"]);
+}
+// case-insensitive substring search over a raw byte run - the pre-filter, so no string is
+// built for the thousands of runs in a binary that hold nothing interesting.
+static BOOL LMVRunContains(const uint8_t *p,NSUInteger n,const char *needle,BOOL fold) {
+    NSUInteger m=strlen(needle);
+    if(m>n)return NO;
+    for(NSUInteger i=0;i+m<=n;i++) {
+        BOOL ok=YES;
+        for(NSUInteger j=0;j<m;j++) {
+            int a=p[i+j],b=(uint8_t)needle[j];
+            if(fold) { if(a>='A'&&a<='Z')a+=32; if(b>='A'&&b<='Z')b+=32; }
+            if(a!=b) { ok=NO; break; }
+        }
+        if(ok)return YES;
+    }
+    return NO;
+}
+// 1.62: and the STRINGS of that image. The tweak has to name its storage somewhere, and a
+// tweak's own binary is where that path is written down - the file scans cannot see a
+// custom store, but the store's NAME is a literal in the code. The image is read once and
+// every printable run that looks like a path (/var, .plist, /Library outside /System,
+// Preferences, Documents, Caches) is printed: that is where the next round looks. Short
+// runs naming the plugin itself (squid / gesture) are printed as well - they give the
+// storage file's name and the config's key names. Read-only: the file is only ever read.
+static void LMVSquidPanelPluginStrings(void) {
+    static BOOL done=NO;
+    if(done)return;
+    done=YES;
+    if(!LMVDiagnosticsEnabled.load())return;
+    NSString *image=LMVSquidPanelPluginImage();
+    NSData *data=image.length?[NSData dataWithContentsOfFile:image]:nil;
+    if(!data.length) {
+        LMVDiagnostic(@"squid-plugin-strings unreadable");
+        return;
+    }
+    const uint8_t *bytes=(const uint8_t *)data.bytes;
+    NSUInteger len=data.length;
+    NSMutableArray *paths=[NSMutableArray array];
+    NSMutableArray *keys=[NSMutableArray array];
+    NSUInteger run=0;
+    for(NSUInteger i=0;i<=len;i++) {
+        uint8_t c=i<len?bytes[i]:0;
+        if(c>=0x20 && c<0x7F) { run++; continue; }
+        if(run>=6) {
+            const uint8_t *p=bytes+i-run;
+            BOOL system=LMVRunContains(p,run,"/System",NO)||LMVRunContains(p,run,"/usr/",NO);
+            BOOL path=!system && paths.count<24 &&
+                (LMVRunContains(p,run,"/var",NO)||LMVRunContains(p,run,".plist",NO)||
+                 LMVRunContains(p,run,"/Library",NO)||LMVRunContains(p,run,"Preferences",NO)||
+                 LMVRunContains(p,run,"Documents",NO)||LMVRunContains(p,run,"Caches",NO));
+            BOOL key=keys.count<20 && run<=40 &&
+                (LMVRunContains(p,run,"squid",YES)||LMVRunContains(p,run,"gesture",YES));
+            if(path||key) {
+                NSMutableString *text=[NSMutableString stringWithCapacity:run];
+                for(NSUInteger k=0;k<run;k++)[text appendFormat:@"%c",p[k]];
+                if(path)[paths addObject:text.length>90?[text substringToIndex:90]:text];
+                else [keys addObject:text];
+            }
+        }
+        run=0;
+    }
+    LMVDiagnostic([NSString stringWithFormat:@"squid-plugin-strings paths(%lu):%@",
+        (unsigned long)paths.count,[paths componentsJoinedByString:@" ~ "]]);
+    LMVDiagnostic([NSString stringWithFormat:@"squid-plugin-keys(%lu):%@",
+        (unsigned long)keys.count,[keys componentsJoinedByString:@" ~ "]]);
 }
 // 1.57: what the panel's own objects say about themselves.
 //
@@ -1033,7 +1112,8 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
         // material for a fixed identity - see LMVSquidPanelIdentityTree.
         if(live)LMVSquidPanelScanGesturePrefs();
         if(live)LMVSquidPanelListPaths();
-        if(live)LMVSquidPanelListGestureClasses();
+        if(live)LMVSquidPanelListPluginClasses();
+        if(live)LMVSquidPanelPluginStrings();
         static __weak UIView *lastTreeCard=nil;
         if(live && self.card && lastTreeCard!=self.card) {
             lastTreeCard=self.card;

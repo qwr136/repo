@@ -237,20 +237,36 @@ assert 'if(!LMVDiagnosticsEnabled.load())return;' in scan
 # signature than the icon count, which collides the moment two gestures carry the same
 # number of actions.
 assert 'static void LMVSquidPanelListPaths(void) {' in module
-assert 'static void LMVSquidPanelListGestureClasses(void) {' in module
 assert 'squid-paths%@' in module
-assert 'squid-classes %lu:%@' in module
-assert 'objc_copyClassList' in module
-assert '@"/var/mobile/Documents"' in module and 'Application Support' in module
-assert '@"/var/jb/var/mobile/Library"' in module
+assert '@"/Library"' in module and '@"/var/mobile/Library/Caches"' in module
+assert '@"/Library/PreferenceLoader/Preferences"' in module
+assert '@"/var/mobile/Library/SpringBoard"' in module
 assert 'stringByAppendingString:@"/"]' in module
-paths = module[module.index('static void LMVSquidPanelListPaths'):module.index('static void LMVSquidPanelListGestureClasses')]
+paths = module[module.index('static void LMVSquidPanelListPaths'):module.index('// 1.62: the plugin\'s OWN image')]
 assert 'fileExistsAtPath' in paths and 'caseInsensitiveCompare' in paths
 assert 'setObject' not in paths and 'writeToFile' not in paths
 assert 'if(!LMVDiagnosticsEnabled.load())return;' in paths
-classes = module[module.index('static void LMVSquidPanelListGestureClasses'):module.index('// 1.57: what the panel')]
-assert 'hasPrefix:@"SG"' in classes and 'containsString:@"Squid"' in classes
-assert 'hasPrefix:@"SF"' in classes
+
+# 1.62: the prefix listing was useless (SG is shared with Apple's Mail classes and
+# SquidExtender's JS classes; the cap filled with those and the plugin's own classes never
+# made the list). A class knows its image, and the image IS the plugin's binary: find it
+# through a class that is certainly the plugin's, list EVERY class in that image, and read
+# the image's strings - the tweak has to name its storage somewhere, and the binary is
+# where that path is written down.
+assert 'static NSString *LMVSquidPanelPluginImage(void) {' in module
+assert 'static void LMVSquidPanelListPluginClasses(void) {' in module
+assert 'static void LMVSquidPanelPluginStrings(void) {' in module
+assert 'class_getImageName' in module and 'objc_copyClassList' in module
+assert 'squid-plugin image=%@ classes(%lu):%@' in module
+assert 'squid-plugin-strings paths(%lu):%@' in module
+assert 'squid-plugin-keys(%lu):%@' in module
+assert 'dataWithContentsOfFile' in module
+assert 'NSClassFromString(name)' in module
+strings = module[module.index('static BOOL LMVRunContains'):module.index('// 1.57: what the panel')]
+assert '"/var"' in strings and '".plist"' in strings and '"/Library"' in strings
+assert '"/System"' in strings and '"/usr/"' in strings          # Apple's own paths excluded
+assert '"squid"' in strings and '"gesture"' in strings
+assert 'setObject' not in strings and 'writeToFile' not in strings
 # ...and the actions themselves, straight through the ivar: no getter, no KVC, nothing throws
 assert 'class_getInstanceVariable(cls,"_activityItems")' in module
 assert 'id items=object_getIvar(view,itemsIvar);' in module
