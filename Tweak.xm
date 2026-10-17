@@ -603,8 +603,17 @@ static void LMVStopSource(LMVSharedSource *source) {
         // Do not launch asynchronous pause-seeks that can flush the next startup.
     }
 }
-static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {
-    if (!source) return NO;
+// 1.76: pause WITHOUT the checkpoint/generation churn of LMVStopSource. The
+// retained AVPlayer already remembers its position, so a card that goes out of
+// sight and comes back costs one play call instead of a checkpoint plus a
+// restoring seek - which is the restart the user heard as a delay.
+static void LMVSourcePause(LMVSharedSource *source) {
+    if (!source || !source.playing) return;
+    [source.player pause];
+    source.playing=NO;
+    source.pausedAt=CACurrentMediaTime();
+}
+static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {    if (!source) return NO;
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
         for (NSString *target in states) {
@@ -621,7 +630,7 @@ static void LMVReleasePlayer(LMVVideoState *state) {
     // Hiding/offscreen pauses consumption, NEVER clears the exact displayed frame.
     // This retained layer also survives source/property refresh without a blank gap.
     state.source=nil; state.active=NO;
-    if (!LMVSourceHasConsumer(source)) LMVStopSource(source);
+    if (!LMVSourceHasConsumer(source)) LMVSourcePause(source);
 }
 static BOOL LMVSourceNeedsReaderRecovery(LMVSharedSource *source,CFTimeInterval now) {
     if(!source || !source.playing || source.readerMode || source.frameBusy)return NO;
@@ -1121,7 +1130,7 @@ static void LMVReconcileCardSources(UIView *cell) {
             if(!state.source){state.source=LMVSourceForTarget(state.path,target);changed=YES;}
             if(state.source)LMVStartSource(state.source);
             state.lastVisible=CACurrentMediaTime();
-        } else if(state.source && !LMVSourceHasConsumer(state.source))LMVStopSource(state.source);
+        } else if(state.source && !LMVSourceHasConsumer(state.source))LMVSourcePause(state.source);
     }
     if(changed)LMVSyncDisplayLink();
 }
