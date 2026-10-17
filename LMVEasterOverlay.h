@@ -179,13 +179,7 @@ static UIView *LMVEasterCCOverlay(UIWindow *window) {
     while(pending.count && budget) {
         --budget;UIView *view=pending.lastObject;[pending removeLastObject];
         if(view.hidden || view.alpha<.01)continue;
-        NSString *layerName=view.layer.name ?: @"";
-        // 1.67: over Notification Centre the modular overlay controller carries
-        // a slightly different layer name; accept the family, never an empty
-        // name (an un-presented overlay must stay invisible).
-        if([layerName hasSuffix:@"CCUIModularControlCenterOverlayViewController"] ||
-           [layerName containsString:@"CCUIModularControlCenter"] ||
-           [layerName containsString:@"ControlCenterOverlay"]) {
+        if([view.layer.name hasSuffix:@"CCUIModularControlCenterOverlayViewController"]) {
             CGRect rect=CGRectIntersection([view convertRect:view.bounds toView:window],window.bounds);
             return !CGRectIsNull(rect) && !CGRectIsEmpty(rect)?view:nil;
         }

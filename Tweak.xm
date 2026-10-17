@@ -1259,35 +1259,14 @@ static BOOL LMVAudioLayerExposed(CALayer *layer,UIWindow *window) {
     }
     return !CGRectIsEmpty(CGRectIntersection(rect,LMVVideoWindowViewport(window)));
 }
-// 1.67: Control Centre can be pulled down OVER Notification Centre and covers
-// the notification cards. Their sound must stop while it is up, and the window
-// notifications below re-run the sync the instant it collapses, so playback
-// resumes without waiting for the 0.25 s audio tick.
-static BOOL LMVControlCenterCovering(void) {
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class]) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (!LMVLockVideoClass(window,@"SBControlCenterWindow")) continue;
-            if (window.hidden || window.alpha<.01) continue;
-            UIView *root=window.rootViewController.viewIfLoaded;
-            if (!root || root.hidden || root.alpha<.01) continue;
-            CGRect rect=[root convertRect:root.bounds toView:window];
-            CGRect overlap=CGRectIntersection(rect,window.bounds);
-            if (!CGRectIsNull(overlap) && !CGRectIsEmpty(overlap) &&
-                overlap.size.height>window.bounds.size.height*0.5) return YES;
-        }
-    }
-    return NO;
-}
 static void LMVSyncAudioVisibility(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
     if(!LMVPlaybackAllowed()){LMVAudioPauseAll();return;}
-    BOOL ccCovering=LMVControlCenterCovering();
     for(NSString *target in LMVTargets()) {
         LMVSharedSource *source=nil;BOOL exposed=NO;
         for(UIView *cell in LMVCells.allObjects) {
             LMVVideoState *state=((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[target];
-            if(state.active && state.source && state.layer.contents && LMVCardStateVisible(cell,state,target) && !ccCovering)
+            if(state.active && state.source && state.layer.contents && LMVCardStateVisible(cell,state,target))
                 {source=state.source;exposed=YES;break;}
         }
         LMVAudioConsume(target,source.path,source.revision,exposed,source?source.lastTime:kCMTimeZero);
@@ -1601,14 +1580,6 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         for (NSString *name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {
             [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
                 dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); });
-            }];
-        }
-        // 1.67: react to a Control Centre collapse in the same run loop instead
-        // of the 0.25 s audio tick, so the notification video's sound resumes
-        // with the panel animation rather than a beat later.
-        for (NSString *name in @[UIWindowDidBecomeHiddenNotification, UIWindowDidBecomeVisibleNotification]) {
-            [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
-                dispatch_async(dispatch_get_main_queue(), ^{ LMVSyncAudioVisibility(); });
             }];
         }
         dispatch_async(dispatch_get_main_queue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); }); });
