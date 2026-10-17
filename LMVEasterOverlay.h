@@ -249,18 +249,15 @@ static NSInteger LMVEasterForeground(void) {
 // the host windows costs a handful of reads and can therefore run at the
 // timer's own rate: the moment CC/NC/Home appears or disappears the policy is
 // re-evaluated, and the ball leaves with the panel instead of after it.
-static NSUInteger LMVEasterHostSignature(void) {
+static NSUInteger LMVEasterHostSignature(NSArray<UIWindow *> *windows) {
     NSUInteger mask=0;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState==UISceneActivationStateUnattached) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            // Window-level only: no subtree walk. The signature exists to notice
-            // that a host window appeared or went away, which the window's own
-            // hidden/alpha state already tells us.
-            if (LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]) && LMVEasterWindowExposed(window)) mask|=1;
-            if (LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) && LMVEasterWindowExposed(window)) mask|=2;
-            if (LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window)) mask|=4;
-        }
+    for (UIWindow *window in windows) {
+        // Window-level only: no subtree walk. The signature exists to notice
+        // that a host window appeared or went away, which the window's own
+        // hidden/alpha state already tells us.
+        if (LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]) && LMVEasterWindowExposed(window)) mask|=1;
+        if (LMVEasterKnownWindow(window,@[@"SBControlCenterWindow"]) && LMVEasterWindowExposed(window)) mask|=2;
+        if (LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window)) mask|=4;
     }
     return mask;
 }
@@ -501,8 +498,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
     // 1.64: the cheap host signature runs at every tick, so a panel that has
-    // just collapsed cannot wait for the one-second physical audit.
-    NSUInteger hostSignature = LMVEasterHostSignature();
+    // just collapsed cannot wait for the one-second physical audit. It reads
+    // the cached window list only - the windows themselves are long-lived, so
+    // their hidden/alpha state already tells us that a host went away, and the
+    // tick stays free of scene enumeration and preference work.
+    NSUInteger hostSignature = LMVEasterHostSignature(self.physicalWindows);
     if (hostSignature != self.lastHostSignature) {
         self.lastHostSignature = hostSignature;
         self.physicalSnapshot = nil; self.lastPhysicalCheck = 0;
