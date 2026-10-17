@@ -196,7 +196,9 @@ static BOOL LMVControlCenterCoveringProbe(void) {
             if (![name isEqualToString:@"SBCoverSheetWindow"] &&
                 ![name isEqualToString:@"SBControlCenterWindow"]) continue;
             if (window.hidden || window.alpha<.01) continue;
-            UIView *root=window.rootViewController.viewIfLoaded;
+            // KVC, not the property: this header is also compiled by Foundation-
+            // only fixtures whose UIWindow double has no rootViewController.
+            UIView *root=[(id)[window valueForKey:@"rootViewController"] valueForKey:@"view"];
             if (!root || root.hidden || root.alpha<.01) continue;
             NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
             NSUInteger budget=400;

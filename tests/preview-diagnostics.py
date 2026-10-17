@@ -59,7 +59,7 @@ int main(void) {@autoreleasepool {
  LMVThumbnailDiagnosticWrite(@"thumbnail settings");flush();assert([readLog(NO) containsString:@"host=Settings"]);
  assert(![readLog(YES) containsString:@"thumbnail settings"]);
  NSString *settings=@"/tmp/lmv-preview-diagnostic-tests/thumbnail-preview-settings.log";
- NSMutableData *large=[NSMutableData dataWithLength:262145];assert([large writeToFile:settings atomically:YES]);
+ NSMutableData *large=[NSMutableData dataWithLength:2097153];assert([large writeToFile:settings atomically:YES]);
  LMVThumbnailDiagnosticWrite(@"thumbnail rotated");flush();assert([NSFileManager.defaultManager fileExistsAtPath:[settings stringByAppendingString:@".1"]]);
  assert([readLog(NO) containsString:@"thumbnail rotated"]);
  [NSFileManager.defaultManager removeItemAtPath:@"/tmp/lmv-preview-diagnostic-tests" error:nil];
