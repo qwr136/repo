@@ -37,6 +37,12 @@ assert 'sliderCommitted:' in picker
 # 1.89: the selected swatch is ringed, and the spectrum ring is bigger.
 assert 'showRed:' in picker and '_ring.borderWidth=3' in picker
 assert '_marker.bounds=CGRectMake(0,0,30,30);' in picker
+# 1.92: the drag is driven by raw touches and the sheet may not swipe away.
+assert '- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {' in picker
+assert picker.count('- (void)touchesBegan:') == 2, 'one per custom colour view'
+assert 'self.modalInPresentation=YES;' in picker, 'no dismissal pan to steal the drag'
+assert '[dot.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor]' in prefs
+assert 'constant:-(41.5 + size / 2)' in prefs, 'swatch centred on the switch column'
 assert '@"不透明度"' in picker, 'alpha slider'
 assert '恢复默认颜色' in picker, 'reset row'
 assert 'CAGradientLayer' in picker, 'the slider tracks are gradients'

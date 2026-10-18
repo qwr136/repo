@@ -281,7 +281,12 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     }
     NSInteger dotTag = [row[@"dot"] integerValue];
     NSInteger valueTag = [row[@"value"] integerValue];
+    // A cell recycled between the two colour rows must not keep the other row's pair.
+    NSInteger otherTag = (dotTag == 0x5A2C) ? 0x5B2C : 0x5A2C;
+    [[cell.contentView viewWithTag:otherTag] removeFromSuperview];
+    [[cell.contentView viewWithTag:otherTag + 1] removeFromSuperview];
     UIView *dot = [cell.contentView viewWithTag:dotTag];
+    UILabel *value = [cell.contentView viewWithTag:valueTag];
     if (!dot) {
         dot = [UIView new];
         dot.tag = dotTag;
@@ -290,7 +295,6 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         dot.layer.borderColor = [UIColor separatorColor].CGColor;
         [cell.contentView addSubview:dot];
     }
-    UILabel *value = [cell.contentView viewWithTag:valueTag];
     if (!value) {
         value = [UILabel new];
         value.tag = valueTag;
@@ -300,23 +304,31 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         value.userInteractionEnabled = NO;
         [cell.contentView addSubview:value];
     }
+    // 1.92: laid out with constraints instead of frames so the swatch cannot end
+    // up glued to the bottom of the row: it is centred on the row, and its centre
+    // sits on the same vertical line as the UISwitch accessory above (a switch is
+    // 51pt wide and 16pt from the trailing edge, so its centre is 41.5pt in).
+    CGFloat size = 22;
+    if (!dot.accessibilityIdentifier.length) {
+        dot.accessibilityIdentifier = @"LMVTextColorRow";
+        dot.translatesAutoresizingMaskIntoConstraints = NO;
+        value.translatesAutoresizingMaskIntoConstraints = NO;
+        [NSLayoutConstraint activateConstraints:@[
+            [dot.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+            [dot.widthAnchor constraintEqualToConstant:size],
+            [dot.heightAnchor constraintEqualToConstant:size],
+            [dot.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-(41.5 + size / 2)],
+            [value.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+            [value.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:98],
+            [value.trailingAnchor constraintLessThanOrEqualToAnchor:dot.leadingAnchor constant:-8]
+        ]];
+    }
+    dot.layer.cornerRadius = size / 2;
     UIColor *current = LMVTextColorForKey(row[@"key"]);
     // 1.88: keep the table addressable so a pick can repaint in place.
     self.cvTextColorTable = tableView;
     dot.backgroundColor = current ?: UIColor.whiteColor;
     value.text = LMVTextColorSummary(current);
-    // 1.91: 22pt and centred in the ROW (cell.bounds, not contentView - the
-    // content view can still be one layout pass behind). The flexible margins
-    // keep it centred if the row grows.
-    CGFloat size = 22;
-    CGFloat dotX = cell.bounds.size.width - size - 16;
-    dot.frame = CGRectMake(dotX, (cell.bounds.size.height - size) / 2, size, size);
-    dot.layer.cornerRadius = size / 2;
-    dot.autoresizingMask = UIViewAutoresizingFlexibleTopMargin |
-        UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin;
-    // 1.90: the value sits directly after the title (左边), not at the far right.
-    CGFloat valueX = 16 + 82;
-    value.frame = CGRectMake(valueX, 0, MAX(0, dotX - 10 - valueX), cell.bounds.size.height);
 }
 // 1.88: repaint the swatch without going through -reloadSpecifier: (which kept
 // showing the stale colour) or the private -cellForSpecifier: lookup (which could

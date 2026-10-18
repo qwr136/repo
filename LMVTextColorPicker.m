@@ -125,7 +125,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [color getRed:r green:g blue:b alpha:NULL];
 }
 
-@interface LMVColorGridView : UIView
+@interface LMVColorGridView : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
 @property(nonatomic,copy) void (^onEnd)(void);
 - (void)pickPoint:(CGPoint)point;
@@ -167,9 +167,10 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         // 1.84.1: raw touches were swallowed by the presented sheet's gesture
         // recognisers. Explicit recognisers always receive the touch.
         UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
+        tap.delegate=self; tap.cancelsTouchesInView=NO;
         [self addGestureRecognizer:tap];
         UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
-        pan.minimumNumberOfTouches=1;
+        pan.minimumNumberOfTouches=1; pan.delegate=self; pan.cancelsTouchesInView=NO;
         [self addGestureRecognizer:pan];
     }
     return self;
@@ -218,6 +219,25 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _hasSelection=YES;
     [self placeRing];
 }
+// 1.92: raw touches drive selection. A recogniser competition (the page sheet's
+// dismissal pan) used to swallow the drag, so the ring only moved on taps.
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self pickPoint:[touches.anyObject locationInView:self]];
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self pickPoint:[touches.anyObject locationInView:self]];
+}
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self pickPoint:[touches.anyObject locationInView:self]];
+    if(self.onEnd) self.onEnd();
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if(self.onEnd) self.onEnd();
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer { return YES; }
 - (void)handleTap:(UITapGestureRecognizer *)gesture {
     [self pickPoint:[gesture locationInView:self]];
     if(self.onEnd) self.onEnd();
@@ -249,7 +269,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 // Horizontal hue, vertical white -> pure -> black. The same two gradients the
 // view draws are inverted for the pick, so what the user touches is what they
 // get even in the corner stops.
-@interface LMVSpectrumView : UIView
+@interface LMVSpectrumView : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
 @property(nonatomic,copy) void (^onEnd)(void);
 - (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness;
@@ -289,9 +309,10 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         _hasMarker=NO;
         [self.layer addSublayer:_marker];
         UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
+        tap.delegate=self; tap.cancelsTouchesInView=NO;
         [self addGestureRecognizer:tap];
         UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
-        pan.minimumNumberOfTouches=1;
+        pan.minimumNumberOfTouches=1; pan.delegate=self; pan.cancelsTouchesInView=NO;
         [self addGestureRecognizer:pan];
     }
     return self;
@@ -354,6 +375,25 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _hasMarker=YES;
     [self placeMarker];
 }
+// 1.92: raw touches drive selection. A recogniser competition (the page sheet's
+// dismissal pan) used to swallow the drag, so the ring only moved on taps.
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self pickPoint:[touches.anyObject locationInView:self]];
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self pickPoint:[touches.anyObject locationInView:self]];
+}
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self pickPoint:[touches.anyObject locationInView:self]];
+    if(self.onEnd) self.onEnd();
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if(self.onEnd) self.onEnd();
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer { return YES; }
 - (void)handleTap:(UITapGestureRecognizer *)gesture {
     [self pickPoint:[gesture locationInView:self]];
     if(self.onEnd) self.onEnd();
@@ -412,6 +452,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     }
     self.view.backgroundColor=UIColor.clearColor;
     self.view.opaque=NO;
+    // 1.92: no swipe-to-dismiss - that gesture is what stole the spectrum drag.
+    // The sheet has an explicit X, so nothing is lost.
+    self.modalInPresentation=YES;
 
     _sheet=[UIView new];
     _sheet.backgroundColor=[UIColor secondarySystemBackgroundColor];
@@ -658,7 +701,10 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 // live. Everything catches up in -commit when the finger lifts.
 - (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b keepSpectrumMarker:(BOOL)keep {
     _r=r;_g=g;_b=b;
-    if(keep) { [self preview]; return; }
+    // 1.92: while the spectrum is dragged nothing else is touched at all - no
+    // gradients, no sliders, no text field, not even the settings swatch. The
+    // ring under the finger is the feedback; everything else happens on release.
+    if(keep) return;
     [self refreshUI];
     [self preview];
 }
