@@ -1063,44 +1063,14 @@ static void LMVSquidPanelRestoreTextColor(void) {
     }
     [LMVSquidPanelTextOriginal removeAllObjects];
 }
-// 1.95: the panel keeps its icons in a UIScrollView that is a SIBLING of the blur,
-// one level higher than the blur itself. Any index inside the blur's own superview
-// is therefore still under the icons. This finds that scroller.
-static UIView *LMVSquidPanelScrollerIn(UIView *root, NSInteger depth) {
-    if(!root || depth<0) return nil;
-    for(UIView *sub in root.subviews)
-        if([sub isKindOfClass:UIScrollView.class]) return sub;
-    if(depth==0) return nil;
-    for(UIView *sub in root.subviews) {
-        UIView *found=LMVSquidPanelScrollerIn(sub,depth-1);
-        if(found) return found;
-    }
-    return nil;
-}
-// 1.96: one line that says whether the icon scroller was painting over the video.
-static void LMVSquidPanelScrollerDiagnostic(UIScrollView *ui, NSString *why) {
-    if(!LMVDiagnosticsEnabled.load() || !ui) return;
-    CGFloat r=0,g=0,b=0,a=0;
-    if(ui.backgroundColor)[ui.backgroundColor getRed:&r green:&g blue:&b alpha:&a];
-    LMVDiagnostic([NSString stringWithFormat:@"squid-panel-scroller %@ bg=%.2f,%.2f,%.2f,%.2f opaque=%d subviews=%lu size=%.0fx%.0f",
-        why,r,g,b,a,(int)ui.opaque,(unsigned long)ui.subviews.count,
-        ui.bounds.size.width,ui.bounds.size.height]);
-}
 @interface LMVSquidPanelVideoManager:NSObject
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) LMVSquidPanelVideoHost *host;
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
-// 1.96: the icon scroller sits ABOVE the video (it must, or it would swallow the
-// taps), so any fill colour it carries paints straight over the picture. Remember
-// the original colour and hand it back when the channel stands down.
-@property(nonatomic,weak) UIScrollView *scroller;
-@property(nonatomic,strong) UIColor *scrollerColor;
-@property(nonatomic) BOOL scrollerCleared;
 - (void)detach;
 - (void)update;
-- (void)restoreScrollerColor;
 @end
 static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 @implementation LMVSquidPanelVideoManager
@@ -1115,13 +1085,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     return self;
 }
 - (void)dealloc {[_host removeFromSuperview];}
-- (void)restoreScrollerColor {
-    // nil is a legal background colour, so a BOOL records whether we touched it.
-    if(self.scroller && self.scrollerCleared)self.scroller.backgroundColor=self.scrollerColor;
-    self.scrollerCleared=NO;self.scroller=nil;self.scrollerColor=nil;
-}
 - (void)detach {
-    [self restoreScrollerColor];
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
@@ -1206,58 +1170,18 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     UIView *material=LMVSquidPanelMaterial(card,window);
     if(!material)material=LMVSquidPanelMaterial(window,window);
     UIView *container=nil;NSUInteger index=0;NSString *mode=@"card";
-    if(material) {
-        // 1.95: THE VIDEO HAS TO GO BETWEEN THE BLUR AND THE ICON SCROLLER.
-        // 1.93 put it in the blur's contentView and 1.94 one index above the blur;
-        // both looked right in the log (live=1, correct frame) and both stayed
-        // invisible, because the panel's icons live in a UIScrollView that is a
-        // SIBLING of the blur - it is inside SFActivityAction, one level HIGHER
-        // than SFActivityPanelView. So every index inside the blur's own superview
-        // is still underneath that scroller. Walk up until a level that actually
-        // holds a scroller, and insert immediately BEFORE it: above the blur, below
-        // the icons. That is the only slot with both properties.
-        UIView *owner=nil;UIView *scroller=nil;UIView *node=material;
-        for(NSInteger depth=0;depth<4 && node.superview;depth++) {
-            node=node.superview;
-            UIView *found=LMVSquidPanelScrollerIn(node,1);
-            if(found && found!=self.host && ![found isDescendantOfView:self.host]) {owner=node;scroller=found;break;}
-        }
-        if(owner) {
-            // Stay ABOVE the blur even if the scroller happens to come first.
-            NSUInteger afterMaterial=0;UIView *walker=material;
-            while(walker && walker.superview!=owner) walker=walker.superview;
-            if(walker) {
-                NSInteger mi=(NSInteger)[owner.subviews indexOfObjectIdenticalTo:walker];
-                if(mi!=NSNotFound) afterMaterial=(NSUInteger)(mi+1);
-            }
-            NSInteger si=(NSInteger)[owner.subviews indexOfObjectIdenticalTo:scroller];
-            NSUInteger beforeIcons=(si==NSNotFound)?owner.subviews.count:(NSUInteger)si;
-            container=owner;index=MAX(afterMaterial,beforeIcons);mode=@"below-icons";
-            // 1.96: THE LAST THING BETWEEN THE VIDEO AND THE SCREEN.
-            // The scroller has to sit above the host or it would eat the taps, so
-            // whatever fill colour it carries is painted straight over the picture.
-            // 1.95's log had ready=1 rate=1.0 poster=1 and still nothing visible -
-            // this is the only view above the host that can do that. Remember the
-            // colour, clear it, and hand it back on detach.
-            if([scroller isKindOfClass:UIScrollView.class]) {
-                UIScrollView *ui=(UIScrollView *)scroller;
-                if(self.scroller!=ui) {
-                    [self restoreScrollerColor];
-                    self.scroller=ui;self.scrollerColor=ui.backgroundColor;
-                    LMVSquidPanelScrollerDiagnostic(ui,@"before");
-                }
-                if(ui.backgroundColor && CGColorGetAlpha(ui.backgroundColor.CGColor)>0.001) {
-                    self.scrollerCleared=YES;
-                    ui.backgroundColor=[UIColor clearColor];
-                    LMVSquidPanelScrollerDiagnostic(ui,@"cleared");
-                }
-                if(ui.opaque)ui.opaque=NO;
-            }
-        } else if(material.superview) {
-            // No scroller anywhere above: the LAST index is the only one nothing can
-            // cover, so take it - the panel draws no chrome above its icons.
+    if([material isKindOfClass:UIVisualEffectView.class]) {
+        // 1.94: the SIBLING placement is now preferred. Device log (1.93) showed the
+        // host sitting inside _UIVisualEffectContentView with live=1 and the right
+        // frame, yet nothing on screen: this panel keeps its icons in a scroll view
+        // that is a SIBLING of the blur, and the content view renders behind the
+        // blur on this system. One index above the material is above the blur and
+        // still below the icons - the only layer that is guaranteed visible.
+        if(material.superview) {
             container=material.superview;
-            index=container.subviews.count;mode=@"top";
+            NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
+            if(near==NSNotFound) {[self detach];self.updating=NO;return;}
+            index=(NSUInteger)(near+1);mode=@"above-material";
         } else {
             UIView *content=((UIVisualEffectView *)material).contentView;
             if(content && content.subviews.count<40) {container=content;index=0;mode=@"content";}
@@ -1270,14 +1194,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // that size, so sizing the video to the container made it overflow the panel
     // instead of filling it. Intersecting container and card keeps every shape and
     // both orientations exact.
-    // 1.97: MEASURE THE PANEL, NOT WHICHEVER SUBVIEW WON THE AREA CONTEST.
-    // The two panel shapes hand LMVSquidPanelCard two different winners: the tall
-    // one returns the blur itself (420x1514, because the blur is sized to the screen
-    // and overflows the 495pt panel), the short one returns SFActivityPanelView
-    // (420x265, because it is the largest thing that fits). Intersecting with the
-    // blur therefore left the tall panel's video covering only its top 398pt while
-    // the short panel came out exact - "the small size has no video, the big one has
-    // the wrong size". The panel surface is the honest frame for both.
+    // 1.98 (on the 1.94 mount): MEASURE THE PANEL, NOT THE BLUR.
+    // The two panel shapes hand LMVSquidPanelCard two different winners. The tall
+    // one returns the blur itself (420x1514 - that blur is sized to the screen and
+    // overflows the 495pt panel), the short one returns SFActivityPanelView
+    // (420x265, exact). So intersecting with the card covered only the top 398pt of
+    // the tall panel and none of it was wrong on the short one - the reported
+    // "size problem". The panel surface is the honest frame for both.
     UIView *surface=card;
     if([card isKindOfClass:UIVisualEffectView.class] && card.superview)surface=card.superview;
     CGRect cardInContainer=[surface convertRect:surface.bounds toView:container];
@@ -1295,14 +1218,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
     if(self.host.layer.cornerRadius!=card.layer.cornerRadius)self.host.layer.cornerRadius=card.layer.cornerRadius;
     self.host.layer.masksToBounds=YES;
-    // 1.97: the host must be a hole, never a lid. If it ever carried a fill colour
-    // the video would be painted over by its own container.
+    // 1.98: the host must be a hole, never a lid.
     if(self.host.backgroundColor!=UIColor.clearColor)self.host.backgroundColor=UIColor.clearColor;
     if(self.host.opaque)self.host.opaque=NO;
-    // 1.97: asked unconditionally. The method itself is three frame comparisons,
-    // but skipping the call can leave poster/player at the size they had BEFORE the
-    // host was inserted (0x0 on a fresh panel) - which renders as an empty surface
-    // and reads exactly like "no video was mounted".
+    // 1.98: asked unconditionally. The method is three frame comparisons, but
+    // skipping the call can leave poster/player at the size they had BEFORE the
+    // host was inserted (0x0 on a fresh panel) - an empty surface that reads as
+    // "the video was never mounted".
     [self.playback layoutInBounds:self.host.bounds];
     [CATransaction commit];
     if(self.host.hidden)self.host.hidden=NO;
@@ -1310,20 +1232,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // from "wrong layer", "alpha 0" and "player never started" without guessing.
     if(LMVDiagnosticsEnabled.load()) {
         static NSString *lastMount=nil;
-        // 1.95: the window-space frame is part of the key now. 1.94 logged only the
-        // container and the size, so a panel that slid from y=60 to y=-458 produced
-        // an identical string and the line went silent exactly when it mattered.
-        CGRect inWindow=[self.host convertRect:self.host.bounds toView:window];
-        NSMutableString *order=[NSMutableString string];
-        NSUInteger slots=container.subviews.count;
-        for(NSUInteger i=0;i<slots && i<9;i++) {
-            UIView *sub=container.subviews[i];
-            [order appendFormat:@"%@%lu:%@",i?@"/":@"",(unsigned long)i,NSStringFromClass(sub.class)];
-        }
-        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu of=%lu order=%@ host=%.0fx%.0f at=%.0f,%.0f,%.0f,%.0f layers=%lu rl=%.0fx%.0f pl=%.0fx%.0f vl=%.0fx%.0f op=%.2f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
-            mode,NSStringFromClass(container.class),(unsigned long)index,(unsigned long)slots,order,
+        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu host=%.0fx%.0f layers=%lu rl=%.0fx%.0f pl=%.0fx%.0f vl=%.0fx%.0f op=%.2f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
+            mode,NSStringFromClass(container.class),(unsigned long)index,
             self.host.bounds.size.width,self.host.bounds.size.height,
-            inWindow.origin.x,inWindow.origin.y,inWindow.size.width,inWindow.size.height,
             (unsigned long)self.host.layer.sublayers.count,
             self.playback.renderLayer.frame.size.width,self.playback.renderLayer.frame.size.height,
             self.playback.posterLayer.frame.size.width,self.playback.posterLayer.frame.size.height,
@@ -1373,7 +1284,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             LMVDiagnostic([NSString stringWithFormat:@"squid-panel-identity ptr=%p%@",
                 (void *)self.card,identity]);
         }
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             (int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],
             LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
@@ -1386,9 +1297,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             (void *)self.card,
-            LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height,
-            (int)self.playback.playerLayer.readyForDisplay,(int)(self.playback.posterLayer.contents!=nil),
-            self.playback.player?self.playback.player.rate:0.0];
+            LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }

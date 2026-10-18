@@ -311,22 +311,13 @@ assert '@catch(NSException *exception) {[self.host removeFromSuperview];return N
 assert 'if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;' in module
 assert 'UIView *content=((UIVisualEffectView *)material).contentView;' in module
 assert 'container=content;index=0;mode=@"content";' in module
-# 1.95: the icon scroller is a SIBLING of the blur, one level UP (inside
-# SFActivityAction). 1.93's contentView and 1.94's "one index above the blur"
-# were both still underneath it - that is why two releases showed nothing.
-assert 'static UIView *LMVSquidPanelScrollerIn(UIView *root, NSInteger depth)' in module
-assert 'container=owner;index=MAX(afterMaterial,beforeIcons);mode=@"below-icons";' in module
-# 1.96: the scroller above the host paints its own fill over the picture.
-assert 'self.scroller=ui;self.scrollerColor=ui.backgroundColor;' in module
-assert 'ui.backgroundColor=[UIColor clearColor];' in module
-assert 'if(self.scroller && self.scrollerCleared)self.scroller.backgroundColor=self.scrollerColor;' in module
-assert 'index=container.subviews.count;mode=@"top";' in module
+assert 'index=(NSUInteger)(near+1);mode=@"above-material";' in module
 assert 'if(!container) {container=card;index=0;}' in module
 # 1.44: the host fills the CARD, not the container it happens to live in. In
 # landscape the material (and the content view inside it) is a full-screen
 # 932x435 view while the card is 814x180, so container-sized video overflowed the
 # panel instead of filling it.
-# 1.97: measure the panel surface - the tall panel's blur is 1514pt behind a 495pt
+# 1.98: measure the panel surface - the tall panel's blur is 1514pt behind a 495pt
 # panel, and intersecting with the blur covered only its top 398pt.
 assert 'if([card isKindOfClass:UIVisualEffectView.class] && card.superview)surface=card.superview;' in module
 assert 'CGRect cardInContainer=[surface convertRect:surface.bounds toView:container];' in module
