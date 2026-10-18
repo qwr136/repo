@@ -35,7 +35,7 @@ static int LMVBlankToken=1;
 static uint64_t testBlank;
 static int notify_get_state(int token,uint64_t *out){*out=testBlank;return 0;}
 static BOOL LMVInitialized=YES,LMVLaunchReady=YES;
-static NSUInteger blanked,suspended,unlocked,prepared,requests,messageReconciled,menuPaused,panelPaused,atPanelPaused,cvPanelPaused;
+static NSUInteger blanked,suspended,unlocked,prepared,requests,messageReconciled,menuPaused,panelPaused,atPanelPaused,cvPanelPaused,paPanelPaused;
 static BOOL LMVPlaybackAllowed(void){return !testBlank;}
 static void LMVDesktopVideoScreenBlank(void){blanked++;}
 static void LMVDesktopVideoScreenChanged(void){unlocked++;}
@@ -49,6 +49,7 @@ static void LMVSquidPanelVideoSuspend(void){panelPaused++;}
 static void LMVATPanelVideoSuspend(void){atPanelPaused++;}
 static void LMVCopyVaultPanelVideoSuspend(void){cvPanelPaused++;}
 static void LMVMyrtlePanelVideoSuspend(void){}
+static void LMVPhoneAssistVideoSuspend(void){paPanelPaused++;}
 '''
 main=r'''
 int main(void){@autoreleasepool{
@@ -57,7 +58,7 @@ int main(void){@autoreleasepool{
  assert(!blanked && !suspended && unlocked==1 && prepared==1 && requests==1);
  testBlank=0;LMVScreenNotification(NULL,NULL,NULL,NULL,NULL);testBlank=1;turn();
  assert(blanked==1 && suspended==1 && unlocked==1);
- testBlank=0;resign();turn();assert(suspended==1 && messageReconciled==1 && menuPaused==1 && panelPaused==1 && atPanelPaused==1 && cvPanelPaused==1);
+ testBlank=0;resign();turn();assert(suspended==1 && messageReconciled==1 && menuPaused==1 && panelPaused==1 && atPanelPaused==1 && cvPanelPaused==1 && paPanelPaused==1);
  testBlank=1;resign();turn();assert(suspended==2 && messageReconciled==1);
  LMVLaunchReady=NO;LMVScreenNotification(NULL,NULL,NULL,NULL,NULL);turn();assert(suspended==2);
  puts("PASS production screen/resign handlers: obsolete queued blank cannot cover newly unlocked Home, latest actual blank suspends, exposed CC not suspended solely by SpringBoard inactive; no UIKit device claim");
