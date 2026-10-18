@@ -143,7 +143,7 @@ assert re.search(r'@"CV": @""', prefs), 'the CV material fallback is empty (noth
 
 # ---- floating panel -------------------------------------------------------
 assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel
-assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterMyrtleSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterPhoneAssistSection() + 1; }' in panel
 assert 'if (section == LMVEasterCVSection()) return 4;' in panel
 assert 'if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";' in panel
 cv_cells = panel[panel.index('if (index.section == LMVEasterCVSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
@@ -155,7 +155,7 @@ assert 'else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled
 selection = panel[panel.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:'):]
 assert 'key = @"CVVideo";' in selection and 'index.section == LMVEasterCVSection()' in selection
 audio_list = re.search(r'static NSArray \*LMVEasterAudioTargets\(void\) \{\s*return @\[(.*?)\];', panel, re.S).group(1)
-assert re.findall(r'@"(.*?)"', audio_list)[-3:] == ['AT', 'CV', 'Myrtle'], \
+assert re.findall(r'@"(.*?)"', audio_list)[-3:] == ['CV', 'Myrtle', 'PA'], \
     'the CV sound channel closes the panel audio list'
 
 # ---- shared material plumbing ----------------------------------------------

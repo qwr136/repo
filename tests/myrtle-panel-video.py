@@ -94,6 +94,6 @@ assert 'NSString *key=[target stringByAppendingString:@"SoundEnabled"];' in audi
 assert 'static NSInteger LMVEasterMyrtleSection(void) { return LMVEasterCVSection() + 1; }' in panel
 assert 'if (section == LMVEasterMyrtleSection()) return @"Myrtle 面板背景视频";' in panel
 assert 'key = @"MyrtleVideo";' in panel
-assert '@"CV", @"Myrtle"];' in panel, 'the audio target list carries it'
+assert '@"CV", @"Myrtle", @"PA"];' in panel, 'the audio target list carries it'
 
 print('PASS: 1.82 Myrtle single mount + sound chain')

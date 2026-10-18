@@ -38,7 +38,11 @@ static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() 
 static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }
 // 1.77: the Myrtle panel sits directly below CopyVault, matching Settings.
 static NSInteger LMVEasterMyrtleSection(void) { return LMVEasterCVSection() + 1; }
-static NSInteger LMVEasterDisplaySection(void) { return LMVEasterMyrtleSection() + 1; }
+// 2.06: the phone-assist sheet sits directly below Myrtle, matching Settings. It has
+// no text-colour row here - the user asked for the sheet's colour to stay in Settings
+// only - so this section is switch / material / sound / volume, four rows like AT.
+static NSInteger LMVEasterPhoneAssistSection(void) { return LMVEasterMyrtleSection() + 1; }
+static NSInteger LMVEasterDisplaySection(void) { return LMVEasterPhoneAssistSection() + 1; }
 static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }
 static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
 static NSString *LMVEasterControlCenterKey(NSInteger row) {
@@ -46,7 +50,7 @@ static NSString *LMVEasterControlCenterKey(NSInteger row) {
 }
 // Audio tags are target indices, never section indices (CC has two targets).
 static NSArray *LMVEasterAudioTargets(void) {
-    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle"];
+    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"];
 }
 // 1.63: the four SquidGesturePro panels (right/left, swipe-up / swipe-up-twice) share
 // ONE material - the user picks a single "切换视频" and every panel plays it.
@@ -59,6 +63,7 @@ static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
     if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
     if (section == LMVEasterMyrtleSection() && (row == 2 || row == 3)) return @"Myrtle";
+    if (section == LMVEasterPhoneAssistSection() && (row == 2 || row == 3)) return @"PA";
     if (section == LMVEasterControlCenterSection()) {
         if (row == 2 || row == 3) return @"ControlCenterDark";
         if (row == 5 || row == 6) return @"ControlCenterLight";
@@ -252,6 +257,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterATSection()) return 4;
     if (section == LMVEasterCVSection()) return 4;
     if (section == LMVEasterMyrtleSection()) return 4;
+    if (section == LMVEasterPhoneAssistSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row > 0 ? 60 : 44; }
@@ -263,6 +269,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterATSection()) return @"AT 背景视频";
     if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";
     if (section == LMVEasterMyrtleSection()) return @"Myrtle 面板背景视频";
+    if (section == LMVEasterPhoneAssistSection()) return @"电话助手弹窗背景视频";
     if (section == LMVEasterDisplaySection()) return @"小彩蛋显示设置";
     return section == LMVEasterOpacitySection() ? @"消息、选项、清除视频透明度" : @"独立原片导入";
 }
@@ -390,6 +397,21 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         }
         return cell;
     }
+    if (index.section == LMVEasterPhoneAssistSection()) {
+        if (index.row == 0) {
+            cell.textLabel.text = @"电话助手弹窗背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterPhoneAssistSection();
+            toggle.on = [LMVEasterRead(@"PABackgroundEnabled") boolValue];
+            [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else if (index.row == 1) {
+            cell.textLabel.text = @"切换电话助手素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id selected = LMVEasterRead(@"PAVideo");
+            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
+            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
+            cell.detailTextLabel.numberOfLines = 2;
+        }
+        return cell;
+    }
     if (index.section == LMVEasterControlCenterSection()) {
         if (index.row == 0) {
             cell.textLabel.text = @"启用控制中心背景";
@@ -454,6 +476,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     else if (toggle.tag == LMVEasterATSection()) key = @"ATBackgroundEnabled";
     else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled";
     else if (toggle.tag == LMVEasterMyrtleSection()) key = @"MyrtleBackgroundEnabled";
+    else if (toggle.tag == LMVEasterPhoneAssistSection()) key = @"PABackgroundEnabled";
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
@@ -512,6 +535,9 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     } else if (index.section == LMVEasterMyrtleSection()) {
         if (index.row != 1) return;
         key = @"MyrtleVideo";
+    } else if (index.section == LMVEasterPhoneAssistSection()) {
+        if (index.row != 1) return;
+        key = @"PAVideo";
     } else {
         if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;
         NSString *target = LMVEasterTargets()[index.section];

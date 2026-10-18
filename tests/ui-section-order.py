@@ -33,17 +33,19 @@ def section(name):
 
 class UISectionOrder(unittest.TestCase):
     def test_panel_sections_and_row_counts(self):
-        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'Display', 'Opacity', 'Import']
+        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PhoneAssist', 'Display', 'Opacity', 'Import']
         actual = [section('LMVEaster' + name + 'Section') for name in names]
-        self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11, 12, 13])
+        self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
         total = re.search(r'numberOfSectionsInTableView:.*?\{ return (LMVEaster\w+Section)\(\) \+ 1;', PANEL).group(1)
-        self.assertEqual(section(total) + 1, 14)
+        self.assertEqual(section(total) + 1, 15)
         for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
                      'if (section == LMVEasterSquidPanelSection()) return 4;',
                      'if (section == LMVEasterATSection()) return 4;',
                      'if (section == LMVEasterCVSection()) return 4;',
+                     'if (section == LMVEasterMyrtleSection()) return 4;',
+                     'if (section == LMVEasterPhoneAssistSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
         disp, imp = section('LMVEasterDisplaySection'), section('LMVEasterImportSection')
@@ -51,16 +53,19 @@ class UISectionOrder(unittest.TestCase):
         # 1.53: the Squid section carries its switch, FOUR material rows (right and left,
         # 上滑 and 上上滑), the reset row, the swap row and the shared sound pair, so it is
         # five rows taller than its neighbours.
-        rows = [4 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[5]) else 5 if i == actual[4] else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(14)]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 52)
+        pa = section('LMVEasterPhoneAssistSection')
+        rows = [4 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[5], pa) else 5 if i == actual[4] else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(15)]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 56)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
         bound = re.search(r'toggle.tag > (LMVEaster\w+Section)\(\)', body).group(1)
         routes = dict(re.findall(r'toggle.tag == (LMVEaster\w+Section)\(\)\) key = @"(.*?)";', body))
         self.assertEqual(routes, {'LMVEasterControlCenterSection': 'ControlCenterBackgroundEnabled',
-                                 'LMVEasterMyrtleSection': 'MyrtleBackgroundEnabled', 'LMVEasterHomeMenuSection': 'HomeMenuBackgroundEnabled',
+                                 'LMVEasterMyrtleSection': 'MyrtleBackgroundEnabled',
+                                 'LMVEasterPhoneAssistSection': 'PABackgroundEnabled',
+                                 'LMVEasterHomeMenuSection': 'HomeMenuBackgroundEnabled',
                                  'LMVEasterSquidPanelSection': 'SquidPanelBackgroundEnabled',
                                  'LMVEasterATSection': 'ATBackgroundEnabled',
                                  'LMVEasterCVSection': 'CVBackgroundEnabled',
@@ -75,13 +80,13 @@ class UISectionOrder(unittest.TestCase):
         resolved.update({i: target + 'BackgroundEnabled' for i, target in enumerate(TARGETS)})
         def key_for(tag):
             return None if tag < 0 or tag > section(bound) else resolved.get(tag)
-        self.assertEqual([key_for(i) for i in range(14)],
+        self.assertEqual([key_for(i) for i in range(15)],
                          [t + 'BackgroundEnabled' for t in TARGETS] +
                          ['ControlCenterBackgroundEnabled', 'HomeMenuBackgroundEnabled', 'SquidPanelBackgroundEnabled',
                           'ATBackgroundEnabled', 'CVBackgroundEnabled', 'MyrtleBackgroundEnabled',
-                          None, 'VideoOpacityEnabled', None])
+                          'PABackgroundEnabled', None, 'VideoOpacityEnabled', None])
         self.assertIsNone(key_for(-1))
-        self.assertIsNone(key_for(13))
+        self.assertIsNone(key_for(14))
 
     def test_panel_selection_cells_import_defaults_unchanged(self):
         cells = PANEL[PANEL.index('- (UITableViewCell *)tableView:'):PANEL.index('- (void)toggle:')]
@@ -178,6 +183,11 @@ class UISectionOrder(unittest.TestCase):
         selection_for_digest = selection_for_digest.replace('''    } else if (index.section == LMVEasterMyrtleSection()) {
         if (index.row != 1) return;
         key = @"MyrtleVideo";
+''', '')
+        # 2.06: the phone-assist branch is new; drop it the same way.
+        selection_for_digest = selection_for_digest.replace('''    } else if (index.section == LMVEasterPhoneAssistSection()) {
+        if (index.row != 1) return;
+        key = @"PAVideo";
 ''', '')
         # 1.50: and the claim branch it gained - drop that too, then the swap branch
         # added by 1.46.
