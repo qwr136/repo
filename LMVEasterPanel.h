@@ -250,7 +250,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterHomeMenuSection()) return 4;
     if (section == LMVEasterSquidPanelSection()) return 4;
     if (section == LMVEasterATSection()) return 4;
-    if (section == LMVEasterCVSection()) return 5;
+    if (section == LMVEasterCVSection()) return 4;
     if (section == LMVEasterMyrtleSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
@@ -366,18 +366,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCVSection();
             toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
-        } else if (index.row == 4) {
-            // 1.83: same round swatch as Settings; tapping opens the shared picker.
-            cell.textLabel.text = @"文字颜色";
-            cell.accessoryType = UITableViewCellAccessoryNone;
-            UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 18, 18)];
-            UIColor *color = LMVTextColorCurrent();
-            dot.backgroundColor = color ?: UIColor.clearColor;
-            dot.layer.cornerRadius = 9;
-            dot.layer.borderWidth = 1;
-            dot.layer.borderColor = [UIColor separatorColor].CGColor;
-            cell.accessoryView = dot;
-        } else {
+        } else if (index.row == 1) {
             cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil;
             id selected = LMVEasterRead(@"CVVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
@@ -518,14 +507,6 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if (index.row != 1) return;
         key = @"ATVideo";
     } else if (index.section == LMVEasterCVSection()) {
-        if (index.row == 4) {
-            LMVTextColorPicker *picker = [LMVTextColorPicker new];
-            picker.modalPresentationStyle = UIModalPresentationPageSheet;
-            __weak typeof(self) weakSelf = self;
-            picker.onChange = ^(UIColor *color) { [weakSelf.tableView reloadData]; };
-            [self presentViewController:picker animated:YES completion:nil];
-            return;
-        }
         if (index.row != 1) return;
         key = @"CVVideo";
     } else if (index.section == LMVEasterMyrtleSection()) {

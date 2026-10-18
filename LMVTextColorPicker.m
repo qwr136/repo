@@ -42,9 +42,186 @@ NSString *LMVTextColorHex(UIColor *color) {
     return [NSString stringWithFormat:@"#%02X%02X%02X",(word>>24)&0xFF,(word>>16)&0xFF,(word>>8)&0xFF];
 }
 
+#pragma mark - Grid palette (figure 4)
+
+// 12 columns: the first row is a grey ramp, the eight rows below are a
+// hue x brightness matrix. Drawn and hit-tested with the same formula, so the
+// colour under the finger is exactly the colour that gets picked.
+static const NSInteger kLMVGridColumns = 12;
+static const NSInteger kLMVGridRows = 9;
+
+static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat *b) {
+    if(y<=0) {
+        CGFloat v=1.0-(CGFloat)x/(CGFloat)(kLMVGridColumns-1);
+        *r=*g=*b=v;
+        return;
+    }
+    CGFloat hue=(CGFloat)x/(CGFloat)kLMVGridColumns;
+    CGFloat t=(CGFloat)(y-1)/(CGFloat)(kLMVGridRows-2);
+    CGFloat sat=0.34+0.66*t;
+    CGFloat val=1.0-0.56*t;
+    UIColor *color=[UIColor colorWithHue:hue saturation:sat brightness:val alpha:1];
+    [color getRed:r green:g blue:b alpha:NULL];
+}
+
+@interface LMVColorGridView : UIView
+@property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
+@end
+@implementation LMVColorGridView
+- (instancetype)initWithFrame:(CGRect)frame {
+    self=[super initWithFrame:frame];
+    if(self) {
+        self.backgroundColor=UIColor.clearColor;
+        self.layer.cornerRadius=10;
+        self.layer.cornerCurve=kCACornerCurveContinuous;
+        self.clipsToBounds=YES;
+        self.isAccessibilityElement=YES;
+        self.accessibilityLabel=@"颜色网格";
+        self.accessibilityHint=@"点击或拖动选择颜色";
+    }
+    return self;
+}
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx=UIGraphicsGetCurrentContext();
+    CGFloat w=CGRectGetWidth(self.bounds)/(CGFloat)kLMVGridColumns;
+    CGFloat h=CGRectGetHeight(self.bounds)/(CGFloat)kLMVGridRows;
+    for(NSInteger y=0;y<kLMVGridRows;y++) {
+        for(NSInteger x=0;x<kLMVGridColumns;x++) {
+            CGFloat r,g,b;
+            LMVGridColorAt(x,y,&r,&g,&b);
+            [[UIColor colorWithRed:r green:g blue:b alpha:1] setFill];
+            CGContextFillRect(ctx,CGRectMake(x*w,y*h,w+0.6,h+0.6));
+        }
+    }
+}
+- (void)pickTouch:(UITouch *)touch {
+    CGPoint p=[touch locationInView:self];
+    CGFloat w=CGRectGetWidth(self.bounds)/(CGFloat)kLMVGridColumns;
+    CGFloat h=CGRectGetHeight(self.bounds)/(CGFloat)kLMVGridRows;
+    NSInteger x=(NSInteger)floor(p.x/MAX(w,1));
+    NSInteger y=(NSInteger)floor(p.y/MAX(h,1));
+    x=MAX(0,MIN(kLMVGridColumns-1,x));
+    y=MAX(0,MIN(kLMVGridRows-1,y));
+    CGFloat r,g,b;
+    LMVGridColorAt(x,y,&r,&g,&b);
+    if(self.onPick) self.onPick(r,g,b);
+}
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
+@end
+
+#pragma mark - Spectrum (figure 3)
+
+// Horizontal hue, vertical white -> pure -> black. The same two gradients the
+// view draws are inverted for the pick, so what the user touches is what they
+// get even in the corner stops.
+@interface LMVSpectrumView : UIView
+@property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
+- (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness;
+@end
+@implementation LMVSpectrumView {
+    CGFloat _hue,_saturation,_brightness;
+    CALayer *_marker;
+    BOOL _hasMarker;
+}
+- (instancetype)initWithFrame:(CGRect)frame {
+    self=[super initWithFrame:frame];
+    if(self) {
+        self.backgroundColor=UIColor.clearColor;
+        self.layer.cornerRadius=10;
+        self.layer.cornerCurve=kCACornerCurveContinuous;
+        self.clipsToBounds=YES;
+        self.isAccessibilityElement=YES;
+        self.accessibilityLabel=@"光谱选色";
+        self.accessibilityHint=@"点击或拖动选择颜色";
+        _marker=[CALayer layer];
+        _marker.bounds=CGRectMake(0,0,20,20);
+        _marker.cornerRadius=10;
+        _marker.borderWidth=2;
+        _marker.borderColor=UIColor.whiteColor.CGColor;
+        _marker.shadowColor=UIColor.blackColor.CGColor;
+        _marker.shadowOpacity=.55;
+        _marker.shadowRadius=2;
+        _marker.shadowOffset=CGSizeZero;
+        _hasMarker=NO;
+        [self.layer addSublayer:_marker];
+    }
+    return self;
+}
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx=UIGraphicsGetCurrentContext();
+    CGFloat w=CGRectGetWidth(self.bounds),h=CGRectGetHeight(self.bounds);
+    if(w<=0 || h<=0) return;
+    NSArray *hues=@[(id)[UIColor colorWithHue:0 saturation:1 brightness:1 alpha:1].CGColor,
+                    (id)[UIColor colorWithHue:1.0/6 saturation:1 brightness:1 alpha:1].CGColor,
+                    (id)[UIColor colorWithHue:2.0/6 saturation:1 brightness:1 alpha:1].CGColor,
+                    (id)[UIColor colorWithHue:3.0/6 saturation:1 brightness:1 alpha:1].CGColor,
+                    (id)[UIColor colorWithHue:4.0/6 saturation:1 brightness:1 alpha:1].CGColor,
+                    (id)[UIColor colorWithHue:5.0/6 saturation:1 brightness:1 alpha:1].CGColor,
+                    (id)[UIColor colorWithHue:1 saturation:1 brightness:1 alpha:1].CGColor];
+    CGFloat hueLocations[]={0,1.0/6,2.0/6,0.5,4.0/6,5.0/6,1};
+    CGGradientRef hueGradient=CGGradientCreateWithColors(NULL,(__bridge CFArrayRef)hues,hueLocations);
+    if(hueGradient) {
+        CGContextDrawLinearGradient(ctx,hueGradient,CGPointMake(0,0),CGPointMake(w,0),0);
+        CGGradientRelease(hueGradient);
+    }
+    NSArray *shades=@[(id)[UIColor colorWithWhite:1 alpha:1].CGColor,
+                      (id)[UIColor colorWithWhite:1 alpha:0].CGColor,
+                      (id)[UIColor colorWithWhite:0 alpha:0].CGColor,
+                      (id)[UIColor colorWithWhite:0 alpha:1].CGColor];
+    CGFloat shadeLocations[]={0,0.5,0.5001,1};
+    CGGradientRef shadeGradient=CGGradientCreateWithColors(NULL,(__bridge CFArrayRef)shades,shadeLocations);
+    if(shadeGradient) {
+        CGContextDrawLinearGradient(ctx,shadeGradient,CGPointMake(0,0),CGPointMake(0,h),
+            kCGGradientDrawsBeforeStartLocation|kCGGradientDrawsAfterEndLocation);
+        CGGradientRelease(shadeGradient);
+    }
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self placeMarker];
+}
+- (void)placeMarker {
+    if(!_hasMarker) { _marker.hidden=YES; return; }
+    _marker.hidden=NO;
+    CGFloat w=CGRectGetWidth(self.bounds),h=CGRectGetHeight(self.bounds);
+    CGFloat y=_saturation<0.999 ? _saturation*0.5 : 0.5+(1.0-_brightness)*0.5;
+    _marker.position=CGPointMake(MAX(0,MIN(1,_hue))*w,MAX(0,MIN(1,y))*h);
+}
+- (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness {
+    _hue=MAX(0,MIN(1,hue));
+    _saturation=MAX(0,MIN(1,saturation));
+    _brightness=MAX(0,MIN(1,brightness));
+    _hasMarker=YES;
+    [self placeMarker];
+}
+- (void)pickTouch:(UITouch *)touch {
+    CGPoint p=[touch locationInView:self];
+    CGFloat w=MAX(1,CGRectGetWidth(self.bounds)),h=MAX(1,CGRectGetHeight(self.bounds));
+    CGFloat hue=MAX(0,MIN(1,p.x/w));
+    CGFloat t=MAX(0,MIN(1,p.y/h));
+    CGFloat saturation=t<=0.5 ? t*2.0 : 1.0;
+    CGFloat brightness=t<=0.5 ? 1.0 : 1.0-(t-0.5)*2.0;
+    UIColor *color=[UIColor colorWithHue:hue saturation:saturation brightness:brightness alpha:1];
+    CGFloat r,g,b;
+    [color getRed:&r green:&g blue:&b alpha:NULL];
+    _hue=hue;_saturation=saturation;_brightness=brightness;_hasMarker=YES;
+    [self placeMarker];
+    if(self.onPick) self.onPick(r,g,b);
+}
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
+@end
+
+#pragma mark - Picker
+
 @interface LMVTextColorPicker () {
     UIView *_sheet;
     UILabel *_hex;
+    UISegmentedControl *_mode;
+    UIView *_gridPanel,*_spectrumPanel,*_sliderPanel;
+    LMVColorGridView *_gridView;
+    LMVSpectrumView *_spectrumView;
     UISlider *_redSlider,*_greenSlider,*_blueSlider,*_alphaSlider;
     UILabel *_redValue,*_greenValue,*_blueValue,*_alphaValue;
     UIView *_redTrack,*_greenTrack,*_blueTrack,*_alphaTrack;
@@ -87,6 +264,29 @@ NSString *LMVTextColorHex(UIColor *color) {
     [close addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
     [_sheet addSubview:close];
 
+    // 1.84: the user asked for the same three ways iOS offers - a grid, a
+    // spectrum and plain sliders. All three write the same RGBA word.
+    _mode=[[UISegmentedControl alloc] initWithItems:@[@"网格",@"光谱",@"滑块"]];
+    _mode.selectedSegmentIndex=0;
+    _mode.tag=0x5A36;
+    [_mode addTarget:self action:@selector(modeChanged) forControlEvents:UIControlEventValueChanged];
+    [_sheet addSubview:_mode];
+
+    _gridPanel=[UIView new]; _gridPanel.tag=0x5A40; [_sheet addSubview:_gridPanel];
+    _spectrumPanel=[UIView new]; _spectrumPanel.tag=0x5A41; [_sheet addSubview:_spectrumPanel];
+    _sliderPanel=[UIView new]; _sliderPanel.tag=0x5A42; [_sheet addSubview:_sliderPanel];
+
+    _gridView=[LMVColorGridView new];
+    _gridView.tag=0x5A43;
+    __weak typeof(self) weakSelf=self;
+    _gridView.onPick=^(CGFloat r,CGFloat g,CGFloat b) { [weakSelf pickRed:r green:g blue:b]; };
+    [_gridPanel addSubview:_gridView];
+
+    _spectrumView=[LMVSpectrumView new];
+    _spectrumView.tag=0x5A44;
+    _spectrumView.onPick=^(CGFloat r,CGFloat g,CGFloat b) { [weakSelf pickRed:r green:g blue:b]; };
+    [_spectrumPanel addSubview:_spectrumView];
+
     _redSlider=[self sliderWithTag:1];
     _greenSlider=[self sliderWithTag:2];
     _blueSlider=[self sliderWithTag:3];
@@ -112,7 +312,7 @@ NSString *LMVTextColorHex(UIColor *color) {
     _hex.userInteractionEnabled=YES;
     _hex.tag=0x5A33;
     [_hex addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(copyHex)]];
-    [_sheet addSubview:_hex];
+    [_sliderPanel addSubview:_hex];
 
     UIView *presets=[UIView new];
     presets.tag=0x5A34;
@@ -137,6 +337,7 @@ NSString *LMVTextColorHex(UIColor *color) {
     [_sheet addSubview:reset];
 
     [self refreshUI];
+    [self modeChanged];
 }
 - (UISlider *)sliderWithTag:(NSInteger)tag {
     UISlider *slider=[UISlider new];
@@ -145,7 +346,7 @@ NSString *LMVTextColorHex(UIColor *color) {
     slider.maximumTrackTintColor=UIColor.clearColor;
     slider.thumbTintColor=UIColor.whiteColor;
     [slider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
-    [_sheet addSubview:slider];
+    [_sliderPanel addSubview:slider];
     return slider;
 }
 - (UIView *)trackWithTag:(NSInteger)tag {
@@ -159,8 +360,8 @@ NSString *LMVTextColorHex(UIColor *color) {
     gradient.endPoint=CGPointMake(1,.5);
     gradient.cornerRadius=5;
     [track.layer addSublayer:gradient];
-    UIView *slider=[_sheet viewWithTag:tag-10];
-    if(slider)[_sheet insertSubview:track belowSubview:slider];else[_sheet addSubview:track];
+    UIView *slider=[_sliderPanel viewWithTag:tag-10];
+    if(slider)[_sliderPanel insertSubview:track belowSubview:slider];else[_sliderPanel addSubview:track];
     return track;
 }
 - (UILabel *)valueLabelWithTag:(NSInteger)tag {
@@ -172,7 +373,7 @@ NSString *LMVTextColorHex(UIColor *color) {
     label.backgroundColor=UIColor.systemBackgroundColor;
     label.layer.cornerRadius=8;
     label.clipsToBounds=YES;
-    [_sheet addSubview:label];
+    [_sliderPanel addSubview:label];
     return label;
 }
 - (void)viewDidLayoutSubviews {
@@ -185,28 +386,40 @@ NSString *LMVTextColorHex(UIColor *color) {
     CGFloat pad=20,inner=width-pad*2;
     [self.view viewWithTag:0x5A31].frame=CGRectMake(pad,16,inner,24);
     [self.view viewWithTag:0x5A32].frame=CGRectMake(width-44,10,34,34);
-    CGFloat sliderX=pad+34;
-    CGFloat valueX=width-pad-64;
+    _mode.frame=CGRectMake(pad,48,inner,32);
+    CGFloat contentTop=92;
+    CGFloat contentBottom=height-152;
+    CGRect content=CGRectMake(pad,contentTop,inner,MAX(120,contentBottom-contentTop));
+    _gridPanel.frame=content;
+    _spectrumPanel.frame=content;
+    _sliderPanel.frame=content;
+    if(_mode.selectedSegmentIndex==0) {
+        _gridView.frame=CGRectMake(0,0,content.size.width,content.size.height);
+    } else if(_mode.selectedSegmentIndex==1) {
+        _spectrumView.frame=CGRectMake(0,0,content.size.width,content.size.height);
+    }
+    CGFloat sliderX=34;
+    CGFloat valueX=inner-64;
     CGFloat sliderW=valueX-8-sliderX;
     for(NSInteger i=0;i<3;i++) {
-        CGFloat rowY=58+i*56;
-        UILabel *name=(UILabel *)[self.view viewWithTag:40+i];
+        CGFloat rowY=6+i*56;
+        UILabel *name=(UILabel *)[_sliderPanel viewWithTag:40+i];
         if(!name) {
             name=[UILabel new];name.tag=40+i;
             name.font=[UIFont systemFontOfSize:13];
             name.textColor=UIColor.secondaryLabelColor;
             name.text=@[@"红色",@"绿色",@"蓝色"][i];
-            [_sheet addSubview:name];
+            [_sliderPanel addSubview:name];
         }
-        name.frame=CGRectMake(pad,rowY,30,20);
-        UIView *track=[self.view viewWithTag:11+i];
+        name.frame=CGRectMake(0,rowY,30,20);
+        UIView *track=[_sliderPanel viewWithTag:11+i];
         track.frame=CGRectMake(sliderX,rowY+26,sliderW,10);
         ((CAGradientLayer *)track.layer.sublayers.firstObject).frame=track.bounds;
-        UISlider *slider=(UISlider *)[self.view viewWithTag:1+i];
+        UISlider *slider=(UISlider *)[_sliderPanel viewWithTag:1+i];
         slider.frame=CGRectMake(sliderX-2,rowY+8,sliderW+4,44);
-        [self.view viewWithTag:21+i].frame=CGRectMake(valueX,rowY+13,64,32);
+        [_sliderPanel viewWithTag:21+i].frame=CGRectMake(valueX,rowY+13,64,32);
     }
-    _hex.frame=CGRectMake(pad,236,inner,28);
+    _hex.frame=CGRectMake(0,176,inner,28);
     UILabel *alphaName=[self.view viewWithTag:44];
     if(!alphaName) {
         alphaName=[UILabel new];alphaName.tag=44;
@@ -215,15 +428,33 @@ NSString *LMVTextColorHex(UIColor *color) {
         alphaName.text=@"不透明度";
         [_sheet addSubview:alphaName];
     }
-    alphaName.frame=CGRectMake(pad,282,70,20);
-    _alphaTrack.frame=CGRectMake(sliderX,308,sliderW,10);
+    alphaName.frame=CGRectMake(pad,height-144,70,20);
+    _alphaTrack.frame=CGRectMake(pad+34,height-118,inner-34-72,10);
     _alphaGradient.frame=_alphaTrack.bounds;
-    _alphaSlider.frame=CGRectMake(sliderX-2,290,sliderW+4,44);
-    _alphaValue.frame=CGRectMake(valueX,295,64,32);
+    _alphaSlider.frame=CGRectMake(pad+32,height-136,inner-34-72+4,44);
+    _alphaValue.frame=CGRectMake(width-pad-64,height-131,64,32);
     UIView *presets=[self.view viewWithTag:0x5A34];
-    presets.frame=CGRectMake(pad,352,inner,44);
+    presets.frame=CGRectMake(pad,height-96,inner,44);
     for(NSInteger i=0;i<3;i++) [presets viewWithTag:100+i].frame=CGRectMake(i*52,2,40,40);
     [self.view viewWithTag:0x5A35].frame=CGRectMake(pad,height-52,inner,36);
+    [self refreshUI];
+}
+- (void)modeChanged {
+    NSInteger index=_mode.selectedSegmentIndex;
+    _gridPanel.hidden=index!=0;
+    _spectrumPanel.hidden=index!=1;
+    _sliderPanel.hidden=index!=2;
+    if(index==1) {
+        CGFloat hue=0,sat=0,bright=0;
+        [[UIColor colorWithRed:_r green:_g blue:_b alpha:1] getHue:&hue saturation:&sat brightness:&bright alpha:NULL];
+        [_spectrumView showHue:hue saturation:sat brightness:bright];
+    }
+    [self setNeedsLayout];
+}
+- (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b {
+    _r=r;_g=g;_b=b;
+    [self refreshUI];
+    [self publish];
 }
 - (void)sliderChanged {
     _r=_redSlider.value;_g=_greenSlider.value;_b=_blueSlider.value;_a=_alphaSlider.value;
@@ -245,6 +476,11 @@ NSString *LMVTextColorHex(UIColor *color) {
                            (id)[UIColor colorWithRed:_r green:_g blue:1 alpha:1].CGColor];
     _alphaGradient.colors=@[(id)[current colorWithAlphaComponent:0].CGColor,(id)current.CGColor];
     _hex.text=[NSString stringWithFormat:@"Hex 颜色 %@（点击复制）",LMVTextColorHex(current)];
+    if(_mode.selectedSegmentIndex==1) {
+        CGFloat hue=0,sat=0,bright=0;
+        [current getHue:&hue saturation:&sat brightness:&bright alpha:NULL];
+        [_spectrumView showHue:hue saturation:sat brightness:bright];
+    }
 }
 - (void)publish {
     UIColor *color=[UIColor colorWithRed:_r green:_g blue:_b alpha:_a];
@@ -269,6 +505,10 @@ NSString *LMVTextColorHex(UIColor *color) {
     UIPasteboard.generalPasteboard.string=LMVTextColorHex([UIColor colorWithRed:_r green:_g blue:_b alpha:_a]);
 }
 - (void)closeTapped {
+    // 1.84: the last pick must be on disk and on screen before the sheet leaves.
+    // Sliding then tapping X used to close with the sheet's previous colour still
+    // applied, which read as "the circle did not take effect".
+    [self publish];
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 @end

@@ -291,10 +291,14 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     self.settingsTracking = slider.isTracking;
     BOOL width = slider.tag == 3;
     CGFloat scale = LMVEasterPanelScaleValue(@(slider.value));
-    LMVEasterSet(width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale", @(scale));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:slider.tag inSection:LMVEasterImagePanelSection()]];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
-    if (!slider.isTracking) [self.tableView reloadData];
+    // 1.84: dragging must only move the number. Writing the preference on every
+    // value change resized the floating panel mid-drag, which is what made the
+    // slider feel like it was fighting the window. Commit on release only.
+    if (slider.isTracking) return;
+    LMVEasterSet(width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale", @(scale));
+    [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES]; if (index.section != LMVEasterImageSection() || index.row != 1 || self.busy || self.presentedViewController) return;

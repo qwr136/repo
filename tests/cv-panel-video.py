@@ -144,9 +144,7 @@ assert re.search(r'@"CV": @""', prefs), 'the CV material fallback is empty (noth
 # ---- floating panel -------------------------------------------------------
 assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterMyrtleSection() + 1; }' in panel
-assert 'if (section == LMVEasterCVSection()) return 5;' in panel
-assert 'cell.textLabel.text = @"文字颜色";' in panel
-assert 'LMVTextColorPicker *picker = [LMVTextColorPicker new];' in panel
+assert 'if (section == LMVEasterCVSection()) return 4;' in panel
 assert 'if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";' in panel
 cv_cells = panel[panel.index('if (index.section == LMVEasterCVSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
 assert 'cell.textLabel.text = @"CopyVault 面板背景视频";' in cv_cells and 'cell.textLabel.text = @"切换 CopyVault 素材";' in cv_cells

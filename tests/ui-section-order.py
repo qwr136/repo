@@ -43,7 +43,7 @@ class UISectionOrder(unittest.TestCase):
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
                      'if (section == LMVEasterSquidPanelSection()) return 4;',
                      'if (section == LMVEasterATSection()) return 4;',
-                     'if (section == LMVEasterCVSection()) return 5;',
+                     'if (section == LMVEasterCVSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
         disp, imp = section('LMVEasterDisplaySection'), section('LMVEasterImportSection')
@@ -196,7 +196,7 @@ class UISectionOrder(unittest.TestCase):
         selection_for_digest = selection_for_digest.replace('''        if (index.row < 1 || index.row > 4) return;
         key = LMVEasterSquidKeys()[index.row - 1];''', '''        if (index.row != 1) return;
         key = @"SquidPanelVideo";''')
-        self.assertEqual(digest(selection_for_digest), '808989bdd58d6e2427428c25f3c45d15f1788bc872acedcad34994be9c888d5d')
+        self.assertEqual(digest(selection_for_digest), '6d74d39b3a50840655cf719e956909bbd6536598fc161f3a6c0e1c6a3781d155')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',

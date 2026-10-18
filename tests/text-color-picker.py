@@ -52,10 +52,11 @@ assert 'LMVTextColorCurrent()' in prefs
 assert 'openCVTextColor:' in prefs
 assert 'picker.modalPresentationStyle = UIModalPresentationPageSheet;' in prefs
 
-# --- Easter panel: same row, same picker ---------------------------------
-assert 'if (section == LMVEasterCVSection()) return 5;' in panel
-assert 'cell.textLabel.text = @"文字颜色";' in panel
-assert 'LMVTextColorPicker *picker = [LMVTextColorPicker new];' in panel
-assert 'picker.onChange = ^(UIColor *color) { [weakSelf.tableView reloadData]; };' in panel
+# --- Easter panel: the row is GONE (1.84) --------------------------------
+# The user asked for text colour to disappear from the floating panel, so the
+# picker lives only in Settings now.
+assert 'cell.textLabel.text = @"文字颜色";' not in panel, 'the Easter panel no longer lists text colour'
+assert 'LMVTextColorPicker *picker' not in panel, 'the Easter panel no longer presents the picker'
+assert 'if (section == LMVEasterCVSection()) return 4;' in panel
 
 print('PASS: 1.83 CopyVault text colour - shared picker, one RGBA key, restore on detach')

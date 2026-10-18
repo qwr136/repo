@@ -68,7 +68,7 @@ assert 'isfinite(raw) ? MAX(0, MIN(1, raw)) : 0.55' in video
 assert 'opacityTracking' in video and '!panel.opacityTracking' in video
 assert 'pushViewController:picker' in video and 'picker.pushed = YES' in video
 assert 'pushViewController:self.photoFlow' in video and 'popToViewController:self' in video
-assert video.count('presentViewController:') == 1 and 'picker animated:YES completion:nil' in video
+assert video.count('presentViewController:') == 0, 'the floating panel no longer presents the text-colour sheet'
 assert '[self addChildViewController:self.picker]' in photo and '[self.picker didMoveToParentViewController:self]' in photo
 assert '[self.picker willMoveToParentViewController:nil]' in photo and '[self.picker removeFromParentViewController]' in photo
 assert 'PHPickerConfigurationAssetRepresentationModeCurrent' in video and 'LMVEasterImport(url, YES' in video

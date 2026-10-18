@@ -422,7 +422,7 @@ assert 'claimSquidPanel' not in panel and 'LMVEasterChoice' not in panel
 assert 'claimSquidPanel' not in prefs
 assert 'SquidPanelSwapShapes' not in module and 'SquidPanelSwapShapes' not in prefs and 'SquidPanelSwapShapes' not in panel
 assert 'SquidPanelResetToken' not in module and 'SquidPanelResetToken' not in prefs and 'SquidPanelResetToken' not in panel
-assert panel.count('presentViewController:') == 1 and 'picker animated:YES completion:nil' in panel
+assert 'presentViewController:' not in panel, 'the floating panel no longer presents the colour sheet'
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
 print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, ONE shared '
       'material for all four panels (right/left, 上滑/上上滑): an ORIENTATION-INDEPENDENT CONTENT '
