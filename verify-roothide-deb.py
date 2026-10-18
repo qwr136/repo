@@ -211,7 +211,20 @@ def verify_package(deb, source):
         data = file(name)
         require(members[name][0].mode & 0o111, 'nonexecutable Mach-O payload: ' + name)
         binaries[name] = {'sha256': hashlib.sha256(data).hexdigest(), 'slices': inspect_macho(data, tweak=name == TWEAK)}
-    return {'file': deb.name, 'size': deb.stat().st_size, 'sha256': hashlib.sha256(deb.read_bytes()).hexdigest(), 'control': fields, 'payload': sorted(members), 'binaries': binaries}
+    # 2.03: retired designs must not survive into the binary. Each marker below was
+    # a whole approach that got rolled back; if one reappears it means a stale
+    # branch was re-introduced, not merely commented out. This runs on every build,
+    # so the receipt itself proves the package carries only the live path.
+    retired = {
+        b'below-icons': '1.95 mount (insert before the icon scroller)',
+        b'LMVSquidPanelScrollerIn': '1.95 scroller lookup helper',
+        b'afterMaterial': '1.97 container walk',
+        b'beforeIcons': '1.97 container walk',
+    }
+    binary = file(TWEAK)
+    residue = [marker.decode() + ': ' + why for marker, why in retired.items() if marker in binary]
+    require(not residue, 'retired code still present in the dylib: ' + '; '.join(residue))
+    return {'file': deb.name, 'size': deb.stat().st_size, 'sha256': hashlib.sha256(deb.read_bytes()).hexdigest(), 'control': fields, 'payload': sorted(members), 'binaries': binaries, 'retired_markers_absent': sorted(marker.decode() for marker in retired)}
 
 
 def main(argv):

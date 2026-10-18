@@ -185,3 +185,6 @@ with tempfile.TemporaryDirectory(prefix='lmv-rh-test-') as directory:
     reject(build, 'missing roothide control dependency')
 print('PASS: actual dpkg-deb archive fixtures reject layout, metadata, filter and CFBundle mismatches')
 print('PASS: %d RootHide package/source checks; synthetic fixtures only, device behavior not tested' % checks)
+
+# 2.03: every build proves the rolled-back designs are gone from the binary.
+assert 'retired_markers_absent' in (ROOT / 'verify-roothide-deb.py').read_text(), 'receipt must record the retired-marker scan'
