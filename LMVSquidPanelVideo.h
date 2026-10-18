@@ -1069,8 +1069,14 @@ static void LMVSquidPanelRestoreTextColor(void) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+// 1.99: the icon scroller is a SIBLING above the host, so any fill colour it
+// carries is painted straight over the picture. Remember it and hand it back.
+@property(nonatomic,weak) UIScrollView *scroller;
+@property(nonatomic,strong) UIColor *scrollerColor;
+@property(nonatomic) BOOL scrollerCleared;
 - (void)detach;
 - (void)update;
+- (void)restoreScrollerColor;
 @end
 static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 @implementation LMVSquidPanelVideoManager
@@ -1085,7 +1091,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     return self;
 }
 - (void)dealloc {[_host removeFromSuperview];}
+- (void)restoreScrollerColor {
+    // nil is a legal background colour, so a BOOL records whether we touched it.
+    if(self.scroller && self.scrollerCleared)self.scroller.backgroundColor=self.scrollerColor;
+    self.scrollerCleared=NO;self.scroller=nil;self.scrollerColor=nil;
+}
 - (void)detach {
+    [self restoreScrollerColor];
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
@@ -1188,6 +1200,34 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
         }
     }
     if(!container) {container=card;index=0;}
+    // 1.99: the LAST thing between the video and the screen.
+    // The icon scroller is a sibling that sits ABOVE the host (it has to, or the
+    // taps would land on the video), so whatever fill colour it carries paints
+    // straight over the picture. On the 6-icon panel that scroller is 400x275 over a
+    // 265pt panel - it covers the whole thing. ready=1 rate=1.0 poster=1 with nothing
+    // visible is exactly this. Remember the colour, clear it, restore on detach.
+    UIScrollView *scroller=nil;
+    for(UIView *sub in container.subviews)
+        if([sub isKindOfClass:UIScrollView.class]) {scroller=(UIScrollView *)sub;break;}
+    if(scroller) {
+        if(self.scroller!=scroller) {
+            [self restoreScrollerColor];
+            self.scroller=scroller;self.scrollerColor=scroller.backgroundColor;
+            if(LMVDiagnosticsEnabled.load()) {
+                CGFloat r=0,g=0,b=0,a=0;
+                if(scroller.backgroundColor)[scroller.backgroundColor getRed:&r green:&g blue:&b alpha:&a];
+                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-scroller before bg=%.2f,%.2f,%.2f,%.2f opaque=%d size=%.0fx%.0f",
+                    r,g,b,a,(int)scroller.opaque,scroller.bounds.size.width,scroller.bounds.size.height]);
+            }
+        }
+        if(scroller.backgroundColor && CGColorGetAlpha(scroller.backgroundColor.CGColor)>0.001) {
+            self.scrollerCleared=YES;
+            scroller.backgroundColor=[UIColor clearColor];
+            if(LMVDiagnosticsEnabled.load())
+                LMVDiagnostic(@"squid-panel-scroller cleared (the video is no longer painted over)");
+        }
+        if(scroller.opaque)scroller.opaque=NO;
+    }
     // 1.44: the video fills the CARD - the surface the user actually sees - not the
     // container it happens to be inserted into. The material is a full-screen view
     // in landscape (932x435 against the 814x180 card) and the content view inherits
