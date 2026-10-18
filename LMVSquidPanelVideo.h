@@ -164,9 +164,39 @@ static CGFloat LMVSquidPanelVisibleArea(CGRect frame,CGRect bounds) {
 // half its width and an eighth of its height). That rule skips the full-screen
 // containers - the window content and the tweak's activity container - and our own
 // host is excluded by its tag, so what remains is the rounded panel surface.
+// 2.02: FIND THE PANEL BY CLASS, NOT BY SIZE.
+// The status-bar drop-down is smaller than every edge panel ("和左上滑一样，但更小"),
+// and the rule below - at least half the window wide, an eighth tall - rejected it,
+// so the whole channel returned before writing a single line: "日志里根本没识别到".
+// Every panel shape is built on SFActivityPanelView, so look for that class and keep
+// the visible copy with the largest on-screen area (the panel keeps parked copies).
+static UIView *LMVSquidPanelSurfaceIn(UIWindow *window) {
+    CGRect bounds=window.bounds;
+    if(CGRectIsEmpty(bounds))return nil;
+    UIView *best=nil;CGFloat bestArea=0;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSUInteger budget=400;
+    while(pending.count && budget) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *sub in node.subviews) {
+            if(!budget--)break;
+            [pending addObject:sub];
+            if(sub.hidden || sub.alpha<.01)continue;
+            if(![NSStringFromClass(sub.class) isEqualToString:@"SFActivityPanelView"])continue;
+            CGRect frame=[sub convertRect:sub.bounds toView:window];
+            CGFloat area=LMVSquidPanelVisibleArea(frame,bounds);
+            if(area>bestArea){bestArea=area;best=sub;}
+        }
+    }
+    return best;
+}
 static UIView *LMVSquidPanelCard(UIWindow *window) {
     CGRect bounds=window.bounds;
     if(CGRectIsEmpty(bounds))return nil;
+    // 2.02: by class first; the size heuristic below is the fallback for a panel
+    // that names itself differently.
+    UIView *panel=LMVSquidPanelSurfaceIn(window);
+    if(panel)return panel;
     NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
     NSUInteger budget=300;
     UIView *best=nil;CGFloat bestArea=0;
@@ -178,7 +208,8 @@ static UIView *LMVSquidPanelCard(UIWindow *window) {
             if(child.tag==LMVSquidPanelHostTag || child.hidden || child.alpha<.01)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
-            if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;
+            // 2.02: lowered - the small panels are real panels, not noise.
+            if(frame.size.width<bounds.size.width*.4 || frame.size.height<bounds.size.height*.05)continue;
             CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);
             if(visible<=0)continue;   // parked off screen - never a candidate
             if(visible>bestArea){bestArea=visible;best=child;}
