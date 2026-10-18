@@ -1171,14 +1171,20 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(!material)material=LMVSquidPanelMaterial(window,window);
     UIView *container=nil;NSUInteger index=0;NSString *mode=@"card";
     if([material isKindOfClass:UIVisualEffectView.class]) {
-        UIView *content=((UIVisualEffectView *)material).contentView;
-        if(content && content.subviews.count<40) {
-            container=content;index=0;mode=@"content";
-        } else if(material.superview) {
+        // 1.94: the SIBLING placement is now preferred. Device log (1.93) showed the
+        // host sitting inside _UIVisualEffectContentView with live=1 and the right
+        // frame, yet nothing on screen: this panel keeps its icons in a scroll view
+        // that is a SIBLING of the blur, and the content view renders behind the
+        // blur on this system. One index above the material is above the blur and
+        // still below the icons - the only layer that is guaranteed visible.
+        if(material.superview) {
             container=material.superview;
             NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
             if(near==NSNotFound) {[self detach];self.updating=NO;return;}
             index=(NSUInteger)(near+1);mode=@"above-material";
+        } else {
+            UIView *content=((UIVisualEffectView *)material).contentView;
+            if(content && content.subviews.count<40) {container=content;index=0;mode=@"content";}
         }
     }
     if(!container) {container=card;index=0;}
@@ -1206,6 +1212,22 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(!CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))[self.playback layoutInBounds:self.host.bounds];
     [CATransaction commit];
     if(self.host.hidden)self.host.hidden=NO;
+    // 1.94: one line per placement change, so a "no video" report can be told apart
+    // from "wrong layer", "alpha 0" and "player never started" without guessing.
+    if(LMVDiagnosticsEnabled.load()) {
+        static NSString *lastMount=nil;
+        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu host=%.0fx%.0f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
+            mode,NSStringFromClass(container.class),(unsigned long)index,
+            self.host.bounds.size.width,self.host.bounds.size.height,
+            (int)self.host.hidden,self.host.alpha,(int)container.hidden,
+            (int)self.playback.renderLayer.hidden,(int)(self.playback.player!=nil),
+            self.playback.player?self.playback.player.rate:0.0,
+            (int)self.playback.playerLayer.readyForDisplay,
+            (int)(self.playback.posterLayer.contents!=nil),
+            self.playback.player?(int)self.playback.player.status:0,
+            self.playback.player.currentItem.error?:@"none"];
+        if(![mount isEqualToString:lastMount]) {lastMount=[mount copy];LMVDiagnostic(mount);}
+    }
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
         UIPageControl *pageControl=LMVSquidPanelPageControl(self.card,window);
