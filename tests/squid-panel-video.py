@@ -36,7 +36,14 @@ assert 'MSHookMessageEx' not in module and 'class_getInstanceMethod' not in modu
 # panel that grows with its icons is followed by construction, not by a stored rect.
 assert 'static UIView *LMVSquidPanelCard(UIWindow *window) {' in module
 assert 'if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;' in module
-assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;' in module
+# 2.02: panels are found by CLASS first - the size heuristic rejected the small
+# status-bar drop-down, which made the whole channel silent for it.
+assert 'static UIView *LMVSquidPanelSurfaceIn(UIWindow *window)' in module
+assert 'if(![NSStringFromClass(sub.class) isEqualToString:@"SFActivityPanelView"])continue;' in module
+assert 'UIView *panel=LMVSquidPanelSurfaceIn(window);' in module
+assert 'if(panel)return panel;' in module
+# the size heuristic stays as a fallback, with lower floors
+assert 'if(frame.size.width<bounds.size.width*.4 || frame.size.height<bounds.size.height*.05)continue;' in module
 # 1.25: each shape keeps SEVERAL cards (device log: two 430x435 views, one on
 # screen at y=497 and one parked at y=1459 in a 932-high window) - scoring by area
 # made the choice flip and the video kept landing on the parked one.
