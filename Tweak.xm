@@ -621,20 +621,6 @@ static void LMVSourcePause(LMVSharedSource *source) {
     // an older stop path must not turn the resume into a seek.
     source.restoreOnStart=NO;
 }
-// 1.79: an idle source holds its AVAssetReader - and therefore a decoder session -
-// for as long as it stays paused. Consecutive material switches stacked those
-// sessions until every card's player reported Failed in the same millisecond.
-// After a short grace, drop only the reader: the player and its position stay, so
-// the next reveal rebuilds the reader locally instead of the whole item.
-static void LMVReleaseIdleReader(LMVSharedSource *source) {
-    if (!source || source.playing || !source.readerMode) return;
-    if (source.pausedAt<=0 || CACurrentMediaTime()-source.pausedAt<1.5) return;
-    if (!source.reader && !source.pendingSample) return;
-    dispatch_async(LMVFrameQueue, ^{
-        [source.reader cancelReading]; source.reader=nil; source.readerOutput=nil;
-        if (source.pendingSample) { CFRelease(source.pendingSample); source.pendingSample=NULL; }
-    });
-}
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {    if (!source) return NO;
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
@@ -1486,7 +1472,6 @@ static void LMVSyncDisplayLink(void) {
             LMVStartSource(source);
         } else {
             LMVStopSource(source);
-            LMVReleaseIdleReader(source);
         }
     }
     static NSUInteger lastSources=NSUIntegerMax,lastConsumers=NSUIntegerMax,nextSource=0;
