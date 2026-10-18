@@ -118,6 +118,21 @@ static NSString *LMVSquidWindowReport(void) {
     }
     return out.length?out:@"none";
 }
+// 2.01: what is actually inside a panel window, when nothing in it passes the card
+// rule. The "largest visible subview" summary always loses to a full-window
+// container, so the panel it is hiding never gets named.
+static void LMVSquidPanelDumpTree(UIView *root,NSInteger depth,NSMutableString *out,NSUInteger *nodes) {
+    if(!root || depth<0 || *nodes>36)return;
+    for(UIView *sub in root.subviews) {
+        if(*nodes>36)return;
+        CGRect f=[sub convertRect:sub.bounds toView:root.window];
+        [out appendFormat:@"%@%@@%.0f,%.0f,%.0f,%.0f(h%d,a%.2f) ",
+            depth?@"-":@"",NSStringFromClass(sub.class),
+            f.origin.x,f.origin.y,f.size.width,f.size.height,(int)sub.hidden,sub.alpha];
+        (*nodes)++;
+        LMVSquidPanelDumpTree(sub,depth-1,out,nodes);
+    }
+}
 static UIWindow *LMVSquidPanelWindow(void) {
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
@@ -1161,8 +1176,11 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                         }
                     }
                 }
-                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-nocard window=%@ hunt=%@ windows=%@",
-                    window?NSStringFromClass(window.class):@"none",hunt.length?hunt:@"none",LMVSquidWindowReport()]);
+                NSMutableString *tree=[NSMutableString new];NSUInteger nodes=0;
+                if(window)LMVSquidPanelDumpTree(window,4,tree,&nodes);
+                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-nocard window=%@ hunt=%@ tree=%@ windows=%@",
+                    window?NSStringFromClass(window.class):@"none",hunt.length?hunt:@"none",
+                    tree.length?tree:@"none",LMVSquidWindowReport()]);
             }
         }
         [self detach];self.updating=NO;return;
@@ -1269,7 +1287,23 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             if(LMVDiagnosticsEnabled.load())
                 LMVDiagnostic(@"squid-panel-scroller cleared (the video is no longer painted over)");
         }
+        // 2.01: opaque=YES with a clear background is painted as SOLID BLACK - the
+        // exact colour this panel was showing. UIView.opaque normally forwards to
+        // the layer, but the layer is the one that actually composites, so set both.
         if(scroller.opaque)scroller.opaque=NO;
+        if(scroller.layer.opaque)scroller.layer.opaque=NO;
+        if(scroller.layer.backgroundColor && CGColorGetAlpha(scroller.layer.backgroundColor)>.001)
+            scroller.layer.backgroundColor=NULL;
+        if(LMVDiagnosticsEnabled.load()) {
+            static BOOL saidAfter=NO;
+            if(!saidAfter) {
+                saidAfter=YES;
+                CGFloat ar=0,ag=0,ab=0,aa=0;
+                if(scroller.backgroundColor)[scroller.backgroundColor getRed:&ar green:&ag blue:&ab alpha:&aa];
+                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-scroller after opaque=%d layerOpaque=%d bg=%.2f,%.2f,%.2f,%.2f",
+                    (int)scroller.opaque,(int)scroller.layer.opaque,ar,ag,ab,aa]);
+            }
+        }
     }
     // 1.44: the video fills the CARD - the surface the user actually sees - not the
     // container it happens to be inserted into. The material is a full-screen view
