@@ -225,6 +225,11 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic) CFTimeInterval probeFullAt;
 // 2.07: when the window count was last read. See the gate in -coverWatchTick:.
 @property(nonatomic) CFTimeInterval probeCountAt;
+// 2.08: key-window changes are the one signal every app launch / exit produces.
+// While the desktop is covered the watcher runs at a 10 Hz heartbeat; a key change
+// opens a one second 60 Hz burst so the reveal is caught on the frame it happens.
+@property(nonatomic) CFTimeInterval probeBurstUntil;
+@property(nonatomic,strong) id keyWindowObserver;
 // 1.33: whether the surface is currently on the Home host. It decides whether the
 // geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
 // reads it, so it has to be part of the manager rather than a local.
@@ -716,10 +721,25 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         _playback.renderLayer.backgroundColor=UIColor.blackColor.CGColor;[_host.layer addSublayer:_playback.renderLayer];
         __weak typeof(self) weakSelf=self;
         _playback.didChange=^{LMVDesktopVideoManager *live=weakSelf;if(live && !live.updating && !live.suspended)LMVDesktopRequestUpdate();};
+        // 2.08: every app launch and every return to the desktop changes the key
+        // window. That is the "wake up now" edge a 10 Hz heartbeat cannot give on
+        // its own, and it is why the watcher can idle so slowly while an app is up.
+        _keyWindowObserver=[NSNotificationCenter.defaultCenter addObserverForName:UIWindowDidBecomeKeyNotification
+            object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+                LMVDesktopVideoManager *live=weakSelf;
+                if(!live || !live.coverWatch)return;
+                if(!live.playback.frozen && !live.appAway)return;   // already live
+                live.probeBurstUntil=CACurrentMediaTime()+1.0;
+                live.probeCountAt=0;
+                if(!live.updating && !live.suspended)[live update];
+            }];
     }
     return self;
 }
-- (void)dealloc {[_timer invalidate];[_coverWatch invalidate];[_lease restore];[_host removeFromSuperview];}
+- (void)dealloc {
+    if(_keyWindowObserver)[NSNotificationCenter.defaultCenter removeObserver:_keyWindowObserver];
+    [_timer invalidate];[_coverWatch invalidate];[_lease restore];[_host removeFromSuperview];
+}
 - (void)syncGeometry {
     // 1.32: the live superview, never `container` - on the Home path the surface
     // hangs off the Home view, which is also the geometry target. When the host
@@ -842,7 +862,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // sitting in an app still burned several percent with nothing on screen.
     // 20 Hz costs at most 50 ms on the reveal, which is far below the ~300 ms
     // cross-fade it has to be caught inside, and removes two thirds of the cost.
-    NSInteger wantFPS=(self.playback.frozen || self.appAway)?20:60;
+    // 2.08: 10 Hz heartbeat while covered (was 20), 60 Hz while the desktop can be
+    // seen, and a one second 60 Hz burst right after a key-window change so the
+    // reveal is still caught on the frame it happens. Pure 0 Hz was tempting but a
+    // stolen scene (app switcher, Control Center dismissal) does not always change
+    // the key window, and a watchdog that can miss that would leave the video off.
+    CFTimeInterval tickNow=CACurrentMediaTime();
+    BOOL burst=tickNow<self.probeBurstUntil;
+    NSInteger wantFPS=(self.playback.frozen || self.appAway)?(burst?60:10):60;
     if (link.preferredFramesPerSecond!=wantFPS) link.preferredFramesPerSecond=wantFPS;
     // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
     // full cover measurement - window enumeration, a class match per window, a
