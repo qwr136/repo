@@ -1,6 +1,7 @@
 #include <string.h>
 #include <math.h>
 #import <UIKit/UIKit.h>
+#import <objc/message.h>
 #import <Foundation/Foundation.h>
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
@@ -271,8 +272,9 @@ static void LMVNotify(void) {
         // weakSelf.tableView raised an unrecognized-selector exception and killed
         // Preferences the moment any slider moved. Reach the cell through the
         // specifier instead, behind a respondsToSelector guard.
-        if ([weakSelf respondsToSelector:@selector(cellForSpecifier:)]) {
-            UITableViewCell *cell = [weakSelf cellForSpecifier:weakSpecifier];
+        SEL cellSel = NSSelectorFromString(@"cellForSpecifier:");
+        if ([weakSelf respondsToSelector:cellSel]) {
+            UITableViewCell *cell = ((UITableViewCell *(*)(id,SEL,id))objc_msgSend)(weakSelf,cellSel,weakSpecifier);
             UIView *dot = [cell.contentView viewWithTag:0x5A2C];
             if (dot) dot.backgroundColor = color ?: UIColor.whiteColor;
         }
