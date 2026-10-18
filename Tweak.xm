@@ -247,6 +247,11 @@ static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
 @property(nonatomic) CFTimeInterval startedAt, pausedAt;
 @property(nonatomic) CFTimeInterval lastRequestAt;
 @property(nonatomic) CFTimeInterval lastProgressAt;
+// 1.79: back-off for rebuilding a source whose AVPlayerItem went to Failed.
+// Device log: three categories showed playerstatus=2/itemstatus=2 in the same
+// millisecond and stayed frozen on their last frame forever - a failed item
+// never recovers by itself, so the source has to be rebuilt.
+@property(nonatomic) CFTimeInterval lastRebuildAt;
 @property(nonatomic) CFTimeInterval lastDiagnosticAt;
 @property(nonatomic, copy) NSString *diagnosticState;
 @property(nonatomic) NSUInteger newFrames, buffers, conversions, conversionErrors, published, drops;
@@ -615,6 +620,20 @@ static void LMVSourcePause(LMVSharedSource *source) {
     // The retained player keeps its exact position; a pending restore flag from
     // an older stop path must not turn the resume into a seek.
     source.restoreOnStart=NO;
+}
+// 1.79: an idle source holds its AVAssetReader - and therefore a decoder session -
+// for as long as it stays paused. Consecutive material switches stacked those
+// sessions until every card's player reported Failed in the same millisecond.
+// After a short grace, drop only the reader: the player and its position stay, so
+// the next reveal rebuilds the reader locally instead of the whole item.
+static void LMVReleaseIdleReader(LMVSharedSource *source) {
+    if (!source || source.playing || !source.readerMode) return;
+    if (source.pausedAt<=0 || CACurrentMediaTime()-source.pausedAt<1.5) return;
+    if (!source.reader && !source.pendingSample) return;
+    dispatch_async(LMVFrameQueue, ^{
+        [source.reader cancelReading]; source.reader=nil; source.readerOutput=nil;
+        if (source.pendingSample) { CFRelease(source.pendingSample); source.pendingSample=NULL; }
+    });
 }
 static BOOL LMVSourceHasConsumer(LMVSharedSource *source) {    if (!source) return NO;
     for (UIView *cell in LMVCells.allObjects) {
@@ -1450,7 +1469,25 @@ static void LMVSyncDisplayLink(void) {
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
-        if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
+        if ([visible containsObject:source]) {
+            // 1.79: an AVPlayerItem that reached Failed never recovers by itself.
+            // The device log showed Message/Options/Clear all reporting
+            // playerstatus=2 itemstatus=2 in the same millisecond after several
+            // material switches, then staying frozen on their last frame. Rebuild
+            // the source, with a five-second back-off so an unreadable file cannot
+            // spin. The next update recreates it from the still-selected path.
+            AVPlayerItem *liveItem=source.player.currentItem;
+            if (liveItem.status==AVPlayerItemStatusFailed && now-source.lastRebuildAt>5.0) {
+                source.lastRebuildAt=now;
+                LMVDiagnostic([NSString stringWithFormat:@"source=%lu rebuild=failed-item",(unsigned long)source.identifier]);
+                LMVRetireSource(source);
+                continue;
+            }
+            LMVStartSource(source);
+        } else {
+            LMVStopSource(source);
+            LMVReleaseIdleReader(source);
+        }
     }
     static NSUInteger lastSources=NSUIntegerMax,lastConsumers=NSUIntegerMax,nextSource=0;
     if (lastSources!=visible.count || lastConsumers!=consumers) {

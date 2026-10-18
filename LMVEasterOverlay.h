@@ -505,30 +505,20 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (!self.ready || self.pending) return;
     // 1.65: live 20 Hz host probe over the retained window objects.
     NSUInteger hostMask = LMVEasterQuickHostMask(self.physicalWindows);
-    BOOL hostChanged = (hostMask != self.lastHostSignature);
-    if (hostChanged) {
+    if (hostMask != self.lastHostSignature) {
         self.lastHostSignature = hostMask;
         self.physicalSnapshot = nil; self.lastPhysicalCheck = 0;
     }
-    // 1.74: keep the image rotation in step with the ball's own visibility on
-    // EVERY tick (50 ms), not only when a full refresh happens to run. Hiding
-    // stops the animation immediately; showing resumes it from the same phase.
-    [self syncRotation];
-    // 1.77: the cheap half of this tick - one class test per retained window -
-    // is what makes a collapsing Control Centre visible within 50 ms. The
-    // expensive half is the snapshot below: ~350 NSValues plus a deep compare,
-    // rebuilt 20 times a second even while the ball is hidden and nothing on
-    // screen moves. Build it only when the host mask actually moved, when the
-    // snapshot was invalidated, or when the half-second audit falls due, so a
-    // real host change still decides on this very tick.
-    CFTimeInterval now = CACurrentMediaTime();
-    BOOL tracking = [NSRunLoop.mainRunLoop.currentMode isEqualToString:UITrackingRunLoopMode];
-    if (!hostChanged && self.physicalSnapshot && !tracking && now - self.lastPhysicalCheck < 0.5) return;
     uint64_t blank=1,locked=1;
     BOOL blankKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
     NSArray *snapshot=self.physicalSnapshot?LMVEasterPhysicalSnapshot(self.physicalWindows,self.physicalProbes,
         LMVEasterForeground(),blankKnown,blank,lockKnown,locked):nil;
+    BOOL tracking=[NSRunLoop.mainRunLoop.currentMode isEqualToString:UITrackingRunLoopMode];
+    // 1.74: keep the image rotation in step with the ball's own visibility on
+    // EVERY tick (50 ms), not only when a full refresh happens to run. Hiding
+    // stops the animation immediately; showing resumes it from the same phase.
+    [self syncRotation];
     if (!LMVEasterPhysicalCheckNeeded(!self.physicalSnapshot,![snapshot isEqual:self.physicalSnapshot],
             CACurrentMediaTime(),self.lastPhysicalCheck,tracking)) return;
     [self refresh];
