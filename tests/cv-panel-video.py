@@ -122,7 +122,7 @@ assert '    LMVCopyVaultPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVCopyVaultPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVCopyVaultPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPanel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PhoneAssist"];' in audio
+assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA"];' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];' in prefs

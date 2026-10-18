@@ -1413,7 +1413,7 @@ static void LMVSyncAudioVisibility(void) {
     LMVLockVideoPlayback *paPanel=LMVPhoneAssistVideo.playback;
     BOOL paPanelVisible=paPanel.wantsPlayback && !LMVPhoneAssistVideo.host.hidden &&
         LMVAudioLayerExposed(paPanel.renderLayer,LMVPhoneAssistVideo.host.window);
-    LMVAudioConsume(@"PhoneAssist",paPanel.path,paPanel.revision,paPanelVisible,paPanel.player.currentTime);
+    LMVAudioConsume(@"PA",paPanel.path,paPanel.revision,paPanelVisible,paPanel.player.currentTime);
     LMVLockVideoPlayback *myrtle=LMVMyrtlePanelVideo.playback;
     BOOL myrtleVisible=myrtle.wantsPlayback && !LMVMyrtlePanelVideo.host.hidden &&
         LMVAudioLayerExposed(myrtle.renderLayer,LMVMyrtlePanelVideo.host.window);

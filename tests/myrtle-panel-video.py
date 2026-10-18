@@ -87,7 +87,7 @@ assert '[self appendAudioForTarget:@"Myrtle" title:@"播放"]' in prefs, 'sound 
 # `LMVAudioConsume(@"Myrtle", ...)` returned on a nil channel: the switch and
 # the slider wrote preferences no one read.
 audio = (root / 'LMVMediaAudio.h').read_text()
-assert '@"CV",@"Myrtle",@"PhoneAssist"]' in audio, 'the audio channel list includes Myrtle'
+assert '@"CV",@"Myrtle",@"PA"]' in audio, 'the audio channel list includes Myrtle'
 assert 'NSString *key=[target stringByAppendingString:@"SoundEnabled"];' in audio
 
 # --- the easter panel mirrors Settings ------------------------------------

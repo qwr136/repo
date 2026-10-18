@@ -85,7 +85,11 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
 for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV'), ('myrtleMaterial', 'Myrtle')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
-assert specifiers.count('appendAudioForTarget:') == 9  # One five-target loop, plus five explicit targets (CC dark/light, HomeMenu, SquidPanel, AT, CV).
+assert specifiers.count('appendAudioForTarget:') == 9
+# 2.05: the audio module derives its keys from the CHANNEL name, so the channel must
+# be called PA - calling it PhoneAssist read PhoneAssistSoundEnabled while the rows
+# wrote PASoundEnabled, and the switch did nothing.
+assert 'appendAudioForTarget:@"PA"' in specifiers  # One five-target loop, plus five explicit targets (CC dark/light, HomeMenu, SquidPanel, AT, CV).
 set_enabled = body(prefs, '- (void)setEnabled:')
 getter = body(prefs, '- (id)volume:')
 setter = body(prefs, '- (void)setVolume:')

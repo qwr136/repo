@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.04</string>
+	<string>2.05</string>
 	<key>CFBundleVersion</key>
-	<string>2.04</string>
+	<string>2.05</string>
 	<key>CFBundleIconFile</key>
 	<string>icon</string>
 	<key>LSApplicationQueriesSchemes</key>
