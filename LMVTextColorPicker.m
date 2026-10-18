@@ -449,7 +449,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         [[UIColor colorWithRed:_r green:_g blue:_b alpha:1] getHue:&hue saturation:&sat brightness:&bright alpha:NULL];
         [_spectrumView showHue:hue saturation:sat brightness:bright];
     }
-    [self setNeedsLayout];
+    [self.view setNeedsLayout];
 }
 - (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b {
     _r=r;_g=g;_b=b;
