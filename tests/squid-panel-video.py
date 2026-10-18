@@ -316,6 +316,10 @@ assert 'container=content;index=0;mode=@"content";' in module
 # were both still underneath it - that is why two releases showed nothing.
 assert 'static UIView *LMVSquidPanelScrollerIn(UIView *root, NSInteger depth)' in module
 assert 'container=owner;index=MAX(afterMaterial,beforeIcons);mode=@"below-icons";' in module
+# 1.96: the scroller above the host paints its own fill over the picture.
+assert 'self.scroller=ui;self.scrollerColor=ui.backgroundColor;' in module
+assert 'ui.backgroundColor=[UIColor clearColor];' in module
+assert 'if(self.scroller && self.scrollerCleared)self.scroller.backgroundColor=self.scrollerColor;' in module
 assert 'index=container.subviews.count;mode=@"top";' in module
 assert 'if(!container) {container=card;index=0;}' in module
 # 1.44: the host fills the CARD, not the container it happens to live in. In

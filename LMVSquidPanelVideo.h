@@ -1077,14 +1077,30 @@ static UIView *LMVSquidPanelScrollerIn(UIView *root, NSInteger depth) {
     }
     return nil;
 }
+// 1.96: one line that says whether the icon scroller was painting over the video.
+static void LMVSquidPanelScrollerDiagnostic(UIScrollView *ui, NSString *why) {
+    if(!LMVDiagnosticsEnabled.load() || !ui) return;
+    CGFloat r=0,g=0,b=0,a=0;
+    if(ui.backgroundColor)[ui.backgroundColor getRed:&r green:&g blue:&b alpha:&a];
+    LMVDiagnostic([NSString stringWithFormat:@"squid-panel-scroller %@ bg=%.2f,%.2f,%.2f,%.2f opaque=%d subviews=%lu size=%.0fx%.0f",
+        why,r,g,b,a,(int)ui.opaque,(unsigned long)ui.subviews.count,
+        ui.bounds.size.width,ui.bounds.size.height]);
+}
 @interface LMVSquidPanelVideoManager:NSObject
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) LMVSquidPanelVideoHost *host;
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+// 1.96: the icon scroller sits ABOVE the video (it must, or it would swallow the
+// taps), so any fill colour it carries paints straight over the picture. Remember
+// the original colour and hand it back when the channel stands down.
+@property(nonatomic,weak) UIScrollView *scroller;
+@property(nonatomic,strong) UIColor *scrollerColor;
+@property(nonatomic) BOOL scrollerCleared;
 - (void)detach;
 - (void)update;
+- (void)restoreScrollerColor;
 @end
 static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 @implementation LMVSquidPanelVideoManager
@@ -1099,7 +1115,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     return self;
 }
 - (void)dealloc {[_host removeFromSuperview];}
+- (void)restoreScrollerColor {
+    // nil is a legal background colour, so a BOOL records whether we touched it.
+    if(self.scroller && self.scrollerCleared)self.scroller.backgroundColor=self.scrollerColor;
+    self.scrollerCleared=NO;self.scroller=nil;self.scrollerColor=nil;
+}
 - (void)detach {
+    [self restoreScrollerColor];
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
@@ -1211,6 +1233,26 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             NSInteger si=(NSInteger)[owner.subviews indexOfObjectIdenticalTo:scroller];
             NSUInteger beforeIcons=(si==NSNotFound)?owner.subviews.count:(NSUInteger)si;
             container=owner;index=MAX(afterMaterial,beforeIcons);mode=@"below-icons";
+            // 1.96: THE LAST THING BETWEEN THE VIDEO AND THE SCREEN.
+            // The scroller has to sit above the host or it would eat the taps, so
+            // whatever fill colour it carries is painted straight over the picture.
+            // 1.95's log had ready=1 rate=1.0 poster=1 and still nothing visible -
+            // this is the only view above the host that can do that. Remember the
+            // colour, clear it, and hand it back on detach.
+            if([scroller isKindOfClass:UIScrollView.class]) {
+                UIScrollView *ui=(UIScrollView *)scroller;
+                if(self.scroller!=ui) {
+                    [self restoreScrollerColor];
+                    self.scroller=ui;self.scrollerColor=ui.backgroundColor;
+                    LMVSquidPanelScrollerDiagnostic(ui,@"before");
+                }
+                if(ui.backgroundColor && CGColorGetAlpha(ui.backgroundColor.CGColor)>0.001) {
+                    self.scrollerCleared=YES;
+                    ui.backgroundColor=[UIColor clearColor];
+                    LMVSquidPanelScrollerDiagnostic(ui,@"cleared");
+                }
+                if(ui.opaque)ui.opaque=NO;
+            }
         } else if(material.superview) {
             // No scroller anywhere above: the LAST index is the only one nothing can
             // cover, so take it - the panel draws no chrome above its icons.
