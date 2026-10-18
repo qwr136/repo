@@ -186,6 +186,7 @@ static void LMVDiagnostic(NSString *event) {
 #import "LMVHomeMenuVideo.h"
 #import "LMVSquidPanelVideo.h"
 #import "LMVATPanelVideo.h"
+#import "LMVPhoneAssistVideo.h"
 #include "LMVCopyVaultPanelVideo.h"
 #include "LMVMyrtlePanelVideo.h"
 #import "LMVMediaAudio.h"
@@ -1409,6 +1410,10 @@ static void LMVSyncAudioVisibility(void) {
     BOOL atPanelVisible=atPanel.wantsPlayback && !LMVATPanelVideo.host.hidden &&
         LMVAudioLayerExposed(atPanel.renderLayer,LMVATPanelVideo.host.window);
     LMVAudioConsume(@"AT",atPanel.path,atPanel.revision,atPanelVisible,atPanel.player.currentTime);
+    LMVLockVideoPlayback *paPanel=LMVPhoneAssistVideo.playback;
+    BOOL paPanelVisible=paPanel.wantsPlayback && !LMVPhoneAssistVideo.host.hidden &&
+        LMVAudioLayerExposed(paPanel.renderLayer,LMVPhoneAssistVideo.host.window);
+    LMVAudioConsume(@"PhoneAssist",paPanel.path,paPanel.revision,paPanelVisible,paPanel.player.currentTime);
     LMVLockVideoPlayback *myrtle=LMVMyrtlePanelVideo.playback;
     BOOL myrtleVisible=myrtle.wantsPlayback && !LMVMyrtlePanelVideo.host.hidden &&
         LMVAudioLayerExposed(myrtle.renderLayer,LMVMyrtlePanelVideo.host.window);
@@ -1457,6 +1462,7 @@ static void LMVRefresh(BOOL reload) {
     LMVHomeMenuVideoRefresh(reload);
     LMVSquidPanelVideoRefresh(reload);
     LMVATPanelVideoRefresh(reload);
+    LMVPhoneAssistVideoRefresh(reload);
     LMVCopyVaultPanelVideoRefresh(reload);
     LMVMyrtlePanelVideoRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
@@ -1486,6 +1492,7 @@ static void LMVSuspend(void) {
     LMVHomeMenuVideoSuspend();
     LMVSquidPanelVideoSuspend();
     LMVATPanelVideoSuspend();
+    LMVPhoneAssistVideoSuspend();
     LMVCopyVaultPanelVideoSuspend();
     LMVMyrtlePanelVideoSuspend();
     LMVReleaseAllPlayers();
@@ -1687,6 +1694,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
                     LMVHomeMenuVideoSuspend();
                     LMVSquidPanelVideoSuspend();
                     LMVATPanelVideoSuspend();
+                    LMVPhoneAssistVideoSuspend();
     LMVCopyVaultPanelVideoSuspend();
     LMVMyrtlePanelVideoSuspend();
                     LMVRequestSyncDisplayLink();LMVRequestSafeUpdate();
@@ -1709,6 +1717,7 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVHomeMenuVideoInstallHooks();
         LMVSquidPanelVideoInstallHooks();
         LMVATPanelVideoInstallHooks();
+        LMVPhoneAssistVideoInstallHooks();
         LMVCopyVaultPanelVideoInstallHooks();
         Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
         if (coverWindow && [coverWindow isSubclassOfClass:UIWindow.class]) %init(LMVCoverWindowHooks);

@@ -122,7 +122,7 @@ assert '    LMVCopyVaultPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVCopyVaultPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVCopyVaultPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPanel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle"];' in audio
+assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PhoneAssist"];' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];' in prefs
@@ -130,7 +130,7 @@ assert '[cvEnabled setProperty:@NO forKey:@"default"];' in prefs
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in prefs
 assert '- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];' in prefs
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];' in prefs, 'CV is a selectable material target'
+assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];' in prefs, 'CV is a selectable material target'
 assert '[self appendAudioForTarget:@"CV" title:@"播放"];' in prefs
 import re
 at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'

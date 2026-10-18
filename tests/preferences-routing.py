@@ -17,8 +17,8 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'switchMyrtle:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 15
+assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'switchMyrtle:', 'switchPA:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 16
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
@@ -60,7 +60,9 @@ at_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithNam
 # 1.43: the CopyVault clipboard panel group sits directly below the AT one.
 cv_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];')
 myrtle_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Myrtle 面板背景视频"]];')
-assert home_start < squid_start < at_start < cv_start < myrtle_start < egg_start < display_start
+# 2.04: the phone-assist sheet sits right below Myrtle, the way the user asked.
+pa_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"电话助手弹窗背景视频"]];')
+assert home_start < squid_start < at_start < cv_start < myrtle_start < pa_start < egg_start < display_start
 home_section = source[home_start:squid_start]
 assert cc_start < home_start < display_start
 assert home_section.count('cell:PSSwitchCell') == 1 and home_section.count('cell:PSButtonCell') == 1
@@ -94,7 +96,13 @@ assert '[cvEnabled setProperty:@NO forKey:@"default"]' in cv_section
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in cv_section
 assert 'CopyVault 面板背景视频' in cv_section and '切换 CopyVault 素材' in cv_section
 # 1.77: the Myrtle (App Library panel) group - same layout again.
-myrtle_section = source[myrtle_start:egg_start]
+myrtle_section = source[myrtle_start:pa_start]
+pa_section = source[pa_start:egg_start]
+assert pa_section.count('cell:PSSwitchCell') == 1 and pa_section.count('cell:PSButtonCell') == 2
+assert '[paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"]' in pa_section
+assert 'paMaterial.buttonAction = @selector(switchPA:);' in pa_section
+assert 'paText.buttonAction = @selector(openPATextColor:);' in pa_section
+assert '[self appendAudioForTarget:@"PA" title:@"播放"]' in pa_section
 assert myrtle_section.count('cell:PSSwitchCell') == 1 and myrtle_section.count('cell:PSButtonCell') == 1
 assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in myrtle_section
 assert '[myrtleEnabled setProperty:@NO forKey:@"default"]' in myrtle_section
@@ -111,10 +119,10 @@ for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
     assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation
 assert '消息、选项、清除视频透明度' in source
-assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];' in source
+assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];' in source
 assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
 allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotify(')]
-assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle']
+assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA']
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
 selection = source[source.index('- (void)selectFile:'):source.index('- (void)switchMessage:')]

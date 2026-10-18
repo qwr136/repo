@@ -16,6 +16,8 @@ extern "C" {
 extern NSString *const LMVTextColorKey;
 // 1.90: the CopyVault and Squid panels share this picker but keep separate keys.
 extern NSString *const LMVSquidTextColorKey;
+// 2.04: the phone-assist sheet keeps its own colour, like the other panels.
+extern NSString *const LMVPhoneAssistTextColorKey;
 UIColor *LMVTextColorCurrent(void);
 UIColor *LMVTextColorForKey(NSString *key);
 void LMVTextColorStore(UIColor *color);

@@ -69,10 +69,10 @@ targets = re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTar
 assert targets[-3:] == ['AT', 'CV', 'Myrtle'], 'AT, CopyVault, then the Myrtle channel added by 1.77, close the list'
 
 # ---- shared material plumbing ----------------------------------------------
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
+assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
 assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete
 assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
-assert '"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
+assert '"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PhoneAssist"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
 
 # ---- 1.28: the mount is wired now ------------------------------------------
 assert '#import "LMVATPanelVideo.h"' in tweak, 'the AT panel player is wired'

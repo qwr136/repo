@@ -77,7 +77,7 @@ assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in modul
 
 # --- settings: same switch / material / sound / volume layout as CV --------
 assert '@"Myrtle": @"Myrtle 面板背景视频"' in prefs, 'it is a selectable material target'
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];' in prefs
+assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];' in prefs
 assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in prefs
 assert 'myrtleMaterial.buttonAction = @selector(switchMyrtle:);' in prefs
 assert '[self appendAudioForTarget:@"Myrtle" title:@"播放"]' in prefs, 'sound switch + volume slider'
@@ -87,7 +87,7 @@ assert '[self appendAudioForTarget:@"Myrtle" title:@"播放"]' in prefs, 'sound 
 # `LMVAudioConsume(@"Myrtle", ...)` returned on a nil channel: the switch and
 # the slider wrote preferences no one read.
 audio = (root / 'LMVMediaAudio.h').read_text()
-assert '@"CV",@"Myrtle"]' in audio, 'the audio channel list includes Myrtle'
+assert '@"CV",@"Myrtle",@"PhoneAssist"]' in audio, 'the audio channel list includes Myrtle'
 assert 'NSString *key=[target stringByAppendingString:@"SoundEnabled"];' in audio
 
 # --- the easter panel mirrors Settings ------------------------------------

@@ -20,7 +20,7 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -171,6 +171,25 @@ static void LMVNotify(void) {
     [myrtleMaterial setProperty:@"MyrtleMaterial" forKey:@"id"];
     [_specifiers addObject:myrtleMaterial];
     [self appendAudioForTarget:@"Myrtle" title:@"播放"];
+    // 2.04: the PHONE-ASSIST pop-up (电话助手弹窗). Same layout as the channels
+    // above: switch, material, sound + volume, text colour. The sheet is built on
+    // UIAlertController internals, which is why it needs a channel of its own
+    // instead of riding on the AppTools one - a real system alert must never get a
+    // background, but this sheet must.
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"电话助手弹窗背景视频"]];
+    PSSpecifier *paEnabled = [PSSpecifier preferenceSpecifierNamed:@"电话助手弹窗背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"];
+    [paEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:paEnabled];
+    PSSpecifier *paMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换电话助手素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    paMaterial.buttonAction = @selector(switchPA:);
+    [paMaterial setProperty:@"PAMaterial" forKey:@"id"];
+    [_specifiers addObject:paMaterial];
+    [self appendAudioForTarget:@"PA" title:@"播放"];
+    PSSpecifier *paText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    paText.buttonAction = @selector(openPATextColor:);
+    [paText setProperty:@"PATextColor" forKey:@"id"];
+    [_specifiers addObject:paText];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -256,6 +275,14 @@ static void LMVNotify(void) {
 // keeps its own colours, which is "默认" rather than white.
 // 1.90: CopyVault and Squid share this code; each row carries its own key and its
 // own tag pair, so both can be painted without touching any private API.
+// 2.04: one tag pair per coloured row. The original pair-by-pair logic covered two
+// rows only; with a third row the recycled-cell cleanup has to know all of them.
+static NSInteger LMVTextColorTagFor(NSString *key, BOOL value) {
+    NSInteger base = 0x5A2C;
+    if ([key isEqualToString:LMVSquidTextColorKey]) base = 0x5B2C;
+    else if ([key isEqualToString:LMVPhoneAssistTextColorKey]) base = 0x5C2C;
+    return base + (value ? 1 : 0);
+}
 static NSString *LMVTextColorSummary(UIColor *color) {
     if (!color) return @"默认";
     CGFloat alpha = 1;
@@ -264,27 +291,30 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (NSDictionary *)textColorRowForSpecifier:(PSSpecifier *)specifier {
     id identifier = [specifier propertyForKey:@"id"];
-    if ([identifier isEqualToString:@"CVTextColor"])
-        return @{@"key": LMVTextColorKey, @"dot": @(0x5A2C), @"value": @(0x5A2D)};
-    if ([identifier isEqualToString:@"SquidTextColor"])
-        return @{@"key": LMVSquidTextColorKey, @"dot": @(0x5B2C), @"value": @(0x5B2D)};
-    return nil;
+    NSString *key = nil;
+    if ([identifier isEqualToString:@"CVTextColor"]) key = LMVTextColorKey;
+    else if ([identifier isEqualToString:@"SquidTextColor"]) key = LMVSquidTextColorKey;
+    else if ([identifier isEqualToString:@"PATextColor"]) key = LMVPhoneAssistTextColorKey;
+    if (!key) return nil;
+    return @{@"key": key, @"dot": @(LMVTextColorTagFor(key, NO)), @"value": @(LMVTextColorTagFor(key, YES))};
 }
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
-        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D)])
+        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D)])
             [[cell.contentView viewWithTag:tag.unsignedIntegerValue] removeFromSuperview];
         return;
     }
     NSInteger dotTag = [row[@"dot"] integerValue];
     NSInteger valueTag = [row[@"value"] integerValue];
     // A cell recycled between the two colour rows must not keep the other row's pair.
-    NSInteger otherTag = (dotTag == 0x5A2C) ? 0x5B2C : 0x5A2C;
-    [[cell.contentView viewWithTag:otherTag] removeFromSuperview];
-    [[cell.contentView viewWithTag:otherTag + 1] removeFromSuperview];
+    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C)]) {
+        if (base.integerValue == dotTag) continue;
+        [[cell.contentView viewWithTag:base.unsignedIntegerValue] removeFromSuperview];
+        [[cell.contentView viewWithTag:base.unsignedIntegerValue + 1] removeFromSuperview];
+    }
     UIView *dot = [cell.contentView viewWithTag:dotTag];
     UILabel *value = [cell.contentView viewWithTag:valueTag];
     if (!dot) {
@@ -348,7 +378,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 // still moving, without waiting for the preference write. `live` skips the text
 // so a 60Hz drag does not re-lay-out the label on every event.
 - (void)paintTextColorDot:(UIColor *)color key:(NSString *)key live:(BOOL)live {
-    NSInteger dotTag = [key isEqualToString:LMVSquidTextColorKey] ? 0x5B2C : 0x5A2C;
+    NSInteger dotTag = LMVTextColorTagFor(key, NO);
     UIView *dot = [self dotViewWithTag:dotTag];
     if (!dot) return;
     UIColor *shown = color ?: LMVTextColorForKey(key);
@@ -378,6 +408,10 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (void)openSquidTextColor:(PSSpecifier *)specifier {
     [self openTextColorForKey:LMVSquidTextColorKey];
+}
+// 2.04: the phone-assist sheet's own colour row.
+- (void)openPATextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVPhoneAssistTextColorKey];
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
@@ -471,7 +505,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -480,7 +514,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @"", @"Myrtle": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @"", @"Myrtle": @"", @"PA": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -504,6 +538,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 - (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
 - (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
 - (void)switchMyrtle:(PSSpecifier *)specifier { [self switchTarget:@"Myrtle"]; }
+- (void)switchPA:(PSSpecifier *)specifier { [self switchTarget:@"PA"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];

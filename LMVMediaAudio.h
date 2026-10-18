@@ -7,7 +7,7 @@
 static NSArray<NSString *> *LMVAudioTargets(void) {
     // 1.82: Myrtle was missing here, so its channel was never created: the sound
     // switch and the volume slider wrote preferences that nothing ever read.
-    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle"];
+    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PhoneAssist"];
 }
 static double LMVAudioVolumeValue(id value) {
     double v=[value isKindOfClass:NSNumber.class]?[value doubleValue]:.5;

@@ -246,23 +246,25 @@ class UISectionOrder(unittest.TestCase):
             'group:AT 背景视频', 'atEnabled', 'atMaterial',
             'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial', 'cvText',
             'group:Myrtle 面板背景视频', 'myrtleEnabled', 'myrtleMaterial',
+            'group:电话助手弹窗背景视频', 'paEnabled', 'paMaterial', 'paText',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 52)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 56)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
-        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 8)
-        self.assertEqual(51 + (len(TARGETS) + 6) * 2, 73)  # 51 non-audio rows + 11 audio channels x 2
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 18)
+        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 9)
+        self.assertEqual(55 + (len(TARGETS) + 7) * 2, 79)  # 55 non-audio rows + 12 audio channels x 2
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 19)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
                        if ('setProperty:' in x or '.buttonAction =' in x)
                        and 'atEnabled' not in x and 'atMaterial' not in x
+                       and 'paEnabled' not in x and 'paMaterial' not in x and 'paText' not in x
                        and 'cvEnabled' not in x and 'cvMaterial' not in x
                        and 'squidPanelMaterial2' not in x and 'squidPanelSwap' not in x
                        and 'squidPanelMaterial3' not in x and 'squidPanelMaterial4' not in x
@@ -298,6 +300,11 @@ class UISectionOrder(unittest.TestCase):
         # 1.77: the Myrtle channel is new - strip it so this digest keeps guarding the
         # pre-Myrtle handlers rather than drifting with every added channel.
         old_handlers = old_handlers.replace('- (void)switchMyrtle:(PSSpecifier *)specifier { [self switchTarget:@"Myrtle"]; }\n', '')
+        # 2.04: the phone-assist channel is new - strip it the same way, so this
+        # digest keeps guarding the rows that predate it.
+        old_handlers = old_handlers.replace('- (void)switchPA:(PSSpecifier *)specifier { [self switchTarget:@"PA"]; }\n', '')
+        old_handlers = old_handlers.replace(', @"PA": @"电话助手弹窗背景视频"', '')
+        old_handlers = old_handlers.replace(', @"PA": @""', '')
         old_handlers = old_handlers.replace(', @"Myrtle": @"Myrtle 面板背景视频"', '')
         old_handlers = old_handlers.replace(', @"Myrtle": @""', '')
         # 1.83: the CopyVault swatch cell hook and the picker handler - drop both
