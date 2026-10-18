@@ -29,12 +29,9 @@ static void LMVNotify(void) {
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
 @property(nonatomic) BOOL materialBusy;
-// 1.88: the swatch that shows the current CopyVault text colour. Holding a weak
-// reference means the picker can repaint it directly instead of relying on
-// -reloadSpecifier: (which kept the old colour) or on a private cell lookup.
-@property(nonatomic,weak) UIView *cvTextColorDot;
 // 1.88: the very table we are the delegate of - captured in -willDisplayCell: so
-// the refresh below never has to guess how to reach it.
+// a repaint never has to guess how to reach it (PSListController has `table`,
+// never `tableView`, which is what used to crash Settings).
 @property(nonatomic,weak) UITableView *cvTextColorTable;
 @end
 
@@ -125,6 +122,12 @@ static void LMVNotify(void) {
     [squidPanelMaterial setProperty:@"SquidPanelMaterial" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial];
     [self appendAudioForTarget:@"SquidPanel" title:@"播放"];
+    // 1.90: the Squid panel gets the same text-colour row as CopyVault, with its
+    // own key. Settings only - the Easter panel does not carry it.
+    PSSpecifier *squidText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    squidText.buttonAction = @selector(openSquidTextColor:);
+    [squidText setProperty:@"SquidTextColor" forKey:@"id"];
+    [_specifiers addObject:squidText];
     // 1.26: the AppTools (AT) pop-up background, right below the Squid panel
     // channel (same switch / material / sound / volume layout). This release
     // stores the settings and diagnoses the pop-up; the video mount follows.
@@ -251,100 +254,110 @@ static void LMVNotify(void) {
 // 1.89: the row shows the value itself ("#A7C6FF 100%") next to its title, so the
 // colour can be read without opening the picker. An absent key means the panel
 // keeps its own colours, which is "默认" rather than white.
+// 1.90: CopyVault and Squid share this code; each row carries its own key and its
+// own tag pair, so both can be painted without touching any private API.
 static NSString *LMVTextColorSummary(UIColor *color) {
     if (!color) return @"默认";
     CGFloat alpha = 1;
     [color getRed:NULL green:NULL blue:NULL alpha:&alpha];
     return [NSString stringWithFormat:@"%@ %.0f%%", LMVTextColorHex(color), alpha * 100.0];
 }
+- (NSDictionary *)textColorRowForSpecifier:(PSSpecifier *)specifier {
+    id identifier = [specifier propertyForKey:@"id"];
+    if ([identifier isEqualToString:@"CVTextColor"])
+        return @{@"key": LMVTextColorKey, @"dot": @(0x5A2C), @"value": @(0x5A2D)};
+    if ([identifier isEqualToString:@"SquidTextColor"])
+        return @{@"key": LMVSquidTextColorKey, @"dot": @(0x5B2C), @"value": @(0x5B2D)};
+    return nil;
+}
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
-    UIView *existing = [cell.contentView viewWithTag:0x5A2C];
-    UILabel *existingValue = [cell.contentView viewWithTag:0x5A2D];
-    if (![[specifier propertyForKey:@"id"] isEqualToString:@"CVTextColor"]) {
-        // 1.88: a recycled cell must not carry the swatch onto an unrelated row.
-        [existing removeFromSuperview];
-        [existingValue removeFromSuperview];
-        if (self.cvTextColorDot == existing) self.cvTextColorDot = nil;
+    NSDictionary *row = [self textColorRowForSpecifier:specifier];
+    if (!row) {
+        // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
+        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D)])
+            [[cell.contentView viewWithTag:tag.unsignedIntegerValue] removeFromSuperview];
         return;
     }
-    UIView *dot = existing;
+    NSInteger dotTag = [row[@"dot"] integerValue];
+    NSInteger valueTag = [row[@"value"] integerValue];
+    UIView *dot = [cell.contentView viewWithTag:dotTag];
     if (!dot) {
         dot = [UIView new];
-        dot.tag = 0x5A2C;
+        dot.tag = dotTag;
         dot.userInteractionEnabled = NO;
         dot.layer.borderWidth = 1;
         dot.layer.borderColor = [UIColor separatorColor].CGColor;
         [cell.contentView addSubview:dot];
     }
-    UILabel *value = existingValue;
+    UILabel *value = [cell.contentView viewWithTag:valueTag];
     if (!value) {
         value = [UILabel new];
-        value.tag = 0x5A2D;
+        value.tag = valueTag;
         value.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular];
         value.textColor = [UIColor secondaryLabelColor];
-        value.textAlignment = NSTextAlignmentRight;
+        value.textAlignment = NSTextAlignmentLeft;
         value.userInteractionEnabled = NO;
         [cell.contentView addSubview:value];
     }
-    UIColor *current = LMVTextColorCurrent();
-    // 1.88: keep the swatch addressable so a pick can repaint it in place.
+    UIColor *current = LMVTextColorForKey(row[@"key"]);
+    // 1.88: keep the table addressable so a pick can repaint in place.
     self.cvTextColorTable = tableView;
-    self.cvTextColorDot = dot;
     dot.backgroundColor = current ?: UIColor.whiteColor;
     value.text = LMVTextColorSummary(current);
     CGFloat size = 18;
     CGFloat dotX = cell.contentView.bounds.size.width - size - 18;
     dot.frame = CGRectMake(dotX, (cell.contentView.bounds.size.height - size) / 2, size, size);
     dot.layer.cornerRadius = size / 2;
-    CGFloat valueW = MIN(160, MAX(0, dotX - 16));
-    value.frame = CGRectMake(dotX - 8 - valueW, 0, valueW, cell.contentView.bounds.size.height);
+    // 1.90: the value sits directly after the title (左边), not at the far right.
+    CGFloat valueX = 16 + 82;
+    value.frame = CGRectMake(valueX, 0, MAX(0, dotX - 8 - valueX), cell.contentView.bounds.size.height);
 }
-// 1.88: repaint the swatch from disk without touching the row's cell. The old
-// path went through -reloadSpecifier: (which kept showing the stale colour) and
-// through the private -cellForSpecifier: lookup (which could return nothing), so
-// closing the picker left the dot on the previous colour. Now the picker holds a
-// weak reference to the very view it has to update, with a visible-cell scan and
-// a last-resort table reload behind it.
-- (UIView *)cvTextColorDotView {
-    UIView *dot = self.cvTextColorDot;
-    if (dot) return dot;
+// 1.88: repaint the swatch without going through -reloadSpecifier: (which kept
+// showing the stale colour) or the private -cellForSpecifier: lookup (which could
+// return nothing). The visible cells are scanned by tag instead.
+- (UIView *)dotViewWithTag:(NSInteger)tag {
     for (UITableViewCell *cell in (self.cvTextColorTable ?: self.table).visibleCells) {
-        UIView *found = [cell.contentView viewWithTag:0x5A2C];
-        if (!found) continue;
-        self.cvTextColorDot = found;
-        return found;
+        UIView *found = [cell.contentView viewWithTag:tag];
+        if (found) return found;
     }
     return nil;
 }
 // 1.89: `color` is the live preview from the picker; nil means "read the stored
 // value". Painting the passed colour keeps the row in step while the finger is
-// still moving, without waiting for the preference write.
-- (void)paintCVTextColorDot:(UIColor *)color {
-    UIColor *shown = color ?: LMVTextColorCurrent();
-    UIView *dot = [self cvTextColorDotView];
+// still moving, without waiting for the preference write. `live` skips the text
+// so a 60Hz drag does not re-lay-out the label on every event.
+- (void)paintTextColorDot:(UIColor *)color key:(NSString *)key live:(BOOL)live {
+    NSInteger dotTag = [key isEqualToString:LMVSquidTextColorKey] ? 0x5B2C : 0x5A2C;
+    UIView *dot = [self dotViewWithTag:dotTag];
     if (!dot) return;
+    UIColor *shown = color ?: LMVTextColorForKey(key);
     dot.backgroundColor = shown ?: UIColor.whiteColor;
-    UILabel *value = (UILabel *)[dot.superview viewWithTag:0x5A2D];
+    if (live) return;
+    UILabel *value = (UILabel *)[dot.superview viewWithTag:dotTag + 1];
     if (value) value.text = LMVTextColorSummary(shown);
 }
-- (void)refreshCVTextColorDot {
-    [self paintCVTextColorDot:nil];
-}
-- (void)openCVTextColor:(PSSpecifier *)specifier {
+- (void)openTextColorForKey:(NSString *)key {
     if (self.presentedViewController) return;
     LMVTextColorPicker *picker = [LMVTextColorPicker new];
+    picker.preferenceKey = key;
     picker.modalPresentationStyle = UIModalPresentationPageSheet;
     __weak LMVPRootListController *weakSelf = self;
     // Every drag, grid tap and preset goes through here - paint immediately.
     picker.onChange = ^(UIColor *color) {
-        [weakSelf paintCVTextColorDot:color];
+        [weakSelf paintTextColorDot:color key:key live:YES];
     };
     // ...and once more after the sheet has left, when the list is laid out again.
     picker.onDismiss = ^{
-        [weakSelf refreshCVTextColorDot];
+        [weakSelf paintTextColorDot:nil key:key live:NO];
     };
     [self presentViewController:picker animated:YES completion:nil];
+}
+- (void)openCVTextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVTextColorKey];
+}
+- (void)openSquidTextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVSquidTextColorKey];
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);

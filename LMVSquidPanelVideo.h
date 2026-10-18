@@ -1005,6 +1005,64 @@ static void LMVSquidPanelForgetAll(void) {
 }
 - (void)layoutSubviews {[super layoutSubviews];[self.playback layoutInBounds:self.bounds];}
 @end
+// 1.90: Squid panel text colour - the same idea as the CopyVault channel (1.83),
+// with its own key so the two panels can be coloured independently. The panel
+// rebuilds its cells while scrolling, so the colour is re-applied on every poll
+// and the first colour seen for each label is remembered for restore.
+static NSMapTable<UIView *,id> *LMVSquidPanelTextOriginal;
+static UIColor *LMVSquidPanelTextColor(void) {
+    NSNumber *value=(__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("SquidTextColor"),kLMVPrefsID);
+    if(![value isKindOfClass:NSNumber.class])return nil;
+    uint32_t word=value.unsignedIntValue;
+    return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
+                           blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
+}
+static BOOL LMVSquidPanelColorEqual(UIColor *a,UIColor *b) {
+    if(!a || !b)return a==b;
+    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
+    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
+    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
+}
+static void LMVSquidPanelApplyTextColor(UIView *root) {
+    UIColor *color=LMVSquidPanelTextColor();
+    if(!root || !color)return;
+    if(!LMVSquidPanelTextOriginal)LMVSquidPanelTextOriginal=[NSMapTable weakToStrongObjectsMapTable];
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
+    NSUInteger budget=300;
+    while(pending.count && budget) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            [pending addObject:child];
+            if(![child isKindOfClass:UILabel.class])continue;
+            UILabel *label=(UILabel *)child;
+            if(label.attributedText.length) {
+                UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+                if(LMVSquidPanelColorEqual(now,color))continue;
+                if(![LMVSquidPanelTextOriginal objectForKey:label])[LMVSquidPanelTextOriginal setObject:label.attributedText forKey:label];
+                NSMutableAttributedString *text=[label.attributedText mutableCopy];
+                [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
+                label.attributedText=text;
+            } else if(label.text.length) {
+                if(LMVSquidPanelColorEqual(label.textColor,color))continue;
+                if(![LMVSquidPanelTextOriginal objectForKey:label])
+                    [LMVSquidPanelTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
+                label.textColor=color;
+            }
+        }
+    }
+}
+static void LMVSquidPanelRestoreTextColor(void) {
+    if(!LMVSquidPanelTextOriginal)return;
+    for(UIView *view in LMVSquidPanelTextOriginal.keyEnumerator) {
+        if(![view isKindOfClass:UILabel.class])continue;
+        id original=[LMVSquidPanelTextOriginal objectForKey:view];
+        UILabel *label=(UILabel *)view;
+        if([original isKindOfClass:NSAttributedString.class])label.attributedText=original;
+        else if([original isKindOfClass:UIColor.class])label.textColor=original;
+    }
+    [LMVSquidPanelTextOriginal removeAllObjects];
+}
 @interface LMVSquidPanelVideoManager:NSObject
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) LMVSquidPanelVideoHost *host;
@@ -1031,6 +1089,8 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
+    // 1.90: put the panel's own label colours back when the channel stands down.
+    LMVSquidPanelRestoreTextColor();
     self.card=nil;self.mode=nil;
 }
 // 1.25: a UIVisualEffectView REFUSES direct subviews - addSubview: raises, and an
@@ -1053,6 +1113,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     UIView *card=window?LMVSquidPanelCard(window):nil;
     if(!card) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
+    // 1.90: recolour the panel's labels every poll - the panel rebuilds its rows
+    // while scrolling, so a one-shot pass would be lost on the next swipe.
+    LMVSquidPanelApplyTextColor(card);
     // 1.44/1.45: the panels are INDEPENDENT - there is no fallback between them. A
     // slot left empty means that panel simply gets no video: it keeps its original
     // look and stays silent (detach also stands the shared audio channel down, so

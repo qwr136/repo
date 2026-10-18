@@ -2,6 +2,7 @@
 #import <math.h>
 
 NSString *const LMVTextColorKey = @"CVTextColor";
+NSString *const LMVSquidTextColorKey = @"SquidTextColor";
 static CFStringRef const kLMVColorPrefsID = CFSTR("com.minis.lockmessagevideo");
 
 static uint32_t LMVColorWord(UIColor *color) {
@@ -19,23 +20,31 @@ static uint32_t LMVColorWord(UIColor *color) {
     uint32_t ai=(uint32_t)lround(MAX(0,MIN(1,a))*255);
     return (ri<<24)|(gi<<16)|(bi<<8)|ai;
 }
-UIColor *LMVTextColorCurrent(void) {
-    NSNumber *value=(__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)LMVTextColorKey,kLMVColorPrefsID);
+UIColor *LMVTextColorForKey(NSString *key) {
+    if(!key.length)return nil;
+    NSNumber *value=(__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)key,kLMVColorPrefsID);
     if(![value isKindOfClass:NSNumber.class])return nil;
     uint32_t word=value.unsignedIntValue;
     return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
                            blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
 }
-void LMVTextColorStore(UIColor *color) {
+UIColor *LMVTextColorCurrent(void) {
+    return LMVTextColorForKey(LMVTextColorKey);
+}
+void LMVTextColorStoreColor(UIColor *color, NSString *key) {
+    if(!key.length)return;
     if(color) {
         NSNumber *value=@(LMVColorWord(color));
-        CFPreferencesSetAppValue((__bridge CFStringRef)LMVTextColorKey,(__bridge CFPropertyListRef)value,kLMVColorPrefsID);
+        CFPreferencesSetAppValue((__bridge CFStringRef)key,(__bridge CFPropertyListRef)value,kLMVColorPrefsID);
     } else {
-        CFPreferencesSetAppValue((__bridge CFStringRef)LMVTextColorKey,NULL,kLMVColorPrefsID);
+        CFPreferencesSetAppValue((__bridge CFStringRef)key,NULL,kLMVColorPrefsID);
     }
     CFPreferencesAppSynchronize(kLMVColorPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
         CFSTR("com.minis.lockmessagevideo/preferencesChanged"),NULL,NULL,YES);
+}
+void LMVTextColorStore(UIColor *color) {
+    LMVTextColorStoreColor(color,LMVTextColorKey);
 }
 NSString *LMVTextColorHex(UIColor *color) {
     uint32_t word=LMVColorWord(color?:UIColor.whiteColor);
@@ -266,12 +275,11 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         self.isAccessibilityElement=YES;
         self.accessibilityLabel=@"光谱选色";
         self.accessibilityHint=@"点击或拖动选择颜色";
-        // 1.89: 30pt instead of 20 - at 20 the ring was hard to see on light
-        // colours and read as "not tracking the finger" while it was actually
-        // just too small to follow with the eye.
+        // 1.89/1.90: 20 -> 30 -> 40pt. The ring is the only feedback while
+        // dragging, so it has to be big enough to read under the finger.
         _marker=[CALayer layer];
-        _marker.bounds=CGRectMake(0,0,30,30);
-        _marker.cornerRadius=15;
+        _marker.bounds=CGRectMake(0,0,40,40);
+        _marker.cornerRadius=20;
         _marker.borderWidth=3;
         _marker.borderColor=UIColor.whiteColor.CGColor;
         _marker.shadowColor=UIColor.blackColor.CGColor;
@@ -387,14 +395,16 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     CAGradientLayer *_redGradient,*_greenGradient,*_blueGradient,*_alphaGradient;
     CGFloat _r,_g,_b,_a;
     BOOL _cleared;
-    BOOL _suppressSpectrumSync;
 }
 @end
 
 @implementation LMVTextColorPicker
+- (NSString *)colorKey {
+    return self.preferenceKey.length ? self.preferenceKey : LMVTextColorKey;
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
-    UIColor *stored=LMVTextColorCurrent();
+    UIColor *stored=LMVTextColorForKey([self colorKey]);
     if(stored) {
         [stored getRed:&_r green:&_g blue:&_b alpha:&_a];
     } else {
@@ -641,14 +651,15 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 - (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b {
     [self pickRed:r green:g blue:b keepSpectrumMarker:NO];
 }
-// 1.89: when the spectrum itself produced the colour, the ring is already under
-// the finger. Re-deriving its position from the 8-bit RGB round trip nudge it a
-// pixel or two on every event, which is what made it look like it was lagging.
+// 1.90: while the SPECTRUM is being dragged the ring already sits under the
+// finger, so rebuilding the four sliders, four gradients and the text field on
+// every event only adds work between the touch and the frame. That per-event
+// rebuild is what made the drag feel slow; the settings swatch still previews
+// live. Everything catches up in -commit when the finger lifts.
 - (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b keepSpectrumMarker:(BOOL)keep {
     _r=r;_g=g;_b=b;
-    _suppressSpectrumSync=keep;
+    if(keep) { [self preview]; return; }
     [self refreshUI];
-    _suppressSpectrumSync=NO;
     [self preview];
 }
 - (void)sliderChanged:(UISlider *)sender {
@@ -680,7 +691,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     if(_mode.selectedSegmentIndex==0) {
         [_gridView showRed:_r green:_g blue:_b];
     }
-    if(_mode.selectedSegmentIndex==1 && !_suppressSpectrumSync) {
+    if(_mode.selectedSegmentIndex==1) {
         CGFloat hue=0,sat=0,bright=0;
         [current getHue:&hue saturation:&sat brightness:&bright alpha:NULL];
         [_spectrumView showHue:hue saturation:sat brightness:bright];
@@ -691,8 +702,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     if(self.onChange)self.onChange([UIColor colorWithRed:_r green:_g blue:_b alpha:_a]);
 }
 - (void)commit {
+    [self refreshUI];
     UIColor *color=[UIColor colorWithRed:_r green:_g blue:_b alpha:_a];
-    LMVTextColorStore(color);
+    LMVTextColorStoreColor(color,[self colorKey]);
     if(self.onChange)self.onChange(color);
 }
 - (void)hexEdited:(UITextField *)field {
@@ -718,7 +730,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [self commit];
 }
 - (void)resetTapped {
-    LMVTextColorStore(nil);
+    LMVTextColorStoreColor(nil,[self colorKey]);
     if(self.onChange)self.onChange(nil);
     // 1.88: closeTapped: publishes before leaving - that would immediately write
     // the old RGB back and make "restore default" a no-op. Remember the clear.

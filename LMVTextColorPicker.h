@@ -14,8 +14,12 @@
 extern "C" {
 #endif
 extern NSString *const LMVTextColorKey;
+// 1.90: the CopyVault and Squid panels share this picker but keep separate keys.
+extern NSString *const LMVSquidTextColorKey;
 UIColor *LMVTextColorCurrent(void);
+UIColor *LMVTextColorForKey(NSString *key);
 void LMVTextColorStore(UIColor *color);
+void LMVTextColorStoreColor(UIColor *color, NSString *key);
 NSString *LMVTextColorHex(UIColor *color);
 #ifdef __cplusplus
 }
@@ -23,6 +27,8 @@ NSString *LMVTextColorHex(UIColor *color);
 
 @interface LMVTextColorPicker : UIViewController
 @property(nonatomic,copy) void (^onChange)(UIColor *color);
+// 1.90: which preference this picker edits. Defaults to CopyVault's key.
+@property(nonatomic,copy) NSString *preferenceKey;
 // 1.88: fired after the sheet has actually left the screen, so the caller can
 // repaint its swatch once the table is laid out again (the swatch used to stay
 // on the old colour when the picker was closed).

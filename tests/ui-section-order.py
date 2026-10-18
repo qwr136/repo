@@ -242,7 +242,7 @@ class UISectionOrder(unittest.TestCase):
             'targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
             'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
-            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial',
+            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial', 'squidText',
             'group:AT 背景视频', 'atEnabled', 'atMaterial',
             'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial', 'cvText',
             'group:Myrtle 面板背景视频', 'myrtleEnabled', 'myrtleMaterial',
@@ -252,12 +252,12 @@ class UISectionOrder(unittest.TestCase):
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 51)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 52)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 8)
-        self.assertEqual(50 + (len(TARGETS) + 6) * 2, 72)  # 50 non-audio rows + 11 audio channels x 2
+        self.assertEqual(51 + (len(TARGETS) + 6) * 2, 73)  # 51 non-audio rows + 11 audio channels x 2
         self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 18)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
@@ -266,7 +266,7 @@ class UISectionOrder(unittest.TestCase):
                        and 'cvEnabled' not in x and 'cvMaterial' not in x
                        and 'squidPanelMaterial2' not in x and 'squidPanelSwap' not in x
                        and 'squidPanelMaterial3' not in x and 'squidPanelMaterial4' not in x
-                       and 'squidPanelReset' not in x and 'cvText' not in x)
+                       and 'squidPanelReset' not in x and 'cvText' not in x and 'squidText' not in x)
         self.assertEqual(digest('\n'.join(props)), '9fe474875b4b362fac3159ace348ce13788f8ac7e1c5cfb3abd5d0f409744be6')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
