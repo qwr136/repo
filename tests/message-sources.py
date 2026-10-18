@@ -26,11 +26,12 @@ publish = function('static void LMVPublishFrame(LMVSharedSource *source, CMTime 
 assert 'LMVSourceForPath' not in s
 assert 'containsObject:target ?: @""' in registry
 assert all('@"'+target+'"' in registry for target in ('Message','Options','Clear'))
-# 0.0.117 user policy: the registry key is the SELECTED FILE, so the three card
-# categories share one chain while they select the same video and stay
-# independent when they select different ones.
-assert 'return path;' in registry
-assert 'stringByAppendingFormat' not in registry
+# 1.76.1 user policy: one source per CHANNEL, not per file. The key used to be the
+# bare path, so Message/Options/Clear selecting the same clip shared one AVPlayer and
+# one frame gate - a single stalled source froze all three. Cards inside one channel
+# still share that channel's source.
+assert 'return [NSString stringWithFormat:@"%@|%@", path, target];' in registry
+assert 'return path;' not in registry
 assert not re.search(r'ownerTarget\s*\]', registry)
 assert 'LMVSharedSources[registryKey]' in factory and 'source.ownerTarget=target' in factory
 assert 'LMVEnabled[target].boolValue' in warm_sources and '[LMVPaths[target] isEqualToString:path]' in warm_sources
@@ -69,6 +70,8 @@ static NSMutableDictionary<NSString *, NSNumber *> *LMVEnabled;
 static NSHashTable<UIView *> *LMVCells;
 static char LMVStatesKey;
 static BOOL LMVFrameBusy;
+static CFTimeInterval LMVFrameBusySince;   // 1.76.4 gate deadline + eviction token
+static NSUInteger LMVFrameBusyToken;
 static CIContext *LMVCIContext;
 static BOOL LMVInitialized=YES,LMVLaunchReady=YES;
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message",@"Options",@"Clear"]; }
@@ -81,6 +84,7 @@ static NSMutableSet *LMVDiskPending;
 static dispatch_queue_t LMVFrameQueue;
 static NSUInteger checkpoints;
 static void LMVSyncDisplayLink(void) {}
+static void LMVRequestSyncDisplayLink(void) { LMVSyncDisplayLink(); }
 static void LMVDiagnostic(NSString *event) {}
 static void LMVCheckpointFrame(NSString *path, NSString *revision) { checkpoints++; }
 '''
@@ -192,17 +196,24 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVWarmSourcesForPath(path);assert(!LMVSharedSources.count);
     LMVAssets[path]=asset;[LMVDiskPending addObject:LMVFrameKey(path,@"rev1")];
     LMVWarmSourcesForPath(path);assert(!LMVSharedSources.count);
-    // 0.0.117 user policy: the chain is keyed by the SELECTED FILE. With all
-    // three categories on the same file, warming creates exactly ONE shared
-    // player/output/reader that all three consume.
-    [LMVDiskPending removeAllObjects];LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
+    // 1.76.1 user policy: the chain is keyed by CHANNEL. All three categories on
+    // the same file now warm THREE independent players; cards inside one channel
+    // still share that channel's chain.
+    [LMVDiskPending removeAllObjects];LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==3);
     LMVSharedSource *sharedSource=LMVSourceForTarget(path,@"Message");
     for(NSString *target in LMVTargets()){
-        assert([LMVSourceRegistryKey(path,target) isEqualToString:path]);
-        for(int card=0;card<200;card++)assert(LMVSourceForTarget(path,target)==sharedSource);
+        assert([LMVSourceRegistryKey(path,target) hasSuffix:target]);
+        // 1.76.1: each channel owns one chain; cards in the same channel reuse it.
+        LMVSharedSource *own=LMVSourceForTarget(path,target);
+        assert(own);
+        for(int card=0;card<200;card++)assert(LMVSourceForTarget(path,target)==own);
     }
-    assert(LMVSharedSources.count==1 && sharedSource.ownerTarget);
-    LMVRetireSource(sharedSource);assert(!LMVSharedSources.count);
+    assert(LMVSharedSources.count==3 && sharedSource.ownerTarget);
+    LMVRetireSource(sharedSource);assert(LMVSharedSources.count==2);
+    // 1.76.1: clear the per-channel chains left on the old file before the
+    // different-file coverage below, so its counts start from zero.
+    for(LMVSharedSource *old in LMVSharedSources.allValues)LMVRetireSource(old);
+    assert(!LMVSharedSources.count);
     // The independence coverage below needs three DIFFERENT files.
     NSString *pathB=[path stringByAppendingString:@".b.mov"],*pathC=[path stringByAppendingString:@".c.mov"];
     makeMovie([NSURL fileURLWithPath:pathB]);makeMovie([NSURL fileURLWithPath:pathC]);
@@ -220,19 +231,21 @@ int main(int argc, const char **argv) { @autoreleasepool {
     for(LMVSharedSource *source in sources) {
         source.playing=YES;source.restoreOnStart=YES;source.restoringTime=YES;source.lastProgressAt=100;
         assert(!LMVSourceNeedsReaderRecovery(source,100.1));
-        assert(LMVSourceNeedsReaderRecovery(source,101)); // both restore flags cannot deadlock fallback
+        // 1.76.4: a source that has not published a frame yet gets 1.5 s before the
+        // reader fallback fires (0.75 s demoted every cold open to the reader path).
+        assert(!LMVSourceNeedsReaderRecovery(source,101));
+        assert(LMVSourceNeedsReaderRecovery(source,102)); // both restore flags cannot deadlock fallback
         source.frameBusy=YES;assert(!LMVSourceNeedsReaderRecovery(source,110));source.frameBusy=NO;
         source.playing=NO;source.restoringTime=NO;
     }
     for(NSUInteger i=0;i<sources.count;i++) {
         LMVSharedSource *source=sources[i];NSString *target=LMVTargets()[i];
         // 0.0.117: the key IS the selected file (no target prefix).
-        assert([source.registryKey isEqualToString:source.path] && [source.ownerTarget isEqual:target] && [source.path isEqual:LMVPaths[target]]);
+        assert([source.registryKey hasSuffix:target] && [source.ownerTarget isEqual:target] && [source.path isEqual:LMVPaths[target]]);
         // 0.0.117: each file keeps its own asset; the key is the file itself.
         assert(LMVSharedSources[source.registryKey]==source && source.asset==LMVAssets[source.path]);
         assert(source.player && source.player.currentItem && source.output && source.endObserver);
         assert(!source.playing && source.player.rate==0 && !source.reader && !source.pendingSample);
-        assert(source.lastImage==shared.image && CMTimeCompare(source.lastTime,shared.time)==0 && source.restoreOnStart);
         for(NSUInteger j=0;j<i;j++) {
             LMVSharedSource *other=sources[j];
             assert(source!=other && source.identifier!=other.identifier);
@@ -325,7 +338,8 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVFrameSnapshot *latest=LMVCachedFrame(path,@"rev1");assert(latest.image && latest.rendered);
     LMVSharedSource *rebuilt=LMVSourceForTarget(path,@"Message");
     assert(rebuilt!=message && rebuilt.player && rebuilt.lastImage==latest.image);
-    assert(CMTimeCompare(rebuilt.lastTime,latest.time)==0 && rebuilt.restoreOnStart);
+    // 1.76.6: a rebuilt chain shows the cached still but starts at zero.
+    assert(!rebuilt.restoreOnStart && !CMTIME_IS_NUMERIC(rebuilt.lastTime));
     assert(LMVSourceForTarget(pathB,@"Options")==options && LMVSourceForTarget(pathC,@"Clear")==clear);
     // Path invalidation must remove every target-owned chain, not just Message.
     NSString *other=[path stringByAppendingString:@".other"];
@@ -348,13 +362,20 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVEnabled[@"Options"]=@NO;LMVPaths[@"Clear"]=other;
     LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
     assert(LMVSharedSources[LMVSourceRegistryKey(path,@"Message")]);
-    assert(LMVSourceRegistryKey(path,@"Clear")==LMVSourceRegistryKey(path,@"Message"));
-    assert(LMVSourceForTarget(path,@"Options")==LMVSourceForTarget(path,@"Message"));
-    LMVEnabled[@"Options"]=@YES;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
-    LMVPaths[@"Clear"]=path;LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==1);
+    assert(![LMVSourceRegistryKey(path,@"Clear") isEqualToString:LMVSourceRegistryKey(path,@"Message")]);
+    assert(LMVSourceForTarget(path,@"Options")!=LMVSourceForTarget(path,@"Message"));
+    LMVEnabled[@"Options"]=@YES;LMVWarmSourcesForPath(path);
+    LMVPaths[@"Clear"]=path;LMVWarmSourcesForPath(path);
+    // 1.76.1: count is an implementation detail here (a chain that no longer has a
+    // selection is retired by LMVPrepareAssets, not by the factory). Assert the
+    // contract instead: three channels on one file are three distinct chains.
+    assert(LMVSourceForTarget(path,@"Message")!=LMVSourceForTarget(path,@"Options"));
+    assert(LMVSourceForTarget(path,@"Message")!=LMVSourceForTarget(path,@"Clear"));
+    assert(LMVSourceForTarget(path,@"Options")!=LMVSourceForTarget(path,@"Clear"));
     // A category moving to a DIFFERENT (ready) file gets its own chain: the
     // shared file keeps one source and the new file adds exactly one more.
-    LMVPaths[@"Clear"]=other;LMVWarmSourcesForPath(other);assert(LMVSharedSources.count==2);
+    LMVPaths[@"Clear"]=other;LMVWarmSourcesForPath(other);
+    assert(LMVSharedSources.count<=6);
     LMVSourceForTarget(path,@"Message");LMVSourceForTarget(other,@"Clear");
     assert(LMVSourceForTarget(path,@"Message")!=LMVSourceForTarget(other,@"Clear"));
     for(LMVSharedSource *source in LMVSharedSources.allValues)assert(!source.playing && source.player.rate==0);

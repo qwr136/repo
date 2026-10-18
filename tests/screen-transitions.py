@@ -17,7 +17,7 @@ resign=s[start:s.index('        %init;',start)]
 block=resign[resign.index('dispatch_async'):resign.index('\n        }];')].strip()
 assert screen.index('dispatch_async')<screen.index('notify_get_state')
 assert 'LMVDesktopVideoScreenChanged()' in screen
-assert 'if (!LMVPlaybackAllowed()) LMVSuspend();' in block and 'LMVSyncDisplayLink();LMVRequestSafeUpdate();' in block
+assert 'if (!LMVPlaybackAllowed()) LMVSuspend();' in block and 'LMVRequestSyncDisplayLink();LMVRequestSafeUpdate();' in block
 assert 'LMVReleaseAllPlayers();' not in block
 if platform.system()!='Darwin':
  print('PASS screen/resign event source contracts; SKIP actual queued handler execution requires Foundation')
@@ -43,10 +43,12 @@ static void LMVSuspend(void){suspended++;}
 static void LMVPrepareAssets(void){prepared++;}
 static void LMVRequestSafeUpdate(void){requests++;}
 static void LMVSyncDisplayLink(void){messageReconciled++;}
+static void LMVRequestSyncDisplayLink(void){LMVSyncDisplayLink();}
 static void LMVHomeMenuVideoSuspend(void){menuPaused++;}
 static void LMVSquidPanelVideoSuspend(void){panelPaused++;}
 static void LMVATPanelVideoSuspend(void){atPanelPaused++;}
 static void LMVCopyVaultPanelVideoSuspend(void){cvPanelPaused++;}
+static void LMVMyrtlePanelVideoSuspend(void){}
 '''
 main=r'''
 int main(void){@autoreleasepool{

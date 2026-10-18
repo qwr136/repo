@@ -333,8 +333,14 @@ assert 'if(child.tag==LMVSquidPanelHostTag || child.hidden || child.alpha<.01)co
 assert 'self.tag=LMVSquidPanelHostTag;' in module
 # Never interactive, never a poster substitute for a live panel background.
 assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in module
-assert 'self.playback.posterLayer.hidden=YES;' in module
-assert 'BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;' in module
+# 1.76.7: these two lines together were a deadlock. readyForDisplay only turns
+# true once the layer is on screen (the Control Center channel documents the same
+# rule), so requiring it BEFORE mounting meant the host was never mounted; and the
+# poster - the only pixels available while the decoder warmed up - was hidden here.
+assert 'self.playback.posterLayer.hidden=YES;' not in module
+assert 'BOOL hasPoster=self.playback.posterLayer.contents!=nil;' in module
+assert '(hasPoster || self.playback.playerLayer.readyForDisplay);' in module
+assert '[self.playback preparePosterForPath:wantPath revision:wantRevision];' in module
 # Preferences: own switch, four material slots, master switch respected, default off.
 assert 'CFSTR("SquidPanelBackgroundEnabled")' in module
 assert 'LMVSquidPanelSlotPaths[i]=LMVCCSelectedPath(keys[i]);' in module
@@ -362,7 +368,12 @@ assert 'LMVSquidPanelHeightInOrientation(slot<2?1:3,landscapeNow),' in module
 assert '(int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],' in module
 assert 'LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,' in module
 assert 'ptr=%p' in module and '(void *)self.card,' in module
-assert 'if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}' in module
+# 1.76.7: the poster must be seeded BEFORE the path is selected, so the layer has
+# pixels on the very first frame (the Control Center channel orders it the same way).
+assert module.index('[self.playback preparePosterForPath:wantPath revision:wantRevision];') < \
+    module.index('[self.playback selectPath:wantPath revision:wantRevision];'), \
+    'the poster is prepared before the path is selected'
+assert '[self.host removeFromSuperview];' in module
 # No player/UI while the channel is off (any single slot may be the only one set), and a
 # poll that never runs hot when idle.
 assert 'for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++)' in module
@@ -378,7 +389,7 @@ assert '    LMVSquidPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVSquidPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVSquidPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"SquidPanel",panel.path,panel.revision,panelVisible,panel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"];' in audio
+assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle"];' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];' in prefs
@@ -411,7 +422,7 @@ assert 'claimSquidPanel' not in panel and 'LMVEasterChoice' not in panel
 assert 'claimSquidPanel' not in prefs
 assert 'SquidPanelSwapShapes' not in module and 'SquidPanelSwapShapes' not in prefs and 'SquidPanelSwapShapes' not in panel
 assert 'SquidPanelResetToken' not in module and 'SquidPanelResetToken' not in prefs and 'SquidPanelResetToken' not in panel
-assert 'presentViewController:' not in panel
+assert panel.count('presentViewController:') == 1 and 'picker animated:YES completion:nil' in panel
 assert "else if (toggle.tag == LMVEasterSquidPanelSection()) key = @\"SquidPanelBackgroundEnabled\";" in panel
 print('PASS: SquidGesturePro panel channel - poll-based attach that fills the card, ONE shared '
       'material for all four panels (right/left, 上滑/上上滑): an ORIENTATION-INDEPENDENT CONTENT '

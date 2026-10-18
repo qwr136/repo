@@ -34,11 +34,12 @@ assert 'source.ownerTarget=target' in source
 registry=function(s,'static NSString *LMVSourceRegistryKey(NSString *path, NSString *target)')
 assert '@"Message"' in registry and '@"Options"' in registry and '@"Clear"' in registry
 assert 'containsObject:target ?: @""' in registry
-# 0.0.117 user policy: the registry key is the SELECTED FILE, so the three card
-# categories share one chain while they select the same video and stay
-# independent when they select different ones.
-assert 'return path;' in registry
-assert 'stringByAppendingFormat' not in registry
+# 1.76.1 user policy: one source per CHANNEL, not per file. The key used to be the
+# bare path, so Message/Options/Clear selecting the same clip shared one AVPlayer and
+# one frame gate - a single stalled source froze all three. Cards inside one channel
+# still share that channel's source.
+assert 'return [NSString stringWithFormat:@"%@|%@", path, target];' in registry
+assert 'return path;' not in registry
 assert 'ownerTarget]' not in registry
 # No early hook, singleton, global layer/view mutation or second decoder path.
 for forbidden in ['SBLockScreenManager','SBWallpaperController','sharedInstance','%hook UIView','%hook CALayer','AVAudioSession','prerollAtRate','idleTimerDisabled']:

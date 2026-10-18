@@ -22,7 +22,7 @@ assert 'return LMVCardLayerAttached(view.layer,window.layer);' in h
 assert 'LMVCardAttached(state.overlay,window)' in h and 'state.overlay.window==window' not in h
 assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=30' in s
 resign=s[s.index('addObserverForName:UIApplicationWillResignActiveNotification'):]
-assert 'LMVSyncDisplayLink();LMVRequestSafeUpdate();' in resign
+assert 'LMVRequestSyncDisplayLink();LMVRequestSafeUpdate();' in resign
 assert 'LMVReleaseAllPlayers();LMVRequestSafeUpdate();' not in resign
 if platform.system()!='Darwin':
  print('PASS Message swipe exposure/consumer wiring; SKIP native Foundation/QuartzCore requires macOS')

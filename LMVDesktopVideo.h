@@ -377,7 +377,12 @@ static NSString *LMVDesktopOverlayShape(UIView *view,NSUInteger depth) {
 // stays stuck on "none" even while the pop-up is on screen. This gathers every
 // TransitionView/Overlay descendant, bounded so it cannot stall the tick.
 static void LMVDesktopFindOverlayViews(UIView *view,NSUInteger depth,NSMutableArray<UIView *> *found,NSUInteger *nodes) {
-    if (!view || depth>4 || *nodes>1500) return;
+    // 1.76.4: 1500 nodes PER WINDOW was the most expensive thing this channel did -
+    // with a full notification list SBHomeScreenWindow alone offers thousands of
+    // descendants, and every hit then gets its own LMVDesktopOverlayShape dump
+    // (depth 4, up to 6 children a level). The device log measured one update at
+    // 1317 ms. Presentation containers sit near the top; 400 nodes still finds them.
+    if (!view || depth>4 || *nodes>400) return;
     (*nodes)++;
     NSString *name=NSStringFromClass(view.class);
     if ([name containsString:@"TransitionView"] || [name containsString:@"Overlay"]) [found addObject:view];
@@ -658,6 +663,17 @@ static BOOL LMVDesktopControllerEligible(UIViewController *controller) {
     }
     return LMVDesktopHomeWindow(root.window);
 }
+// 1.76.5: the channel-level `perf desktop` line reported a single update at
+// 1657 ms while the other four calls in the same window took 2 ms. Reading the
+// code cannot tell which stage that was, so mark the three stages that can be
+// expensive. Only a stage over 50 ms is written, so this costs nothing in normal
+// operation and cannot itself become the stall.
+static void LMVDesktopStage(const char *name,CFTimeInterval started) {
+    if (!LMVDiagnosticsEnabled.load()) return;
+    CFTimeInterval ms=(CACurrentMediaTime()-started)*1000.0;
+    if (ms<50.0) return;
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-stage %s %.0fms",name,ms]);
+}
 static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds) {
     static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
     CFTimeInterval now=CACurrentMediaTime();
@@ -905,6 +921,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     BOOL wallpaperValid=content!=nil;
     if (LMVLockVideoClass(wallpaper.window,@"SBCoverSheetWindow")) {wallpaperValid=NO;content=nil;}
     UIView *container=wallpaperValid?wallpaper:(homeRoot ?: poster.viewIfLoaded);
+    LMVDesktopStage("find",coverPerf0);
     // Exact PBUIPosterHome identity is a PaperBoard-compatible alternative to
     // legacy SBFWallpaperView, with the same background-only scope requirement.
     if (!wallpaperValid && poster && LMVDesktopGeometryVisible(poster.viewIfLoaded)) {
@@ -917,7 +934,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         container=self.container;content=self.attachedContent;wallpaperValid=YES;
     }
     BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
+    CFTimeInterval stageCover=CACurrentMediaTime();
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover):CGRectZero;
+    LMVDesktopStage("cover",stageCover);
     // 1.25: ZERO delay on an app exit. The frontmost probe is the earliest true
     // signal - it flips the moment the app stops being frontmost, while its
     // surface (and the switcher shell behind it) stay on screen for the whole
@@ -1285,7 +1304,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // still recorded, but a tick no longer serialises the tree every pass.
         static NSTimeInterval lastShapeDump=0;
         NSTimeInterval shapeNow=CACurrentMediaTime();
-        BOOL shapeDump=(shapeNow-lastShapeDump>=2.0);
+        // 1.76.4: was 2.0. A measured dump costs ~1.3 s with a full notification
+        // list, so sampling every two seconds had the observer eating two thirds of
+        // the main thread - manufacturing the very stall it was meant to record.
+        // Ten seconds still catches every change that matters (they are change-only).
+        BOOL shapeDump=(shapeNow-lastShapeDump>=10.0);
         if(shapeDump)lastShapeDump=shapeNow;
     // 0.0.124: `composited` is the layer that backboardd actually has to composite
     // and `decode` is whether the decoder is running - together they tell apart
@@ -1428,9 +1451,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // This line therefore walks EVERY scene, prints each visible window's shape THREE
     // levels deep, marks which scene a window belongs to, and lists only the windows
     // that belong to no scene at all. Diagnostics only, change-only.
-    // 1.79: gated on the switch - these strings are expensive to build and used
-    // to be built on every update even with diagnostics off, then thrown away.
-    if (diagnostics) {
+    {
         NSMutableString *scenes=[NSMutableString new];
         NSMutableArray *allSceneWins=[NSMutableArray new];
         NSInteger sceneIdx=0;
@@ -1485,7 +1506,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // not fill the screen), so a video background behind it has to be laid out to
     // that exact rect - a class-name list cannot show it. Change-only: every
     // panel-like window three levels deep WITH FRAMES, plus our own layer.
-    if (diagnostics) {
+    {
         NSMutableString *panels=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -1529,7 +1550,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // belongs to, nor whether a brand-new window appeared for it. Hidden windows
     // are listed ON PURPOSE - a window that exists only while its panel is open is
     // precisely what has to be visible here.
-    if (diagnostics) {
+    {
         NSMutableString *meta=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -1566,7 +1587,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // though, so enumerate the classes that image defines - the window/view
     // class names are then known without ever catching the panel open. Runs
     // ONCE per process: objc_getClassList walks every class in SpringBoard.
-    if (diagnostics) {
+    {
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             int total=objc_getClassList(NULL,0);
@@ -1593,7 +1614,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // Six levels, including windows that are not currently visible, so the shape of
     // a clipboard panel is captured even when the shallow three-level geometry only
     // shows an empty shell.
-    if (diagnostics) {
+    {
         NSMutableString *trees=[NSMutableString new];
         NSMutableArray<UIWindow *> *panelWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1636,7 +1657,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // above the keyboard, inside UITextEffectsWindow / SBMedusaHostedKeyboardWindow.
     // The window list can never name it, so dump those subtrees whenever they
     // change: the panel class and its user-set height appear right here.
-    if (diagnostics) {
+    {
         NSMutableString *trees=[NSMutableString new];
         NSMutableArray<UIWindow *> *keyboardWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1720,8 +1741,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             NSMutableArray<UIView *> *found=[NSMutableArray new];
             NSUInteger nodes=0;
             LMVDesktopFindOverlayViews(window,0,found,&nodes);
+            NSUInteger shaped=0;
             for (UIView *v in found) {
-                if (overlays.length>3000) break;
+                if (overlays.length>3000 || shaped++>=12) break;
                 [overlays appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f{%@} ",
                     NSStringFromClass(window.class),window.frame.origin.x,window.frame.origin.y,
                     window.frame.size.width,window.frame.size.height,LMVDesktopOverlayShape(v,0)];
@@ -1735,7 +1757,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // 1.25: WHICH whitelisted surface currently holds the cover, with its content
     // coverage - so an app-exit log names the window instead of leaving it to
     // inference (the 1.25 log carried an unexplained switcher window).
-    if (diagnostics) {
+    {
         NSMutableString *owners=[NSMutableString new];
         UIWindow *target=container?container.window:nil;
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1825,6 +1847,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     NSString *coverPerf=LMVDesktopVideoPerf("desktop",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
     }
+    LMVDesktopStage("rest",stageCover);
     self.updating=NO;
 }
 @end

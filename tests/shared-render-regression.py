@@ -18,7 +18,40 @@ assert 'requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03' in s
 assert 'link.targetTimestamp' in s and 'time=current' in s
 assert 'static CVPixelBufferRef LMVReadSharedBuffer' in s
 assert 'fallback=shared-reader' in s
-assert 'source.frameBusy=NO; LMVFrameBusy=NO;' in s
+# 1.76.4: the gate is released through a token, so a conversion that was evicted
+# for overrunning cannot clear a newer one - and the gate itself is evicted after
+# 2 s so a single stuck conversion can never freeze every channel forever.
+assert 'source.frameBusy=NO;' in s
+assert 'if (LMVFrameBusyToken==frameToken) { LMVFrameBusy=NO; LMVFrameBusySince=0; }' in s
+assert 'NSUInteger frameToken=++LMVFrameBusyToken;' in s
+assert 'CFTimeInterval held=CACurrentMediaTime()-LMVFrameBusySince;' in s
+assert 'if (held<2.0) return;' in s
+assert 'frame-gate-timeout held=%.0fms' in s
+# A busy gate is the frame queue, not this source: it must not demote the other
+# channels to the reader path.
+assert 'if (!LMVFrameBusy && LMVSourceNeedsReaderRecovery(source,now)) {' in s
+# A healthy player that was paused underneath us has to be restarted; otherwise
+# `playing` stays YES and the source is demoted three seconds later.
+assert '[source.player playImmediatelyAtRate:1.0];' in s
+assert 'source.player.rate<0.01' in s
+assert 'CFTimeInterval limit=source.published?3.0:1.5;' in s
+# 1.76.6: a newly created chain must NOT restore the cached position. The still is
+# a placeholder only; every material switch starts at zero.
+assert 'source.lastTime=snapshot.time' not in s
+assert 'source.restoreOnStart=YES' not in s
+assert 'source.lastImage=CGImageRetain(snapshot.image);' in s
+# 1.76.5: one display-link sweep per runloop instead of one per card, and the
+# retired player is torn down a runloop later so the switch path stops waiting for
+# it. Both were measured on device, not guessed.
+assert 'static void LMVRequestSyncDisplayLink(void) {' in s
+assert 'if (LMVSyncCheckScheduled) return;' in s
+assert 'AVPlayer *retiredPlayer=source.player;' in s
+assert '[retiredPlayer replaceCurrentItemWithPlayerItem:nil];' in s
+d=(root/'LMVDesktopVideo.h').read_text()
+assert 'static void LMVDesktopStage(const char *name,CFTimeInterval started) {' in d
+assert 'LMVDesktopStage("find",coverPerf0);' in d
+assert 'LMVDesktopStage("cover",stageCover);' in d
+assert 'LMVDesktopStage("rest",stageCover);' in d
 assert '@finally { if (workBuffer) CVPixelBufferRelease(workBuffer); }' in s
 assert 'state.layer.contents=(__bridge id)image' in s
 assert 'CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host]' in s
@@ -41,11 +74,12 @@ registry=s.split('static NSString *LMVSourceRegistryKey',1)[1].split('@interface
 assert 'Desktop' not in registry  # Desktop has its own player instance, never the message source cache.
 assert 'containsObject:target ?: @""' in registry
 assert all('@"'+target+'"' in registry for target in ('Message','Options','Clear'))
-# 0.0.123 user policy: the registry key is the SELECTED FILE, so the three card
-# categories share one chain while they select the same video and stay
-# independent when they select different ones.
-assert 'return path;' in registry
-assert 'stringByAppendingFormat' not in registry
+# 1.76.1 user policy: one source per CHANNEL, not per file. The key used to be the
+# bare path, so Message/Options/Clear selecting the same clip shared one AVPlayer and
+# one frame gate - a single stalled source froze all three. Cards inside one channel
+# still share that channel's source.
+assert 'return [NSString stringWithFormat:@"%@|%@", path, target];' in registry
+assert 'return path;' not in registry
 assert 'ownerTarget]' not in registry
 assert not (root/'LMVLockBackground.h').exists()
 assert 'LMVWallpaperFrameCache' not in s
@@ -106,6 +140,9 @@ assert cache['path|rev1']==('last',True) and 'path|rev2' not in cache
 # 0.0.123: the floating-ball decision lines must survive the high-rate card/lock
 # traffic, which used to eat the whole per-epoch record budget (no easter-window
 # line ever reached the log).
-assert 'BOOL priority = [event hasPrefix:@"easter-window "];' in s
+# 1.76.2: switch-time events are exempt from the 1200-record budget, so a capture
+# taken during a freeze still contains loadsource=/asset-ready= and the stopwatch.
+assert 'BOOL priority = [event hasPrefix:@"easter-window "] || [event hasPrefix:@"perf-long "] ||' in s
+assert '[event hasPrefix:@"loadsource="] || [event hasPrefix:@"asset-ready="]' in s
 assert 'if (!priority && ++records > 1200) return;' in s
 print('PASS: 1.25 version, retained layer/cache-before-source, cold-preview priority, shared pipeline, reader resume, preserve-first original-byte import/validation invariants (not device runtime tests)')

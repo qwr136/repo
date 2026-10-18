@@ -53,7 +53,7 @@ assert re.search(r'@"AT": @""', prefs), 'the AT material fallback is empty (noth
 # ---- floating panel ---------------------------------------------------------
 assert 'static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel
-assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCVSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterMyrtleSection() + 1; }' in panel
 assert 'if (section == LMVEasterATSection()) return 4;' in panel
 assert 'if (section == LMVEasterATSection()) return @"AT 背景视频";' in panel
 at_cells = panel[panel.index('if (index.section == LMVEasterATSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
@@ -66,13 +66,13 @@ assert 'else if (toggle.tag == LMVEasterATSection()) key = @"ATBackgroundEnabled
 selection = panel[panel.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:'):]
 assert 'key = @"ATVideo";' in selection and 'index.section == LMVEasterATSection()' in selection
 targets = re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTargets('))
-assert targets[-2:] == ['AT', 'CV'], 'the AT sound channel, then the CopyVault one added by 1.43, close the list'
+assert targets[-3:] == ['AT', 'CV', 'Myrtle'], 'AT, CopyVault, then the Myrtle channel added by 1.77, close the list'
 
 # ---- shared material plumbing ----------------------------------------------
-assert '"SquidPanel", @"AT", @"CV"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
+assert '"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
 assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete
 assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
-assert '"HomeMenu",@"SquidPanel",@"AT",@"CV"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
+assert '"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
 
 # ---- 1.28: the mount is wired now ------------------------------------------
 assert '#import "LMVATPanelVideo.h"' in tweak, 'the AT panel player is wired'

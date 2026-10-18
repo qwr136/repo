@@ -12,13 +12,14 @@
 #import "LMVMaterialPicker.h"
 #import "../LMVEasterImageSettings.h"
 #import "../LMVPaths.h"
+#import "../LMVTextColorPicker.h"
 #define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"] containsObject:target];
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -141,6 +142,24 @@ static void LMVNotify(void) {
     [cvMaterial setProperty:@"CVMaterial" forKey:@"id"];
     [_specifiers addObject:cvMaterial];
     [self appendAudioForTarget:@"CV" title:@"播放"];
+    // 1.83: CopyVault text colour - one row with a round swatch on the right;
+    // tapping it opens the shared picker (the Easter panel uses the same one).
+    PSSpecifier *cvText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    cvText.buttonAction = @selector(openCVTextColor:);
+    [cvText setProperty:@"CVTextColor" forKey:@"id"];
+    [_specifiers addObject:cvText];
+    // 1.77: the Myrtle panel background (the App Library / search surface that the
+    // Myrtle windows carry). Same switch / material / sound / volume layout as CV.
+    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Myrtle 面板背景视频"]];
+    PSSpecifier *myrtleEnabled = [PSSpecifier preferenceSpecifierNamed:@"Myrtle 面板背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"];
+    [myrtleEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:myrtleEnabled];
+    PSSpecifier *myrtleMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 Myrtle 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    myrtleMaterial.buttonAction = @selector(switchMyrtle:);
+    [myrtleMaterial setProperty:@"MyrtleMaterial" forKey:@"id"];
+    [_specifiers addObject:myrtleMaterial];
+    [self appendAudioForTarget:@"Myrtle" title:@"播放"];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -218,6 +237,38 @@ static void LMVNotify(void) {
     __weak LMVEasterImageSettings *weakPanel = panel;
     panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:nil]; };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
+}
+// 1.83: PSButtonCell keeps the tap routing; the round swatch is painted on the
+// cell here so no private cell subclass (and no extra Preferences header) is needed.
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
+    if ([[specifier propertyForKey:@"id"] isEqualToString:@"CVTextColor"]) {
+        UIView *dot = [cell.contentView viewWithTag:0x5A2C];
+        if (!dot) {
+            dot = [UIView new];
+            dot.tag = 0x5A2C;
+            dot.userInteractionEnabled = NO;
+            dot.layer.borderWidth = 1;
+            dot.layer.borderColor = [UIColor separatorColor].CGColor;
+            [cell.contentView addSubview:dot];
+        }
+        dot.backgroundColor = LMVTextColorCurrent() ?: UIColor.whiteColor;
+        CGFloat size = 18;
+        dot.frame = CGRectMake(cell.contentView.bounds.size.width - size - 18,
+                               (cell.contentView.bounds.size.height - size) / 2, size, size);
+        dot.layer.cornerRadius = size / 2;
+    }
+}
+- (void)openCVTextColor:(PSSpecifier *)specifier {
+    if (self.presentedViewController) return;
+    LMVTextColorPicker *picker = [LMVTextColorPicker new];
+    picker.modalPresentationStyle = UIModalPresentationPageSheet;
+    __weak LMVPRootListController *weakSelf = self;
+    __weak PSSpecifier *weakSpecifier = specifier;
+    picker.onChange = ^(UIColor *color) {
+        if (weakSpecifier) [weakSelf reloadSpecifier:weakSpecifier animated:NO];
+    };
+    [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
@@ -311,7 +362,7 @@ static void LMVNotify(void) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -320,7 +371,7 @@ static void LMVNotify(void) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @"", @"Myrtle": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -343,6 +394,7 @@ static void LMVNotify(void) {
 
 - (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
 - (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
+- (void)switchMyrtle:(PSSpecifier *)specifier { [self switchTarget:@"Myrtle"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];

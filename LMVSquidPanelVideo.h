@@ -74,12 +74,50 @@ static BOOL LMVSquidPanelSpringBoard(void) {
 }
 static BOOL LMVSquidPanelEnvironment(void) {
     uint64_t blank=1,locked=1;
-    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVSquidPanelSpringBoard() &&
-        LMVBlankToken>=0 && LMVLockToken>=0 &&
-        notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
-        notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
+    // 1.76.8: nine conditions joined by &&. Any one of them false makes this channel
+    // stand down SILENTLY, and the report ("panel shows no video") looks identical
+    // whichever one it was. Evaluate them separately and print the failing set.
+    BOOL init=LMVInitialized, ready=LMVLaunchReady, main=NSThread.isMainThread;
+    BOOL sb=LMVSquidPanelSpringBoard();
+    BOOL haveTokens=(LMVBlankToken>=0 && LMVLockToken>=0);
+    BOOL blankOK=haveTokens && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
+    BOOL lockOK=haveTokens && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
+    // 1.76.9: `!locked` was the gate that blocked this channel on the Lock Screen.
+    // The device capture that found it: squid-panel env ... blank=0 locked=1 and
+    // squid-panel windows env=0 win=1 - the window WAS there, the environment said no.
+    // The panel is only ever on screen because the user summoned it (swipe up over
+    // Notification Center, which lives on the Lock Screen), so requiring an unlocked
+    // device rejects exactly the case the feature is for. `!blank` still applies:
+    // a dark screen must never start a decoder.
+    BOOL ok=init && ready && main && sb && haveTokens && blankOK && lockOK && !blank;
+    if(!ok && LMVDiagnosticsEnabled.load()) {
+        static NSString *last=nil;
+        NSString *line=[NSString stringWithFormat:@"squid-panel env init=%d ready=%d main=%d sb=%d tok=%d blankOK=%d lockOK=%d blank=%llu locked=%llu",
+            (int)init,(int)ready,(int)main,(int)sb,(int)haveTokens,(int)blankOK,(int)lockOK,
+            (unsigned long long)blank,(unsigned long long)locked];
+        if(![line isEqualToString:last]) {last=[line copy];LMVDiagnostic(line);}
+    }
+    return ok;
 }
 // The panel window: the class name the device log named. Nothing else is assumed.
+// 1.76.8: when the panel window cannot be found, say WHAT the window list actually
+// holds. Three captures in a row showed "no squid-* lines at all", which could mean
+// switch off, no material, or panel in a window we never look at - three completely
+// different fixes. This collapses that to one line.
+static NSString *LMVSquidWindowReport(void) {
+    NSMutableString *out=[NSMutableString new];
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(out.length>900)break;
+            [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
+                NSStringFromClass(window.class),(int)window.hidden,window.alpha,
+                window.frame.size.width,window.frame.size.height,window.windowLevel,
+                (unsigned long)window.subviews.count];
+        }
+    }
+    return out.length?out:@"none";
+}
 static UIWindow *LMVSquidPanelWindow(void) {
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
@@ -1037,12 +1075,27 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     }
     BOOL changed=![self.playback.path isEqualToString:wantPath] ||
         ![self.playback.revision isEqualToString:wantRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:wantPath revision:wantRevision];}
+    if(changed) {
+        [self.host removeFromSuperview];
+        // 1.76.7: seed the poster BEFORE selecting, so the layer has real pixels to
+        // show from the first frame (same ordering the Control Center channel uses).
+        [self.playback preparePosterForPath:wantPath revision:wantRevision];
+        [self.playback selectPath:wantPath revision:wantRevision];
+    }
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    // A still poster is not a panel background: wait for the decoder, exactly like
-    // the menu channel does, and simply leave the panel alone until then.
-    self.playback.posterLayer.hidden=YES;
-    BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;
+    // 1.76.7: THE PANEL NEVER SHOWED ANYTHING BECAUSE OF THIS ORDER.
+    // playerLayer.readyForDisplay only becomes true once the layer is attached to
+    // something on screen - the Control Center channel documented exactly that
+    // ("readyForDisplay turns true, which never happens while the Control Center is
+    // closed"). This channel asked for readyForDisplay FIRST and only mounted when it
+    // was already true, so the host was never mounted in the first place. On top of
+    // that the poster layer was forced hidden here, which removed the only pixels the
+    // surface could have shown while the decoder warmed up.
+    // Mounting no longer waits for readiness: a real poster frame is enough to be
+    // worth showing, and the player covers it the moment it is ready.
+    BOOL hasPoster=self.playback.posterLayer.contents!=nil;
+    BOOL live=self.playback.player && !self.playback.error &&
+        (hasPoster || self.playback.playerLayer.readyForDisplay);
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     // 1.25: WHERE in the panel the video belongs. 1.25 put it directly BELOW the
     // panel's blur material, and the material simply hid it (device report: 视频太
@@ -1253,11 +1306,30 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
     for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++)
         if(LMVSquidPanelSlotPaths[i].length && LMVSquidPanelSlotRevisions[i].length)anySlot=YES;
     if(!LMVSquidPanelEnabled || !anySlot) {
+        // 1.76.7: this exit used to be SILENT. A capture taken while the panel showed
+        // no video contained 725 lines and not one squid-* line, which reads exactly
+        // like "the channel is broken" - when in fact the channel never ran because
+        // either the switch is off or none of the four slots has a material. Say which.
+        if(LMVDiagnosticsEnabled.load()) {
+            static NSString *lastGate=nil;
+            NSString *gate=[NSString stringWithFormat:@"squid-panel gate enabled=%d anySlot=%d (no video: switch off or no material selected)",
+                (int)LMVSquidPanelEnabled,(int)anySlot];
+            if(![gate isEqualToString:lastGate]) {lastGate=[gate copy];LMVDiagnostic(gate);}
+        }
         [LMVSquidPanelVideo detach];
         if(LMVSquidPanelVideo.playback.path)[LMVSquidPanelVideo.playback clear];
         return;
     }
-    if(!LMVSquidPanelEnvironment() || !LMVSquidPanelWindow()) {[LMVSquidPanelVideo detach];return;}
+    if(!LMVSquidPanelEnvironment() || !LMVSquidPanelWindow()) {
+        // 1.76.8: one line per state change, and it is exempt from the record budget.
+        if(LMVDiagnosticsEnabled.load()) {
+            static NSString *lastWindows=nil;
+            NSString *windows=[NSString stringWithFormat:@"squid-panel windows env=%d win=%d %@",
+                (int)LMVSquidPanelEnvironment(),(int)(LMVSquidPanelWindow()!=nil),LMVSquidWindowReport()];
+            if(![windows isEqualToString:lastWindows]) {lastWindows=[windows copy];LMVDiagnostic(windows);}
+        }
+        [LMVSquidPanelVideo detach];return;
+    }
     // Hook install/preferences/launch alone never construct UI or a player.
     if(!LMVSquidPanelVideo)LMVSquidPanelVideo=[LMVSquidPanelVideoManager new];
     // A timer callback is a run-loop callback: an uncaught exception here aborts

@@ -4,6 +4,7 @@
 #import "LMVEasterPhotoFlow.h"
 #import "LMVEasterImageSettings.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
+#import "LMVTextColorPicker.h"
 
 // Image import and display controls stay on their own settings page.
 @interface LMVEasterPanel : UITableViewController <PHPickerViewControllerDelegate>
@@ -35,7 +36,9 @@ static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() 
 // 1.43: the CopyVault clipboard panel sits directly below the AT channel, the
 // same way the AT channel sits below the Squid panel one.
 static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }
-static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCVSection() + 1; }
+// 1.77: the Myrtle panel sits directly below CopyVault, matching Settings.
+static NSInteger LMVEasterMyrtleSection(void) { return LMVEasterCVSection() + 1; }
+static NSInteger LMVEasterDisplaySection(void) { return LMVEasterMyrtleSection() + 1; }
 static NSInteger LMVEasterOpacitySection(void) { return LMVEasterDisplaySection() + 1; }
 static NSInteger LMVEasterImportSection(void) { return LMVEasterOpacitySection() + 1; }
 static NSString *LMVEasterControlCenterKey(NSInteger row) {
@@ -43,7 +46,7 @@ static NSString *LMVEasterControlCenterKey(NSInteger row) {
 }
 // Audio tags are target indices, never section indices (CC has two targets).
 static NSArray *LMVEasterAudioTargets(void) {
-    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV"];
+    return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle"];
 }
 // 1.63: the four SquidGesturePro panels (right/left, swipe-up / swipe-up-twice) share
 // ONE material - the user picks a single "切换视频" and every panel plays it.
@@ -55,6 +58,7 @@ static NSString *LMVEasterAudioTarget(NSInteger section, NSInteger row) {
     if (section == LMVEasterSquidPanelSection() && (row == 2 || row == 3)) return @"SquidPanel";
     if (section == LMVEasterATSection() && (row == 2 || row == 3)) return @"AT";
     if (section == LMVEasterCVSection() && (row == 2 || row == 3)) return @"CV";
+    if (section == LMVEasterMyrtleSection() && (row == 2 || row == 3)) return @"Myrtle";
     if (section == LMVEasterControlCenterSection()) {
         if (row == 2 || row == 3) return @"ControlCenterDark";
         if (row == 5 || row == 6) return @"ControlCenterLight";
@@ -246,7 +250,8 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterHomeMenuSection()) return 4;
     if (section == LMVEasterSquidPanelSection()) return 4;
     if (section == LMVEasterATSection()) return 4;
-    if (section == LMVEasterCVSection()) return 4;
+    if (section == LMVEasterCVSection()) return 5;
+    if (section == LMVEasterMyrtleSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row > 0 ? 60 : 44; }
@@ -257,6 +262,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";
     if (section == LMVEasterATSection()) return @"AT 背景视频";
     if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";
+    if (section == LMVEasterMyrtleSection()) return @"Myrtle 面板背景视频";
     if (section == LMVEasterDisplaySection()) return @"小彩蛋显示设置";
     return section == LMVEasterOpacitySection() ? @"消息、选项、清除视频透明度" : @"独立原片导入";
 }
@@ -360,9 +366,35 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCVSection();
             toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else if (index.row == 4) {
+            // 1.83: same round swatch as Settings; tapping opens the shared picker.
+            cell.textLabel.text = @"文字颜色";
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 18, 18)];
+            UIColor *color = LMVTextColorCurrent();
+            dot.backgroundColor = color ?: UIColor.clearColor;
+            dot.layer.cornerRadius = 9;
+            dot.layer.borderWidth = 1;
+            dot.layer.borderColor = [UIColor separatorColor].CGColor;
+            cell.accessoryView = dot;
         } else {
-            cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil;
             id selected = LMVEasterRead(@"CVVideo");
+            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
+            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
+            cell.detailTextLabel.numberOfLines = 2;
+        }
+        return cell;
+    }
+    if (index.section == LMVEasterMyrtleSection()) {
+        if (index.row == 0) {
+            cell.textLabel.text = @"Myrtle 面板背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterMyrtleSection();
+            toggle.on = [LMVEasterRead(@"MyrtleBackgroundEnabled") boolValue];
+            [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
+        } else {
+            cell.textLabel.text = @"切换 Myrtle 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            id selected = LMVEasterRead(@"MyrtleVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
             cell.detailTextLabel.numberOfLines = 2;
@@ -432,6 +464,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     else if (toggle.tag == LMVEasterSquidPanelSection()) key = @"SquidPanelBackgroundEnabled";
     else if (toggle.tag == LMVEasterATSection()) key = @"ATBackgroundEnabled";
     else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled";
+    else if (toggle.tag == LMVEasterMyrtleSection()) key = @"MyrtleBackgroundEnabled";
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
@@ -485,8 +518,19 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if (index.row != 1) return;
         key = @"ATVideo";
     } else if (index.section == LMVEasterCVSection()) {
+        if (index.row == 4) {
+            LMVTextColorPicker *picker = [LMVTextColorPicker new];
+            picker.modalPresentationStyle = UIModalPresentationPageSheet;
+            __weak typeof(self) weakSelf = self;
+            picker.onChange = ^(UIColor *color) { [weakSelf.tableView reloadData]; };
+            [self presentViewController:picker animated:YES completion:nil];
+            return;
+        }
         if (index.row != 1) return;
         key = @"CVVideo";
+    } else if (index.section == LMVEasterMyrtleSection()) {
+        if (index.row != 1) return;
+        key = @"MyrtleVideo";
     } else {
         if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;
         NSString *target = LMVEasterTargets()[index.section];

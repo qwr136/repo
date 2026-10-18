@@ -194,6 +194,7 @@ static CFTimeInterval clockNow=10;
 #define CACurrentMediaTime() clockNow
 static NSArray *LMVTargets(void) { return @[@"Message",@"Options",@"Clear"]; }
 static void LMVDiagnostic(NSString *event) {}
+static void LMVPerfProbe(const char *label, CFTimeInterval started) {}
 static void LMVCardPipelineAudit(UIView *owner, LMVVideoState *state, NSString *target, UIView *anchor, NSString *stage) {}
 static BOOL LMVPlaybackAllowed(void) { return playback; }
 static BOOL LMVNotificationCenterSurface(UIView *view) { return view.window!=nil; }
@@ -214,6 +215,7 @@ static void LMVStartSource(LMVSharedSource *source) { source.playing=YES; }
 static void LMVStopSource(LMVSharedSource *source) { source.playing=NO; }
 static void LMVSourcePause(LMVSharedSource *source) { source.playing=NO; }
 static void LMVSyncDisplayLink(void) {}
+static void LMVRequestSyncDisplayLink(void) { LMVSyncDisplayLink(); }
 static void LMVRetryDiscovery(UIView *cell) { retries++; }
 static void LMVUpdate(UIView *cell);
 '''
@@ -227,14 +229,16 @@ static void configure(void) {
     LMVPaths=[@{@"Message":@"movie"} mutableCopy];
     LMVRevisions=[@{@"movie":@"r1",@"movie2":@"r2"} mutableCopy];
     LMVSharedSources=[NSMutableDictionary new];
-    // 0.0.117: the registry key is the SELECTED FILE, so one chain per file; the
-    // three categories share it while they select the same video.
+    // 1.76.1: one chain per CHANNEL. Seed one per channel per file, so a channel
+    // that never opened a card still has the chain its cards will reuse.
     for (NSString *path in @[@"movie",@"movie2"]) {
-        LMVSharedSource *source=[LMVSharedSource new];source.identifier=LMVSharedSources.count+1;
-        source.path=path;source.ownerTarget=@"Message";source.registryKey=LMVSourceRegistryKey(path,@"Message");
-        assert(source.registryKey);LMVSharedSources[source.registryKey]=source;
+        for (NSString *target in LMVTargets()) {
+            LMVSharedSource *source=[LMVSharedSource new];source.identifier=LMVSharedSources.count+1;
+            source.path=path;source.ownerTarget=target;source.registryKey=LMVSourceRegistryKey(path,target);
+            assert(source.registryKey);LMVSharedSources[source.registryKey]=source;
+        }
     }
-    assert(LMVSharedSources.count==2);
+    assert(LMVSharedSources.count==6);
     LMVCells=[NSHashTable weakObjectsHashTable];
     snapshot=[LMVFrameSnapshot new];
     unsigned char pixels[]={90,140,200,255};
@@ -542,32 +546,37 @@ static void testIndependentVisibleConsumers(void) {
   NSDictionary *one=objc_getAssociatedObject(cards[0],&LMVStatesKey),*two=objc_getAssociatedObject(cards[1],&LMVStatesKey);
   assert(((LMVVideoState *)one[target]).source==((LMVVideoState *)two[target]).source);
  }
- // 0.0.117: Message/Options/Clear all select "movie", so ONE chain feeds them.
+ // 1.76.1: one chain per CHANNEL. Message/Options/Clear all select "movie" but
+ // share nothing between channels; the two cards inside one channel still share
+ // that channel's chain - that is the "cards reuse their own source" contract.
  LMVSharedSource *message=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Message")];
- LMVSharedSource *options=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Options")],*clear=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Clear")];
- assert(message && message==options && message==clear && LMVSharedSources.count==2);
+ LMVSharedSource *options=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Options")];
+ LMVSharedSource *clear=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Clear")];
+ assert(message && options && clear && message!=options && options!=clear && message!=clear);
+ assert(LMVSharedSources.count==6);
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t])
-   assert(((LMVVideoState *)((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[t]).source==message);
+   assert(((LMVVideoState *)((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[t]).source
+          ==LMVSharedSources[LMVSourceRegistryKey(@"movie",t)]);
  UIView *first=owners[@"Message"][0],*second=owners[@"Message"][1];
  first.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
- second.hidden=YES;LMVReconcileCardSources(second);assert(message.playing); // Options/Clear cards still visible
+ second.hidden=YES;LMVReconcileCardSources(second);
+ assert(!message.playing);                  // the last Message consumer is gone
+ assert(options.playing && clear.playing);  // neighbours are untouched
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
- assert(!message.playing); // the LAST visible consumer of this file retired it
+ assert(!message.playing && !options.playing && !clear.playing);
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
- assert(message.playing);
+ assert(message.playing && options.playing && clear.playing);
  first.hidden=NO;LMVReconcileCardSources(first);
  LMVVideoState *v=((NSDictionary *)objc_getAssociatedObject(first,&LMVStatesKey))[@"Message"];
  assert(v.source==message);v.anchor.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
- v.overlay.hidden=YES;LMVReconcileCardSources(first);assert(message.playing); // two more cards consume it
+ v.overlay.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
  for(UIView *cell in owners[@"Message"]){v=((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[@"Message"];if(v)v.overlay.hidden=YES;}
  for(NSString *t in @[@"Options",@"Clear"])for(UIView *cell in owners[t])cell.hidden=YES;
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t])LMVReconcileCardSources(cell);
  assert(!message.playing);
- // Target disable/clear-selection must tear down only its own real bindings.
  v.overlay.hidden=NO;
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
- // These earlier views intentionally seed only consumers; bind all actual targets
- // on a shared cell now, preserving those seeded consumer/lifetime assertions.
+ // One cell carrying all three targets binds each channel to its own chain.
  UIView *wrapper; MTMaterialView *m; NCNotificationListCell *mixed=card(window,&wrapper,&m);
  PLActionButtonsPresentingView *presenter=[PLActionButtonsPresentingView new];[wrapper addSubview:presenter];
  NSMutableDictionary *materials=[@{@"Message":m} mutableCopy];
@@ -578,15 +587,15 @@ static void testIndependentVisibleConsumers(void) {
  clockNow+=.101;LMVUpdate(mixed);
  NSDictionary *mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
  LMVVideoState *ms=mixedStates[@"Message"],*os=mixedStates[@"Options"],*cs=mixedStates[@"Clear"];
- assert(ms && os && cs && ms.source==message && os.source==message && cs.source==message);
+ assert(ms && os && cs && ms.source==message && os.source==options && cs.source==clear);
  UIView *messageOverlay=ms.overlay,*optionsOverlay=os.overlay,*clearOverlay=cs.overlay;
  CGRect mf=m.frame,of=((UIView *)materials[@"Options"]).frame,cf=((UIView *)materials[@"Clear"]).frame;
  LMVEnabled[@"Message"]=@NO;
  for(UIView *cell in owners[@"Message"])LMVUpdate(cell);
  LMVUpdate(mixed);mixedStates=objc_getAssociatedObject(mixed,&LMVStatesKey);
- // 0.0.117: disabling ONE category drops only its own overlays; the shared file
- // keeps playing because Options/Clear still consume it.
- assert(!mixedStates[@"Message"] && !messageOverlay.superview && message.playing);
+ // Disabling one category drops only its overlays and pauses only its own chain.
+ assert(!mixedStates[@"Message"] && !messageOverlay.superview && !message.playing);
+ assert(options.playing && clear.playing);
  assert(mixedStates[@"Options"]==os && mixedStates[@"Clear"]==cs);
  assert(os.overlay==optionsOverlay && cs.overlay==clearOverlay);
  assert(near(m.alpha,.73) && CGRectEqualToRect(m.frame,mf) && !ms.originals.count);
@@ -601,11 +610,11 @@ static void testIndependentVisibleConsumers(void) {
  assert(cs.overlay==clearOverlay && near(((UIView *)materials[@"Options"]).alpha,.73));
  assert(near(((UIView *)materials[@"Clear"]).alpha,.73) && CGRectEqualToRect(((UIView *)materials[@"Options"]).frame,of));
  assert(CGRectEqualToRect(((UIView *)materials[@"Clear"]).frame,cf) && !os.originals.count && !cs.originals.count);
- // 0.0.117: a category that selects a DIFFERENT file keeps its own chain.
+ // A channel moving to a DIFFERENT file gets its own chain; the neighbours keep theirs.
  [LMVPaths setObject:@"movie2" forKey:@"Options"];
  LMVSharedSource *other=LMVSharedSources[LMVSourceRegistryKey(@"movie2",@"Options")];
  assert(other && other!=message && LMVSourceForTarget(@"movie2",@"Options")==other &&
-        LMVSourceForTarget(@"movie",@"Message")==message && LMVSharedSources.count==2);
+        LMVSourceForTarget(@"movie",@"Message")==message);
  mixed.hidden=YES;LMVReconcileCardSources(mixed);
  for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
  assert(!message.playing);

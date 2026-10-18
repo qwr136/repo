@@ -7,9 +7,9 @@ t=(r/'LockMessageVideoPrefs/LMVMaterialThumbnail.h').read_text()
 s=(r/'Tweak.xm').read_text()
 # The log must name the running version. Read it from the writer itself and
 # cross-check control, so a release that forgets either place fails here.
-_logver=re.search(r'version=([0-9]+\.[0-9]+) pid=',h)
+_logver=re.search(r'version=([0-9]+\.[0-9]+(?:\.[0-9]+)?) pid=',h)
 assert _logver, 'thumbnail log does not stamp a version'
-_ctrlver=re.search(r'^Version:\s*([0-9]+\.[0-9]+)',(r/'control').read_text(),re.M)
+_ctrlver=re.search(r'^Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)',(r/'control').read_text(),re.M)
 assert _ctrlver and _logver.group(1)==_ctrlver.group(1), 'thumbnail log version %s != control %s' % (
     _logver.group(1), _ctrlver.group(1) if _ctrlver else 'missing')
 for stage in ['request','enqueue','memory-hit','skip-previous-failure','skip-pending','defer-queue-full','worker-start','worker-finish','apply-poster','apply-placeholder','display-poster','display-placeholder']:

@@ -29,6 +29,16 @@ static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableDictionary<NSString *, NSString *> *LMVRevisions;
 static dispatch_queue_t LMVFrameQueue;
 static BOOL LMVFrameBusy;
+// 1.76.4: the gate is GLOBAL - one conversion at a time across every channel - and
+// it is cleared from a main-queue block that only runs after the frame queue has
+// finished. If that conversion never returns (slow file, software CIContext
+// fallback on a large frame), the gate stays YES forever: every source returns at
+// the top of LMVPublishFrame, all surfaces freeze on their last image, AVPlayer
+// keeps playing on its own thread, and the audio continues. That is the reported
+// "picture stuck, sound still there". Carry the moment it was taken plus a token,
+// so an overrun can be evicted without letting its late callback clear a newer one.
+static CFTimeInterval LMVFrameBusySince;
+static NSUInteger LMVFrameBusyToken;
 static CIContext *LMVCIContext;
 // Main-thread cache ownership; decoding is confined to the serial frame queue.
 @class LMVFrameSnapshot;
@@ -113,6 +123,15 @@ static BOOL LMVAlreadyLaunched(UIApplication *app) {
 static dispatch_queue_t LMVDiagnosticQueue;
 static std::atomic_bool LMVDiagnosticsEnabled(false);
 static std::atomic<unsigned long> LMVDiagnosticEpoch(0);
+// 1.76.2: main-thread stopwatch. Only a call that exceeds the threshold is
+// written, and it is exempt from the record budget. Two CACurrentMediaTime()
+// calls cost nothing even on the per-frame path, so this can stay in.
+static void LMVPerfProbe(const char *label, CFTimeInterval started) {
+    if (!LMVDiagnosticsEnabled.load()) return;
+    CFTimeInterval ms=(CACurrentMediaTime()-started)*1000.0;
+    if (ms<50.0) return;
+    LMVDiagnostic([NSString stringWithFormat:@"perf-long %s %.1fms",label,ms]);
+}
 static void LMVDiagnostic(NSString *event) {
     if (!LMVDiagnosticsEnabled.load() || !event.length || !LMVDiagnosticQueue) return;
     unsigned long epoch = LMVDiagnosticEpoch.load();
@@ -128,7 +147,19 @@ static void LMVDiagnostic(NSString *event) {
             // decisions (no easter-window line ever reached the log, which made
             // "the ball disappeared" undiagnosable). Easter decisions are tiny and
             // rate limited by their own change detection: never count them here.
-            BOOL priority = [event hasPrefix:@"easter-window "];
+            // 1.76.2: switch-time events are rare and decisive; a 1200-record
+            // budget must not swallow them (the last two captures lost every
+            // loadsource= line exactly when the freeze happened).
+            // 1.76.7: every per-channel state line is exempt from the 1200-record
+            // budget. The Squid panel capture contained 797 card-pipeline and 198
+            // card-exposure lines and ZERO squid-* lines - the panel's own log was
+            // pushed out by the notification cards, so the report had no evidence at
+            // all. A bug report about one channel must never lose that channel's lines.
+            BOOL priority = [event hasPrefix:@"easter-window "] || [event hasPrefix:@"perf-long "] ||
+                [event hasPrefix:@"loadsource="] || [event hasPrefix:@"asset-ready="] ||
+                [event hasPrefix:@"squid-"] || [event hasPrefix:@"cv-panel "] || [event hasPrefix:@"desktop-panel"] ||
+                [event hasPrefix:@"window-owner "] || [event hasPrefix:@"frame-gate-timeout"] ||
+                [event hasPrefix:@"desktop-stage "];
             if (!priority && ++records > 1200) return;
             NSFileManager *fm=NSFileManager.defaultManager;
             [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
@@ -156,6 +187,7 @@ static void LMVDiagnostic(NSString *event) {
 #import "LMVSquidPanelVideo.h"
 #import "LMVATPanelVideo.h"
 #include "LMVCopyVaultPanelVideo.h"
+#include "LMVMyrtlePanelVideo.h"
 #import "LMVMediaAudio.h"
 
 @interface LMVFrameSnapshot : NSObject
@@ -223,7 +255,13 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
 // participates in the key, so identical selections collapse onto one decoder.
 static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
     if (!path.length || ![@[@"Message",@"Options",@"Clear"] containsObject:target ?: @""]) return nil;
-    return path;
+    // 1.76.1: one source per CHANNEL, not per file. The key used to be the path
+    // alone, so Message/Options/Clear that happened to select the SAME clip shared
+    // one AVPlayer, one decoder session and one frame gate - a single stalled
+    // source froze all three surfaces at once. Cards inside one channel still
+    // share that channel's source, which is the intended behaviour; the three
+    // channels no longer share anything.
+    return [NSString stringWithFormat:@"%@|%@", path, target];
 }
 @interface LMVSharedSource : NSObject <AVPlayerItemOutputPullDelegate>
 @property(nonatomic, strong) AVPlayer *player;
@@ -247,11 +285,6 @@ static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
 @property(nonatomic) CFTimeInterval startedAt, pausedAt;
 @property(nonatomic) CFTimeInterval lastRequestAt;
 @property(nonatomic) CFTimeInterval lastProgressAt;
-// 1.79: back-off for rebuilding a source whose AVPlayerItem went to Failed.
-// Device log: three categories showed playerstatus=2/itemstatus=2 in the same
-// millisecond and stayed frozen on their last frame forever - a failed item
-// never recovers by itself, so the source has to be rebuilt.
-@property(nonatomic) CFTimeInterval lastRebuildAt;
 @property(nonatomic) CFTimeInterval lastDiagnosticAt;
 @property(nonatomic, copy) NSString *diagnosticState;
 @property(nonatomic) NSUInteger newFrames, buffers, conversions, conversionErrors, published, drops;
@@ -266,13 +299,16 @@ static NSString *LMVSourceRegistryKey(NSString *path, NSString *target) {
 @property(nonatomic) CMTime readerLastTarget;
 @property(nonatomic) CFTimeInterval readerRetryAt;
 @end
+// 1.76.5: declared here because the output delegate below is the earliest caller;
+// the definition sits next to LMVSyncDisplayLink.
+static void LMVRequestSyncDisplayLink(void);
 @implementation LMVSharedSource
 - (void)outputMediaDataWillChange:(AVPlayerItemOutput *)output {
     if (output!=_output) return;
     _outputAwake=YES;
     LMVDiagnostic([NSString stringWithFormat:@"source=%lu output-ready requested=%d",(unsigned long)_identifier,_playing]);
     // Delegate queue is main; no UIKit work is performed by the decoding queue.
-    LMVSyncDisplayLink();
+    LMVRequestSyncDisplayLink();
 }
 - (void)outputSequenceWasFlushed:(AVPlayerItemOutput *)output {
     if (output!=_output) return;
@@ -409,10 +445,15 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
     LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);
     if (snapshot.image) {
         source.lastImage=CGImageRetain(snapshot.image);
-        if (snapshot.rendered && CMTIME_IS_NUMERIC(snapshot.time)) {
-            source.lastTime=snapshot.time; source.restoreOnStart=YES;
-            // Wait for ready-to-play before restoring. Cached image is already local.
-        }
+        // 1.76.6: do NOT restore the position. A cached frame with rendered=YES is
+        // the frame we PAUSED at, and its time is where playback had got to.
+        // Restoring it made every material switch resume mid-clip - the user picks a
+        // background and expects it to start from the beginning, not from second 8 of
+        // the last audition. The still is kept ONLY as a placeholder so the surface
+        // is not blank while the decoder warms up; playback always starts at zero.
+        // The other case that used this path - hiding and revealing the same surface -
+        // is the SAME LMVSharedSource, and AVPlayer keeps its own time across
+        // pause/play, so it never needed a disk restore either.
     }
     source.pausedAt=CACurrentMediaTime();
     LMVSharedSources[registryKey]=source;
@@ -486,7 +527,16 @@ static CVPixelBufferRef LMVReadSharedBuffer(LMVSharedSource *source, CMTime *dis
     return buffer;
 }
 static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
-    if (!source || source.restoringTime || LMVFrameBusy || source.frameBusy || !source.playing) return;
+    if (!source || source.restoringTime || !source.playing) return;
+    if (LMVFrameBusy) {
+        CFTimeInterval held=CACurrentMediaTime()-LMVFrameBusySince;
+        if (held<2.0) return;
+        // 1.76.4: evict only the conversion that overran.
+        LMVDiagnostic([NSString stringWithFormat:@"frame-gate-timeout held=%.0fms",held*1000.0]);
+        LMVFrameBusyToken++;
+        LMVFrameBusy=NO; LMVFrameBusySince=0;
+    }
+    if (source.frameBusy) return;
     CVPixelBufferRef buffer=NULL;
     CMTime itemTime=kCMTimeInvalid;
     BOOL readerMode=source.readerMode;
@@ -498,6 +548,8 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
         if (!buffer) return;
     }
     source.frameBusy=YES; LMVFrameBusy=YES;
+    LMVFrameBusySince=CACurrentMediaTime();
+    NSUInteger frameToken=++LMVFrameBusyToken;
     NSUInteger generation=source.generation;
     CGAffineTransform transform=source.imageTransform;
     BOOL hasPublishedImage=source.lastImage!=NULL;
@@ -532,7 +584,8 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
             BOOL hadBuffer=workBuffer!=NULL;
             dispatch_async(dispatch_get_main_queue(), ^{
                 // Clear both busy flags on every exit, including conversion failure/discard.
-                source.frameBusy=NO; LMVFrameBusy=NO;
+                source.frameBusy=NO;
+                if (LMVFrameBusyToken==frameToken) { LMVFrameBusy=NO; LMVFrameBusySince=0; }
                 if (hadBuffer) source.buffers++;
                 if (conversionFailed) source.conversionErrors++;
                 if (image) source.conversions++;
@@ -564,6 +617,22 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
 static void LMVStartSource(LMVSharedSource *source) {
     if (!source || LMVSharedSources[source.registryKey]!=source) return;
     if (source.playing) {
+        // 1.76.4: `playing` is our INTENT, not the player's state. When the system
+        // pauses the player underneath us - an audio interruption, the frame pipeline
+        // falling behind, a key-window transition while the easter panel closes -
+        // `playing` stays YES. The early return then keeps it paused forever,
+        // lastProgressAt stops advancing, and three seconds later
+        // LMVSourceNeedsReaderRecovery drops the channel onto the AVAssetReader path,
+        // where every frame costs a decode + CIContext pass on top of playback.
+        // The measured end state was a healthy player that nobody was restarting:
+        //   playerstatus=1 itemstatus=1 ready=1 rate=0.00 mode=shared-reader
+        if (!source.readerMode && source.player.rate<0.01 &&
+            source.player.currentItem.status==AVPlayerItemStatusReadyToPlay &&
+            source.player.timeControlStatus!=AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate) {
+            [source.player playImmediatelyAtRate:1.0];
+            source.lastProgressAt=CACurrentMediaTime();
+            return;
+        }
         if (!source.readerMode && source.restoreOnStart && !source.restoringTime &&
             source.player.currentItem.status==AVPlayerItemStatusReadyToPlay) source.playing=NO;
         else return;
@@ -642,14 +711,25 @@ static void LMVReleasePlayer(LMVVideoState *state) {
 }
 static BOOL LMVSourceNeedsReaderRecovery(LMVSharedSource *source,CFTimeInterval now) {
     if(!source || !source.playing || source.readerMode || source.frameBusy)return NO;
-    CFTimeInterval limit=source.published?3.0:.75;
+    // 1.76.4: a cold source needs longer than 0.75 s for its first frame; firing the
+    // reader fallback that early forced a decoder switch on every single open.
+    CFTimeInterval limit=source.published?3.0:1.5;
     return source.player.currentItem.status==AVPlayerItemStatusFailed || now-source.lastProgressAt>=limit;
 }
 static void LMVRetireSource(LMVSharedSource *source) {
     if (!source) return;
     LMVStopSource(source); source.generation++;
     [source.output setDelegate:nil queue:NULL];
-    [source.player replaceCurrentItemWithPlayerItem:nil]; source.player=nil; source.output=nil;
+    // 1.76.5: -replaceCurrentItemWithPlayerItem: stops the item synchronously and
+    // waits for the player to let go of it. On a material switch that call sat on the
+    // main thread inside LMVPrepareAssets, right when the new file was being wired
+    // up - the "switch stalls" moment. Hand the player over and tear it down one
+    // runloop later, so the switch path no longer waits for it.
+    AVPlayer *retiredPlayer=source.player;
+    source.player=nil; source.output=nil;
+    if (retiredPlayer) dispatch_async(dispatch_get_main_queue(), ^{
+        [retiredPlayer replaceCurrentItemWithPlayerItem:nil];
+    });
     if (source.endObserver) { [NSNotificationCenter.defaultCenter removeObserver:source.endObserver]; source.endObserver=nil; }
     // Ordered after any pending conversion; its publication is rejected by epoch/key.
     dispatch_async(LMVFrameQueue, ^{
@@ -671,8 +751,16 @@ static void LMVPrepareAssets(void) {
         // selects this exact file; retirement follows real demand, not the
         // category that happened to create it first.
         BOOL wanted=NO;
-        for(NSString *candidate in LMVTargets())
-            if(LMVEnabled[candidate].boolValue && [LMVPaths[candidate] isEqualToString:source.path]){wanted=YES;break;}
+        for(NSString *candidate in LMVTargets()) {
+            if(!LMVEnabled[candidate].boolValue) continue;
+            if(![LMVPaths[candidate] isEqualToString:source.path]) continue;
+            // 1.76.1: the key carries the channel now, so a source is wanted only
+            // while THIS channel still selects the file. Matching the path alone
+            // kept the previous channel's player alive after a switch - it was
+            // wanted by a neighbour and never returned to service.
+            NSString *key=LMVSourceRegistryKey(source.path,candidate);
+            if([key isEqualToString:source.registryKey]){wanted=YES;break;}
+        }
         if(!wanted) LMVRetireSource(source);
     }
     for (NSString *path in LMVSources.allKeys) {
@@ -740,6 +828,7 @@ static void LMVPrepareAssets(void) {
     }
 }
 static void LMVLoadPreferences(void) {
+    CFTimeInterval probePrefs=CACurrentMediaTime();
     CFPreferencesAppSynchronize(kLMVPrefsID);
     NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
     BOOL diagnosticsEnabled = [diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue;
@@ -786,6 +875,7 @@ static void LMVLoadPreferences(void) {
     // separately controls whether its owned overlay exists at all.
     LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, opacity.floatValue)) : 0.55;
     LMVPrepareAssets();
+    LMVPerfProbe("prefs",probePrefs);
 }
 static BOOL LMVMessageCell(UIView *cell);
 static BOOL LMVNotificationCenterSurface(UIView *view) {
@@ -935,6 +1025,7 @@ static void LMVLayoutCardSurface(LMVVideoState *state, UIView *anchor, UIView *h
 
 static void LMVUpdate(UIView *cell) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
+    CFTimeInterval probeUpdate=CACurrentMediaTime();
     NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
     if (!states) { states = [NSMutableDictionary new]; objc_setAssociatedObject(cell, &LMVStatesKey, states, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     BOOL playbackAllowed=LMVPlaybackAllowed();
@@ -1122,7 +1213,8 @@ static void LMVUpdate(UIView *cell) {
         else if (state.source && !LMVSourceHasConsumer(state.source)) LMVStopSource(state.source);
         LMVCardPipelineAudit(cell,state,target,anchor,@"bound");
     }
-    LMVSyncDisplayLink();
+    LMVPerfProbe("update",probeUpdate);
+    LMVRequestSyncDisplayLink();
 }
 // O(existing bindings): visibility transitions do not wait for a default-mode
 // timer, full preference refresh, or material-discovery maintenance interval.
@@ -1140,7 +1232,7 @@ static void LMVReconcileCardSources(UIView *cell) {
             state.lastVisible=CACurrentMediaTime();
         } else if(state.source && !LMVSourceHasConsumer(state.source))LMVSourcePause(state.source);
     }
-    if(changed)LMVSyncDisplayLink();
+    if(changed)LMVRequestSyncDisplayLink();
 }
 static BOOL LMVPrimeMessageCard(UIView *cell) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVPreferencesDirty ||
@@ -1317,6 +1409,10 @@ static void LMVSyncAudioVisibility(void) {
     BOOL atPanelVisible=atPanel.wantsPlayback && !LMVATPanelVideo.host.hidden &&
         LMVAudioLayerExposed(atPanel.renderLayer,LMVATPanelVideo.host.window);
     LMVAudioConsume(@"AT",atPanel.path,atPanel.revision,atPanelVisible,atPanel.player.currentTime);
+    LMVLockVideoPlayback *myrtle=LMVMyrtlePanelVideo.playback;
+    BOOL myrtleVisible=myrtle.wantsPlayback && !LMVMyrtlePanelVideo.host.hidden &&
+        LMVAudioLayerExposed(myrtle.renderLayer,LMVMyrtlePanelVideo.host.window);
+    LMVAudioConsume(@"Myrtle",myrtle.path,myrtle.revision,myrtleVisible,myrtle.player.currentTime);
     LMVLockVideoPlayback *cvPanel=LMVCopyVaultPanelVideo.playback;
     BOOL cvPanelVisible=cvPanel.wantsPlayback && !LMVCopyVaultPanelVideo.host.hidden &&
         LMVAudioLayerExposed(cvPanel.renderLayer,LMVCopyVaultPanelVideo.host.window);
@@ -1362,6 +1458,7 @@ static void LMVRefresh(BOOL reload) {
     LMVSquidPanelVideoRefresh(reload);
     LMVATPanelVideoRefresh(reload);
     LMVCopyVaultPanelVideoRefresh(reload);
+    LMVMyrtlePanelVideoRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
     for (UIView *cell in LMVCells.allObjects) {
         NSMutableDictionary *states = objc_getAssociatedObject(cell, &LMVStatesKey);
@@ -1374,7 +1471,7 @@ static void LMVRefresh(BOOL reload) {
         }
         LMVUpdate(cell);
     }
-    LMVSyncDisplayLink();
+    LMVRequestSyncDisplayLink();
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
 // Only visibility/readiness/host identity transitions invoke the heavier layout path.
@@ -1390,7 +1487,23 @@ static void LMVSuspend(void) {
     LMVSquidPanelVideoSuspend();
     LMVATPanelVideoSuspend();
     LMVCopyVaultPanelVideoSuspend();
+    LMVMyrtlePanelVideoSuspend();
     LMVReleaseAllPlayers();
+}
+// 1.76.5: LMVUpdate ends by calling LMVSyncDisplayLink, and LMVUpdate is itself
+// called in a `for (cell in LMVCells)` loop - six cards meant six full "do we need
+// a display link" sweeps of every cell and every target for one user action. Fold
+// them into one pass per runloop: the link is created at most one frame later,
+// which is invisible, and the sweep count drops from O(cells^2) to O(1) per batch.
+static BOOL LMVSyncCheckScheduled;
+static void LMVSyncDisplayLink(void);   // defined below; the request trampoline needs it
+static void LMVRequestSyncDisplayLink(void) {
+    if (LMVSyncCheckScheduled) return;
+    LMVSyncCheckScheduled=YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LMVSyncCheckScheduled=NO;
+        LMVSyncDisplayLink();
+    });
 }
 static void LMVSyncDisplayLink(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
@@ -1455,24 +1568,7 @@ static void LMVSyncDisplayLink(void) {
         for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
     }
     for (LMVSharedSource *source in LMVSharedSources.allValues) {
-        if ([visible containsObject:source]) {
-            // 1.79: an AVPlayerItem that reached Failed never recovers by itself.
-            // The device log showed Message/Options/Clear all reporting
-            // playerstatus=2 itemstatus=2 in the same millisecond after several
-            // material switches, then staying frozen on their last frame. Rebuild
-            // the source, with a five-second back-off so an unreadable file cannot
-            // spin. The next update recreates it from the still-selected path.
-            AVPlayerItem *liveItem=source.player.currentItem;
-            if (liveItem.status==AVPlayerItemStatusFailed && now-source.lastRebuildAt>5.0) {
-                source.lastRebuildAt=now;
-                LMVDiagnostic([NSString stringWithFormat:@"source=%lu rebuild=failed-item",(unsigned long)source.identifier]);
-                LMVRetireSource(source);
-                continue;
-            }
-            LMVStartSource(source);
-        } else {
-            LMVStopSource(source);
-        }
+        if ([visible containsObject:source]) LMVStartSource(source); else LMVStopSource(source);
     }
     static NSUInteger lastSources=NSUIntegerMax,lastConsumers=NSUIntegerMax,nextSource=0;
     if (lastSources!=visible.count || lastConsumers!=consumers) {
@@ -1492,7 +1588,11 @@ static void LMVSyncDisplayLink(void) {
         }
         // A persistent AVPlayer-output stall switches explicitly to a shared,
         // video-only AVAssetReader. Never attach an AVPlayerLayer to a card.
-        if (LMVSourceNeedsReaderRecovery(source,now)) {
+        // 1.76.4: a busy global gate means the FRAME QUEUE is occupied, not that this
+        // source stalled. Without this, one slow conversion starves the other
+        // channels for three seconds and demotes all of them to the reader path at
+        // once - the exact "all three froze together" pattern in the device log.
+        if (!LMVFrameBusy && LMVSourceNeedsReaderRecovery(source,now)) {
             // Cached restore must not veto recovery forever on failed/not-ready
             // items or a seek completion that never arrives. Preserve its PTS for reader.
             source.restoreOnStart=NO;source.restoringTime=NO;
@@ -1520,7 +1620,7 @@ static void LMVSyncDisplayLink(void) {
         }
     }
     nextSource++;
-    LMVSyncDisplayLink();
+    LMVRequestSyncDisplayLink();
 }
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -1588,7 +1688,8 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
                     LMVSquidPanelVideoSuspend();
                     LMVATPanelVideoSuspend();
     LMVCopyVaultPanelVideoSuspend();
-                    LMVSyncDisplayLink();LMVRequestSafeUpdate();
+    LMVMyrtlePanelVideoSuspend();
+                    LMVRequestSyncDisplayLink();LMVRequestSafeUpdate();
                 }
             });
         }];

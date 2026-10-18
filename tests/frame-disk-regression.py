@@ -26,8 +26,13 @@ assert load.index('LMVCacheFrame(path,revision,image,time,YES)') < load.index('L
 preview=function('static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset)')
 assert 'LMVDiskPending containsObject:key' in preview
 source=function('static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target)')
-assert 'LMVDiskPending' in source and 'source.lastTime=snapshot.time' in source
+assert 'LMVDiskPending' in source
 assert 'LMVFrameSnapshot *snapshot=LMVCachedFrame(path,source.revision);' in source
+# 1.76.6: the cached still is reused as a placeholder, but its TIME must not be
+# restored - selecting a material has to play from zero, not from the last pause.
+assert 'source.lastImage=CGImageRetain(snapshot.image);' in source
+assert 'source.lastTime=snapshot.time' not in source
+assert 'source.restoreOnStart=YES' not in source
 assert 'LMVWallpaperFrameCache' not in s and 'LockScreen' not in source
 assert 'LMVAudioConsume(@"LockScreen"' in s
 assert 'LMVSharedSources[source.registryKey]==source' in function('static void LMVRetireSource(LMVSharedSource *source)')

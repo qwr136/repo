@@ -5,7 +5,9 @@
 // Separate audio-only chains: visual video-only compositions and success masks
 // are not changed. Default OFF; no session/category work while every switch is OFF.
 static NSArray<NSString *> *LMVAudioTargets(void) {
-    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"];
+    // 1.82: Myrtle was missing here, so its channel was never created: the sound
+    // switch and the volume slider wrote preferences that nothing ever read.
+    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle"];
 }
 static double LMVAudioVolumeValue(id value) {
     double v=[value isKindOfClass:NSNumber.class]?[value doubleValue]:.5;
