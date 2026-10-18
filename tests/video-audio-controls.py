@@ -235,6 +235,7 @@ int main(void) { @autoreleasepool {
    if(section==8&&(row==2||row==3))expected=targets[9];
    if(section==9&&(row==2||row==3))expected=targets[10];
    if(section==10&&(row==2||row==3))expected=targets[11];
+  if(section==11&&(row==2||row==3))expected=targets[12];
    NSString *actual=LMVEasterAudioTarget(section,row);
    assert((!actual&&!expected)||[actual isEqual:expected]);
    BOOL volumeRow=(section==7)?(row==3):(row==3||row==6);
