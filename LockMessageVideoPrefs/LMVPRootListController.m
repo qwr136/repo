@@ -266,14 +266,18 @@ static void LMVNotify(void) {
     __weak LMVPRootListController *weakSelf = self;
     __weak PSSpecifier *weakSpecifier = specifier;
     picker.onChange = ^(UIColor *color) {
-        if (weakSpecifier) [weakSelf reloadSpecifier:weakSpecifier animated:NO];
-        // 1.84.1: reloadSpecifier can redraw from a cached preference value, so the
-        // swatch kept the OLD colour after the sheet closed. Paint what the picker
-        // just produced as well.
-        for (UITableViewCell *cell in weakSelf.tableView.visibleCells) {
+        if (!weakSpecifier) return;
+        // 1.87: PSListController's table is `table`, not `tableView`. Touching
+        // weakSelf.tableView raised an unrecognized-selector exception and killed
+        // Preferences the moment any slider moved. Reach the cell through the
+        // specifier instead, behind a respondsToSelector guard.
+        if ([weakSelf respondsToSelector:@selector(cellForSpecifier:)]) {
+            UITableViewCell *cell = [weakSelf cellForSpecifier:weakSpecifier];
             UIView *dot = [cell.contentView viewWithTag:0x5A2C];
             if (dot) dot.backgroundColor = color ?: UIColor.whiteColor;
         }
+        if ([weakSelf respondsToSelector:@selector(reloadSpecifier:animated:)])
+            [weakSelf reloadSpecifier:weakSpecifier animated:NO];
     };
     [self presentViewController:picker animated:YES completion:nil];
 }
