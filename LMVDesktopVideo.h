@@ -229,9 +229,16 @@ static void LMVDesktopVideoSuspend(void);
 // full probe on the frame one of them moves - which is the first frame of a
 // reveal. `watchWindow` is weak: SpringBoard destroys and recreates windows.
 @property(nonatomic,weak) UIWindow *watchWindow;
+// 1.77.1: the cover sheet's root view. Notification Centre and Control Centre
+// dismiss by sliding THIS view out while the window itself never moves, so the
+// window properties alone cannot see the reveal. Its presentation frame is the
+// one signal that starts moving on the first frame of the dismissal.
+@property(nonatomic,weak) UIView *watchRoot;
 @property(nonatomic) BOOL watchHidden;
 @property(nonatomic) CGFloat watchAlpha;
 @property(nonatomic) CGRect watchFrame;
+@property(nonatomic) CGRect watchRootFrame;
+@property(nonatomic) CGFloat watchRootOpacity;
 // 1.33: whether the surface is currently on the Home host. It decides whether the
 // geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
 // reads it, so it has to be part of the manager rather than a local.
@@ -642,6 +649,23 @@ static UIWindow *LMVDesktopTopVisibleWindow(UIWindow *exclude) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
             if (window==exclude || window.hidden || window.alpha<.01) continue;
+            // 1.77.1: these windows are ALWAYS visible and never cover the desktop.
+            // Picking one as the watch made the gate blind - its own hidden/alpha/
+            // frame never moves - so dismissing Notification Centre (which slides
+            // the cover sheet's ROOT VIEW while its window stays exactly where it
+            // was) fell through to the next full update and briefly showed the
+            // wallpaper. Only real cover candidates may become the watch.
+            NSString *name=NSStringFromClass(window.class);
+            if ([name isEqualToString:@"UITextEffectsWindow"] ||
+                [name isEqualToString:@"SBSystemApertureWindow"] ||
+                [name isEqualToString:@"SBStatusBarReusePoolWindow"] ||
+                [name isEqualToString:@"SBRecordingIndicatorWindow"] ||
+                [name isEqualToString:@"SBScreenshotsWindow"] ||
+                [name isEqualToString:@"SBMedusaHostedKeyboardWindow"] ||
+                [name isEqualToString:@"_LNSceneTouchVisualizerWindow"] ||
+                [name isEqualToString:@"SBHomeScreenWindow"] ||
+                [name isEqualToString:@"_SBWallpaperSecureWindow"] ||
+                [name isEqualToString:@"SBWindow"]) continue;
             top=window;
         }
     }
@@ -868,16 +892,34 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             BOOL moved=(watch.hidden!=self.watchHidden) ||
                 watch.alpha>self.watchAlpha+0.002 || watch.alpha<self.watchAlpha-0.002 ||
                 !CGRectEqualToRect(watch.frame,self.watchFrame);
+            // 1.77.1: the dismissal itself. Notification Centre / Control Centre
+            // slide their root view away while the window never moves, so this is
+            // the frame the wallpaper would otherwise show through.
+            if (!moved && self.watchRoot) {
+                CALayer *presentation=self.watchRoot.layer.presentationLayer ?: self.watchRoot.layer;
+                if (presentation && (!CGRectEqualToRect(presentation.frame,self.watchRootFrame) ||
+                                     presentation.opacity>self.watchRootOpacity+0.002 ||
+                                     presentation.opacity<self.watchRootOpacity-0.002)) moved=YES;
+            }
             if (!moved && gateNow-self.probeFullAt<1.0) return;
         }
     }
     self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
     // 1.77: remember what the cheap gate should watch on the next frame.
     self.watchWindow=LMVDesktopTopVisibleWindow(self.container.window);
+    self.watchRoot=self.watchWindow?self.watchWindow.rootViewController.viewIfLoaded:nil;
     if (self.watchWindow) {
         self.watchHidden=self.watchWindow.hidden;
         self.watchAlpha=self.watchWindow.alpha;
         self.watchFrame=self.watchWindow.frame;
+    }
+    if (self.watchRoot) {
+        CALayer *presentation=self.watchRoot.layer.presentationLayer ?: self.watchRoot.layer;
+        self.watchRootFrame=presentation?presentation.frame:CGRectZero;
+        self.watchRootOpacity=presentation?presentation.opacity:1.0;
+    } else {
+        self.watchRootFrame=CGRectZero;
+        self.watchRootOpacity=1.0;
     }
     BOOL unknown=NO,appCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover);
@@ -1869,10 +1911,19 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     self.probeWindowCount=LMVDesktopVisibleWindowCount();
     self.probeFullAt=CACurrentMediaTime();
     self.watchWindow=LMVDesktopTopVisibleWindow(self.container.window);
+    self.watchRoot=self.watchWindow?self.watchWindow.rootViewController.viewIfLoaded:nil;
     if (self.watchWindow) {
         self.watchHidden=self.watchWindow.hidden;
         self.watchAlpha=self.watchWindow.alpha;
         self.watchFrame=self.watchWindow.frame;
+    }
+    if (self.watchRoot) {
+        CALayer *presentation=self.watchRoot.layer.presentationLayer ?: self.watchRoot.layer;
+        self.watchRootFrame=presentation?presentation.frame:CGRectZero;
+        self.watchRootOpacity=presentation?presentation.opacity:1.0;
+    } else {
+        self.watchRootFrame=CGRectZero;
+        self.watchRootOpacity=1.0;
     }
     self.updating=NO;
 }
