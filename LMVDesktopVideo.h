@@ -223,6 +223,8 @@ static void LMVDesktopVideoSuspend(void);
 // in -coverWatchTick: for why that is safe in both directions.
 @property(nonatomic) NSUInteger probeWindowCount;
 @property(nonatomic) CFTimeInterval probeFullAt;
+// 2.07: when the window count was last read. See the gate in -coverWatchTick:.
+@property(nonatomic) CFTimeInterval probeCountAt;
 // 1.33: whether the surface is currently on the Home host. It decides whether the
 // geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
 // reads it, so it has to be part of the manager rather than a local.
@@ -832,6 +834,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
     if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
+    // 2.07: A COVERED DESKTOP IS A WATCHDOG, NOT A RENDERER.
+    // While an app is in front the player is frozen, yet this tick kept running at
+    // 60 Hz and - because the frozen branch deliberately skips the cheap gate -
+    // ran the FULL probe every frame: cover rect, coverage test, foreground probe.
+    // That is the whole time the user is inside any app, and it is why a phone
+    // sitting in an app still burned several percent with nothing on screen.
+    // 20 Hz costs at most 50 ms on the reveal, which is far below the ~300 ms
+    // cross-fade it has to be caught inside, and removes two thirds of the cost.
+    NSInteger wantFPS=(self.playback.frozen || self.appAway)?20:60;
+    if (link.preferredFramesPerSecond!=wantFPS) link.preferredFramesPerSecond=wantFPS;
     // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
     // full cover measurement - window enumeration, a class match per window, a
     // subview walk and presentation-layer conversions inside it - on EVERY frame,
@@ -853,6 +865,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     //     purpose and must never be starved by it.
     if (!self.host.hidden && !self.playback.frozen && !self.appAway) {
         CFTimeInterval gateNow=CACurrentMediaTime();
+        // 2.07: THE WINDOW COUNT IS CHEAP, BUT NOT FREE AT 60 Hz.
+        // LMVDesktopVisibleWindowCount walks every scene and every window, and this
+        // tick runs up to 60 times a second for as long as the desktop video plays.
+        // On a phone with a dozen windows that is the largest steady-state cost of
+        // simply "desktop video is on" - the decoder is not the only one working.
+        // 20 Hz is three times cheaper and still spots a reveal within 50 ms, which
+        // is under the cross-fade's own duration.
+        if (gateNow-self.probeCountAt < .05) return;
+        self.probeCountAt=gateNow;
         NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
         if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
         self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
