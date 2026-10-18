@@ -1063,6 +1063,20 @@ static void LMVSquidPanelRestoreTextColor(void) {
     }
     [LMVSquidPanelTextOriginal removeAllObjects];
 }
+// 1.95: the panel keeps its icons in a UIScrollView that is a SIBLING of the blur,
+// one level higher than the blur itself. Any index inside the blur's own superview
+// is therefore still under the icons. This finds that scroller.
+static UIView *LMVSquidPanelScrollerIn(UIView *root, NSInteger depth) {
+    if(!root || depth<0) return nil;
+    for(UIView *sub in root.subviews)
+        if([sub isKindOfClass:UIScrollView.class]) return sub;
+    if(depth==0) return nil;
+    for(UIView *sub in root.subviews) {
+        UIView *found=LMVSquidPanelScrollerIn(sub,depth-1);
+        if(found) return found;
+    }
+    return nil;
+}
 @interface LMVSquidPanelVideoManager:NSObject
 @property(nonatomic,strong) LMVLockVideoPlayback *playback;
 @property(nonatomic,strong) LMVSquidPanelVideoHost *host;
@@ -1170,18 +1184,38 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     UIView *material=LMVSquidPanelMaterial(card,window);
     if(!material)material=LMVSquidPanelMaterial(window,window);
     UIView *container=nil;NSUInteger index=0;NSString *mode=@"card";
-    if([material isKindOfClass:UIVisualEffectView.class]) {
-        // 1.94: the SIBLING placement is now preferred. Device log (1.93) showed the
-        // host sitting inside _UIVisualEffectContentView with live=1 and the right
-        // frame, yet nothing on screen: this panel keeps its icons in a scroll view
-        // that is a SIBLING of the blur, and the content view renders behind the
-        // blur on this system. One index above the material is above the blur and
-        // still below the icons - the only layer that is guaranteed visible.
-        if(material.superview) {
+    if(material) {
+        // 1.95: THE VIDEO HAS TO GO BETWEEN THE BLUR AND THE ICON SCROLLER.
+        // 1.93 put it in the blur's contentView and 1.94 one index above the blur;
+        // both looked right in the log (live=1, correct frame) and both stayed
+        // invisible, because the panel's icons live in a UIScrollView that is a
+        // SIBLING of the blur - it is inside SFActivityAction, one level HIGHER
+        // than SFActivityPanelView. So every index inside the blur's own superview
+        // is still underneath that scroller. Walk up until a level that actually
+        // holds a scroller, and insert immediately BEFORE it: above the blur, below
+        // the icons. That is the only slot with both properties.
+        UIView *owner=nil;UIView *scroller=nil;UIView *node=material;
+        for(NSInteger depth=0;depth<4 && node.superview;depth++) {
+            node=node.superview;
+            UIView *found=LMVSquidPanelScrollerIn(node,1);
+            if(found && found!=self.host && ![found isDescendantOfView:self.host]) {owner=node;scroller=found;break;}
+        }
+        if(owner) {
+            // Stay ABOVE the blur even if the scroller happens to come first.
+            NSUInteger afterMaterial=0;UIView *walker=material;
+            while(walker && walker.superview!=owner) walker=walker.superview;
+            if(walker) {
+                NSInteger mi=(NSInteger)[owner.subviews indexOfObjectIdenticalTo:walker];
+                if(mi!=NSNotFound) afterMaterial=(NSUInteger)(mi+1);
+            }
+            NSInteger si=(NSInteger)[owner.subviews indexOfObjectIdenticalTo:scroller];
+            NSUInteger beforeIcons=(si==NSNotFound)?owner.subviews.count:(NSUInteger)si;
+            container=owner;index=MAX(afterMaterial,beforeIcons);mode=@"below-icons";
+        } else if(material.superview) {
+            // No scroller anywhere above: the LAST index is the only one nothing can
+            // cover, so take it - the panel draws no chrome above its icons.
             container=material.superview;
-            NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
-            if(near==NSNotFound) {[self detach];self.updating=NO;return;}
-            index=(NSUInteger)(near+1);mode=@"above-material";
+            index=container.subviews.count;mode=@"top";
         } else {
             UIView *content=((UIVisualEffectView *)material).contentView;
             if(content && content.subviews.count<40) {container=content;index=0;mode=@"content";}
@@ -1216,9 +1250,20 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // from "wrong layer", "alpha 0" and "player never started" without guessing.
     if(LMVDiagnosticsEnabled.load()) {
         static NSString *lastMount=nil;
-        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu host=%.0fx%.0f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
-            mode,NSStringFromClass(container.class),(unsigned long)index,
+        // 1.95: the window-space frame is part of the key now. 1.94 logged only the
+        // container and the size, so a panel that slid from y=60 to y=-458 produced
+        // an identical string and the line went silent exactly when it mattered.
+        CGRect inWindow=[self.host convertRect:self.host.bounds toView:window];
+        NSMutableString *order=[NSMutableString string];
+        NSUInteger slots=container.subviews.count;
+        for(NSUInteger i=0;i<slots && i<9;i++) {
+            UIView *sub=container.subviews[i];
+            [order appendFormat:@"%@%lu:%@",i?@"/":@"",(unsigned long)i,NSStringFromClass(sub.class)];
+        }
+        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu of=%lu order=%@ host=%.0fx%.0f at=%.0f,%.0f,%.0f,%.0f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
+            mode,NSStringFromClass(container.class),(unsigned long)index,(unsigned long)slots,order,
             self.host.bounds.size.width,self.host.bounds.size.height,
+            inWindow.origin.x,inWindow.origin.y,inWindow.size.width,inWindow.size.height,
             (int)self.host.hidden,self.host.alpha,(int)container.hidden,
             (int)self.playback.renderLayer.hidden,(int)(self.playback.player!=nil),
             self.playback.player?self.playback.player.rate:0.0,
@@ -1263,7 +1308,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             LMVDiagnostic([NSString stringWithFormat:@"squid-panel-identity ptr=%p%@",
                 (void *)self.card,identity]);
         }
-        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             (int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],
             LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
@@ -1276,7 +1321,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             (void *)self.card,
-            LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
+            LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height,
+            (int)self.playback.playerLayer.readyForDisplay,(int)(self.playback.posterLayer.contents!=nil),
+            self.playback.player?self.playback.player.rate:0.0];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
