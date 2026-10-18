@@ -223,6 +223,15 @@ static void LMVDesktopVideoSuspend(void);
 // in -coverWatchTick: for why that is safe in both directions.
 @property(nonatomic) NSUInteger probeWindowCount;
 @property(nonatomic) CFTimeInterval probeFullAt;
+// 1.77: the cheap wake-up signal for the COVERED state. While the desktop is
+// covered the old tick ran the full probe on every frame; now it only reads
+// this window's own hidden/alpha/frame (a handful of properties) and wakes the
+// full probe on the frame one of them moves - which is the first frame of a
+// reveal. `watchWindow` is weak: SpringBoard destroys and recreates windows.
+@property(nonatomic,weak) UIWindow *watchWindow;
+@property(nonatomic) BOOL watchHidden;
+@property(nonatomic) CGFloat watchAlpha;
+@property(nonatomic) CGRect watchFrame;
 // 1.33: whether the surface is currently on the Home host. It decides whether the
 // geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
 // reads it, so it has to be part of the manager rather than a local.
@@ -622,6 +631,22 @@ static NSUInteger LMVDesktopVisibleWindowCount(void) {
     }
     return count;
 }
+// 1.77: the window a reveal would start from. scene.windows is back-to-front, so
+// the last visible entry is the topmost surface in that list. Reading its own
+// hidden/alpha/frame once per frame costs four property reads; the full probe
+// costs a class lookup plus a subtree/PPT conversion for EVERY window. That is
+// the whole point: the covered state stops paying for windows that cannot move.
+static UIWindow *LMVDesktopTopVisibleWindow(UIWindow *exclude) {
+    UIWindow *top=nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window==exclude || window.hidden || window.alpha<.01) continue;
+            top=window;
+        }
+    }
+    return top;
+}
 // 1.38: back to ONE answer - the surface is always the full container (1.32).
 // 1.33 made the Home path stop above the dock strip so the dock's own backdrop could
 // not sample the video; 1.35/1.36/1.37 only narrowed WHEN that happened. The
@@ -816,30 +841,43 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
     if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
-    // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
-    // full cover measurement - window enumeration, a class match per window, a
-    // subview walk and presentation-layer conversions inside it - on EVERY frame,
-    // 60-120 times a second, forever, on SpringBoard's main thread. On the steady
-    // state it always reached the same conclusion: the desktop is exposed, nothing
-    // is held. That repeat is the measurable cost of simply "desktop video is on",
-    // and it is what made SpringBoard's CPU high while the video was playing.
-    //   - FROZEN (or hidden) runs the full probe every frame, exactly as before.
-    //     This is the state that must catch a REVEAL on the exact frame, and a
-    //     frozen player costs no decode - this is the cheap side of the trade, and
-    //     it is what keeps the app-exit and Control-Center-dismiss resume at zero
-    //     delay.
-    //   - PLAYING re-measures only when the visible-window count moved or a full
-    //     probe has not run for a second. The count is the one cheap signal every
-    //     transition produces; the ceiling means nothing can be missed for longer
-    //     than that, so every edge case keeps a bounded lateness while the steady
-    //     state stops paying for a probe whose answer cannot change.
-    //   - `appAway` bypasses the gate: the exit release is evaluated per frame on
-    //     purpose and must never be starved by it.
+    // 1.32/1.77: the CHEAP GATE, before anything expensive. A full probe costs a
+    // class lookup per window, a subtree walk and presentation-layer conversions,
+    // and this tick runs 60 times a second on SpringBoard's main thread.
+    //   - PLAYING re-measures when the visible-window count moved or a full probe
+    //     has not run for a second.
+    //   - COVERED (hidden / frozen / appAway) used to SKIP the gate entirely and
+    //     run the full probe on EVERY frame: the invisible state was the most
+    //     expensive one, forever - the exact CPU load that disappeared when the
+    //     desktop video was switched off. It now reads only the window count and
+    //     the top visible window's own hidden/alpha/frame. A reveal necessarily
+    //     moves one of those, and when it does the full probe runs on that same
+    //     frame, so the resume stays at one frame (~16 ms).
+    CFTimeInterval gateNow=CACurrentMediaTime();
+    NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
+    BOOL countMoved=(visibleWindows!=self.probeWindowCount);
     if (!self.host.hidden && !self.playback.frozen && !self.appAway) {
-        CFTimeInterval gateNow=CACurrentMediaTime();
-        NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
-        if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
-        self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
+        if (!countMoved && gateNow-self.probeFullAt<1.0) return;
+    } else if (!countMoved) {
+        UIWindow *watch=self.watchWindow;
+        if (!watch) {
+            // A weak watch can be released when SpringBoard rebuilds a window;
+            // fall back to a half-second audit instead of a per-frame probe.
+            if (gateNow-self.probeFullAt<0.5) return;
+        } else {
+            BOOL moved=(watch.hidden!=self.watchHidden) ||
+                watch.alpha>self.watchAlpha+0.002 || watch.alpha<self.watchAlpha-0.002 ||
+                !CGRectEqualToRect(watch.frame,self.watchFrame);
+            if (!moved && gateNow-self.probeFullAt<1.0) return;
+        }
+    }
+    self.probeWindowCount=visibleWindows;self.probeFullAt=gateNow;
+    // 1.77: remember what the cheap gate should watch on the next frame.
+    self.watchWindow=LMVDesktopTopVisibleWindow(self.container.window);
+    if (self.watchWindow) {
+        self.watchHidden=self.watchWindow.hidden;
+        self.watchAlpha=self.watchWindow.alpha;
+        self.watchFrame=self.watchWindow.frame;
     }
     BOOL unknown=NO,appCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover);
@@ -1428,7 +1466,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // This line therefore walks EVERY scene, prints each visible window's shape THREE
     // levels deep, marks which scene a window belongs to, and lists only the windows
     // that belong to no scene at all. Diagnostics only, change-only.
-    {
+    // 1.77: gated on the switch. Building these strings is not free - this block
+    // alone walks every window three levels deep - and it used to run on every
+    // update even with diagnostics off, then throw the result away.
+    if (diagnostics) {
         NSMutableString *scenes=[NSMutableString new];
         NSMutableArray *allSceneWins=[NSMutableArray new];
         NSInteger sceneIdx=0;
@@ -1483,7 +1524,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // not fill the screen), so a video background behind it has to be laid out to
     // that exact rect - a class-name list cannot show it. Change-only: every
     // panel-like window three levels deep WITH FRAMES, plus our own layer.
-    {
+    if (diagnostics) {
         NSMutableString *panels=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -1527,7 +1568,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // belongs to, nor whether a brand-new window appeared for it. Hidden windows
     // are listed ON PURPOSE - a window that exists only while its panel is open is
     // precisely what has to be visible here.
-    {
+    if (diagnostics) {
         NSMutableString *meta=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -1564,7 +1605,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // though, so enumerate the classes that image defines - the window/view
     // class names are then known without ever catching the panel open. Runs
     // ONCE per process: objc_getClassList walks every class in SpringBoard.
-    {
+    if (diagnostics) {
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             int total=objc_getClassList(NULL,0);
@@ -1591,7 +1632,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // Six levels, including windows that are not currently visible, so the shape of
     // a clipboard panel is captured even when the shallow three-level geometry only
     // shows an empty shell.
-    {
+    if (diagnostics) {
         NSMutableString *trees=[NSMutableString new];
         NSMutableArray<UIWindow *> *panelWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1634,7 +1675,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // above the keyboard, inside UITextEffectsWindow / SBMedusaHostedKeyboardWindow.
     // The window list can never name it, so dump those subtrees whenever they
     // change: the panel class and its user-set height appear right here.
-    {
+    if (diagnostics) {
         NSMutableString *trees=[NSMutableString new];
         NSMutableArray<UIWindow *> *keyboardWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1733,7 +1774,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // 1.25: WHICH whitelisted surface currently holds the cover, with its content
     // coverage - so an app-exit log names the window instead of leaving it to
     // inference (the 1.25 log carried an unexplained switcher window).
-    {
+    if (diagnostics) {
         NSMutableString *owners=[NSMutableString new];
         UIWindow *target=container?container.window:nil;
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1822,6 +1863,16 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     }
     NSString *coverPerf=LMVDesktopVideoPerf("desktop",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
+    }
+    // 1.77: keep the cover-watch gate's baseline in step with this full update,
+    // so the first tick after an update can never fire a redundant probe.
+    self.probeWindowCount=LMVDesktopVisibleWindowCount();
+    self.probeFullAt=CACurrentMediaTime();
+    self.watchWindow=LMVDesktopTopVisibleWindow(self.container.window);
+    if (self.watchWindow) {
+        self.watchHidden=self.watchWindow.hidden;
+        self.watchAlpha=self.watchWindow.alpha;
+        self.watchFrame=self.watchWindow.frame;
     }
     self.updating=NO;
 }
