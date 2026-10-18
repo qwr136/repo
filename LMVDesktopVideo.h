@@ -229,7 +229,7 @@ static void LMVDesktopVideoSuspend(void);
 // While the desktop is covered the watcher runs at a 10 Hz heartbeat; a key change
 // opens a one second 60 Hz burst so the reveal is caught on the frame it happens.
 @property(nonatomic) CFTimeInterval probeBurstUntil;
-@property(nonatomic,strong) id keyWindowObserver;
+@property(nonatomic) BOOL keyWindowObserver;
 // 1.33: whether the surface is currently on the Home host. It decides whether the
 // geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
 // reads it, so it has to be part of the manager rather than a local.
@@ -724,21 +724,27 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // 2.08: every app launch and every return to the desktop changes the key
         // window. That is the "wake up now" edge a 10 Hz heartbeat cannot give on
         // its own, and it is why the watcher can idle so slowly while an app is up.
-        _keyWindowObserver=[NSNotificationCenter.defaultCenter addObserverForName:UIWindowDidBecomeKeyNotification
-            object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
-                LMVDesktopVideoManager *live=weakSelf;
-                if(!live || !live.coverWatch)return;
-                if(!live.playback.frozen && !live.appAway)return;   // already live
-                live.probeBurstUntil=CACurrentMediaTime()+1.0;
-                live.probeCountAt=0;
-                if(!live.updating && !live.suspended)[live update];
-            }];
+        // Registered by name, not by the UIKit constant: the runtime value is the
+        // string, and this header is also compiled by fixtures that do not link the
+        // symbol.
+        _keyWindowObserver=YES;
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyWindowBecameKey:)
+            name:@"UIWindowDidBecomeKeyNotification" object:nil];
     }
     return self;
 }
 - (void)dealloc {
-    if(_keyWindowObserver)[NSNotificationCenter.defaultCenter removeObserver:_keyWindowObserver];
+    if(_keyWindowObserver)[NSNotificationCenter.defaultCenter removeObserver:self name:@"UIWindowDidBecomeKeyNotification" object:nil];
     [_timer invalidate];[_coverWatch invalidate];[_lease restore];[_host removeFromSuperview];
+}
+// 2.08: the wake-up edge. Only meaningful while the watcher is idling because the
+// desktop is covered; while the video is live the 60 Hz path is already running.
+- (void)keyWindowBecameKey:(NSNotification *)note {
+    if(!self.coverWatch)return;
+    if(!self.playback.frozen && !self.appAway)return;
+    self.probeBurstUntil=CACurrentMediaTime()+1.0;
+    self.probeCountAt=0;
+    if(!self.updating && !self.suspended)[self update];
 }
 - (void)syncGeometry {
     // 1.32: the live superview, never `container` - on the Home path the surface
