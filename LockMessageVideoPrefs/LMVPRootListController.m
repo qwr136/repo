@@ -314,10 +314,13 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         dot.translatesAutoresizingMaskIntoConstraints = NO;
         value.translatesAutoresizingMaskIntoConstraints = NO;
         [NSLayoutConstraint activateConstraints:@[
-            [dot.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+            [dot.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
             [dot.widthAnchor constraintEqualToConstant:size],
             [dot.heightAnchor constraintEqualToConstant:size],
-            [dot.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-(41.5 + size / 2)],
+            // The switch accessory is 51pt wide and 16pt from the CELL's trailing
+            // edge, so its centre sits 41.5pt in. Measuring from the cell (not the
+            // inset content view) is what puts the swatch inside that column.
+            [dot.centerXAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-41.5],
             [value.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
             [value.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:98],
             [value.trailingAnchor constraintLessThanOrEqualToAnchor:dot.leadingAnchor constant:-8]
@@ -358,7 +361,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (self.presentedViewController) return;
     LMVTextColorPicker *picker = [LMVTextColorPicker new];
     picker.preferenceKey = key;
-    picker.modalPresentationStyle = UIModalPresentationPageSheet;
+    picker.modalPresentationStyle = UIModalPresentationOverFullScreen;
     __weak LMVPRootListController *weakSelf = self;
     // Every drag, grid tap and preset goes through here - paint immediately.
     picker.onChange = ^(UIColor *color) {

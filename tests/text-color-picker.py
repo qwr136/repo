@@ -40,9 +40,10 @@ assert '_marker.bounds=CGRectMake(0,0,30,30);' in picker
 # 1.92: the drag is driven by raw touches and the sheet may not swipe away.
 assert '- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {' in picker
 assert picker.count('- (void)touchesBegan:') == 2, 'one per custom colour view'
-assert 'self.modalInPresentation=YES;' in picker, 'no dismissal pan to steal the drag'
-assert '[dot.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor]' in prefs
-assert 'constant:-(41.5 + size / 2)' in prefs, 'swatch centred on the switch column'
+assert 'UIPanGestureRecognizer' not in picker, 'raw touches only - a recogniser lost the drag'
+assert 'dim.tag=0x5A30;' in picker, 'own dimming layer instead of a page sheet'
+assert '[dot.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor]' in prefs
+assert '[dot.centerXAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-41.5]' in prefs
 assert '@"不透明度"' in picker, 'alpha slider'
 assert '恢复默认颜色' in picker, 'reset row'
 assert 'CAGradientLayer' in picker, 'the slider tracks are gradients'
@@ -71,7 +72,7 @@ assert 'dot.layer.cornerRadius = size / 2;' in prefs
 assert 'LMVTextColorForKey(row[@"key"])' in prefs, 'each row reads its own key'
 assert 'openSquidTextColor:' in prefs, 'the Squid row opens the same picker'
 assert 'openCVTextColor:' in prefs
-assert 'picker.modalPresentationStyle = UIModalPresentationPageSheet;' in prefs
+assert 'picker.modalPresentationStyle = UIModalPresentationOverFullScreen;' in prefs, 'no sheet dismissal pan'
 
 # --- Easter panel: the row is GONE (1.84) --------------------------------
 # The user asked for text colour to disappear from the floating panel, so the

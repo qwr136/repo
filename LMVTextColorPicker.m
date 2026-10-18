@@ -125,13 +125,11 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [color getRed:r green:g blue:b alpha:NULL];
 }
 
-@interface LMVColorGridView : UIView <UIGestureRecognizerDelegate>
+@interface LMVColorGridView : UIView
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
 @property(nonatomic,copy) void (^onEnd)(void);
 - (void)pickPoint:(CGPoint)point;
 - (void)showRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b;
-- (void)handleTap:(UITapGestureRecognizer *)gesture;
-- (void)handlePan:(UIPanGestureRecognizer *)gesture;
 @end
 @implementation LMVColorGridView {
     // 1.89: the swatch under the current colour gets a white ring so the user can
@@ -164,14 +162,6 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         _ring.shadowOffset=CGSizeZero;
         _ring.hidden=YES;
         [self.layer addSublayer:_ring];
-        // 1.84.1: raw touches were swallowed by the presented sheet's gesture
-        // recognisers. Explicit recognisers always receive the touch.
-        UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
-        tap.delegate=self; tap.cancelsTouchesInView=NO;
-        [self addGestureRecognizer:tap];
-        UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
-        pan.minimumNumberOfTouches=1; pan.delegate=self; pan.cancelsTouchesInView=NO;
-        [self addGestureRecognizer:pan];
     }
     return self;
 }
@@ -234,21 +224,6 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if(self.onEnd) self.onEnd();
 }
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
-    return YES;
-}
-- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer { return YES; }
-- (void)handleTap:(UITapGestureRecognizer *)gesture {
-    [self pickPoint:[gesture locationInView:self]];
-    if(self.onEnd) self.onEnd();
-}
-- (void)handlePan:(UIPanGestureRecognizer *)gesture {
-    [self pickPoint:[gesture locationInView:self]];
-    UIGestureRecognizerState state=gesture.state;
-    if(state==UIGestureRecognizerStateEnded||state==UIGestureRecognizerStateCancelled||state==UIGestureRecognizerStateFailed) {
-        if(self.onEnd) self.onEnd();
-    }
-}
 - (void)pickPoint:(CGPoint)p {
     CGFloat w=CGRectGetWidth(self.bounds)/(CGFloat)kLMVGridColumns;
     CGFloat h=CGRectGetHeight(self.bounds)/(CGFloat)kLMVGridRows;
@@ -269,13 +244,11 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 // Horizontal hue, vertical white -> pure -> black. The same two gradients the
 // view draws are inverted for the pick, so what the user touches is what they
 // get even in the corner stops.
-@interface LMVSpectrumView : UIView <UIGestureRecognizerDelegate>
+@interface LMVSpectrumView : UIView
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
 @property(nonatomic,copy) void (^onEnd)(void);
 - (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness;
 - (void)pickPoint:(CGPoint)point;
-- (void)handleTap:(UITapGestureRecognizer *)gesture;
-- (void)handlePan:(UIPanGestureRecognizer *)gesture;
 @end
 @implementation LMVSpectrumView {
     CGFloat _hue,_saturation,_brightness;
@@ -308,12 +281,6 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         _marker.shadowOffset=CGSizeZero;
         _hasMarker=NO;
         [self.layer addSublayer:_marker];
-        UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
-        tap.delegate=self; tap.cancelsTouchesInView=NO;
-        [self addGestureRecognizer:tap];
-        UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
-        pan.minimumNumberOfTouches=1; pan.delegate=self; pan.cancelsTouchesInView=NO;
-        [self addGestureRecognizer:pan];
     }
     return self;
 }
@@ -390,21 +357,6 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if(self.onEnd) self.onEnd();
 }
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
-    return YES;
-}
-- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer { return YES; }
-- (void)handleTap:(UITapGestureRecognizer *)gesture {
-    [self pickPoint:[gesture locationInView:self]];
-    if(self.onEnd) self.onEnd();
-}
-- (void)handlePan:(UIPanGestureRecognizer *)gesture {
-    [self pickPoint:[gesture locationInView:self]];
-    UIGestureRecognizerState state=gesture.state;
-    if(state==UIGestureRecognizerStateEnded||state==UIGestureRecognizerStateCancelled||state==UIGestureRecognizerStateFailed) {
-        if(self.onEnd) self.onEnd();
-    }
-}
 - (void)pickPoint:(CGPoint)p {
     CGFloat w=MAX(1,CGRectGetWidth(self.bounds)),h=MAX(1,CGRectGetHeight(self.bounds));
     CGFloat hue=MAX(0,MIN(1,p.x/w));
@@ -455,6 +407,16 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     // 1.92: no swipe-to-dismiss - that gesture is what stole the spectrum drag.
     // The sheet has an explicit X, so nothing is lost.
     self.modalInPresentation=YES;
+
+    // 1.93: our own dimming instead of a system page sheet - a page sheet carries
+    // a dismissal pan, and that pan is what dragged the whole panel while the
+    // spectrum was being scrubbed.
+    UIView *dim=[UIView new];
+    dim.tag=0x5A30;
+    dim.backgroundColor=[UIColor colorWithWhite:0 alpha:0.3];
+    dim.userInteractionEnabled=YES;
+    [dim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeTapped:)]];
+    [self.view addSubview:dim];
 
     _sheet=[UIView new];
     _sheet.backgroundColor=[UIColor secondarySystemBackgroundColor];
@@ -622,6 +584,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     CGFloat height=MIN(self.view.bounds.size.height-80,560);
     CGFloat x=(self.view.bounds.size.width-width)/2;
     CGFloat y=(self.view.bounds.size.height-height)/2;
+    [self.view viewWithTag:0x5A30].frame=self.view.bounds;
     _sheet.frame=CGRectMake(x,y,width,height);
     CGFloat pad=20,inner=width-pad*2;
     [self.view viewWithTag:0x5A31].frame=CGRectMake(pad,16,inner,24);
