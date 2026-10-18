@@ -326,7 +326,10 @@ assert 'if(!container) {container=card;index=0;}' in module
 # landscape the material (and the content view inside it) is a full-screen
 # 932x435 view while the card is 814x180, so container-sized video overflowed the
 # panel instead of filling it.
-assert 'CGRect cardInContainer=[card convertRect:card.bounds toView:container];' in module
+# 1.97: measure the panel surface - the tall panel's blur is 1514pt behind a 495pt
+# panel, and intersecting with the blur covered only its top 398pt.
+assert 'if([card isKindOfClass:UIVisualEffectView.class] && card.superview)surface=card.superview;' in module
+assert 'CGRect cardInContainer=[surface convertRect:surface.bounds toView:container];' in module
 assert 'CGRect target=CGRectIntersection(container.bounds,cardInContainer);' in module
 assert 'if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;' in module
 # Defence in depth: no failure in this channel may ever abort SpringBoard.

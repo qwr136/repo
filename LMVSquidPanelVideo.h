@@ -1270,7 +1270,17 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // that size, so sizing the video to the container made it overflow the panel
     // instead of filling it. Intersecting container and card keeps every shape and
     // both orientations exact.
-    CGRect cardInContainer=[card convertRect:card.bounds toView:container];
+    // 1.97: MEASURE THE PANEL, NOT WHICHEVER SUBVIEW WON THE AREA CONTEST.
+    // The two panel shapes hand LMVSquidPanelCard two different winners: the tall
+    // one returns the blur itself (420x1514, because the blur is sized to the screen
+    // and overflows the 495pt panel), the short one returns SFActivityPanelView
+    // (420x265, because it is the largest thing that fits). Intersecting with the
+    // blur therefore left the tall panel's video covering only its top 398pt while
+    // the short panel came out exact - "the small size has no video, the big one has
+    // the wrong size". The panel surface is the honest frame for both.
+    UIView *surface=card;
+    if([card isKindOfClass:UIVisualEffectView.class] && card.superview)surface=card.superview;
+    CGRect cardInContainer=[surface convertRect:surface.bounds toView:container];
     CGRect target=CGRectIntersection(container.bounds,cardInContainer);
     if(CGRectIsEmpty(target))target=cardInContainer;
     self.mode=mode;
@@ -1285,7 +1295,15 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
     if(self.host.layer.cornerRadius!=card.layer.cornerRadius)self.host.layer.cornerRadius=card.layer.cornerRadius;
     self.host.layer.masksToBounds=YES;
-    if(!CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))[self.playback layoutInBounds:self.host.bounds];
+    // 1.97: the host must be a hole, never a lid. If it ever carried a fill colour
+    // the video would be painted over by its own container.
+    if(self.host.backgroundColor!=UIColor.clearColor)self.host.backgroundColor=UIColor.clearColor;
+    if(self.host.opaque)self.host.opaque=NO;
+    // 1.97: asked unconditionally. The method itself is three frame comparisons,
+    // but skipping the call can leave poster/player at the size they had BEFORE the
+    // host was inserted (0x0 on a fresh panel) - which renders as an empty surface
+    // and reads exactly like "no video was mounted".
+    [self.playback layoutInBounds:self.host.bounds];
     [CATransaction commit];
     if(self.host.hidden)self.host.hidden=NO;
     // 1.94: one line per placement change, so a "no video" report can be told apart
@@ -1302,10 +1320,15 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             UIView *sub=container.subviews[i];
             [order appendFormat:@"%@%lu:%@",i?@"/":@"",(unsigned long)i,NSStringFromClass(sub.class)];
         }
-        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu of=%lu order=%@ host=%.0fx%.0f at=%.0f,%.0f,%.0f,%.0f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
+        NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu of=%lu order=%@ host=%.0fx%.0f at=%.0f,%.0f,%.0f,%.0f layers=%lu rl=%.0fx%.0f pl=%.0fx%.0f vl=%.0fx%.0f op=%.2f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
             mode,NSStringFromClass(container.class),(unsigned long)index,(unsigned long)slots,order,
             self.host.bounds.size.width,self.host.bounds.size.height,
             inWindow.origin.x,inWindow.origin.y,inWindow.size.width,inWindow.size.height,
+            (unsigned long)self.host.layer.sublayers.count,
+            self.playback.renderLayer.frame.size.width,self.playback.renderLayer.frame.size.height,
+            self.playback.posterLayer.frame.size.width,self.playback.posterLayer.frame.size.height,
+            self.playback.playerLayer.frame.size.width,self.playback.playerLayer.frame.size.height,
+            (double)self.playback.renderLayer.opacity,
             (int)self.host.hidden,self.host.alpha,(int)container.hidden,
             (int)self.playback.renderLayer.hidden,(int)(self.playback.player!=nil),
             self.playback.player?self.playback.player.rate:0.0,
