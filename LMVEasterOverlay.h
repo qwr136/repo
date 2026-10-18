@@ -501,8 +501,24 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // one-second audit and felt slower than the old poll.
     self.physicalSnapshot=nil; self.physicalProbes=nil;
 }
+- (void)retuneVisibilityTimer {
+    if (!self.visibilityTimer) return;
+    // 2.10: A HIDDEN EGG DOES NOT NEED 20 Hz TO STAY HIDDEN.
+    // This tick is what notices "the desktop came back", but while the ball is hidden
+    // its answer is always the same one: not now. 5 Hz is four times cheaper and is
+    // still faster than app exit (the cross-fade alone is ~300 ms) and far faster
+    // than a Control Center swipe or an unlock.
+    BOOL hidden=!self.window || self.window.hidden || self.window.alpha<0.01;
+    NSTimeInterval want=hidden?0.2:0.05;
+    if (fabs(self.visibilityTimer.timeInterval-want)<0.001) return;
+    [self.visibilityTimer invalidate];
+    __weak typeof(self) weakSelf=self;
+    self.visibilityTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
+    [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
+}
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
+    [self retuneVisibilityTimer];
     // 1.65: live 20 Hz host probe over the retained window objects.
     NSUInteger hostMask = LMVEasterQuickHostMask(self.physicalWindows);
     if (hostMask != self.lastHostSignature) {

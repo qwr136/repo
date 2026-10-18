@@ -875,7 +875,10 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // the key window, and a watchdog that can miss that would leave the video off.
     CFTimeInterval tickNow=CACurrentMediaTime();
     BOOL burst=tickNow<self.probeBurstUntil;
-    NSInteger wantFPS=(self.playback.frozen || self.appAway)?(burst?60:10):60;
+    // 2.10: with the key-window edge doing the waking, the heartbeat only has to be a
+    // backstop for transitions that do not change the key window. 5 Hz is enough for
+    // that and costs half of the 10 Hz version.
+    NSInteger wantFPS=(self.playback.frozen || self.appAway)?(burst?60:5):60;
     if (link.preferredFramesPerSecond!=wantFPS) link.preferredFramesPerSecond=wantFPS;
     // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
     // full cover measurement - window enumeration, a class match per window, a
