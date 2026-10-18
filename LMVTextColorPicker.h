@@ -23,4 +23,8 @@ NSString *LMVTextColorHex(UIColor *color);
 
 @interface LMVTextColorPicker : UIViewController
 @property(nonatomic,copy) void (^onChange)(UIColor *color);
+// 1.88: fired after the sheet has actually left the screen, so the caller can
+// repaint its swatch once the table is laid out again (the swatch used to stay
+// on the old colour when the picker was closed).
+@property(nonatomic,copy) void (^onDismiss)(void);
 @end

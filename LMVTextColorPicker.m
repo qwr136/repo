@@ -254,6 +254,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     UIView *_redTrack,*_greenTrack,*_blueTrack,*_alphaTrack;
     CAGradientLayer *_redGradient,*_greenGradient,*_blueGradient,*_alphaGradient;
     CGFloat _r,_g,_b,_a;
+    BOOL _cleared;
 }
 @end
 
@@ -530,6 +531,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 - (void)resetTapped {
     LMVTextColorStore(nil);
     if(self.onChange)self.onChange(nil);
+    // 1.88: closeTapped: publishes before leaving - that would immediately write
+    // the old RGB back and make "restore default" a no-op. Remember the clear.
+    _cleared=YES;
     [self closeTapped:nil];
 }
 - (void)copyHex {
@@ -539,7 +543,13 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     // 1.84: the last pick must be on disk and on screen before the sheet leaves.
     // Sliding then tapping X used to close with the sheet's previous colour still
     // applied, which read as "the circle did not take effect".
-    [self publish];
-    [self dismissViewControllerAnimated:YES completion:nil];
+    if(!_cleared) [self publish];
+    // 1.88: tell the caller once the sheet is really gone so it can repaint its
+    // swatch after the list has been laid out again.
+    __weak LMVTextColorPicker *weakSelf=self;
+    [self dismissViewControllerAnimated:YES completion:^{
+        LMVTextColorPicker *strongSelf=weakSelf;
+        if(strongSelf.onDismiss)strongSelf.onDismiss();
+    }];
 }
 @end

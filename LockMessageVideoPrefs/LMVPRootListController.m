@@ -29,6 +29,13 @@ static void LMVNotify(void) {
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
 @property(nonatomic) BOOL materialBusy;
+// 1.88: the swatch that shows the current CopyVault text colour. Holding a weak
+// reference means the picker can repaint it directly instead of relying on
+// -reloadSpecifier: (which kept the old colour) or on a private cell lookup.
+@property(nonatomic,weak) UIView *cvTextColorDot;
+// 1.88: the very table we are the delegate of - captured in -willDisplayCell: so
+// the refresh below never has to guess how to reach it.
+@property(nonatomic,weak) UITableView *cvTextColorTable;
 @end
 
 @implementation LMVPRootListController
@@ -243,43 +250,65 @@ static void LMVNotify(void) {
 // cell here so no private cell subclass (and no extra Preferences header) is needed.
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
-    if ([[specifier propertyForKey:@"id"] isEqualToString:@"CVTextColor"]) {
-        UIView *dot = [cell.contentView viewWithTag:0x5A2C];
-        if (!dot) {
-            dot = [UIView new];
-            dot.tag = 0x5A2C;
-            dot.userInteractionEnabled = NO;
-            dot.layer.borderWidth = 1;
-            dot.layer.borderColor = [UIColor separatorColor].CGColor;
-            [cell.contentView addSubview:dot];
-        }
-        dot.backgroundColor = LMVTextColorCurrent() ?: UIColor.whiteColor;
-        CGFloat size = 18;
-        dot.frame = CGRectMake(cell.contentView.bounds.size.width - size - 18,
-                               (cell.contentView.bounds.size.height - size) / 2, size, size);
-        dot.layer.cornerRadius = size / 2;
+    UIView *existing = [cell.contentView viewWithTag:0x5A2C];
+    if (![[specifier propertyForKey:@"id"] isEqualToString:@"CVTextColor"]) {
+        // 1.88: a recycled cell must not carry the swatch onto an unrelated row.
+        [existing removeFromSuperview];
+        if (self.cvTextColorDot == existing) self.cvTextColorDot = nil;
+        return;
     }
+    UIView *dot = existing;
+    if (!dot) {
+        dot = [UIView new];
+        dot.tag = 0x5A2C;
+        dot.userInteractionEnabled = NO;
+        dot.layer.borderWidth = 1;
+        dot.layer.borderColor = [UIColor separatorColor].CGColor;
+        [cell.contentView addSubview:dot];
+    }
+    // 1.88: keep the swatch addressable so a pick can repaint it in place.
+    self.cvTextColorTable = tableView;
+    self.cvTextColorDot = dot;
+    dot.backgroundColor = LMVTextColorCurrent() ?: UIColor.whiteColor;
+    CGFloat size = 18;
+    dot.frame = CGRectMake(cell.contentView.bounds.size.width - size - 18,
+                           (cell.contentView.bounds.size.height - size) / 2, size, size);
+    dot.layer.cornerRadius = size / 2;
+}
+// 1.88: repaint the swatch from disk without touching the row's cell. The old
+// path went through -reloadSpecifier: (which kept showing the stale colour) and
+// through the private -cellForSpecifier: lookup (which could return nothing), so
+// closing the picker left the dot on the previous colour. Now the picker holds a
+// weak reference to the very view it has to update, with a visible-cell scan and
+// a last-resort table reload behind it.
+- (void)refreshCVTextColorDot {
+    UIColor *color = LMVTextColorCurrent() ?: UIColor.whiteColor;
+    UIView *dot = self.cvTextColorDot;
+    if (dot) {
+        dot.backgroundColor = color;
+        return;
+    }
+    for (UITableViewCell *cell in (self.cvTextColorTable ?: self.table).visibleCells) {
+        UIView *found = [cell.contentView viewWithTag:0x5A2C];
+        if (!found) continue;
+        self.cvTextColorDot = found;
+        found.backgroundColor = color;
+        return;
+    }
+    [(self.cvTextColorTable ?: self.table) reloadData];
 }
 - (void)openCVTextColor:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;
     LMVTextColorPicker *picker = [LMVTextColorPicker new];
     picker.modalPresentationStyle = UIModalPresentationPageSheet;
     __weak LMVPRootListController *weakSelf = self;
-    __weak PSSpecifier *weakSpecifier = specifier;
+    // Every drag, grid tap and preset goes through here - paint immediately.
     picker.onChange = ^(UIColor *color) {
-        if (!weakSpecifier) return;
-        // 1.87: PSListController's table is `table`, not `tableView`. Touching
-        // weakSelf.tableView raised an unrecognized-selector exception and killed
-        // Preferences the moment any slider moved. Reach the cell through the
-        // specifier instead, behind a respondsToSelector guard.
-        SEL cellSel = NSSelectorFromString(@"cellForSpecifier:");
-        if ([weakSelf respondsToSelector:cellSel]) {
-            UITableViewCell *cell = ((UITableViewCell *(*)(id,SEL,id))objc_msgSend)(weakSelf,cellSel,weakSpecifier);
-            UIView *dot = [cell.contentView viewWithTag:0x5A2C];
-            if (dot) dot.backgroundColor = color ?: UIColor.whiteColor;
-        }
-        if ([weakSelf respondsToSelector:@selector(reloadSpecifier:animated:)])
-            [weakSelf reloadSpecifier:weakSpecifier animated:NO];
+        [weakSelf refreshCVTextColorDot];
+    };
+    // ...and once more after the sheet has left, when the list is laid out again.
+    picker.onDismiss = ^{
+        [weakSelf refreshCVTextColorDot];
     };
     [self presentViewController:picker animated:YES completion:nil];
 }
