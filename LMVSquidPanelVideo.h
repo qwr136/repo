@@ -1123,7 +1123,50 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=LMVSquidPanelWindow();
     UIView *card=window?LMVSquidPanelCard(window):nil;
-    if(!card) {[self detach];self.updating=NO;return;}
+    if(!card) {
+        // 2.00: A PANEL THE WINDOW RULE DOES NOT KNOW ABOUT IS COMPLETELY SILENT.
+        // No card means an early return before any log line, so "the log does not
+        // even see it" is itself the evidence - and that is exactly the status-bar
+        // drop-down. Two releases were spent tuning a panel that was never the one
+        // being reported. Say what is actually on screen, then leave the panel alone.
+        if(LMVDiagnosticsEnabled.load()) {
+            static NSTimeInterval lastNoCard=0;
+            NSTimeInterval now=CACurrentMediaTime();
+            if(now-lastNoCard>3.0) {
+                lastNoCard=now;
+                NSMutableString *hunt=[NSMutableString new];
+                for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                    if(![scene isKindOfClass:UIWindowScene.class])continue;
+                    for(UIWindow *win in ((UIWindowScene *)scene).windows) {
+                        if(win.hidden || win.alpha<.01)continue;
+                        UIView *best=nil;CGFloat bestArea=0;
+                        NSMutableArray *stack=[NSMutableArray arrayWithObject:(id)win];
+                        NSUInteger budget=220;
+                        while(stack.count && budget) {
+                            UIView *node=stack.lastObject;[stack removeLastObject];
+                            for(UIView *sub in node.subviews) {
+                                if(!budget--)break;
+                                [stack addObject:sub];
+                                if(sub.hidden || sub.alpha<.01)continue;
+                                CGRect f=[sub convertRect:sub.bounds toView:win];
+                                CGFloat area=LMVSquidPanelVisibleArea(f,win.bounds);
+                                if(area>bestArea){bestArea=area;best=sub;}
+                            }
+                        }
+                        if(best) {
+                            CGRect f=[best convertRect:best.bounds toView:win];
+                            [hunt appendFormat:@"%@>%@@%.0f,%.0f,%.0f,%.0f ",
+                                NSStringFromClass(win.class),NSStringFromClass(best.class),
+                                f.origin.x,f.origin.y,f.size.width,f.size.height];
+                        }
+                    }
+                }
+                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-nocard window=%@ hunt=%@ windows=%@",
+                    window?NSStringFromClass(window.class):@"none",hunt.length?hunt:@"none",LMVSquidWindowReport()]);
+            }
+        }
+        [self detach];self.updating=NO;return;
+    }
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     // 1.90: recolour the panel's labels every poll - the panel rebuilds its rows
     // while scrolling, so a one-shot pass would be lost on the next swipe.
