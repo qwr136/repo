@@ -152,7 +152,14 @@ assert 'dispatch_async(dispatch_get_main_queue()' not in module  # main run loop
 # with. A system menu is never the panel: its subtree is skipped, and any
 # *_ContextMenu* view is rejected as a card.
 assert 'static BOOL LMVATPanelSystemMenu(UIView *view) {' in module
-assert 'return [NSStringFromClass(view.class) containsString:@"ContextMenu"];' in module
+# 2.03: system alerts (the "iPhone 通话" hand-off sheet) used to be taken for the
+# AppTools panel and got a video background: card=_UIAlertControllerPhoneTVMacView.
+assert 'if([name containsString:@"ContextMenu"])return YES;' in module
+assert 'if([name containsString:@"Alert"])return YES;' in module
+assert 'if([name containsString:@"PhoneTVMac"])return YES;' in module
+# and the exclusion must cut the WHOLE subtree - the inner plain UIView won the
+# area contest on the next poll
+assert 'if(LMVATPanelSystemMenu(child))continue;\n                [pending addObject:child];' in module
 assert 'if(LMVATPanelSystemMenu(view))return;' in module, 'menu subtrees are never AT transition roots'
 assert 'if(LMVATPanelSystemMenu(child))continue;' in module, 'a *_ContextMenu* view is never the AT card'
 

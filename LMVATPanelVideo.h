@@ -78,7 +78,17 @@ static CGFloat LMVATPanelVisibleArea(CGRect frame,CGRect bounds) {
 // with. A system context menu is never the AppTools panel, so its whole subtree is
 // skipped here AND every *_ContextMenu* candidate is rejected in LMVATPanelCard.
 static BOOL LMVATPanelSystemMenu(UIView *view) {
-    return [NSStringFromClass(view.class) containsString:@"ContextMenu"];
+    NSString *name=NSStringFromClass(view.class);
+    if([name containsString:@"ContextMenu"])return YES;
+    // 2.03: A SYSTEM ALERT IS NOT THE APPTOOLS PANEL.
+    // Device log (2.02):
+    //   at-panel card=_UIAlertControllerPhoneTVMacView@80,175,270,607 live=1 host=270x607
+    // - the "iPhone 通话" hand-off alert was getting a video background, and on the
+    // next poll the winner moved to a plain UIView INSIDE it (same frame), so the
+    // alert kept the video for as long as it stayed up.
+    if([name containsString:@"Alert"])return YES;
+    if([name containsString:@"PhoneTVMac"])return YES;
+    return NO;
 }
 // Every UITransitionView at or below `view`. 1.27 learned the hard way that
 // AppTools drops its TransitionView one or two levels BELOW the window (under
@@ -111,9 +121,12 @@ static UIView *LMVATPanelCard(UIWindow *window) {
             UIView *node=pending.lastObject;[pending removeLastObject];
             for(UIView *child in node.subviews) {
                 if(!budget--)break;
-                [pending addObject:child];
                 if(child.tag==LMVATPanelHostTag || child.hidden || child.alpha<.01)continue;
+                // 2.03: skip the whole subtree, not just this node. Adding the child
+                // to `pending` first meant an excluded alert still had its children
+                // walked - and a plain UIView inside it won the area contest.
                 if(LMVATPanelSystemMenu(child))continue;
+                [pending addObject:child];
                 CGRect frame=[child convertRect:child.bounds toView:window];
                 if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
                 if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;
