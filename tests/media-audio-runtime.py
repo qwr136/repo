@@ -39,7 +39,7 @@ static BOOL waitAudio(BOOL (^f)(void),double seconds){NSDate *end=[NSDate dateWi
 main=r'''
 int main(int argc,const char **argv){@autoreleasepool{
  assert(argc==2);NSString *path=[NSString stringWithUTF8String:argv[1]];prefs=[NSMutableDictionary new];LMVAudioReload();
- assert(LMVAudioChannels.count==12 && !LMVAudioAnyEnabled());
+ assert(LMVAudioChannels.count==13 && !LMVAudioAnyEnabled());
  LMVAudioConsume(@"Message",path,@"r",YES,kCMTimeZero);assert(categoryWrites==0 && activations==0);
  for(NSString *target in LMVAudioTargets()){prefs[[target stringByAppendingString:@"SoundEnabled"]]=@YES;prefs[[target stringByAppendingString:@"Volume"]]=@.3;}
  LMVAudioReload();assert(LMVAudioAnyEnabled());

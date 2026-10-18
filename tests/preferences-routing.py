@@ -205,7 +205,7 @@ int main(void) { @autoreleasepool {
     row.cellType = PSButtonCell; row.target = controller; row.properties = [NSMutableDictionary new];
     controller.testRow = row;
     NSArray *selectors = @SELECTORS@;
-    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchAT:":@"AT", @"switchCV:":@"CV", @"switchMyrtle:":@"Myrtle"};
+    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchAT:":@"AT", @"switchCV:":@"CV", @"switchMyrtle:":@"Myrtle", @"switchPA:":@"PA"};
     for (NSString *selector in selectors) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
