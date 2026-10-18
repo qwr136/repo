@@ -305,13 +305,18 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     self.cvTextColorTable = tableView;
     dot.backgroundColor = current ?: UIColor.whiteColor;
     value.text = LMVTextColorSummary(current);
-    CGFloat size = 18;
-    CGFloat dotX = cell.contentView.bounds.size.width - size - 18;
-    dot.frame = CGRectMake(dotX, (cell.contentView.bounds.size.height - size) / 2, size, size);
+    // 1.91: 22pt and centred in the ROW (cell.bounds, not contentView - the
+    // content view can still be one layout pass behind). The flexible margins
+    // keep it centred if the row grows.
+    CGFloat size = 22;
+    CGFloat dotX = cell.bounds.size.width - size - 16;
+    dot.frame = CGRectMake(dotX, (cell.bounds.size.height - size) / 2, size, size);
     dot.layer.cornerRadius = size / 2;
+    dot.autoresizingMask = UIViewAutoresizingFlexibleTopMargin |
+        UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin;
     // 1.90: the value sits directly after the title (左边), not at the far right.
     CGFloat valueX = 16 + 82;
-    value.frame = CGRectMake(valueX, 0, MAX(0, dotX - 8 - valueX), cell.contentView.bounds.size.height);
+    value.frame = CGRectMake(valueX, 0, MAX(0, dotX - 10 - valueX), cell.bounds.size.height);
 }
 // 1.88: repaint the swatch without going through -reloadSpecifier: (which kept
 // showing the stale colour) or the private -cellForSpecifier: lookup (which could

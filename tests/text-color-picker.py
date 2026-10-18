@@ -36,7 +36,7 @@ assert 'NSString *const LMVSquidTextColorKey = @"SquidTextColor";' in picker
 assert 'sliderCommitted:' in picker
 # 1.89: the selected swatch is ringed, and the spectrum ring is bigger.
 assert 'showRed:' in picker and '_ring.borderWidth=3' in picker
-assert '_marker.bounds=CGRectMake(0,0,40,40);' in picker
+assert '_marker.bounds=CGRectMake(0,0,30,30);' in picker
 assert '@"不透明度"' in picker, 'alpha slider'
 assert '恢复默认颜色' in picker, 'reset row'
 assert 'CAGradientLayer' in picker, 'the slider tracks are gradients'

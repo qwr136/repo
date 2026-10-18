@@ -275,11 +275,11 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         self.isAccessibilityElement=YES;
         self.accessibilityLabel=@"光谱选色";
         self.accessibilityHint=@"点击或拖动选择颜色";
-        // 1.89/1.90: 20 -> 30 -> 40pt. The ring is the only feedback while
-        // dragging, so it has to be big enough to read under the finger.
+        // 1.91: back to 30pt - big enough to read under the finger without
+        // covering the colour it is pointing at.
         _marker=[CALayer layer];
-        _marker.bounds=CGRectMake(0,0,40,40);
-        _marker.cornerRadius=20;
+        _marker.bounds=CGRectMake(0,0,30,30);
+        _marker.cornerRadius=15;
         _marker.borderWidth=3;
         _marker.borderColor=UIColor.whiteColor.CGColor;
         _marker.shadowColor=UIColor.blackColor.CGColor;
