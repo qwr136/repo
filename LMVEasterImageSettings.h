@@ -166,19 +166,25 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             toggle.accessibilityLabel = cell.textLabel.text;
             [toggle addTarget:self action:@selector(panelSizeToggled:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            BOOL width = index.row == 3;
-            NSString *key = width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale";
-            CGFloat scale = LMVEasterPanelScaleValue(LMVEasterRead(key));
-            cell.textLabel.text = width ? @"悬浮窗宽度" : @"悬浮窗高度";
-            cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
+            // 1.84.1: row 1 is the CORNER slider. It used to set the height label,
+            // percentage and accessibility text before the branch checked which
+            // row it was, so the row under "悬浮窗圆角" read "悬浮窗高度 71%".
             UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
             slider.tag = index.row;
             if (index.row == 1) {
+                CGFloat corner = LMVEasterPanelCornerValue(LMVEasterRead(@"EasterPanelCorner"));
+                cell.textLabel.text = @"窗口圆角";
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", corner];
                 slider.minimumValue = LMVEasterPanelCornerMin; slider.maximumValue = LMVEasterPanelCornerMax;
-                slider.value = LMVEasterPanelCornerValue(LMVEasterRead(@"EasterPanelCorner"));
-                slider.enabled = cornerOn; slider.accessibilityLabel = @"悬浮窗圆角大小";
+                slider.value = corner;
+                slider.enabled = cornerOn; slider.accessibilityLabel = @"窗口圆角";
                 [slider addTarget:self action:@selector(panelCornerChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
             } else {
+                BOOL width = index.row == 3;
+                NSString *key = width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale";
+                CGFloat scale = LMVEasterPanelScaleValue(LMVEasterRead(key));
+                cell.textLabel.text = width ? @"悬浮窗宽度" : @"悬浮窗高度";
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
                 slider.minimumValue = LMVEasterPanelScaleMin; slider.maximumValue = LMVEasterPanelScaleMax;
                 slider.value = scale;
                 slider.enabled = sizeOn; slider.accessibilityLabel = width ? @"悬浮窗宽度" : @"悬浮窗高度";

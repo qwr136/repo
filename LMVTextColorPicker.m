@@ -66,6 +66,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 
 @interface LMVColorGridView : UIView
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
+- (void)pickPoint:(CGPoint)point;
+- (void)handleTap:(UITapGestureRecognizer *)gesture;
+- (void)handlePan:(UIPanGestureRecognizer *)gesture;
 @end
 @implementation LMVColorGridView
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -78,6 +81,13 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         self.isAccessibilityElement=YES;
         self.accessibilityLabel=@"颜色网格";
         self.accessibilityHint=@"点击或拖动选择颜色";
+        // 1.84.1: raw touches were swallowed by the presented sheet's gesture
+        // recognisers. Explicit recognisers always receive the touch.
+        UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
+        [self addGestureRecognizer:tap];
+        UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        pan.minimumNumberOfTouches=1;
+        [self addGestureRecognizer:pan];
     }
     return self;
 }
@@ -94,8 +104,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         }
     }
 }
-- (void)pickTouch:(UITouch *)touch {
-    CGPoint p=[touch locationInView:self];
+- (void)handleTap:(UITapGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
+- (void)handlePan:(UIPanGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
+- (void)pickPoint:(CGPoint)p {
     CGFloat w=CGRectGetWidth(self.bounds)/(CGFloat)kLMVGridColumns;
     CGFloat h=CGRectGetHeight(self.bounds)/(CGFloat)kLMVGridRows;
     NSInteger x=(NSInteger)floor(p.x/MAX(w,1));
@@ -106,8 +117,6 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     LMVGridColorAt(x,y,&r,&g,&b);
     if(self.onPick) self.onPick(r,g,b);
 }
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
-- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
 @end
 
 #pragma mark - Spectrum (figure 3)
@@ -118,6 +127,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 @interface LMVSpectrumView : UIView
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
 - (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness;
+- (void)pickPoint:(CGPoint)point;
+- (void)handleTap:(UITapGestureRecognizer *)gesture;
+- (void)handlePan:(UIPanGestureRecognizer *)gesture;
 @end
 @implementation LMVSpectrumView {
     CGFloat _hue,_saturation,_brightness;
@@ -145,37 +157,46 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         _marker.shadowOffset=CGSizeZero;
         _hasMarker=NO;
         [self.layer addSublayer:_marker];
+        UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
+        [self addGestureRecognizer:tap];
+        UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        pan.minimumNumberOfTouches=1;
+        [self addGestureRecognizer:pan];
     }
     return self;
 }
 - (void)drawRect:(CGRect)rect {
     CGContextRef ctx=UIGraphicsGetCurrentContext();
     CGFloat w=CGRectGetWidth(self.bounds),h=CGRectGetHeight(self.bounds);
-    if(w<=0 || h<=0) return;
-    NSArray *hues=@[(id)[UIColor colorWithHue:0 saturation:1 brightness:1 alpha:1].CGColor,
-                    (id)[UIColor colorWithHue:1.0/6 saturation:1 brightness:1 alpha:1].CGColor,
-                    (id)[UIColor colorWithHue:2.0/6 saturation:1 brightness:1 alpha:1].CGColor,
-                    (id)[UIColor colorWithHue:3.0/6 saturation:1 brightness:1 alpha:1].CGColor,
-                    (id)[UIColor colorWithHue:4.0/6 saturation:1 brightness:1 alpha:1].CGColor,
-                    (id)[UIColor colorWithHue:5.0/6 saturation:1 brightness:1 alpha:1].CGColor,
-                    (id)[UIColor colorWithHue:1 saturation:1 brightness:1 alpha:1].CGColor];
+    if(!ctx || w<=0 || h<=0) return;
+    // 1.84.1: build both gradients from plain component arrays. The CFArray of
+    // CGColorRefs version drew nothing in the tweak process, which is why the
+    // spectrum looked empty. Components are colour-space defined and cannot fail
+    // that way.
+    CGColorSpaceRef space=CGColorSpaceCreateDeviceRGB();
+    if(!space) return;
+    CGFloat hueComponents[]={
+        1,0,0,1,   1,1,0,1,   0,1,0,1,   0,1,1,1,
+        0,0,1,1,   1,0,1,1,   1,0,0,1
+    };
     CGFloat hueLocations[]={0,1.0/6,2.0/6,0.5,4.0/6,5.0/6,1};
-    CGGradientRef hueGradient=CGGradientCreateWithColors(NULL,(__bridge CFArrayRef)hues,hueLocations);
+    CGGradientRef hueGradient=CGGradientCreateWithColorComponents(space,hueComponents,hueLocations,7);
     if(hueGradient) {
         CGContextDrawLinearGradient(ctx,hueGradient,CGPointMake(0,0),CGPointMake(w,0),0);
         CGGradientRelease(hueGradient);
     }
-    NSArray *shades=@[(id)[UIColor colorWithWhite:1 alpha:1].CGColor,
-                      (id)[UIColor colorWithWhite:1 alpha:0].CGColor,
-                      (id)[UIColor colorWithWhite:0 alpha:0].CGColor,
-                      (id)[UIColor colorWithWhite:0 alpha:1].CGColor];
+    CGFloat shadeComponents[]={
+        1,1,1,1,   1,1,1,0,
+        0,0,0,0,   0,0,0,1
+    };
     CGFloat shadeLocations[]={0,0.5,0.5001,1};
-    CGGradientRef shadeGradient=CGGradientCreateWithColors(NULL,(__bridge CFArrayRef)shades,shadeLocations);
+    CGGradientRef shadeGradient=CGGradientCreateWithColorComponents(space,shadeComponents,shadeLocations,4);
     if(shadeGradient) {
         CGContextDrawLinearGradient(ctx,shadeGradient,CGPointMake(0,0),CGPointMake(0,h),
             kCGGradientDrawsBeforeStartLocation|kCGGradientDrawsAfterEndLocation);
         CGGradientRelease(shadeGradient);
     }
+    CGColorSpaceRelease(space);
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
@@ -195,8 +216,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _hasMarker=YES;
     [self placeMarker];
 }
-- (void)pickTouch:(UITouch *)touch {
-    CGPoint p=[touch locationInView:self];
+- (void)handleTap:(UITapGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
+- (void)handlePan:(UIPanGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
+- (void)pickPoint:(CGPoint)p {
     CGFloat w=MAX(1,CGRectGetWidth(self.bounds)),h=MAX(1,CGRectGetHeight(self.bounds));
     CGFloat hue=MAX(0,MIN(1,p.x/w));
     CGFloat t=MAX(0,MIN(1,p.y/h));
@@ -209,8 +231,6 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [self placeMarker];
     if(self.onPick) self.onPick(r,g,b);
 }
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
-- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self pickTouch:touches.anyObject]; }
 @end
 
 #pragma mark - Picker
@@ -346,7 +366,10 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     slider.maximumTrackTintColor=UIColor.clearColor;
     slider.thumbTintColor=UIColor.whiteColor;
     [slider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
-    [_sliderPanel addSubview:slider];
+    // 1.84.1: alpha is shared by all three modes, so it lives on the sheet. It used
+    // to be added to the slider panel while its frame was computed in sheet
+    // coordinates - the slider ended up below the sheet.
+    [(tag==4 ? _sheet : _sliderPanel) addSubview:slider];
     return slider;
 }
 - (UIView *)trackWithTag:(NSInteger)tag {
@@ -360,8 +383,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     gradient.endPoint=CGPointMake(1,.5);
     gradient.cornerRadius=5;
     [track.layer addSublayer:gradient];
-    UIView *slider=[_sliderPanel viewWithTag:tag-10];
-    if(slider)[_sliderPanel insertSubview:track belowSubview:slider];else[_sliderPanel addSubview:track];
+    UIView *host=tag==14 ? _sheet : _sliderPanel;
+    UIView *slider=[host viewWithTag:tag-10];
+    if(slider)[host insertSubview:track belowSubview:slider];else[host addSubview:track];
     return track;
 }
 - (UILabel *)valueLabelWithTag:(NSInteger)tag {
@@ -373,7 +397,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     label.backgroundColor=UIColor.systemBackgroundColor;
     label.layer.cornerRadius=8;
     label.clipsToBounds=YES;
-    [_sliderPanel addSubview:label];
+    [(tag==24 ? _sheet : _sliderPanel) addSubview:label];
     return label;
 }
 - (void)viewDidLayoutSubviews {

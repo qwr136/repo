@@ -267,6 +267,13 @@ static void LMVNotify(void) {
     __weak PSSpecifier *weakSpecifier = specifier;
     picker.onChange = ^(UIColor *color) {
         if (weakSpecifier) [weakSelf reloadSpecifier:weakSpecifier animated:NO];
+        // 1.84.1: reloadSpecifier can redraw from a cached preference value, so the
+        // swatch kept the OLD colour after the sheet closed. Paint what the picker
+        // just produced as well.
+        for (UITableViewCell *cell in weakSelf.tableView.visibleCells) {
+            UIView *dot = [cell.contentView viewWithTag:0x5A2C];
+            if (dot) dot.backgroundColor = color ?: UIColor.whiteColor;
+        }
     };
     [self presentViewController:picker animated:YES completion:nil];
 }
