@@ -75,6 +75,10 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     self=[super initWithFrame:frame];
     if(self) {
         self.backgroundColor=UIColor.clearColor;
+        // 1.86: drawRect runs once while the view is still zero-sized, and a
+        // .scaleToFill layer then stretches that empty content instead of
+        // redrawing it - the spectrum stayed blank. Redraw on every bounds change.
+        self.contentMode=UIViewContentModeRedraw;
         self.layer.cornerRadius=10;
         self.layer.cornerCurve=kCACornerCurveContinuous;
         self.clipsToBounds=YES;
@@ -140,6 +144,9 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     self=[super initWithFrame:frame];
     if(self) {
         self.backgroundColor=UIColor.clearColor;
+        // 1.86: same reason as the grid - a zero-sized first draw must be
+        // followed by a real one once the sheet lays the view out.
+        self.contentMode=UIViewContentModeRedraw;
         self.layer.cornerRadius=10;
         self.layer.cornerCurve=kCACornerCurveContinuous;
         self.clipsToBounds=YES;
@@ -281,7 +288,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [close setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
     close.tintColor=[UIColor tertiaryLabelColor];
     close.tag=0x5A32;
-    [close addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
+    [close addTarget:self action:@selector(closeTapped:) forControlEvents:UIControlEventTouchUpInside];
     [_sheet addSubview:close];
 
     // 1.84: the user asked for the same three ways iOS offers - a grid, a
@@ -289,7 +296,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _mode=[[UISegmentedControl alloc] initWithItems:@[@"网格",@"光谱",@"滑块"]];
     _mode.selectedSegmentIndex=0;
     _mode.tag=0x5A36;
-    [_mode addTarget:self action:@selector(modeChanged) forControlEvents:UIControlEventValueChanged];
+    [_mode addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
     [_sheet addSubview:_mode];
 
     _gridPanel=[UIView new]; _gridPanel.tag=0x5A40; [_sheet addSubview:_gridPanel];
@@ -357,7 +364,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [_sheet addSubview:reset];
 
     [self refreshUI];
-    [self modeChanged];
+    [self modeChanged:_mode];
 }
 - (UISlider *)sliderWithTag:(NSInteger)tag {
     UISlider *slider=[UISlider new];
@@ -365,7 +372,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     slider.minimumTrackTintColor=UIColor.clearColor;
     slider.maximumTrackTintColor=UIColor.clearColor;
     slider.thumbTintColor=UIColor.whiteColor;
-    [slider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
+    [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
     // 1.84.1: alpha is shared by all three modes, so it lives on the sheet. It used
     // to be added to the slider panel while its frame was computed in sheet
     // coordinates - the slider ended up below the sheet.
@@ -463,7 +470,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [self.view viewWithTag:0x5A35].frame=CGRectMake(pad,height-52,inner,36);
     [self refreshUI];
 }
-- (void)modeChanged {
+- (void)modeChanged:(UISegmentedControl *)sender {
     NSInteger index=_mode.selectedSegmentIndex;
     _gridPanel.hidden=index!=0;
     _spectrumPanel.hidden=index!=1;
@@ -480,7 +487,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [self refreshUI];
     [self publish];
 }
-- (void)sliderChanged {
+- (void)sliderChanged:(UISlider *)sender {
     _r=_redSlider.value;_g=_greenSlider.value;_b=_blueSlider.value;_a=_alphaSlider.value;
     [self refreshUI];
     [self publish];
@@ -523,12 +530,12 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 - (void)resetTapped {
     LMVTextColorStore(nil);
     if(self.onChange)self.onChange(nil);
-    [self closeTapped];
+    [self closeTapped:nil];
 }
 - (void)copyHex {
     UIPasteboard.generalPasteboard.string=LMVTextColorHex([UIColor colorWithRed:_r green:_g blue:_b alpha:_a]);
 }
-- (void)closeTapped {
+- (void)closeTapped:(id)sender {
     // 1.84: the last pick must be on disk and on screen before the sheet leaves.
     // Sliding then tapping X used to close with the sheet's previous colour still
     // applied, which read as "the circle did not take effect".
