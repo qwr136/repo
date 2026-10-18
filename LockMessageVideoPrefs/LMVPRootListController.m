@@ -248,12 +248,23 @@ static void LMVNotify(void) {
 }
 // 1.83: PSButtonCell keeps the tap routing; the round swatch is painted on the
 // cell here so no private cell subclass (and no extra Preferences header) is needed.
+// 1.89: the row shows the value itself ("#A7C6FF 100%") next to its title, so the
+// colour can be read without opening the picker. An absent key means the panel
+// keeps its own colours, which is "默认" rather than white.
+static NSString *LMVTextColorSummary(UIColor *color) {
+    if (!color) return @"默认";
+    CGFloat alpha = 1;
+    [color getRed:NULL green:NULL blue:NULL alpha:&alpha];
+    return [NSString stringWithFormat:@"%@ %.0f%%", LMVTextColorHex(color), alpha * 100.0];
+}
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
     UIView *existing = [cell.contentView viewWithTag:0x5A2C];
+    UILabel *existingValue = [cell.contentView viewWithTag:0x5A2D];
     if (![[specifier propertyForKey:@"id"] isEqualToString:@"CVTextColor"]) {
         // 1.88: a recycled cell must not carry the swatch onto an unrelated row.
         [existing removeFromSuperview];
+        [existingValue removeFromSuperview];
         if (self.cvTextColorDot == existing) self.cvTextColorDot = nil;
         return;
     }
@@ -266,14 +277,28 @@ static void LMVNotify(void) {
         dot.layer.borderColor = [UIColor separatorColor].CGColor;
         [cell.contentView addSubview:dot];
     }
+    UILabel *value = existingValue;
+    if (!value) {
+        value = [UILabel new];
+        value.tag = 0x5A2D;
+        value.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular];
+        value.textColor = [UIColor secondaryLabelColor];
+        value.textAlignment = NSTextAlignmentRight;
+        value.userInteractionEnabled = NO;
+        [cell.contentView addSubview:value];
+    }
+    UIColor *current = LMVTextColorCurrent();
     // 1.88: keep the swatch addressable so a pick can repaint it in place.
     self.cvTextColorTable = tableView;
     self.cvTextColorDot = dot;
-    dot.backgroundColor = LMVTextColorCurrent() ?: UIColor.whiteColor;
+    dot.backgroundColor = current ?: UIColor.whiteColor;
+    value.text = LMVTextColorSummary(current);
     CGFloat size = 18;
-    dot.frame = CGRectMake(cell.contentView.bounds.size.width - size - 18,
-                           (cell.contentView.bounds.size.height - size) / 2, size, size);
+    CGFloat dotX = cell.contentView.bounds.size.width - size - 18;
+    dot.frame = CGRectMake(dotX, (cell.contentView.bounds.size.height - size) / 2, size, size);
     dot.layer.cornerRadius = size / 2;
+    CGFloat valueW = MIN(160, MAX(0, dotX - 16));
+    value.frame = CGRectMake(dotX - 8 - valueW, 0, valueW, cell.contentView.bounds.size.height);
 }
 // 1.88: repaint the swatch from disk without touching the row's cell. The old
 // path went through -reloadSpecifier: (which kept showing the stale colour) and
@@ -281,21 +306,30 @@ static void LMVNotify(void) {
 // closing the picker left the dot on the previous colour. Now the picker holds a
 // weak reference to the very view it has to update, with a visible-cell scan and
 // a last-resort table reload behind it.
-- (void)refreshCVTextColorDot {
-    UIColor *color = LMVTextColorCurrent() ?: UIColor.whiteColor;
+- (UIView *)cvTextColorDotView {
     UIView *dot = self.cvTextColorDot;
-    if (dot) {
-        dot.backgroundColor = color;
-        return;
-    }
+    if (dot) return dot;
     for (UITableViewCell *cell in (self.cvTextColorTable ?: self.table).visibleCells) {
         UIView *found = [cell.contentView viewWithTag:0x5A2C];
         if (!found) continue;
         self.cvTextColorDot = found;
-        found.backgroundColor = color;
-        return;
+        return found;
     }
-    [(self.cvTextColorTable ?: self.table) reloadData];
+    return nil;
+}
+// 1.89: `color` is the live preview from the picker; nil means "read the stored
+// value". Painting the passed colour keeps the row in step while the finger is
+// still moving, without waiting for the preference write.
+- (void)paintCVTextColorDot:(UIColor *)color {
+    UIColor *shown = color ?: LMVTextColorCurrent();
+    UIView *dot = [self cvTextColorDotView];
+    if (!dot) return;
+    dot.backgroundColor = shown ?: UIColor.whiteColor;
+    UILabel *value = (UILabel *)[dot.superview viewWithTag:0x5A2D];
+    if (value) value.text = LMVTextColorSummary(shown);
+}
+- (void)refreshCVTextColorDot {
+    [self paintCVTextColorDot:nil];
 }
 - (void)openCVTextColor:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;
@@ -304,7 +338,7 @@ static void LMVNotify(void) {
     __weak LMVPRootListController *weakSelf = self;
     // Every drag, grid tap and preset goes through here - paint immediately.
     picker.onChange = ^(UIColor *color) {
-        [weakSelf refreshCVTextColorDot];
+        [weakSelf paintCVTextColorDot:color];
     };
     // ...and once more after the sheet has left, when the list is laid out again.
     picker.onDismiss = ^{

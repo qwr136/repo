@@ -23,7 +23,18 @@ assert 'LMVPRootListController.m LMVTextColorPicker.m' in makefile, 'the bundle 
 # --- the sheet the user asked for ----------------------------------------
 assert 'title.text=@"文字颜色";' in picker, 'the sheet is titled 文字颜色, not Face ID'
 assert '[@"红色",@"绿色",@"蓝色"]' in picker, 'three RGB sliders'
-assert 'Hex 颜色 %@（点击复制）' in picker, 'hex readout'
+assert 'Hex 颜色 %@（点击复制）' not in picker, 'the old copy-only readout is gone'
+assert 'UITextField *_hex;' in picker and 'hexEdited:' in picker, 'the value readout is an input field'
+assert 'LMVColorTextParse' in picker, 'typed #RRGGBB / #RRGGBBAA / percent alpha is parsed'
+assert '@"#RRGGBB 100%"' in picker, 'the field advertises hex plus opacity'
+assert 'LMVTextColorHex(current)' in picker and '_a*100' in picker, 'value and opacity are shown together'
+# 1.89: preview vs commit - dragging must not hit the disk on every event.
+assert '- (void)preview {' in picker and '- (void)commit {' in picker
+assert 'LMVTextColorStore(color);\n    if(self.onChange)self.onChange(color);' in picker
+assert 'sliderCommitted:' in picker
+# 1.89: the selected swatch is ringed, and the spectrum ring is bigger.
+assert 'showRed:' in picker and '_ring.borderWidth=3' in picker
+assert '_marker.bounds=CGRectMake(0,0,30,30);' in picker
 assert '@"不透明度"' in picker, 'alpha slider'
 assert '恢复默认颜色' in picker, 'reset row'
 assert 'CAGradientLayer' in picker, 'the slider tracks are gradients'

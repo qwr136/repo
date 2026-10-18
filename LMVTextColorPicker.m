@@ -42,6 +42,58 @@ NSString *LMVTextColorHex(UIColor *color) {
     return [NSString stringWithFormat:@"#%02X%02X%02X",(word>>24)&0xFF,(word>>16)&0xFF,(word>>8)&0xFF];
 }
 
+// 1.89: the readout next to "文字颜色" is also an input. Accepts "#RRGGBB",
+// "#RRGGBBAA", "#RRGGBB 80%" or just "80%" (alpha only); whatever is not typed
+// keeps the value it came in with, so a bare percentage never resets the hue.
+static BOOL LMVColorTextParse(NSString *text,CGFloat *r,CGFloat *g,CGFloat *b,CGFloat *a) {
+    if(!text.length) return NO;
+    NSString *upper=[text uppercaseString];
+    NSCharacterSet *seps=[NSCharacterSet characterSetWithCharactersInString:@"#% ·,;:/"];
+    BOOL found=NO;
+    for(NSString *token in [upper componentsSeparatedByCharactersInSet:seps]) {
+        if(!token.length) continue;
+        BOOL hexOnly=YES;
+        for(NSUInteger i=0;i<token.length;i++) {
+            unichar c=[token characterAtIndex:i];
+            if(!((c>='0'&&c<='9')||(c>='A'&&c<='F'))) { hexOnly=NO; break; }
+        }
+        if(!hexOnly) continue;
+        if(token.length==6||token.length==8) {
+            unsigned value=0;
+            if(![[NSScanner scannerWithString:token] scanHexInt:&value]) continue;
+            if(token.length==6) {
+                *r=((value>>16)&0xFF)/255.0; *g=((value>>8)&0xFF)/255.0; *b=(value&0xFF)/255.0;
+            } else {
+                *r=((value>>24)&0xFF)/255.0; *g=((value>>16)&0xFF)/255.0;
+                *b=((value>>8)&0xFF)/255.0; *a=(value&0xFF)/255.0;
+            }
+            found=YES;
+        } else if(token.length<=3) {
+            NSInteger percent=token.integerValue;
+            if(percent>=0&&percent<=100) { *a=percent/100.0; found=YES; }
+        }
+    }
+    return found;
+}
+
+// 1.89: a larger, softly shadowed white thumb for every slider, so the handle
+// matches the ring used on the grid / spectrum.
+static UIImage *LMVSliderThumb(void) {
+    static UIImage *thumb;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        CGFloat size=30;
+        UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(size,size)];
+        thumb=[renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            CGContextRef c=ctx.CGContext;
+            CGContextSetShadowWithColor(c,CGSizeMake(0,0.5),2.5,[UIColor colorWithWhite:0 alpha:.35].CGColor);
+            [[UIColor whiteColor] setFill];
+            CGContextFillEllipseInRect(c,CGRectMake(2,2,size-4,size-4));
+        }];
+    });
+    return thumb;
+}
+
 #pragma mark - Grid palette (figure 4)
 
 // 12 columns: the first row is a grey ramp, the eight rows below are a
@@ -66,11 +118,20 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 
 @interface LMVColorGridView : UIView
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
+@property(nonatomic,copy) void (^onEnd)(void);
 - (void)pickPoint:(CGPoint)point;
+- (void)showRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b;
 - (void)handleTap:(UITapGestureRecognizer *)gesture;
 - (void)handlePan:(UIPanGestureRecognizer *)gesture;
 @end
-@implementation LMVColorGridView
+@implementation LMVColorGridView {
+    // 1.89: the swatch under the current colour gets a white ring so the user can
+    // see which cell is selected; it is a layer, not a redraw, so dragging the
+    // grid stays cheap.
+    CALayer *_ring;
+    NSInteger _selectedX,_selectedY;
+    BOOL _hasSelection;
+}
 - (instancetype)initWithFrame:(CGRect)frame {
     self=[super initWithFrame:frame];
     if(self) {
@@ -85,6 +146,15 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         self.isAccessibilityElement=YES;
         self.accessibilityLabel=@"颜色网格";
         self.accessibilityHint=@"点击或拖动选择颜色";
+        _ring=[CALayer layer];
+        _ring.borderWidth=3;
+        _ring.borderColor=UIColor.whiteColor.CGColor;
+        _ring.shadowColor=UIColor.blackColor.CGColor;
+        _ring.shadowOpacity=.9;
+        _ring.shadowRadius=1.5;
+        _ring.shadowOffset=CGSizeZero;
+        _ring.hidden=YES;
+        [self.layer addSublayer:_ring];
         // 1.84.1: raw touches were swallowed by the presented sheet's gesture
         // recognisers. Explicit recognisers always receive the touch.
         UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
@@ -108,8 +178,48 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         }
     }
 }
-- (void)handleTap:(UITapGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
-- (void)handlePan:(UIPanGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self placeRing];
+}
+- (void)placeRing {
+    CGFloat w=CGRectGetWidth(self.bounds)/(CGFloat)kLMVGridColumns;
+    CGFloat h=CGRectGetHeight(self.bounds)/(CGFloat)kLMVGridRows;
+    if(!_hasSelection||w<=0||h<=0) { _ring.hidden=YES; return; }
+    _ring.hidden=NO;
+    CGRect cell=CGRectMake(_selectedX*w,_selectedY*h,w,h);
+    _ring.frame=CGRectInset(cell,2.5,2.5);
+    _ring.cornerRadius=MIN(8.0,MIN(w,h)/3.0);
+}
+- (void)showRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b {
+    CGFloat hue=0,sat=0,val=0;
+    [[UIColor colorWithRed:r green:g blue:b alpha:1] getHue:&hue saturation:&sat brightness:&val alpha:NULL];
+    NSInteger x=0,y=0;
+    if(sat<0.12) {
+        // Grey ramp row: LMVGridColorAt draws value=1-x/(columns-1).
+        y=0;
+        x=(NSInteger)lround((1.0-val)*(CGFloat)(kLMVGridColumns-1));
+    } else {
+        x=(NSInteger)floor(hue*(CGFloat)kLMVGridColumns);
+        CGFloat t=MAX(0.0,MIN(1.0,(sat-0.34)/0.66));
+        y=1+(NSInteger)lround(t*(CGFloat)(kLMVGridRows-2));
+    }
+    _selectedX=MAX(0,MIN(kLMVGridColumns-1,x));
+    _selectedY=MAX(0,MIN(kLMVGridRows-1,y));
+    _hasSelection=YES;
+    [self placeRing];
+}
+- (void)handleTap:(UITapGestureRecognizer *)gesture {
+    [self pickPoint:[gesture locationInView:self]];
+    if(self.onEnd) self.onEnd();
+}
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    [self pickPoint:[gesture locationInView:self]];
+    UIGestureRecognizerState state=gesture.state;
+    if(state==UIGestureRecognizerStateEnded||state==UIGestureRecognizerStateCancelled||state==UIGestureRecognizerStateFailed) {
+        if(self.onEnd) self.onEnd();
+    }
+}
 - (void)pickPoint:(CGPoint)p {
     CGFloat w=CGRectGetWidth(self.bounds)/(CGFloat)kLMVGridColumns;
     CGFloat h=CGRectGetHeight(self.bounds)/(CGFloat)kLMVGridRows;
@@ -117,6 +227,8 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     NSInteger y=(NSInteger)floor(p.y/MAX(h,1));
     x=MAX(0,MIN(kLMVGridColumns-1,x));
     y=MAX(0,MIN(kLMVGridRows-1,y));
+    _selectedX=x; _selectedY=y; _hasSelection=YES;
+    [self placeRing];
     CGFloat r,g,b;
     LMVGridColorAt(x,y,&r,&g,&b);
     if(self.onPick) self.onPick(r,g,b);
@@ -130,6 +242,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 // get even in the corner stops.
 @interface LMVSpectrumView : UIView
 @property(nonatomic,copy) void (^onPick)(CGFloat r,CGFloat g,CGFloat b);
+@property(nonatomic,copy) void (^onEnd)(void);
 - (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness;
 - (void)pickPoint:(CGPoint)point;
 - (void)handleTap:(UITapGestureRecognizer *)gesture;
@@ -153,13 +266,16 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         self.isAccessibilityElement=YES;
         self.accessibilityLabel=@"光谱选色";
         self.accessibilityHint=@"点击或拖动选择颜色";
+        // 1.89: 30pt instead of 20 - at 20 the ring was hard to see on light
+        // colours and read as "not tracking the finger" while it was actually
+        // just too small to follow with the eye.
         _marker=[CALayer layer];
-        _marker.bounds=CGRectMake(0,0,20,20);
-        _marker.cornerRadius=10;
-        _marker.borderWidth=2;
+        _marker.bounds=CGRectMake(0,0,30,30);
+        _marker.cornerRadius=15;
+        _marker.borderWidth=3;
         _marker.borderColor=UIColor.whiteColor.CGColor;
         _marker.shadowColor=UIColor.blackColor.CGColor;
-        _marker.shadowOpacity=.55;
+        _marker.shadowOpacity=.6;
         _marker.shadowRadius=2;
         _marker.shadowOffset=CGSizeZero;
         _hasMarker=NO;
@@ -214,7 +330,14 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _marker.hidden=NO;
     CGFloat w=CGRectGetWidth(self.bounds),h=CGRectGetHeight(self.bounds);
     CGFloat y=_saturation<0.999 ? _saturation*0.5 : 0.5+(1.0-_brightness)*0.5;
-    _marker.position=CGPointMake(MAX(0,MIN(1,_hue))*w,MAX(0,MIN(1,y))*h);
+    CGFloat radius=_marker.bounds.size.width/2;
+    // 1.89: keep the whole ring on screen (it used to be half-clipped at the
+    // edges, which read as the circle sitting off-centre under the finger).
+    CGFloat x=MAX(0,MIN(1,_hue))*w;
+    CGFloat yy=MAX(0,MIN(1,y))*h;
+    if(w>radius*2) x=MAX(radius,MIN(w-radius,x));
+    if(h>radius*2) yy=MAX(radius,MIN(h-radius,yy));
+    _marker.position=CGPointMake(x,yy);
 }
 - (void)showHue:(CGFloat)hue saturation:(CGFloat)saturation brightness:(CGFloat)brightness {
     _hue=MAX(0,MIN(1,hue));
@@ -223,8 +346,17 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _hasMarker=YES;
     [self placeMarker];
 }
-- (void)handleTap:(UITapGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
-- (void)handlePan:(UIPanGestureRecognizer *)gesture { [self pickPoint:[gesture locationInView:self]]; }
+- (void)handleTap:(UITapGestureRecognizer *)gesture {
+    [self pickPoint:[gesture locationInView:self]];
+    if(self.onEnd) self.onEnd();
+}
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    [self pickPoint:[gesture locationInView:self]];
+    UIGestureRecognizerState state=gesture.state;
+    if(state==UIGestureRecognizerStateEnded||state==UIGestureRecognizerStateCancelled||state==UIGestureRecognizerStateFailed) {
+        if(self.onEnd) self.onEnd();
+    }
+}
 - (void)pickPoint:(CGPoint)p {
     CGFloat w=MAX(1,CGRectGetWidth(self.bounds)),h=MAX(1,CGRectGetHeight(self.bounds));
     CGFloat hue=MAX(0,MIN(1,p.x/w));
@@ -244,7 +376,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
 
 @interface LMVTextColorPicker () {
     UIView *_sheet;
-    UILabel *_hex;
+    UITextField *_hex;
     UISegmentedControl *_mode;
     UIView *_gridPanel,*_spectrumPanel,*_sliderPanel;
     LMVColorGridView *_gridView;
@@ -255,6 +387,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     CAGradientLayer *_redGradient,*_greenGradient,*_blueGradient,*_alphaGradient;
     CGFloat _r,_g,_b,_a;
     BOOL _cleared;
+    BOOL _suppressSpectrumSync;
 }
 @end
 
@@ -308,11 +441,13 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _gridView.tag=0x5A43;
     __weak typeof(self) weakSelf=self;
     _gridView.onPick=^(CGFloat r,CGFloat g,CGFloat b) { [weakSelf pickRed:r green:g blue:b]; };
+    _gridView.onEnd=^{ [weakSelf commit]; };
     [_gridPanel addSubview:_gridView];
 
     _spectrumView=[LMVSpectrumView new];
     _spectrumView.tag=0x5A44;
-    _spectrumView.onPick=^(CGFloat r,CGFloat g,CGFloat b) { [weakSelf pickRed:r green:g blue:b]; };
+    _spectrumView.onPick=^(CGFloat r,CGFloat g,CGFloat b) { [weakSelf pickRed:r green:g blue:b keepSpectrumMarker:YES]; };
+    _spectrumView.onEnd=^{ [weakSelf commit]; };
     [_spectrumPanel addSubview:_spectrumView];
 
     _redSlider=[self sliderWithTag:1];
@@ -333,13 +468,28 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _blueValue=[self valueLabelWithTag:23];
     _alphaValue=[self valueLabelWithTag:24];
 
-    _hex=[UILabel new];
-    _hex.font=[UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightSemibold];
-    _hex.textColor=UIColor.systemBlueColor;
+    // 1.89: the readout is an input field now. It shows "#RRGGBB 100%" and takes
+    // the same shape back (hex, 8-digit hex or a bare percentage).
+    _hex=[UITextField new];
+    _hex.font=[UIFont monospacedDigitSystemFontOfSize:16 weight:UIFontWeightSemibold];
+    _hex.textColor=UIColor.labelColor;
     _hex.textAlignment=NSTextAlignmentCenter;
-    _hex.userInteractionEnabled=YES;
+    _hex.backgroundColor=UIColor.tertiarySystemFillColor;
+    _hex.layer.cornerRadius=8;
+    _hex.clipsToBounds=YES;
+    _hex.keyboardType=UIKeyboardTypeASCIICapable;
+    _hex.autocapitalizationType=UITextAutocapitalizationTypeAllCharacters;
+    _hex.autocorrectionType=UITextAutocorrectionTypeNo;
+    _hex.spellCheckingType=UITextSpellCheckingTypeNo;
+    _hex.returnKeyType=UIReturnKeyDone;
+    _hex.clearButtonMode=UITextFieldViewModeWhileEditing;
+    _hex.placeholder=@"#RRGGBB 100%";
     _hex.tag=0x5A33;
-    [_hex addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(copyHex)]];
+    UIView *hexPad=[UIView new];
+    hexPad.frame=CGRectMake(0,0,10,38);
+    _hex.leftView=hexPad;
+    _hex.leftViewMode=UITextFieldViewModeAlways;
+    [_hex addTarget:self action:@selector(hexEdited:) forControlEvents:UIControlEventEditingDidEnd];
     [_sliderPanel addSubview:_hex];
 
     UIView *presets=[UIView new];
@@ -373,7 +523,12 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     slider.minimumTrackTintColor=UIColor.clearColor;
     slider.maximumTrackTintColor=UIColor.clearColor;
     slider.thumbTintColor=UIColor.whiteColor;
+    [slider setThumbImage:LMVSliderThumb() forState:UIControlStateNormal];
     [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
+    // 1.89: dragging only previews; the write (disk + notification) happens once
+    // the finger lifts. Writing on every value change was what made the knob feel
+    // like it lagged behind the finger.
+    [slider addTarget:self action:@selector(sliderCommitted:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
     // 1.84.1: alpha is shared by all three modes, so it lives on the sheet. It used
     // to be added to the slider panel while its frame was computed in sheet
     // coordinates - the slider ended up below the sheet.
@@ -451,7 +606,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
         slider.frame=CGRectMake(sliderX-2,rowY+8,sliderW+4,44);
         [_sliderPanel viewWithTag:21+i].frame=CGRectMake(valueX,rowY+13,64,32);
     }
-    _hex.frame=CGRectMake(0,176,inner,28);
+    _hex.frame=CGRectMake(0,170,inner,38);
     UILabel *alphaName=[self.view viewWithTag:44];
     if(!alphaName) {
         alphaName=[UILabel new];alphaName.tag=44;
@@ -484,15 +639,27 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [self.view setNeedsLayout];
 }
 - (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b {
+    [self pickRed:r green:g blue:b keepSpectrumMarker:NO];
+}
+// 1.89: when the spectrum itself produced the colour, the ring is already under
+// the finger. Re-deriving its position from the 8-bit RGB round trip nudge it a
+// pixel or two on every event, which is what made it look like it was lagging.
+- (void)pickRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b keepSpectrumMarker:(BOOL)keep {
     _r=r;_g=g;_b=b;
+    _suppressSpectrumSync=keep;
     [self refreshUI];
-    [self publish];
+    _suppressSpectrumSync=NO;
+    [self preview];
 }
 - (void)sliderChanged:(UISlider *)sender {
     _r=_redSlider.value;_g=_greenSlider.value;_b=_blueSlider.value;_a=_alphaSlider.value;
     [self refreshUI];
-    [self publish];
+    [self preview];
 }
+// 1.89: the value is committed when the finger lifts (or the sheet closes), not
+// on every event. Each commit used to synchronise preferences and post a Darwin
+// notification, which stalled the main thread mid-drag.
+- (void)sliderCommitted:(UISlider *)sender { [self commit]; }
 - (void)refreshUI {
     _redSlider.value=_r;_greenSlider.value=_g;_blueSlider.value=_b;_alphaSlider.value=_a;
     _redValue.text=[NSString stringWithFormat:@"%d",(int)lround(_r*255)];
@@ -507,17 +674,39 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _blueGradient.colors=@[(id)[UIColor colorWithRed:_r green:_g blue:0 alpha:1].CGColor,
                            (id)[UIColor colorWithRed:_r green:_g blue:1 alpha:1].CGColor];
     _alphaGradient.colors=@[(id)[current colorWithAlphaComponent:0].CGColor,(id)current.CGColor];
-    _hex.text=[NSString stringWithFormat:@"Hex 颜色 %@（点击复制）",LMVTextColorHex(current)];
-    if(_mode.selectedSegmentIndex==1) {
+    if(!_hex.isFirstResponder) {
+        _hex.text=[NSString stringWithFormat:@"%@ %.0f%%",LMVTextColorHex(current),_a*100];
+    }
+    if(_mode.selectedSegmentIndex==0) {
+        [_gridView showRed:_r green:_g blue:_b];
+    }
+    if(_mode.selectedSegmentIndex==1 && !_suppressSpectrumSync) {
         CGFloat hue=0,sat=0,bright=0;
         [current getHue:&hue saturation:&sat brightness:&bright alpha:NULL];
         [_spectrumView showHue:hue saturation:sat brightness:bright];
     }
 }
-- (void)publish {
+// 1.89: preview = repaint only; commit = write the preference as well.
+- (void)preview {
+    if(self.onChange)self.onChange([UIColor colorWithRed:_r green:_g blue:_b alpha:_a]);
+}
+- (void)commit {
     UIColor *color=[UIColor colorWithRed:_r green:_g blue:_b alpha:_a];
     LMVTextColorStore(color);
     if(self.onChange)self.onChange(color);
+}
+- (void)hexEdited:(UITextField *)field {
+    CGFloat r=_r,g=_g,b=_b,a=_a;
+    if(!LMVColorTextParse(field.text,&r,&g,&b,&a)) {
+        CGFloat alpha=1;
+        [[UIColor colorWithRed:_r green:_g blue:_b alpha:_a] getRed:NULL green:NULL blue:NULL alpha:&alpha];
+        field.text=[NSString stringWithFormat:@"%@ %.0f%%",LMVTextColorHex([UIColor colorWithRed:_r green:_g blue:_b alpha:_a]),alpha*100];
+        return;
+    }
+    _r=r;_g=g;_b=b;_a=a;
+    [self refreshUI];
+    [self commit];
+    [field resignFirstResponder];
 }
 - (void)presetTapped:(UIButton *)sender {
     NSInteger slot=sender.tag-100;
@@ -526,7 +715,7 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     else {_r=_g=_b=0;}
     _a=1;
     [self refreshUI];
-    [self publish];
+    [self commit];
 }
 - (void)resetTapped {
     LMVTextColorStore(nil);
@@ -536,14 +725,12 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _cleared=YES;
     [self closeTapped:nil];
 }
-- (void)copyHex {
-    UIPasteboard.generalPasteboard.string=LMVTextColorHex([UIColor colorWithRed:_r green:_g blue:_b alpha:_a]);
-}
 - (void)closeTapped:(id)sender {
     // 1.84: the last pick must be on disk and on screen before the sheet leaves.
     // Sliding then tapping X used to close with the sheet's previous colour still
     // applied, which read as "the circle did not take effect".
-    if(!_cleared) [self publish];
+    [_hex resignFirstResponder];
+    if(!_cleared) [self commit];
     // 1.88: tell the caller once the sheet is really gone so it can repaint its
     // swatch after the list has been laid out again.
     __weak LMVTextColorPicker *weakSelf=self;
