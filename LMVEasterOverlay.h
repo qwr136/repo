@@ -614,7 +614,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
         if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState!=UISceneActivationStateUnattached)
             [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
-    UIWindow *ncHost=nil,*ccHost=nil,*homeHost=nil;
+    UIWindow *ncHost=nil,*ccHost=nil,*homeHost=nil,*coverHost=nil;
     NSInteger foreground=LMVEasterForeground();
     // 2.12: the switcher sits over SpringBoard itself, so neither the foreground
     // probe nor the home window's own visibility can tell it apart from "at the
@@ -623,6 +623,14 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL appWindow=LMVEasterAppWindowPresent(windows);
     for (UIWindow *window in windows) {
         if(window==self.window || !window.windowScene)continue;
+        // 2.18: THE COVER WINDOW ITSELF IS THE EVIDENCE. LMVEasterNCWindowExposed
+        // additionally requires the lock-screen CONTENT to be found and on screen,
+        // which fails while Face ID scans (the lock UI is morphed/hidden) - that is
+        // exactly the state the user reported: nothing on the lock screen, only a
+        // flash at unlock. A visible SBCoverSheetWindow is enough to know a cover
+        // surface is up; the scene (lock screen vs NC) then comes from the origin.
+        if(LMVEasterKnownWindow(window,@[@"SBCoverSheetWindow"]) && !window.hidden &&
+           window.alpha>=.01 && window.screen==UIScreen.mainScreen && !coverHost)coverHost=window;
         if(LMVEasterNCWindowExposed(window) && (!ncHost || window.windowLevel>ncHost.windowLevel))ncHost=window;
         if(LMVEasterCCWindowExposed(window) && (!ccHost || window.windowLevel>ccHost.windowLevel))ccHost=window;
         BOOL keyHome=window.isKeyWindow || (self.window.isKeyWindow && self.foreignKey==window);
@@ -656,7 +664,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.physicalWindows=physical;self.physicalProbes=probes;
     self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
     self.lastPhysicalCheck=CACurrentMediaTime();
-    UIWindow *host=ccHost ?: ncHost ?: homeHost;
+    UIWindow *host=ccHost ?: ncHost ?: coverHost ?: homeHost;
     // 2.14: WHAT MATTERS IS HOW THE EXPOSURE STARTED, NOT WHAT LOCKSTATE SAYS NOW.
     // The ball flashed at the exact instant Face ID recognised the face: the cover
     // sheet stays on screen through the unlock, the flag below used to be "learned"
@@ -665,7 +673,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // screen is the lock screen, even after Face ID flips lockstate under it. This
     // is recomputed every tick from that origin, so the lockstate pulse Sent while
     // NC is being pulled still cannot make the ball flicker.
-    BOOL coverExposed=ncHost!=nil;
+    BOOL coverExposed=(ncHost!=nil || coverHost!=nil);
     CFTimeInterval coverNow=CACurrentMediaTime();
     if(coverExposed) {
         if(!self.coverWasExposed) {
@@ -709,34 +717,28 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL safetyClear=LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow);
     LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
         ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
-    // 2.16: KEEP A LOCK-SCREEN BALL CONTINUOUS THROUGH THE UNLOCK ANIMATION.
-    // "Show on lock screen" still blinked once: the instant lockstate flips to 0
-    // the policy drops the scene, but the cover stays on screen for a few hundred
-    // milliseconds, then the ball comes back on the desktop. If this exposure
-    // STARTED on the lock screen and the device is headed to the desktop, stay in
-    // the lock-screen scene until the cover is gone. Heading into an app (or the
-    // switcher) keeps the old instant hide, so nothing is ever drawn over an app.
-    if(displayScene==LMVEasterDisplayNone && coverExposed &&
-       !self.coverStartedUnlocked && self.displayControls.showOnLockScreen &&
-       blankKnown && !blank && !appWindow && !switcher && foreground!=-1) {
-        // 2.17: the lock-screen scene used to require lockstate==1. On this device
-        // Face ID authenticates while the lock screen is still fully on screen, so
-        // lockstate is already 0 there and NOTHING was drawn until the unlock
-        // animation - the "only flashes at unlock" report. The exposure origin is
-        // the reliable fact: it began on the lock screen and the user asked for the
-        // lock screen to show it. An app in front (fg==-1) or the switcher still
-        // wins, so nothing is ever kept over an app.
-        displayScene=LMVEasterDisplayLockScreen;
-        [self reportWindow:[NSString stringWithFormat:@"lock-screen-hold locked=%llu fg=%ld",
-            (unsigned long long)locked,(long)foreground]];
-    }
-    // 2.17: Notification Center is now a switch of its own (it shares the cover
-    // sheet window with the lock screen, so it used to be unconditional). Turning
-    // it off must also silence the unlock instant, which is judged as NC.
+    // 2.17: Notification Center is a switch of its own (it shares the cover sheet
+    // window with the lock screen, so it used to be unconditional). Turning it off
+    // must also silence the unlock instant, which is judged as NC.
     if(displayScene==LMVEasterDisplayNC) {
         id ncValue=LMVEasterRead(@"EasterEggShowOnNotificationCenter");
         BOOL ncShown=![ncValue isKindOfClass:NSNumber.class] || [ncValue boolValue];
         if(!ncShown) {[self hide];[self reportWindow:@"nc-disabled"];return;}
+    }
+    // 2.18: the cover surface is up but the policy could not name a scene (its NC
+    // host needs the lock-screen CONTENT, which Face ID hides). Decide from the
+    // exposure origin instead, and let each switch gate its own scene.
+    if(displayScene==LMVEasterDisplayNone && coverExposed &&
+       blankKnown && !blank && !appWindow && !switcher && foreground!=-1) {
+        id ncValue=LMVEasterRead(@"EasterEggShowOnNotificationCenter");
+        BOOL ncShown=![ncValue isKindOfClass:NSNumber.class] || [ncValue boolValue];
+        if(self.coverStartedUnlocked) {
+            if(ncShown) displayScene=LMVEasterDisplayNC;
+        } else if(self.displayControls.showOnLockScreen) {
+            displayScene=LMVEasterDisplayLockScreen;
+            [self reportWindow:[NSString stringWithFormat:@"lock-screen-hold locked=%llu fg=%ld ncHost=%d",
+                (unsigned long long)locked,(long)foreground,(int)(ncHost!=nil)]];
+        }
     }
     if(displayScene==LMVEasterDisplayNone) {
         NSString *reason=blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked";
