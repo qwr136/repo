@@ -120,6 +120,30 @@ static BOOL LMVPhoneAssistGlassKind(UIView *view) {
         if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
     return NO;
 }
+// 2.28: the overlay window. Fully transparent, refuses every touch, never becomes
+// key: it exists only to carry the video above whatever the cover plugin draws.
+@interface LMVPhoneAssistOverlayWindow:UIWindow
+@end
+@implementation LMVPhoneAssistOverlayWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event { return nil; }
+- (BOOL)canBecomeKeyWindow { return NO; }
+@end
+static CGFloat LMVPhoneAssistTopWindowLevel(UIWindow *base) {
+    CGFloat top=base?base.windowLevel:0;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(window.hidden || window.alpha<.01)continue;
+            if(!isfinite(window.windowLevel))continue;
+            // Some system windows report DBL_MAX (the touch visualiser seen while
+            // recording). Treating that as a competitor would put our level at a
+            // value that cannot be represented sanely, so it is ignored.
+            if(window.windowLevel>1e9 || window.windowLevel<-1e9)continue;
+            if(window.windowLevel>top)top=window.windowLevel;
+        }
+    }
+    return top;
+}
 static NSString *LMVPhoneAssistCardMatch=nil;
 // 2.26: when nothing is found we must be able to say WHAT was on screen instead of
 // only which windows existed. Class + frame + alpha per view is what tells a
@@ -351,6 +375,8 @@ static void LMVPhoneAssistRestoreTextColor(void) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+@property(nonatomic,strong) LMVPhoneAssistOverlayWindow *overlay;
+- (void)presentOverlayForCard:(UIView *)card inWindow:(UIWindow *)window;
 - (void)detach;
 - (void)update;
 @end
@@ -367,9 +393,31 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     return self;
 }
 - (void)dealloc {[_host removeFromSuperview];}
+- (void)presentOverlayForCard:(UIView *)card inWindow:(UIWindow *)window {
+    if(!card || !window || !window.windowScene) {self.overlay.hidden=YES;return;}
+    if(!self.overlay || self.overlay.windowScene!=window.windowScene) {
+        if(self.host.superview)[self.host removeFromSuperview];
+        UIViewController *root=[UIViewController new];
+        root.view.backgroundColor=UIColor.clearColor;
+        root.view.userInteractionEnabled=NO;
+        LMVPhoneAssistOverlayWindow *overlay=
+            [[LMVPhoneAssistOverlayWindow alloc] initWithWindowScene:window.windowScene];
+        overlay.backgroundColor=UIColor.clearColor;
+        overlay.rootViewController=root;
+        overlay.hidden=YES;
+        self.overlay=overlay;
+    }
+    CGFloat level=LMVPhoneAssistTopWindowLevel(window)+1;
+    if(!isfinite(level) || level<=window.windowLevel) level=window.windowLevel+1;
+    if(self.overlay.windowLevel!=level) self.overlay.windowLevel=level;
+    UIView *canvas=self.overlay.rootViewController.view;
+    if(self.host.superview!=canvas)[canvas addSubview:self.host];
+    if(self.overlay.hidden)self.overlay.hidden=NO;
+}
 - (void)detach {
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
+    self.overlay.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
     LMVPhoneAssistRestoreTextColor();
     self.card=nil;self.mode=nil;
@@ -432,23 +480,28 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVPhoneAssistMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
-    // Fix: place the video ABOVE the material, not inside its contentView.
-    // The device log named the failure exactly: pa-panel mode=content live=1
-    // host=270x607 ready=1 poster=1 rate=1.0 - mounted, decoded and playing, yet
-    // invisible. This sheet's material is _UIDimmingKnockoutBackdropView (a
-    // UIVisualEffectView subclass); on this system its own effect layers paint
-    // over the content view, so a subview placed at contentView index 0 is
-    // covered. It is the same failure 1.93 hit on the Squid panel, whose fix was
-    // to sit above the effect view and below the content. The alert group is
-    // [_UIDimmingKnockoutBackdropView, content UIView], so index material+1 lands
-    // between the dimming layer and the labels.
-    if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
+    // 2.28: A STANDALONE TRANSPARENT WINDOW, NOT A SUBVIEW OF ANYBODY'S TREE.
+    // Every earlier attempt lost the same way: the cover plugin (GlassSuiteX) can
+    // inject a glass layer at any moment, or own a window above the alert, so any
+    // z-order won inside a view tree is temporary. Window level is decided last, so
+    // the video gets a window of its own, one level above the highest visible one,
+    // and draws only inside the sheet's rectangle. That window is transparent and
+    // refuses every touch, so nothing else on screen changes. The in-tree mount is
+    // kept as the fallback for a system where no window scene is available.
+    [self presentOverlayForCard:card inWindow:window];
+    BOOL usingOverlay=NO;
+    if(self.overlay) {
+        usingOverlay=YES; mode=@"overlay";
+        container=self.overlay.rootViewController.view;
+        index=0;
+        target=[card convertRect:card.bounds toView:nil];
+    } else if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
         container=material.superview;
         NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
         if(near==NSNotFound) {[self detach];self.updating=NO;return;}
         NSUInteger slot=(NSUInteger)(near+1);
-        // 2.27: land ABOVE any glass/effect layer the cover plugin slipped in after
-        // the material, still below the labels (the first non-glass sibling).
+        // Land ABOVE any glass/effect layer the cover plugin slipped in after the
+        // material, still below the labels (the first non-glass sibling).
         for(NSUInteger i=slot;i<container.subviews.count;i++) {
             UIView *sibling=container.subviews[i];
             if(sibling.tag==LMVPhoneAssistHostTag)break;
@@ -456,26 +509,26 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
             slot=i+1;
         }
         index=slot;target=material.frame;mode=@"above-material";
-    }
-    // 2.27: if the covering plugin owns a window above the alert, that window is the
-    // only place the video can actually be seen; nothing inside the alert competes
-    // with a higher window.
-    UIWindow *glassWindow=LMVPhoneAssistGlassWindow(window);
-    if(glassWindow) {
-        container=glassWindow;
-        NSInteger current=self.host.superview==glassWindow ?
-            (NSInteger)[glassWindow.subviews indexOfObjectIdenticalTo:self.host] : NSNotFound;
-        BOOL topmost=current>=0 && current==(NSInteger)glassWindow.subviews.count-1;
-        index=topmost ? (NSUInteger)current : glassWindow.subviews.count;
-        target=[card convertRect:card.bounds toView:glassWindow];
-        mode=@"glass-window";
+    } else {
+        UIWindow *glassWindow=LMVPhoneAssistGlassWindow(window);
+        if(glassWindow) {
+            container=glassWindow;
+            NSInteger current=self.host.superview==glassWindow ?
+                (NSInteger)[glassWindow.subviews indexOfObjectIdenticalTo:self.host] : NSNotFound;
+            BOOL topmost=current>=0 && current==(NSInteger)glassWindow.subviews.count-1;
+            index=topmost ? (NSUInteger)current : glassWindow.subviews.count;
+            target=[card convertRect:card.bounds toView:glassWindow];
+            mode=@"glass-window";
+        }
     }
     if(!container) {container=card;index=0;target=card.bounds;}
     self.mode=mode;
-    BOOL placed=self.host.superview==container &&
-        (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;
+    BOOL placed=self.host.superview==container;
+    if(placed && !usingOverlay)
+        placed=(NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;
     if(!placed) {
-        if(![self insertHostInto:container at:index]) {[self detach];self.updating=NO;return;}
+        if(usingOverlay) [container insertSubview:self.host atIndex:0];
+        else if(![self insertHostInto:container at:index]) {[self detach];self.updating=NO;return;}
     }
     [CATransaction begin];[CATransaction setDisableActions:YES];
     if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;
@@ -488,9 +541,10 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f match=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
+        NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f match=%@ mode=%@ olvl=%.0f card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             LMVPhoneAssistCardMatch?:@"none",
+            self.overlay?self.overlay.windowLevel:0.0,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,

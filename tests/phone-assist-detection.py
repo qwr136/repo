@@ -56,6 +56,21 @@ assert 'mode=@"glass-window"' in src
 assert 'LMVPhoneAssistGlassKind(sibling)' in src
 # 索引越界保护：插到别人窗口的最上层时 index 可能等于 count
 assert 'MIN(index,container.subviews.count)' in src
+
+# 7) 2.28：不再在别人的视图树里抢层级，而是用自己的透明窗口，层级 = 最高可见窗口+1。
+#    窗口必须拒绝一切触摸，否则会挡住电话助手自己的按钮。
+assert '@interface LMVPhoneAssistOverlayWindow:UIWindow' in src
+assert '- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event { return nil; }' in src
+assert 'LMVPhoneAssistTopWindowLevel' in src and 'windowLevel+1' in src
+assert 'presentOverlayForCard' in src and 'initWithWindowScene:window.windowScene' in src
+assert 'mode=@"overlay"' in src
+assert 'usingOverlay' in src and '[container insertSubview:self.host atIndex:0]' in src
+# 覆盖窗口在 detach 时也要收起，否则弹窗关掉后视频会留在屏幕上
+detach = src[src.index('- (void)detach {'):]
+detach = detach[:detach.index('\n}')]
+assert 'self.overlay.hidden=YES' in detach
+# 覆盖窗口层级写进状态行，下次日志能直接确认它是否压在对方之上
+assert 'olvl=%.0f' in src
 print('PASS: phone-assist sheet found by class name, falls back to the dimming/backdrop '
       'structure, excludes full-screen and shell views, and reports the visible view tree '
       'plus the match source when nothing is found')
