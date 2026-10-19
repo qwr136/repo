@@ -34,16 +34,29 @@ static BOOL LMVPhoneAssistEnvironment(void) {
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
 }
-// The sheet is presented into the home-screen window, exactly like AppTools.
-static UIWindow *LMVPhoneAssistHomeWindow(void) {
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])return window;
+// 2.15: WHO IS COVERING US. The device log has to answer "mounted, playing, yet
+// invisible" without another round trip, so the card's ancestors and every sibling
+// drawn ABOVE our host are printed with hidden/alpha/opaque/background alpha.
+static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
+    NSMutableString *out=[NSMutableString stringWithFormat:@"pa-stack card=%@",NSStringFromClass(card.class)];
+    NSInteger depth=0;
+    for(UIView *node=card.superview;node && depth++<7;node=node.superview)
+        [out appendFormat:@" < %@",NSStringFromClass(node.class)];
+    UIView *container=host.superview;
+    if(container) {
+        NSInteger index=(NSInteger)[container.subviews indexOfObjectIdenticalTo:host];
+        [out appendFormat:@" container=%@ idx=%ld above=",NSStringFromClass(container.class),(long)index];
+        if(index>=0) {
+            NSUInteger shown=0;
+            for(NSUInteger i=(NSUInteger)index+1;i<container.subviews.count && shown<6;i++,shown++) {
+                UIView *sibling=container.subviews[i];
+                CGFloat background=sibling.backgroundColor?CGColorGetAlpha(sibling.backgroundColor.CGColor):0;
+                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",NSStringFromClass(sibling.class),
+                    (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background];
+            }
         }
     }
-    return nil;
+    return out;
 }
 static NSInteger const LMVPhoneAssistHostTag=0x5A19;
 static CGFloat LMVPhoneAssistVisibleArea(CGRect frame,CGRect bounds) {
@@ -90,7 +103,39 @@ static UIView *LMVPhoneAssistCard(UIWindow *window) {
     }
     return best;
 }
-// The sheet's blur material. The video goes UNDER the labels but ABOVE this.
+// 2.15: DO NOT ASSUME THE SHEET LIVES IN SBHomeScreenWindow. A third-party tweak
+// that "covers" this pop-up often re-hosts it into a window of its own (or moves
+// the alert container); the old home-only scan then saw nothing and the channel
+// went silent. The card is identified by CLASS anywhere on screen: the window we
+// found it in last time is tried first so the common case stays one scan, and the
+// home window keeps priority so nothing changes when the sheet is where it was.
+static __weak UIWindow *LMVPhoneAssistLastWindow;
+static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
+    if(windowOut)*windowOut=nil;
+    if(LMVPhoneAssistLastWindow && !LMVPhoneAssistLastWindow.hidden &&
+       LMVPhoneAssistLastWindow.alpha>=.01) {
+        UIView *card=LMVPhoneAssistCard(LMVPhoneAssistLastWindow);
+        if(card) {if(windowOut)*windowOut=LMVPhoneAssistLastWindow;return card;}
+    }
+    UIWindow *home=nil;UIView *best=nil;UIWindow *bestWindow=nil;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(window.hidden || window.alpha<.01)continue;
+            UIView *card=LMVPhoneAssistCard(window);
+            if(!card)continue;
+            if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])
+                {home=window;best=card;bestWindow=window;break;}
+            if(!best) {best=card;bestWindow=window;}
+        }
+        if(home)break;
+    }
+    if(best) {
+        LMVPhoneAssistLastWindow=bestWindow;
+        if(windowOut)*windowOut=bestWindow;
+    }
+    return best;
+}
 static UIView *LMVPhoneAssistMaterial(UIView *root,UIWindow *window) {
     if(!root || !window)return nil;
     CGRect cardFrame=[root convertRect:root.bounds toView:window];
@@ -227,9 +272,29 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
-    UIWindow *window=LMVPhoneAssistHomeWindow();
-    UIView *card=window?LMVPhoneAssistCard(window):nil;
-    if(!card) {[self detach];self.updating=NO;return;}
+    UIWindow *window=nil;
+    UIView *card=LMVPhoneAssistFindCard(&window);
+    if(!card) {
+        // 2.15: silence was the old answer here. When a covering tweak moves the
+        // sheet somewhere we cannot see, the log must at least name the windows
+        // that WERE on screen, so the next capture explains itself.
+        if(LMVDiagnosticsEnabled.load()) {
+            NSMutableString *visible=[NSMutableString new];NSUInteger shown=0;
+            for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if(![scene isKindOfClass:UIWindowScene.class])continue;
+                for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
+                    if(candidate.hidden || candidate.alpha<.01)continue;
+                    if(shown++>=8)break;
+                    [visible appendFormat:@"%@@%.0fx%.0f ",NSStringFromClass(candidate.class),
+                        candidate.bounds.size.width,candidate.bounds.size.height];
+                }
+            }
+            NSString *line=[NSString stringWithFormat:@"pa-nocard windows=%lu %@",(unsigned long)shown,visible];
+            static NSString *lastLine=nil;
+            if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
+        }
+        [self detach];self.updating=NO;return;
+    }
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     LMVPhoneAssistApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVPhoneAssistPath] ||
@@ -288,6 +353,9 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
             LMVPhoneAssistTextColor()?@"on":@"off"];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
+        NSString *stack=LMVPhoneAssistStackDescription(self.card,self.host);
+        static NSString *lastStack=nil;
+        if(![stack isEqualToString:lastStack]) {lastStack=[stack copy];LMVDiagnostic(stack);}
     }
     self.updating=NO;
 }
@@ -317,7 +385,7 @@ static void LMVPhoneAssistVideoRefresh(BOOL reload) {
         if(LMVPhoneAssistVideo.playback.path)[LMVPhoneAssistVideo.playback clear];
         return;
     }
-    if(!LMVPhoneAssistEnvironment() || !LMVPhoneAssistHomeWindow()) {[LMVPhoneAssistVideo detach];return;}
+    if(!LMVPhoneAssistEnvironment()) {[LMVPhoneAssistVideo detach];return;}
     if(!LMVPhoneAssistVideo)LMVPhoneAssistVideo=[LMVPhoneAssistVideoManager new];
     // A timer callback is a run-loop callback: an uncaught exception here aborts
     // SpringBoard. Every failure inside this channel stands the channel down.

@@ -273,7 +273,19 @@ static __weak UIView *LMVHomeMenuObservedList;
     LMVHomeMenuRecord *record=LMVHomeMenuOwner(list);
     BOOL allowed=LMVHomeMenuEnabled && LMVHomeMenuPath.length && LMVHomeMenuRevision.length &&
         LMVHomeMenuEnvironment() && record && LMVHomeMenuSurface(list,&material,&clip,&collection);
-    if(!allowed) {[self detach];self.updating=NO;return;}
+    if(!allowed) {
+        // 2.15: this channel used to fail silently. Name the reason and the class
+        // we were handed, so a covering tweak that reshapes the menu can be told
+        // apart from "switch off" or "no material selected".
+        if(LMVDiagnosticsEnabled.load()) {
+            NSString *line=[NSString stringWithFormat:@"home-menu-nocard list=%@ enabled=%d path=%d env=%d record=%d surface=%d",
+                NSStringFromClass(list.class),(int)LMVHomeMenuEnabled,(int)(LMVHomeMenuPath.length>0),
+                (int)LMVHomeMenuEnvironment(),(int)(record!=nil),(int)(material!=nil)];
+            static NSString *lastLine=nil;
+            if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
+        }
+        [self detach];self.updating=NO;return;
+    }
     self.list=list;
     if(self.material!=material || self.record!=record || self.lease.parent!=material.superview)[self detach];
     self.material=material;self.clip=clip;self.collection=collection;self.record=record;
@@ -303,6 +315,17 @@ static __weak UIView *LMVHomeMenuObservedList;
     }
     if(material.layer.opacity!=0) {self.lease.baselineOpacity=material.layer.opacity;material.layer.opacity=0;}
     self.lease.applied=YES;if(self.host.hidden)self.host.hidden=NO;
+    if(LMVDiagnosticsEnabled.load()) {
+        UIView *containerView=self.host.superview;
+        NSInteger index=containerView?(NSInteger)[containerView.subviews indexOfObjectIdenticalTo:self.host]:-1;
+        NSString *line=[NSString stringWithFormat:@"home-menu material=%@ %.0fx%.0f host=%.0fx%.0f container=%@ idx=%ld live=%d",
+            NSStringFromClass(material.class),material.bounds.size.width,material.bounds.size.height,
+            self.host.bounds.size.width,self.host.bounds.size.height,
+            containerView?NSStringFromClass(containerView.class):@"none",(long)index,
+            (int)(self.playback.player!=nil && self.playback.playerLayer.readyForDisplay && !self.playback.error)];
+        static NSString *lastLine=nil;
+        if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
+    }
     self.updating=NO;
 }
 @end
