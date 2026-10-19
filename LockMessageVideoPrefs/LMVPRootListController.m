@@ -300,17 +300,6 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
-    // 2.12: row icons asked for by the user - the material rows carry the same
-    // "no material" glyph the picker uses for its 无素材 entry, and the text
-    // colour rows carry the picker's own close glyph. Icons are re-derived on
-    // every display so a recycled cell can never keep the previous row's icon.
-    NSString *title = specifier.name;
-    UIImage *rowIcon = nil;
-    if ([title rangeOfString:@"素材"].location != NSNotFound || [title isEqualToString:@"切换视频"])
-        rowIcon = [UIImage systemImageNamed:@"nosign"];
-    else if ([title isEqualToString:@"文字颜色"])
-        rowIcon = [UIImage systemImageNamed:@"xmark.circle.fill"];
-    if (cell.imageView.image != rowIcon) cell.imageView.image = rowIcon;
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
