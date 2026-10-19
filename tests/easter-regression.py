@@ -163,4 +163,15 @@ assert 'ATVideo' in panel and 'ATBackgroundEnabled' in prefs + panel
 # this key; it is now required, and the overlay must honour it.
 assert 'EasterEggShowOnNotificationCenter' in image
 assert 'EasterEggShowOnNotificationCenter' in overlay and '@"nc-disabled"' in overlay
+# 2.21: A UIWindow IS SUPPRESSED WHILE THE DEVICE IS LOCKED unless the window and
+# its root view controller opt in. This project never declared it, so the ball was
+# only visible at the instant of unlocking even though the state machine had been
+# reporting "shown" (2.19 device log: six uninterrupted seconds of
+# home-nc-cc host=SBCoverSheetWindow, window level 10000012, hidden=0, alpha=1.00,
+# nothing on screen). Both answers must be YES - the lock-screen video never needed
+# this because it lives inside the cover sheet's own view hierarchy.
+window_impl = overlay[overlay.index('@implementation LMVEasterWindow'):overlay.index('@implementation LMVEasterRoot')]
+root_impl = overlay[overlay.index('@implementation LMVEasterRoot'):]
+assert '- (BOOL)_canShowWhileLocked { return YES; }' in window_impl
+assert '- (BOOL)_canShowWhileLocked { return YES; }' in root_impl
 print('PASS: four independent display scenes (lock/NC/CC/desktop, NC honored), rotation off/45 deg/s with finite 5..720 read/write, live Darwin notification and independent HomeMenu selection/delete routing')

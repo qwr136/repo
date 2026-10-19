@@ -17,6 +17,16 @@
 @property(nonatomic, weak) UIView *panel;
 @end
 @implementation LMVEasterWindow
+// 2.21: A WINDOW MAY BE HIDDEN BY THE SYSTEM WHILE THE DEVICE IS LOCKED.
+// This project never declared it, and that is why the ball could only be seen at
+// the instant of unlocking: the state machine had already said "show" (device log
+// 2.19 shows six uninterrupted seconds of home-nc-cc host=SBCoverSheetWindow with
+// our window at level 10000012, hidden=0, alpha=1.00), yet nothing was drawn while
+// locked. The lock-screen video never had this problem because it lives INSIDE the
+// cover sheet's own view hierarchy instead of a separate UIWindow. UIKit asks the
+// window - and its root view controller - whether it may stay on screen while
+// locked; the answer defaults to NO.
+- (BOOL)_canShowWhileLocked { return YES; }
 // Key status only while the contained panel is open, so its prompt text field can
 // become first responder and show the keyboard. The manager hands key back to the
 // previous SpringBoard key window when editing ends or the panel closes.
@@ -79,6 +89,12 @@
 @implementation LMVEasterRoot
 - (void)viewDidLoad { [super viewDidLoad]; self.view.backgroundColor = UIColor.clearColor; }
 - (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; [self.manager layout]; }
+
+// 2.21: the window answers this too, but UIKit also asks the root view controller
+// of the window it is about to suppress. Both answers must be YES or the lock
+// screen still hides the ball. Plain system UI (lock-screen media, call banner)
+// opts in the same way.
+- (BOOL)_canShowWhileLocked { return YES; }
 
 // 0.0.117: while the panel is open this window becomes KEY, so UIKit asks ITS
 // root view controller for the supported orientations. A plain UIViewController
@@ -729,7 +745,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // 2.18: the cover surface is up but the policy could not name a scene (its NC
     // host needs the lock-screen CONTENT, which Face ID hides). Decide from the
     // exposure origin instead, and let each switch gate its own scene.
-    if(displayScene==LMVEasterDisplayNone && coverExposed &&
+    if(displayScene==LMVEasterDisplayNone && coverExposed && safetyClear &&
        blankKnown && !blank && !appWindow && !switcher && foreground!=-1) {
         id ncValue=LMVEasterRead(@"EasterEggShowOnNotificationCenter");
         BOOL ncShown=![ncValue isKindOfClass:NSNumber.class] || [ncValue boolValue];
@@ -790,10 +806,12 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         // state says shown, nothing on screen" can only be: hidden, alpha 0, a
         // level below the lock UI, a zero-sized window, or a bubble parked off
         // screen - so all five are printed with the host.
-        [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld win=%.0fx%.0f winLvl=%.0f hid=%d a=%.2f bubble=%.0f,%.0f %.0fx%.0f img=%d",
+        [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld win=%.0fx%.0f winLvl=%.0f hid=%d a=%.2f attached=%d isHidden=%d bubble=%.0f,%.0f %.0fx%.0f img=%d",
             NSStringFromClass(host.class),level,(long)host.windowScene.activationState,
             self.window.bounds.size.width,self.window.bounds.size.height,self.window.windowLevel,
-            (int)self.window.hidden,self.window.alpha,self.bubble.center.x,self.bubble.center.y,
+            (int)self.window.hidden,self.window.alpha,
+            (int)(self.bubble.window==self.window),(int)self.window.isHidden,
+            self.bubble.center.x,self.bubble.center.y,
             self.bubble.bounds.size.width,self.bubble.bounds.size.height,(int)(self.bubbleImage.image!=nil)]];
     self.window.hidden = NO; self.bubbleImage.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame]; [self syncRotation];
 }
