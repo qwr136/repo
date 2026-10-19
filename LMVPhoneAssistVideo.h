@@ -79,6 +79,68 @@ static BOOL LMVPhoneAssistSheetKind(UIView *view) {
     if([name containsString:@"CallAssist"])return YES;
     return NO;
 }
+// 2.26: A COVERING TWEAK RENAMES THE SHEET AWAY. The name test above only knows
+// three Apple class names; when another tweak replaces or re-hosts the popup those
+// names are simply gone, and the channel reported "no card" while the popup was on
+// screen. Every alert sheet still carries the dimming/backdrop material, so that is
+// a structural signature we can follow without trusting any single class name.
+static NSString *LMVPhoneAssistCardMatch=nil;
+// 2.26: when nothing is found we must be able to say WHAT was on screen instead of
+// only which windows existed. Class + frame + alpha per view is what tells a
+// renamed sheet apart from "the popup never appeared".
+static NSString *LMVPhoneAssistTreeDump(UIWindow *window) {
+    if(!window)return @"none";
+    NSMutableString *out=[NSMutableString stringWithFormat:@"%@{",NSStringFromClass(window.class)];
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSUInteger budget=40;
+    while(pending.count && budget) {
+        UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
+        --budget;
+        CGRect f=[node convertRect:node.bounds toView:window];
+        [out appendFormat:@"%@@%.0f,%.0f %.0fx%.0f(a%.2f,h%d) ",NSStringFromClass(node.class),
+            f.origin.x,f.origin.y,f.size.width,f.size.height,node.alpha,(int)node.hidden];
+        for(UIView *child in node.subviews) if(budget)[pending addObject:child];
+        if(out.length>1100){[out appendString:@"..."];break;}
+    }
+    [out appendString:@"}"];
+    return out;
+}
+static BOOL LMVPhoneAssistShellKind(UIView *view) {
+    NSString *name=NSStringFromClass(view.class);
+    return [name containsString:@"Dimming"] || [name containsString:@"Backdrop"];
+}
+static UIView *LMVPhoneAssistStructuralCard(UIWindow *window) {
+    if(!window)return nil;
+    CGRect bounds=window.bounds;
+    if(CGRectIsEmpty(bounds))return nil;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSUInteger budget=600;
+    while(pending.count && budget) {
+        --budget;
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        BOOL shell=NO;
+        for(UIView *child in node.subviews) {
+            if(child.tag==LMVPhoneAssistHostTag)continue;
+            if(LMVPhoneAssistShellKind(child)) {shell=YES;}
+            if(child.subviews.count && budget){[pending addObject:child];}
+        }
+        if(!shell)continue;
+        // The shell's own container is the alert container; the sheet is the largest
+        // visible sibling that is not the shell and not full-screen.
+        UIView *best=nil;CGFloat bestArea=0;
+        for(UIView *child in node.subviews) {
+            if(child.tag==LMVPhoneAssistHostTag || child.hidden || child.alpha<.01)continue;
+            if(LMVPhoneAssistShellKind(child))continue;
+            CGRect frame=[child convertRect:child.bounds toView:window];
+            if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
+            if(frame.size.width<bounds.size.width*.3 || frame.size.height<bounds.size.height*.05)continue;
+            CGFloat visible=LMVPhoneAssistVisibleArea(frame,bounds);
+            if(visible>bestArea){bestArea=visible;best=child;}
+        }
+        if(best)return best;
+    }
+    return nil;
+}
 static UIView *LMVPhoneAssistCard(UIWindow *window) {
     if(!window)return nil;
     CGRect bounds=window.bounds;
@@ -125,10 +187,23 @@ static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
             UIView *card=LMVPhoneAssistCard(window);
             if(!card)continue;
             if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])
-                {home=window;best=card;bestWindow=window;break;}
-            if(!best) {best=card;bestWindow=window;}
+                {home=window;best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";break;}
+            if(!best) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";}
         }
         if(home)break;
+    }
+    if(!best) {
+        for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if(![scene isKindOfClass:UIWindowScene.class])continue;
+            for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+                if(window.hidden || window.alpha<.01)continue;
+                // Never treat our own floating overlay as the popup.
+                if([NSStringFromClass(window.class) isEqualToString:@"LMVEasterWindow"])continue;
+                UIView *card=LMVPhoneAssistStructuralCard(window);
+                if(card) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"shell";break;}
+            }
+            if(best)break;
+        }
     }
     if(best) {
         LMVPhoneAssistLastWindow=bestWindow;
@@ -275,6 +350,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     UIWindow *window=nil;
     UIView *card=LMVPhoneAssistFindCard(&window);
     if(!card) {
+        LMVPhoneAssistCardMatch=nil;
         // 2.15: silence was the old answer here. When a covering tweak moves the
         // sheet somewhere we cannot see, the log must at least name the windows
         // that WERE on screen, so the next capture explains itself.
@@ -289,7 +365,20 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
                         candidate.bounds.size.width,candidate.bounds.size.height];
                 }
             }
-            NSString *line=[NSString stringWithFormat:@"pa-nocard windows=%lu %@",(unsigned long)shown,visible];
+            NSMutableString *trees=[NSMutableString new];NSUInteger dumped=0;
+            for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if(![scene isKindOfClass:UIWindowScene.class])continue;
+                for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
+                    if(candidate.hidden || candidate.alpha<.01)continue;
+                    NSString *name=NSStringFromClass(candidate.class);
+                    if([name containsString:@"SBHomeScreen"]||[name containsString:@"Wallpaper"]||
+                       [name containsString:@"SystemAperture"]||[name containsString:@"TouchVisualizer"]||
+                       [name containsString:@"TextEffects"])continue;
+                    if(dumped++>=2)break;
+                    [trees appendFormat:@" | %@",LMVPhoneAssistTreeDump(candidate)];
+                }
+            }
+            NSString *line=[NSString stringWithFormat:@"pa-nocard windows=%lu %@%@",(unsigned long)shown,visible,trees];
             static NSString *lastLine=nil;
             if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
         }
@@ -340,8 +429,9 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
+        NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f match=%@ mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVPhoneAssistCardMatch?:@"none",
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,

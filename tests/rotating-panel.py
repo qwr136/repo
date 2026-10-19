@@ -50,7 +50,9 @@ assert '[self syncRotation]' in opened and '[self syncRotation]' in closed
 # could not be drawn while locked, so an opened panel was invisible and the tap was
 # swallowed. 2.22 embedded the ball in the cover sheet, which made "visible but
 # dead" worse; the panel now goes into the SAME canvas and renders like the ball.
-assert 'self.displayScene==LMVEasterDisplayLockScreen) return' not in opened
+# 2.26: the lock-screen guard is back on purpose - the installed 2.22 behaviour is
+# "ball visible, tap ignored", and that is the state that does not crash.
+assert 'self.displayScene==LMVEasterDisplayLockScreen) return' in opened
 # 2.24: the panel is not merely a subview - it is a CHILD VIEW CONTROLLER of the
 # cover sheet's controller, because pushing the material picker and presenting the
 # photo picker both need a controller that is installed in a hierarchy.

@@ -957,7 +957,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // 2.22 the ball lives inside the cover sheet and is visible on the lock screen,
     // which made "visible but dead" the worst of both. The panel is hosted in the
     // SAME canvas, so it renders exactly like the ball does.
-    if (self.panel || self.window.hidden) return;
+    // 2.26: the lock-screen tap stays DISABLED on purpose. 2.22 (what is actually
+    // installed) shows the ball on the lock screen but does not open the panel, and
+    // that is the stable behaviour the user asked to stay on. Opening it there would
+    // hand the panel's pickers to a scene that cannot present them reliably.
+    if (self.panel || self.window.hidden || self.displayScene==LMVEasterDisplayLockScreen) return;
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
     panel.close = ^{ [weakSelf closePanel]; };
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
