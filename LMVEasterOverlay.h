@@ -846,11 +846,25 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (superview) return superview;
     return self.window.rootViewController.view;
 }
+- (CGRect)panelArea {
+    // 2.24: NEVER TRUST THE RAW CANVAS AREA FOR LAYOUT. On the lock screen the cover
+    // sheet reports safe-area insets that leave only a few dozen points of usable
+    // height; clipsToBounds + corner radius then cut the panel into a 45 pt pill
+    // (device screenshot, 2.23). A degenerate area is replaced by the screen itself.
+    UIView *space=[self canvas];
+    CGRect area=self.embedHost ? self.embedHost.bounds
+        : UIEdgeInsetsInsetRect(space.bounds, space.safeAreaInsets);
+    if (!isfinite(area.size.width) || !isfinite(area.size.height) ||
+        area.size.width<200 || area.size.height<300) area=UIScreen.mainScreen.bounds;
+    return area;
+}
 - (CGRect)dragArea {
     UIView *space=[self canvas];
     CGRect bounds = space.bounds;
     UIEdgeInsets safe = space.safeAreaInsets;
     CGRect inset = UIEdgeInsetsInsetRect(bounds, UIEdgeInsetsMake(safe.top + 8, safe.left + 8, safe.bottom + 8, safe.right + 8));
+    if (inset.size.width<120 || inset.size.height<120)
+        inset=UIEdgeInsetsInsetRect(UIScreen.mainScreen.bounds,UIEdgeInsetsMake(8,8,8,8));
     LMVEasterRect safeRect = { inset.origin.x, inset.origin.y, inset.size.width, inset.size.height };
     LMVEasterRect area = LMVEasterCenterArea(safeRect, LMVEasterSize());
     return CGRectMake(area.x, area.y, area.width, area.height);
@@ -864,8 +878,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     CGPoint center=CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
     if(!CGPointEqualToPoint(self.bubble.center,center))self.bubble.center=center;
     if (self.panel) {
-        UIView *space=[self canvas];
-        CGRect bounds = UIEdgeInsetsInsetRect(space.bounds, space.safeAreaInsets);
+        CGRect bounds = [self panelArea];
         CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height * .65));
         // 0.0.122: optional user width/height. Off by default, so an untouched
         // install keeps exactly the automatic size it had before.
@@ -950,13 +963,20 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
     [self syncRotation];
     UIView *container = [self canvas];
-    if (self.embedHost) {
-        // The cover sheet has no view controller of ours to act as parent, so the
-        // panel is added as a plain subview. Appearance transitions are forwarded
-        // by hand because nothing else would call them - the panel syncs its
-        // preferences and rebuilds its rows in viewWillAppear.
+    UIViewController *coverController = self.embedHost.rootViewController;
+    if (coverController) {
+        // 2.24: THE PANEL MUST BE IN A VIEW-CONTROLLER HIERARCHY, not just a subview.
+        // A bare subview renders, but the panel pushes its material picker onto
+        // self.navigationController and presents the photo picker - both need a
+        // controller that is actually installed somewhere, otherwise "切换素材"
+        // silently does nothing. The cover sheet's own controller is the only
+        // already-installed host on the lock screen, so the panel becomes its child.
+        [coverController addChildViewController:self.panel];
         [self.panel beginAppearanceTransition:YES animated:NO];
+        // The view goes into the window canvas (not the controller's own view) so it
+        // stays ABOVE the bubble, exactly like the window-hosted panel does.
         [container addSubview:self.panel.view];
+        [self.panel didMoveToParentViewController:coverController];
         [self.panel endAppearanceTransition];
     } else {
         UIViewController *root = self.window.rootViewController;

@@ -51,8 +51,18 @@ assert '[self syncRotation]' in opened and '[self syncRotation]' in closed
 # swallowed. 2.22 embedded the ball in the cover sheet, which made "visible but
 # dead" worse; the panel now goes into the SAME canvas and renders like the ball.
 assert 'self.displayScene==LMVEasterDisplayLockScreen) return' not in opened
+# 2.24: the panel is not merely a subview - it is a CHILD VIEW CONTROLLER of the
+# cover sheet's controller, because pushing the material picker and presenting the
+# photo picker both need a controller that is installed in a hierarchy.
 assert 'UIView *container = [self canvas];' in opened
-assert 'if (self.embedHost) {' in opened and '[container addSubview:self.panel.view];' in opened
+assert 'UIViewController *coverController = self.embedHost.rootViewController;' in opened
+assert '[coverController addChildViewController:self.panel];' in opened
+assert '[container addSubview:self.panel.view];' in opened
+# 2.24: the panel must never lay out inside a degenerate area (2.23 shipped a 45 pt
+# pill because the cover sheet reported almost no usable height).
+layout = method('- (void)layout', '- (void)dragPanel:')
+assert 'CGRect bounds = [self panelArea];' in layout
+assert 'area.size.height<300' in overlay
 assert hide.index('self.window.hidden = YES') < hide.index('[self syncRotation]') < hide.index('[self closePanel]')
 # 0.0.114: a blank teardown must also say WHY (it used to hide silently, which
 # made every "the ball disappeared" report undiagnosable).
