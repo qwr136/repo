@@ -35,8 +35,14 @@ assert 'animation.beginTime=now' in rotation and 'LMVEasterRotationPhaseAtTime(r
 assert rotation.index('rotation.repeatCount==HUGE_VALF) return') < rotation.index('convertTime:')
 assert all(word not in rotation for word in ('NSTimer', 'CADisplayLink', 'removeAllAnimations', 'setTransform:'))
 assert 'LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,' in sync
-assert all(word in sync for word in ('!self.window.hidden', '!self.bubble.hidden', '!self.bubbleImage.hidden',
-    'self.window.alpha>=0.01', 'self.bubble.alpha>=0.01', 'self.bubbleImage.alpha>=0.01',
+# 2.22 BEHAVIOUR CHANGE (assertion updated with reason, not weakened): the gate is
+# no longer "our own window is visible" but "the window the BUBBLE is in is
+# visible". On the lock screen the bubble is embedded in the cover sheet, because a
+# separate non-system window is not rendered while the device is locked (2.21
+# device log: hid=0 isHidden=0 a=1.00 attached=1 and still nothing on screen).
+# Judging by self.window would then report "invisible" and silently kill rotation.
+assert all(word in sync for word in ('self.bubble.window &&', '!self.bubble.hidden', '!self.bubbleImage.hidden',
+    'self.bubble.window.alpha>=0.01', 'self.bubble.alpha>=0.01', 'self.bubbleImage.alpha>=0.01',
     'self.bubbleImage.image!=nil', 'self.displayControls.enabled && self.displayControls.rotationEnabled'))
 assert '[self syncRotation]' in opened and '[self syncRotation]' in closed
 assert 'self.displayScene==LMVEasterDisplayLockScreen' in opened

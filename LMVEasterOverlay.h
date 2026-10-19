@@ -67,6 +67,9 @@
 // 2.14: cover-sheet exposure origin (began unlocked = Notification Center; began
 // locked = the lock screen, including the whole Face ID/unlock animation).
 @property(nonatomic) BOOL coverWasExposed, coverStartedUnlocked;
+// 2.22: the cover-sheet window the bubble is currently living inside, when the
+// lock screen is the scene. Nil on every other scene (the ball uses its own window).
+@property(nonatomic, weak) UIWindow *embedHost;
 // 2.15: when the cover last became invisible. A re-exposure inside 150 ms is the
 // unlock animation flapping, not a fresh Notification Center pull.
 @property(nonatomic) CFTimeInterval coverGoneAt;
@@ -511,7 +514,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)syncRotation {
     // The panel is a sibling, not a rotation/visibility gate for the image leaf.
-    BOOL visible=self.window && !self.window.hidden && self.window.alpha>=0.01 &&
+    // 2.22: judged by the window the BUBBLE is in, not by our own window - on the
+    // lock screen the bubble lives in the cover sheet while our window is not used.
+    BOOL visible=self.bubble.window && self.bubble.window.alpha>=0.01 &&
         self.bubble && !self.bubble.hidden && self.bubble.alpha>=0.01 &&
         self.bubbleImage && !self.bubbleImage.hidden && self.bubbleImage.alpha>=0.01 && self.bubbleImage.image!=nil;
     LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,
@@ -520,6 +525,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 - (void)hide {
     // Hide first so closePanel cannot briefly restart rotation while tearing down.
     self.window.hidden = YES;
+    // 2.22: an embedded bubble is not covered by our own window's hidden flag.
+    if (self.embedHost && self.bubble.superview == self.embedHost) {
+        [self.bubble removeFromSuperview];
+    }
+    self.embedHost = nil;
     [self syncRotation]; [self closePanel];
     [self.timer invalidate]; self.timer = nil;
 }
@@ -813,11 +823,33 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
             (int)(self.bubble.window==self.window),(int)self.window.isHidden,
             self.bubble.center.x,self.bubble.center.y,
             self.bubble.bounds.size.width,self.bubble.bounds.size.height,(int)(self.bubbleImage.image!=nil)]];
-    self.window.hidden = NO; self.bubbleImage.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame]; [self syncRotation];
+    // 2.22: ON THE LOCK SCREEN A SEPARATE WINDOW CANNOT BE USED. 2.21 proved it on
+    // the device: the window reported hid=0 isHidden=0 a=1.00 attached=1 at level
+    // 10000012 and still drew nothing, so the suppression is not lifted by a
+    // declaration - the system simply does not render a non-system window while
+    // locked. The lock-screen video has always worked for the opposite reason: it
+    // is a plain subview inside the cover sheet. While the lock screen is the
+    // scene the bubble moves into that same hierarchy; everywhere else it stays in
+    // its own window and nothing about the desktop/NC/CC path changes.
+    UIWindow *embedHost=(displayScene==LMVEasterDisplayLockScreen) ? coverHost : nil;
+    UIView *canvas=embedHost ?: self.window.rootViewController.view;
+    if (self.bubble.superview != canvas) [canvas addSubview:self.bubble];
+    self.embedHost=embedHost;
+    self.window.hidden = NO;
+    self.bubbleImage.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame]; [self syncRotation];
+}
+// 2.22: the view the bubble actually lives in. It is normally our own window's
+// root view, but on the lock screen the bubble is a subview of the cover sheet
+// (see the show block in -apply), and every coordinate below must use THAT space.
+- (UIView *)canvas {
+    UIView *superview=self.bubble.superview;
+    if (superview) return superview;
+    return self.window.rootViewController.view;
 }
 - (CGRect)dragArea {
-    CGRect bounds = self.window.rootViewController.view.bounds;
-    UIEdgeInsets safe = self.window.rootViewController.view.safeAreaInsets;
+    UIView *space=[self canvas];
+    CGRect bounds = space.bounds;
+    UIEdgeInsets safe = space.safeAreaInsets;
     CGRect inset = UIEdgeInsetsInsetRect(bounds, UIEdgeInsetsMake(safe.top + 8, safe.left + 8, safe.bottom + 8, safe.right + 8));
     LMVEasterRect safeRect = { inset.origin.x, inset.origin.y, inset.size.width, inset.size.height };
     LMVEasterRect area = LMVEasterCenterArea(safeRect, LMVEasterSize());
@@ -832,7 +864,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     CGPoint center=CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
     if(!CGPointEqualToPoint(self.bubble.center,center))self.bubble.center=center;
     if (self.panel) {
-        CGRect bounds = UIEdgeInsetsInsetRect(self.window.rootViewController.view.bounds, self.window.rootViewController.view.safeAreaInsets);
+        UIView *space=[self canvas];
+        CGRect bounds = UIEdgeInsetsInsetRect(space.bounds, space.safeAreaInsets);
         CGFloat width = MIN(360, MAX(0, bounds.size.width - 24)), height = MIN(550, MAX(0, bounds.size.height * .65));
         // 0.0.122: optional user width/height. Off by default, so an untouched
         // install keeps exactly the automatic size it had before.
@@ -883,10 +916,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
-    CGPoint translation = [pan translationInView:self.window.rootViewController.view]; CGRect area = [self dragArea];
+    UIView *space=[self canvas];
+    CGPoint translation = [pan translationInView:space]; CGRect area = [self dragArea];
     CGPoint point = CGPointMake(MAX(CGRectGetMinX(area), MIN(CGRectGetMaxX(area), self.bubble.center.x + translation.x)), MAX(CGRectGetMinY(area), MIN(CGRectGetMaxY(area), self.bubble.center.y + translation.y)));
     self.normalized = CGPointMake(LMVEasterNormalizedPosition(point.x, area.origin.x, area.size.width), LMVEasterNormalizedPosition(point.y, area.origin.y, area.size.height));
-    self.bubble.center = point; [pan setTranslation:CGPointZero inView:self.window.rootViewController.view];
+    self.bubble.center = point; [pan setTranslation:CGPointZero inView:space];
     if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
         LMVEasterSet(@"EasterEggX", @(self.normalized.x)); LMVEasterSet(@"EasterEggY", @(self.normalized.y));
     }

@@ -174,4 +174,14 @@ window_impl = overlay[overlay.index('@implementation LMVEasterWindow'):overlay.i
 root_impl = overlay[overlay.index('@implementation LMVEasterRoot'):]
 assert '- (BOOL)_canShowWhileLocked { return YES; }' in window_impl
 assert '- (BOOL)_canShowWhileLocked { return YES; }' in root_impl
+# 2.22: a separate non-system window is simply NOT RENDERED while the device is
+# locked - 2.21 declared _canShowWhileLocked and the device log still showed
+# hid=0 isHidden=0 a=1.00 attached=1 with nothing on screen. The lock-screen video
+# has always worked because it is a subview inside the cover sheet, so the bubble
+# must live there too while the lock screen is the scene, and must be detached
+# again on hide (our own window's hidden flag cannot cover an embedded bubble).
+assert 'UIWindow *embedHost=(displayScene==LMVEasterDisplayLockScreen) ? coverHost : nil;' in overlay
+assert 'if (self.bubble.superview != canvas) [canvas addSubview:self.bubble];' in overlay
+assert 'if (self.embedHost && self.bubble.superview == self.embedHost) {' in overlay
+assert '- (UIView *)canvas {' in overlay
 print('PASS: four independent display scenes (lock/NC/CC/desktop, NC honored), rotation off/45 deg/s with finite 5..720 read/write, live Darwin notification and independent HomeMenu selection/delete routing')
