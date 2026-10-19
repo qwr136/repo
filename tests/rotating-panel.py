@@ -55,9 +55,12 @@ assert 'self.displayScene==LMVEasterDisplayLockScreen) return' not in opened
 # cover sheet's controller, because pushing the material picker and presenting the
 # photo picker both need a controller that is installed in a hierarchy.
 assert 'UIView *container = [self canvas];' in opened
-assert 'UIViewController *coverController = self.embedHost.rootViewController;' in opened
-assert '[coverController addChildViewController:self.panel];' in opened
-assert '[container addSubview:self.panel.view];' in opened
+# 2.25: never re-parent a SYSTEM controller (2.24 did, and SpringBoard went into
+# safe mode). The panel stays a plain subview of the canvas on the lock screen, and
+# only our OWN window's root controller may parent it.
+assert 'coverController' not in opened
+assert 'if (self.embedHost) {' in opened and '[container addSubview:self.panel.view];' in opened
+assert 'UIViewController *root = self.window.rootViewController;' in opened
 # 2.24: the panel must never lay out inside a degenerate area (2.23 shipped a 45 pt
 # pill because the cover sheet reported almost no usable height).
 layout = method('- (void)layout', '- (void)dragPanel:')

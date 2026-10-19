@@ -963,20 +963,17 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
     [self syncRotation];
     UIView *container = [self canvas];
-    UIViewController *coverController = self.embedHost.rootViewController;
-    if (coverController) {
-        // 2.24: THE PANEL MUST BE IN A VIEW-CONTROLLER HIERARCHY, not just a subview.
-        // A bare subview renders, but the panel pushes its material picker onto
-        // self.navigationController and presents the photo picker - both need a
-        // controller that is actually installed somewhere, otherwise "切换素材"
-        // silently does nothing. The cover sheet's own controller is the only
-        // already-installed host on the lock screen, so the panel becomes its child.
-        [coverController addChildViewController:self.panel];
+    if (self.embedHost) {
+        // 2.25: NEVER REPARENT A SYSTEM CONTROLLER. 2.24 made the panel a child of
+        // the cover sheet's own view controller to give its pickers a presentation
+        // context; SpringBoard then crashed into safe mode, because that controller
+        // is not ours to modify (its own layout/teardown walks its children and
+        // expects their views inside its tree). A plain subview is what 2.23 shipped
+        // and what did not crash; the panel's own navigation controller is retained
+        // by the manager, so pushing still works, and modal presentation resolves
+        // through the view hierarchy to the window's root controller.
         [self.panel beginAppearanceTransition:YES animated:NO];
-        // The view goes into the window canvas (not the controller's own view) so it
-        // stays ABOVE the bubble, exactly like the window-hosted panel does.
         [container addSubview:self.panel.view];
-        [self.panel didMoveToParentViewController:coverController];
         [self.panel endAppearanceTransition];
     } else {
         UIViewController *root = self.window.rootViewController;
