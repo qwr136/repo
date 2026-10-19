@@ -38,6 +38,12 @@ static BOOL LMVPhoneAssistEnvironment(void) {
 // 2.15: WHO IS COVERING US. The device log has to answer "mounted, playing, yet
 // invisible" without another round trip, so the card's ancestors and every sibling
 // drawn ABOVE our host are printed with hidden/alpha/opaque/background alpha.
+static NSString *LMVPhoneAssistImageName(Class cls) {
+    if(!cls)return nil;
+    Dl_info info;
+    if(dladdr((__bridge const void *)cls,&info)==0 || !info.dli_fname)return nil;
+    return [NSString stringWithUTF8String:info.dli_fname];
+}
 static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
     NSMutableString *out=[NSMutableString stringWithFormat:@"pa-stack card=%@",NSStringFromClass(card.class)];
     NSInteger depth=0;
@@ -94,12 +100,6 @@ static BOOL LMVPhoneAssistSheetKind(UIView *view) {
 //   1. that plugin's window becomes the container and the video sits at its top;
 //   2. otherwise, skip over any glass/effect sibling the plugin inserted above the
 //      material, so the video lands ABOVE the glass instead of underneath it.
-static NSString *LMVPhoneAssistImageName(Class cls) {
-    if(!cls)return nil;
-    Dl_info info;
-    if(dladdr((const void *)cls,&info)==0 || !info.dli_fname)return nil;
-    return [NSString stringWithUTF8String:info.dli_fname];
-}
 static UIWindow *LMVPhoneAssistGlassWindow(UIWindow *alertWindow) {
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
