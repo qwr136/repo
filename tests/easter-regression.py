@@ -121,7 +121,7 @@ assert 'numberOfSectionsInTableView:' in image and 'return LMVEasterImageRotatio
 assert 'static NSInteger LMVEasterImageDisplaySection(void) { return LMVEasterImageSection() + 1; }' in image
 assert 'static NSInteger LMVEasterImageRotationSection(void) { return LMVEasterImageDisplaySection() + 1; }' in image
 assert 'section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().count : 2' in image
-assert '通知中心沿用现有显示行为。' in image
+assert '通知中心、控制中心和桌面默认显示。四项互相独立。' in image
 assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
 assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
 assert 'index.section != LMVEasterImageSection() || index.row != 1' in image
@@ -137,9 +137,9 @@ assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterB
 assert 'VideoOpacityEnabled' in panel and 'opacityChanged:' in panel
 assert 'pushViewController:picker' in panel and 'picker.pushed = YES' in panel
 assert 'LMVMaterialDisplayName(relative' in panel
-assert '@[@"EasterEggShowOnLockScreen", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]' in image
-assert '@[@"在锁屏显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]' in image
-assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES]; }' in image
+assert '@[@"EasterEggShowOnLockScreen", @"EasterEggShowOnNotificationCenter", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]' in image
+assert '@[@"在锁屏显示小彩蛋", @"在通知中心显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]' in image
+assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES, @YES]; }' in image
 assert 'return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;' in image
 assert 'toggle.on = LMVEasterImageBool(key, LMVEasterImageDisplayDefaults()[index.row].boolValue);' in image
 assert 'LMVEasterImageBool(@"EasterEggRotationEnabled", NO)' in image
@@ -157,5 +157,10 @@ assert 'slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);' i
 assert 'HomeMenuVideo' in panel and 'HomeMenuBackgroundEnabled' in prefs + panel
 assert 'SquidPanelVideo' in panel and 'SquidPanelBackgroundEnabled' in prefs + panel
 assert 'ATVideo' in panel and 'ATBackgroundEnabled' in prefs + panel
-assert 'EasterEggShowOnNotificationCenter' not in image and 'EasterEggShowOnNC' not in image
-print('PASS: visible three-scene defaults NO/YES/YES, rotation off/45 deg/s with finite 5..720 read/write, live Darwin notification and independent HomeMenu selection/delete routing')
+# 2.17: the user asked for a SEPARATE Notification Center switch (NC shares the
+# cover-sheet window with the lock screen, so it used to be unconditional and the
+# unlock instant - judged as NC - could not be silenced). The old rule forbade
+# this key; it is now required, and the overlay must honour it.
+assert 'EasterEggShowOnNotificationCenter' in image
+assert 'EasterEggShowOnNotificationCenter' in overlay and '@"nc-disabled"' in overlay
+print('PASS: four independent display scenes (lock/NC/CC/desktop, NC honored), rotation off/45 deg/s with finite 5..720 read/write, live Darwin notification and independent HomeMenu selection/delete routing')

@@ -10,9 +10,9 @@ static NSInteger LMVEasterImageRotationSection(void) { return LMVEasterImageDisp
 // 0.0.122: floating-panel appearance lives on this same page, so both entries
 // (Settings app and the panel's own 显示场景与图片旋转) edit exactly one place.
 static NSInteger LMVEasterImagePanelSection(void) { return LMVEasterImageRotationSection() + 1; }
-static NSArray<NSString *> *LMVEasterImageDisplayKeys(void) { return @[@"EasterEggShowOnLockScreen", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]; }
-static NSArray<NSString *> *LMVEasterImageDisplayTitles(void) { return @[@"在锁屏显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]; }
-static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES]; }
+static NSArray<NSString *> *LMVEasterImageDisplayKeys(void) { return @[@"EasterEggShowOnLockScreen", @"EasterEggShowOnNotificationCenter", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]; }
+static NSArray<NSString *> *LMVEasterImageDisplayTitles(void) { return @[@"在锁屏显示小彩蛋", @"在通知中心显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]; }
+static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES, @YES]; }
 static BOOL LMVEasterImageBool(NSString *key, BOOL fallback) {
     id value = LMVEasterRead(key);
     return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;
@@ -132,7 +132,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     return section == LMVEasterImageRotationSection() ? @"彩蛋图片旋转" : @"图片 / GIF 与图标大小";
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == LMVEasterImageDisplaySection()) return @"默认不在锁屏显示；控制中心和桌面默认显示。通知中心沿用现有显示行为。";
+    if (section == LMVEasterImageDisplaySection()) return @"默认不在锁屏显示；通知中心、控制中心和桌面默认显示。四项互相独立。";
     return section == LMVEasterImagePanelSection() ? @"拖动悬浮窗顶部标题栏即可移动窗口；窗口始终被限制在屏幕内。关闭「自定义悬浮窗大小」时按屏幕自动计算。" : nil;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {

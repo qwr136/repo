@@ -716,11 +716,27 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // STARTED on the lock screen and the device is headed to the desktop, stay in
     // the lock-screen scene until the cover is gone. Heading into an app (or the
     // switcher) keeps the old instant hide, so nothing is ever drawn over an app.
-    if(displayScene==LMVEasterDisplayNone && !locked && coverExposed &&
+    if(displayScene==LMVEasterDisplayNone && coverExposed &&
        !self.coverStartedUnlocked && self.displayControls.showOnLockScreen &&
-       blankKnown && !blank && !appWindow && !switcher &&
-       (foreground==1 || homeHost!=nil)) {
+       blankKnown && !blank && !appWindow && !switcher && foreground!=-1) {
+        // 2.17: the lock-screen scene used to require lockstate==1. On this device
+        // Face ID authenticates while the lock screen is still fully on screen, so
+        // lockstate is already 0 there and NOTHING was drawn until the unlock
+        // animation - the "only flashes at unlock" report. The exposure origin is
+        // the reliable fact: it began on the lock screen and the user asked for the
+        // lock screen to show it. An app in front (fg==-1) or the switcher still
+        // wins, so nothing is ever kept over an app.
         displayScene=LMVEasterDisplayLockScreen;
+        [self reportWindow:[NSString stringWithFormat:@"lock-screen-hold locked=%llu fg=%ld",
+            (unsigned long long)locked,(long)foreground]];
+    }
+    // 2.17: Notification Center is now a switch of its own (it shares the cover
+    // sheet window with the lock screen, so it used to be unconditional). Turning
+    // it off must also silence the unlock instant, which is judged as NC.
+    if(displayScene==LMVEasterDisplayNC) {
+        id ncValue=LMVEasterRead(@"EasterEggShowOnNotificationCenter");
+        BOOL ncShown=![ncValue isKindOfClass:NSNumber.class] || [ncValue boolValue];
+        if(!ncShown) {[self hide];[self reportWindow:@"nc-disabled"];return;}
     }
     if(displayScene==LMVEasterDisplayNone) {
         NSString *reason=blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked";
