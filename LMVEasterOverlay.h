@@ -677,10 +677,18 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
             // same lock-screen exposure continuing.
             BOOL freshExposure=self.coverGoneAt>0 && coverNow-self.coverGoneAt>=.15;
             self.coverStartedUnlocked=!locked && freshExposure;
+            // 2.15: name the decision so the next device log answers "was the
+            // re-add treated as a fresh NC pull?" without another round trip.
+            [self reportWindow:[NSString stringWithFormat:@"cover-rise locked=%llu fresh=%d nc=%d gap=%.0fms",
+                (unsigned long long)locked,(int)freshExposure,(int)self.coverStartedUnlocked,
+                self.coverGoneAt>0?(coverNow-self.coverGoneAt)*1000.0:0.0]];
         }
         self.coverGoneAt=0;
     } else {
-        if(self.coverGoneAt<=0) self.coverGoneAt=coverNow;
+        if(self.coverGoneAt<=0) {
+            self.coverGoneAt=coverNow;
+            [self reportWindow:[NSString stringWithFormat:@"cover-fall locked=%llu",(unsigned long long)locked]];
+        }
         self.coverStartedUnlocked=NO;
     }
     self.coverWasExposed=coverExposed;
