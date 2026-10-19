@@ -241,7 +241,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVPhoneAssistMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
-    // 2.10.1: place the video ABOVE the material, not inside its contentView.
+    // Fix: place the video ABOVE the material, not inside its contentView.
     // The device log named the failure exactly: pa-panel mode=content live=1
     // host=270x607 ready=1 poster=1 rate=1.0 - mounted, decoded and playing, yet
     // invisible. This sheet's material is _UIDimmingKnockoutBackdropView (a
