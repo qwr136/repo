@@ -45,7 +45,14 @@ assert all(word in sync for word in ('self.bubble.window &&', '!self.bubble.hidd
     'self.bubble.window.alpha>=0.01', 'self.bubble.alpha>=0.01', 'self.bubbleImage.alpha>=0.01',
     'self.bubbleImage.image!=nil', 'self.displayControls.enabled && self.displayControls.rotationEnabled'))
 assert '[self syncRotation]' in opened and '[self syncRotation]' in closed
-assert 'self.displayScene==LMVEasterDisplayLockScreen' in opened
+# 2.23 BEHAVIOUR CHANGE (assertion updated with reason, not weakened): the panel is
+# now allowed on the lock screen. The old guard existed because a separate window
+# could not be drawn while locked, so an opened panel was invisible and the tap was
+# swallowed. 2.22 embedded the ball in the cover sheet, which made "visible but
+# dead" worse; the panel now goes into the SAME canvas and renders like the ball.
+assert 'self.displayScene==LMVEasterDisplayLockScreen) return' not in opened
+assert 'UIView *container = [self canvas];' in opened
+assert 'if (self.embedHost) {' in opened and '[container addSubview:self.panel.view];' in opened
 assert hide.index('self.window.hidden = YES') < hide.index('[self syncRotation]') < hide.index('[self closePanel]')
 # 0.0.114: a blank teardown must also say WHY (it used to hide silently, which
 # made every "the ball disappeared" report undiagnosable).

@@ -901,7 +901,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 // final frame is recomputed (and clamped to the screen) by -layout.
 - (void)dragPanel:(UIPanGestureRecognizer *)pan {
     if (!self.panel) return;
-    UIView *space = self.window.rootViewController.view;
+    UIView *space = [self canvas];
     CGPoint translation = [pan translationInView:space];
     self.panelOffset = CGPointMake(self.panelOffset.x + translation.x, self.panelOffset.y + translation.y);
     [pan setTranslation:CGPointZero inView:space];
@@ -938,16 +938,33 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
 }
 - (void)openPanel {
-    if (self.panel || self.window.hidden || self.displayScene==LMVEasterDisplayLockScreen) return;
+    // 2.23: THE PANEL IS ALLOWED ON THE LOCK SCREEN NOW. This guard was written when
+    // a separate window could not be shown while locked at all - opening the panel
+    // there would have produced an invisible panel, so the tap was swallowed. Since
+    // 2.22 the ball lives inside the cover sheet and is visible on the lock screen,
+    // which made "visible but dead" the worst of both. The panel is hosted in the
+    // SAME canvas, so it renders exactly like the ball does.
+    if (self.panel || self.window.hidden) return;
     LMVEasterPanel *panel = [LMVEasterPanel new]; __weak typeof(self) weakSelf = self;
     panel.close = ^{ [weakSelf closePanel]; };
     self.panel = [[UINavigationController alloc] initWithRootViewController:panel];
     [self syncRotation];
-    UIViewController *root = self.window.rootViewController;
-    [root addChildViewController:self.panel];
-    [self.panel beginAppearanceTransition:YES animated:NO];
-    [root.view addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
-    [self.panel endAppearanceTransition];
+    UIView *container = [self canvas];
+    if (self.embedHost) {
+        // The cover sheet has no view controller of ours to act as parent, so the
+        // panel is added as a plain subview. Appearance transitions are forwarded
+        // by hand because nothing else would call them - the panel syncs its
+        // preferences and rebuilds its rows in viewWillAppear.
+        [self.panel beginAppearanceTransition:YES animated:NO];
+        [container addSubview:self.panel.view];
+        [self.panel endAppearanceTransition];
+    } else {
+        UIViewController *root = self.window.rootViewController;
+        [root addChildViewController:self.panel];
+        [self.panel beginAppearanceTransition:YES animated:NO];
+        [container addSubview:self.panel.view]; [self.panel didMoveToParentViewController:root];
+        [self.panel endAppearanceTransition];
+    }
     self.panel.view.layer.cornerRadius = LMVEasterResolvedPanelCorner(LMVEasterRead(@"EasterPanelCornerEnabled"),
         LMVEasterRead(@"EasterPanelCorner"), 20.0);
     self.panel.view.layer.cornerCurve = kCACornerCurveContinuous; self.panel.view.clipsToBounds = YES;
@@ -956,15 +973,18 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     UIPanGestureRecognizer *panelDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)];
     panelDrag.maximumNumberOfTouches = 1;
     [self.panel.navigationBar addGestureRecognizer:panelDrag];
-    self.window.panel = self.panel.view; [self layout];
+    // The window's hit test only matters for the window-hosted panel; an embedded
+    // panel is a real subview of the cover sheet and receives touches itself.
+    self.window.panel = self.embedHost ? nil : self.panel.view; [self layout];
     // Own key while the panel is open so contained rename/switch prompts get a keyboard.
-    if (!self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
+    // Never steal key from the cover sheet: while locked, the lock screen owns it.
+    if (!self.embedHost && !self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
 }
 - (void)closePanel {
     if (!self.panel) return;
     LMVEasterPanel *root=[self.panel.viewControllers.firstObject isKindOfClass:LMVEasterPanel.class]?(LMVEasterPanel *)self.panel.viewControllers.firstObject:nil;
     [root prepareForClose];
-    [self.window endEditing:YES]; [self restoreKey];
+    [[self canvas] endEditing:YES]; [self restoreKey];
     [self.panel beginAppearanceTransition:NO animated:NO];
     [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview];
     [self.panel removeFromParentViewController]; [self.panel endAppearanceTransition];

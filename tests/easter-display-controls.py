@@ -22,7 +22,10 @@ assert s.count('[[LMVEasterWindow alloc]')==1
 assert 'self.bubble = [[UIView alloc]' in apply and 'self.bubbleImage = [[UIImageView alloc]' in apply
 assert 'self.bubbleImage.userInteractionEnabled = NO' in apply
 assert hide.index('self.window.hidden = YES') < hide.index('[self syncRotation]') < hide.index('[self closePanel]')
-assert s.count('[self syncRotation]')>=4 and 'self.displayScene==LMVEasterDisplayLockScreen' in s
+# 2.23: the constant is no longer referenced by an openPanel guard (the panel may
+# open on the lock screen now), but the lock-screen scene must still be named - it
+# drives the cover-sheet embedding choice.
+assert s.count('[self syncRotation]')>=4 and '(displayScene==LMVEasterDisplayLockScreen)' in s
 assert all(w not in rotation for w in ('NSTimer','CADisplayLink','removeAllAnimations','setTransform:'))
 assert 'duration=360.0/speed' in rotation and 'HUGE_VALF' in rotation
 assert 'imageLayer addAnimation:animation forKey:LMVEasterRotationAnimationKey' in rotation
