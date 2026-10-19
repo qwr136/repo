@@ -665,21 +665,6 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
     self.lastPhysicalCheck=CACurrentMediaTime();
     UIWindow *host=ccHost ?: ncHost ?: coverHost ?: homeHost;
-    // 2.19: one line that names EVERY input the lock-screen decision depends on.
-    // "Enabled but still nothing on the lock screen" has three candidate causes -
-    // no host, a veto (app/switcher/fg), or a switch read as off - and this prints
-    // them together so one capture settles it instead of another guess.
-    if(LMVDiagnosticsEnabled.load()) {
-        id ncRaw=LMVEasterRead(@"EasterEggShowOnNotificationCenter");
-        BOOL ncSw=![ncRaw isKindOfClass:NSNumber.class] || [ncRaw boolValue];
-        NSString *gate=[NSString stringWithFormat:@"easter-gate ready=%d enabled=%d blank=%llu locked=%llu fg=%ld host=%@ nc=%d cover=%@ sw=%d appw=%d lockSw=%d ncSw=%d",
-            (int)self.ready,(int)self.displayControls.enabled,(unsigned long long)blank,(unsigned long long)locked,
-            (long)foreground,host?NSStringFromClass(host.class):@"none",(int)(ncHost!=nil),
-            coverHost?NSStringFromClass(coverHost.class):@"none",(int)switcher,(int)appWindow,
-            (int)self.displayControls.showOnLockScreen,(int)ncSw];
-        static NSString *lastGate=nil;
-        if(![gate isEqualToString:lastGate]) {lastGate=[gate copy];LMVDiagnostic(gate);}
-    }
     // 2.14: WHAT MATTERS IS HOW THE EXPOSURE STARTED, NOT WHAT LOCKSTATE SAYS NOW.
     // The ball flashed at the exact instant Face ID recognised the face: the cover
     // sheet stays on screen through the unlock, the flag below used to be "learned"
@@ -724,8 +709,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // judging the Home window itself (below) instead of lingering on screen.
     if(!host){
         [self hide];
-        [self reportWindow:[NSString stringWithFormat:@"%@ fg=%ld nc=%d cc=%d home=%d captured=%d",
-            @"home-nc-cc:not-visible-or-locked",(long)foreground,ncHost!=nil,ccHost!=nil,homeHost!=nil,LMVEasterScreenCaptured()]];
+        [self reportWindow:[NSString stringWithFormat:@"%@ fg=%ld nc=%d cc=%d home=%d captured=%d cover=%d locked=%llu lockSw=%d",
+            @"home-nc-cc:not-visible-or-locked",(long)foreground,ncHost!=nil,ccHost!=nil,homeHost!=nil,LMVEasterScreenCaptured(),
+            coverHost!=nil,(unsigned long long)locked,(int)self.displayControls.showOnLockScreen]];
         return;
     }
     CGFloat level=0;UIWindow *blockedWindow=nil;
