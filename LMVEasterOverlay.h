@@ -57,6 +57,9 @@
 // 2.14: cover-sheet exposure origin (began unlocked = Notification Center; began
 // locked = the lock screen, including the whole Face ID/unlock animation).
 @property(nonatomic) BOOL coverWasExposed, coverStartedUnlocked;
+// 2.15: when the cover last became invisible. A re-exposure inside 150 ms is the
+// unlock animation flapping, not a fresh Notification Center pull.
+@property(nonatomic) CFTimeInterval coverGoneAt;
 @property(nonatomic) CGPoint normalized;
 // Cache only physical probes, never permission/scope decisions. Notifications
 // invalidate them; a bounded default-mode audit catches silent tree replacement.
@@ -663,8 +666,23 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // is recomputed every tick from that origin, so the lockstate pulse Sent while
     // NC is being pulled still cannot make the ball flicker.
     BOOL coverExposed=ncHost!=nil;
-    if(coverExposed && !self.coverWasExposed) self.coverStartedUnlocked=!locked;
-    if(!coverExposed) self.coverStartedUnlocked=NO;
+    CFTimeInterval coverNow=CACurrentMediaTime();
+    if(coverExposed) {
+        if(!self.coverWasExposed) {
+            // 2.15: THE UNLOCK ANIMATION DROPS AND RE-ADDS THE COVER. Treating that
+            // re-add as a brand-new exposure made it look like a Notification Centre
+            // pull over an unlocked app - the ball appeared at the exact instant Face
+            // ID recognised the face. Only an exposure that follows at least 150 ms
+            // of NO cover can be a real NC pull; a re-add inside that window is the
+            // same lock-screen exposure continuing.
+            BOOL freshExposure=self.coverGoneAt>0 && coverNow-self.coverGoneAt>=.15;
+            self.coverStartedUnlocked=!locked && freshExposure;
+        }
+        self.coverGoneAt=0;
+    } else {
+        if(self.coverGoneAt<=0) self.coverGoneAt=coverNow;
+        self.coverStartedUnlocked=NO;
+    }
     self.coverWasExposed=coverExposed;
     BOOL authenticated=coverExposed && self.coverStartedUnlocked;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
