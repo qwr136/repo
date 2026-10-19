@@ -709,6 +709,19 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     BOOL safetyClear=LMVEasterOverlayPriority(windows,self.window,&level,&blockedWindow);
     LMVEasterDisplayScene displayScene=LMVEasterDisplayPolicy(self.displayControls,blankKnown,blank,lockKnown,locked,
         ncHost!=nil,ccHost!=nil,homeHost!=nil,authenticated,legacyAllows,safetyClear);
+    // 2.16: KEEP A LOCK-SCREEN BALL CONTINUOUS THROUGH THE UNLOCK ANIMATION.
+    // "Show on lock screen" still blinked once: the instant lockstate flips to 0
+    // the policy drops the scene, but the cover stays on screen for a few hundred
+    // milliseconds, then the ball comes back on the desktop. If this exposure
+    // STARTED on the lock screen and the device is headed to the desktop, stay in
+    // the lock-screen scene until the cover is gone. Heading into an app (or the
+    // switcher) keeps the old instant hide, so nothing is ever drawn over an app.
+    if(displayScene==LMVEasterDisplayNone && !locked && coverExposed &&
+       !self.coverStartedUnlocked && self.displayControls.showOnLockScreen &&
+       blankKnown && !blank && !appWindow && !switcher &&
+       (foreground==1 || homeHost!=nil)) {
+        displayScene=LMVEasterDisplayLockScreen;
+    }
     if(displayScene==LMVEasterDisplayNone) {
         NSString *reason=blockedWindow?[NSString stringWithFormat:@"blocked class=%@ level=%.0f",NSStringFromClass(blockedWindow.class),blockedWindow.windowLevel]:@"home-nc-cc:not-visible-or-locked";
         [self hide]; [self reportWindow:reason];return;
