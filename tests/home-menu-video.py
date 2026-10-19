@@ -192,10 +192,9 @@ int main(void){@autoreleasepool{
 '''
 # Reuse the existing controlled revision input from the Lock test doubles.
 
-# 2.15: the channel now reports its own diagnostics; the native fixture has no
-# production LMVDiagnostic/LMVDiagnosticsEnabled, so the disabled branch is what
-# gets compiled here (the enabled branch is a plain string format).
-pre+='static void LMVDiagnostic(NSString *event) {(void)event;}\n'
+# 2.15: the channel now reports its own diagnostics. The shared preamble already
+# carries the LMVDiagnostic stub, so only the atomic switch needs neutralising -
+# the disabled branch is a plain string format and never runs here.
 source=pre+rect+getters+home+foreground+path+h.replace('LMVDiagnosticsEnabled.load()','NO')+main
 if os.environ.get('LMV_NATIVE_EXPORT_DIR'):
     out=Path(os.environ['LMV_NATIVE_EXPORT_DIR']);out.mkdir(parents=True,exist_ok=True)
