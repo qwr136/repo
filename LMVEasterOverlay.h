@@ -516,7 +516,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // The panel is a sibling, not a rotation/visibility gate for the image leaf.
     // 2.22: judged by the window the BUBBLE is in, not by our own window - on the
     // lock screen the bubble lives in the cover sheet while our window is not used.
-    BOOL visible=self.bubble.window && self.bubble.window.alpha>=0.01 &&
+    BOOL visible=self.bubble.window && !self.bubble.window.hidden && self.bubble.window.alpha>=0.01 &&
         self.bubble && !self.bubble.hidden && self.bubble.alpha>=0.01 &&
         self.bubbleImage && !self.bubbleImage.hidden && self.bubbleImage.alpha>=0.01 && self.bubbleImage.image!=nil;
     LMVEasterUpdateRotation(self.bubbleImage.layer,visible,self.panel!=nil,

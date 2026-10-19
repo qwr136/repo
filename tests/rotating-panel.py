@@ -92,12 +92,19 @@ fixture = r'''
 @property CGFloat alpha;
 @property(strong) CALayer *layer;
 @property(strong) id image;
+// 2.22: syncRotation judges visibility by the window the BUBBLE is in (the bubble
+// can be embedded in the cover sheet on the lock screen), and hide() detaches an
+// embedded bubble from its host - so the doubles need these three members.
+@property(strong) RotationView *window, *superview;
+- (void)removeFromSuperview;
 @end
 @implementation RotationView
 - (instancetype)init { if ((self=[super init])) { _alpha=1; _layer=[CALayer layer]; } return self; }
+- (void)removeFromSuperview { _superview=nil; }
 @end
 @interface RotationOwner : NSObject
 @property(strong) RotationView *window, *bubble, *bubbleImage;
+@property(strong) RotationView *embedHost;
 @property(strong) id panel;
 @property LMVEasterDisplayControls displayControls;
 @property(strong) NSTimer *timer, *visibilityTimer;
@@ -132,6 +139,7 @@ static void shape(CALayer *layer,double start,double phase,double duration) {
 int main(void) { @autoreleasepool {
     RotationOwner *owner=[RotationOwner new];
     owner.window=[RotationView new]; owner.bubble=[RotationView new]; owner.bubbleImage=[RotationView new];
+    owner.bubble.window=owner.window; // the bubble lives in the window unless embedded
     CountingLayer *image=[CountingLayer layer]; owner.bubbleImage.layer=image; owner.bubbleImage.image=@"frame-0";
     owner.displayControls=LMVEasterDisplayControlsFromValues(@YES,@YES,@YES,@YES,@YES,@45);
     CALayer *window=owner.window.layer,*container=owner.bubble.layer,*panel=[CALayer layer];
