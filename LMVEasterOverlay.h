@@ -786,7 +786,15 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     }
     if (!self.decoded.frames.count) { [self hide]; [self reportWindow:@"hide:image-decode-unavailable"]; return; }
     if(presentationChanged || ![self.windowReason hasPrefix:@"home-nc-cc host="])
-        [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld",NSStringFromClass(host.class),level,(long)host.windowScene.activationState]];
+        // 2.20: the host line now describes OUR OWN window as well. "Host found,
+        // state says shown, nothing on screen" can only be: hidden, alpha 0, a
+        // level below the lock UI, a zero-sized window, or a bubble parked off
+        // screen - so all five are printed with the host.
+        [self reportWindow:[NSString stringWithFormat:@"home-nc-cc host=%@ level=%.0f scene=%ld win=%.0fx%.0f winLvl=%.0f hid=%d a=%.2f bubble=%.0f,%.0f %.0fx%.0f img=%d",
+            NSStringFromClass(host.class),level,(long)host.windowScene.activationState,
+            self.window.bounds.size.width,self.window.bounds.size.height,self.window.windowLevel,
+            (int)self.window.hidden,self.window.alpha,self.bubble.center.x,self.bubble.center.y,
+            self.bubble.bounds.size.width,self.bubble.bounds.size.height,(int)(self.bubbleImage.image!=nil)]];
     self.window.hidden = NO; self.bubbleImage.image = self.decoded.frames[self.frame % self.decoded.frames.count]; [self layout]; [self animateFrame]; [self syncRotation];
 }
 - (CGRect)dragArea {
