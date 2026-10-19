@@ -1,4 +1,5 @@
 #pragma once
+#import <dlfcn.h>
 // 2.04: the PHONE-ASSIST pop-up background (电话助手弹窗背景视频).
 //
 // This is the sheet the phone-assistant tweak presents over the home screen. It is
@@ -51,8 +52,10 @@ static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
             for(NSUInteger i=(NSUInteger)index+1;i<container.subviews.count && shown<6;i++,shown++) {
                 UIView *sibling=container.subviews[i];
                 CGFloat background=sibling.backgroundColor?CGColorGetAlpha(sibling.backgroundColor.CGColor):0;
-                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",NSStringFromClass(sibling.class),
-                    (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background];
+                NSString *owner=LMVPhoneAssistImageName(sibling.class);
+                NSString *ownerName=owner?owner.lastPathComponent:@"?";
+                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f @%@] ",NSStringFromClass(sibling.class),
+                    (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background,ownerName];
             }
         }
     }
@@ -84,6 +87,39 @@ static BOOL LMVPhoneAssistSheetKind(UIView *view) {
 // names are simply gone, and the channel reported "no card" while the popup was on
 // screen. Every alert sheet still carries the dimming/backdrop material, so that is
 // a structural signature we can follow without trusting any single class name.
+// 2.27: GLASSSUITEX (named on the device) does not just decorate the alert - it
+// puts its glass in a WINDOW OF ITS OWN, which sits above the alert window. No
+// amount of sibling re-ordering inside the alert can beat that, which is why the
+// sheet said "mounted, playing, invisible". Two answers, tried in this order:
+//   1. that plugin's window becomes the container and the video sits at its top;
+//   2. otherwise, skip over any glass/effect sibling the plugin inserted above the
+//      material, so the video lands ABOVE the glass instead of underneath it.
+static NSString *LMVPhoneAssistImageName(Class cls) {
+    if(!cls)return nil;
+    Dl_info info;
+    if(dladdr((const void *)cls,&info)==0 || !info.dli_fname)return nil;
+    return [NSString stringWithUTF8String:info.dli_fname];
+}
+static UIWindow *LMVPhoneAssistGlassWindow(UIWindow *alertWindow) {
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(window==alertWindow || window.hidden || window.alpha<.01)continue;
+            if([NSStringFromClass(window.class) isEqualToString:@"LMVEasterWindow"])continue;
+            NSString *owner=LMVPhoneAssistImageName(window.class);
+            if(owner && [owner containsString:@"GlassSuiteX"])return window;
+        }
+    }
+    return nil;
+}
+static BOOL LMVPhoneAssistGlassKind(UIView *view) {
+    if(!view)return NO;
+    if([view isKindOfClass:UIVisualEffectView.class])return YES;
+    NSString *name=NSStringFromClass(view.class);
+    for(NSString *word in @[@"Blur",@"Glass",@"Vibrancy",@"Dimming",@"Backdrop",@"Effect"])
+        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
+    return NO;
+}
 static NSString *LMVPhoneAssistCardMatch=nil;
 // 2.26: when nothing is found we must be able to say WHAT was on screen instead of
 // only which windows existed. Class + frame + alpha per view is what tells a
@@ -341,7 +377,8 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 - (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {
     if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;
     [self.host removeFromSuperview];
-    @try {[container insertSubview:self.host atIndex:index];}
+    NSUInteger slot=MIN(index,container.subviews.count);
+    @try {[container insertSubview:self.host atIndex:slot];}
     @catch(NSException *exception) {[self.host removeFromSuperview];return NO;}
     return self.host.superview==container;
 }
@@ -409,7 +446,29 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
         container=material.superview;
         NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
         if(near==NSNotFound) {[self detach];self.updating=NO;return;}
-        index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";
+        NSUInteger slot=(NSUInteger)(near+1);
+        // 2.27: land ABOVE any glass/effect layer the cover plugin slipped in after
+        // the material, still below the labels (the first non-glass sibling).
+        for(NSUInteger i=slot;i<container.subviews.count;i++) {
+            UIView *sibling=container.subviews[i];
+            if(sibling.tag==LMVPhoneAssistHostTag)break;
+            if(!LMVPhoneAssistGlassKind(sibling))break;
+            slot=i+1;
+        }
+        index=slot;target=material.frame;mode=@"above-material";
+    }
+    // 2.27: if the covering plugin owns a window above the alert, that window is the
+    // only place the video can actually be seen; nothing inside the alert competes
+    // with a higher window.
+    UIWindow *glassWindow=LMVPhoneAssistGlassWindow(window);
+    if(glassWindow) {
+        container=glassWindow;
+        NSInteger current=self.host.superview==glassWindow ?
+            (NSInteger)[glassWindow.subviews indexOfObjectIdenticalTo:self.host] : NSNotFound;
+        BOOL topmost=current>=0 && current==(NSInteger)glassWindow.subviews.count-1;
+        index=topmost ? (NSUInteger)current : glassWindow.subviews.count;
+        target=[card convertRect:card.bounds toView:glassWindow];
+        mode=@"glass-window";
     }
     if(!container) {container=card;index=0;target=card.bounds;}
     self.mode=mode;
