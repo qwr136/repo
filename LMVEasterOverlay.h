@@ -266,8 +266,8 @@ static NSInteger LMVEasterForeground(void) {
 // This overlay stays private-class-free (a regression test enforces it), so the
 // only probe used is public: whoever holds KEY. On the desktop that is the home
 // window; while the switcher is up it is the switcher's own window.
-static BOOL LMVEasterSwitcherPresented(void) {
-    for(UIWindow *window in UIApplication.sharedApplication.windows) {
+static BOOL LMVEasterSwitcherPresented(NSArray<UIWindow *> *windows) {
+    for(UIWindow *window in windows) {
         if(!window.isKeyWindow)continue;
         NSString *name=NSStringFromClass(window.class);
         if([name containsString:@"Switcher"])return YES;
@@ -285,7 +285,7 @@ static NSUInteger LMVEasterQuickHostMask(NSArray<UIWindow *> *windows) {
     }
     // The switcher is not one of the three hosts, but opening/closing it changes
     // whether the home host is legal, so it has to invalidate the snapshot too.
-    if (LMVEasterSwitcherPresented()) mask|=4;
+    if (LMVEasterSwitcherPresented(windows)) mask|=4;
     return mask;
 }
 static BOOL LMVEasterScopePolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,uint64_t locked,
@@ -603,7 +603,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // 2.12: the switcher sits over SpringBoard itself, so neither the foreground
     // probe nor the home window's own visibility can tell it apart from "at the
     // desktop". It is asked once per apply and vetoes the home host outright.
-    BOOL switcher=LMVEasterSwitcherPresented();
+    BOOL switcher=LMVEasterSwitcherPresented(windows);
     for (UIWindow *window in windows) {
         if(window==self.window || !window.windowScene)continue;
         if(LMVEasterNCWindowExposed(window) && (!ncHost || window.windowLevel>ncHost.windowLevel))ncHost=window;
