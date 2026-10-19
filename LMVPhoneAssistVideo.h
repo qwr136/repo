@@ -241,16 +241,21 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVPhoneAssistMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
-    if([material isKindOfClass:UIVisualEffectView.class]) {
-        UIView *content=((UIVisualEffectView *)material).contentView;
-        if(content && content.subviews.count<40) {
-            container=content;index=0;target=content.bounds;mode=@"content";
-        } else if(material.superview) {
-            container=material.superview;
-            NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
-            if(near==NSNotFound) {[self detach];self.updating=NO;return;}
-            index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";
-        }
+    // 2.10.1: place the video ABOVE the material, not inside its contentView.
+    // The device log named the failure exactly: pa-panel mode=content live=1
+    // host=270x607 ready=1 poster=1 rate=1.0 - mounted, decoded and playing, yet
+    // invisible. This sheet's material is _UIDimmingKnockoutBackdropView (a
+    // UIVisualEffectView subclass); on this system its own effect layers paint
+    // over the content view, so a subview placed at contentView index 0 is
+    // covered. It is the same failure 1.93 hit on the Squid panel, whose fix was
+    // to sit above the effect view and below the content. The alert group is
+    // [_UIDimmingKnockoutBackdropView, content UIView], so index material+1 lands
+    // between the dimming layer and the labels.
+    if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
+        container=material.superview;
+        NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
+        if(near==NSNotFound) {[self detach];self.updating=NO;return;}
+        index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";
     }
     if(!container) {container=card;index=0;target=card.bounds;}
     self.mode=mode;
