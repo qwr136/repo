@@ -160,7 +160,9 @@ class UISectionOrder(unittest.TestCase):
             cell.detailTextLabel.numberOfLines = 1;
 ''', '')
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
-        self.assertEqual(digest(old_cells), '21710189a445157b27bd64be293fd318f6059e0baa5b95cee7abf9d6baaa7e02')
+        # 2.12: the selection rows now carry an explicit 无素材 glyph, which is part
+        # of their cell source; the frozen digest is refreshed for that one change.
+        self.assertEqual(digest(old_cells), '869c6abdeafb1d6a8b9fc3246c2fb2e5f163fabd7a2349b10f59465049746ddb')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;

@@ -47,10 +47,6 @@
 @property(nonatomic, copy) NSString *imageKey, *windowReason;
 @property(nonatomic, strong) NSTimer *visibilityTimer;
 @property(nonatomic, weak) UIWindow *foreignKey, *hostWindow;
-// 2.12: how long the HOME surface has been continuously qualified. Showing is
-// delayed by a moment (see LMVEasterHomeSettled); hiding never is.
-@property(nonatomic, weak) UIWindow *homeCandidate;
-@property(nonatomic) CFTimeInterval homeSince;
 @property(nonatomic) CGFloat keyboardTop;
 // 0.0.122: the panel is draggable by its title bar; 1.64 persists the offset so
 // closing the panel, hiding the egg or respringing all reopen it in the same
@@ -274,8 +270,21 @@ static BOOL LMVEasterSwitcherPresented(NSArray<UIWindow *> *windows) {
     }
     return NO;
 }
-static BOOL LMVEasterHomeSettled(CFTimeInterval since,CFTimeInterval now) {
-    return since>0 && now-since>=.2;
+// 2.12: AN APP ON SCREEN IS NOT THE DESKTOP. Unlocking straight into an app used
+// to flash the ball: SpringBoard is still the frontmost process for a beat while
+// the app's window is already up behind the cover. The app surface on this device
+// is SBWindow (the desktop channel learned that in 1.25); on the desktop the same
+// window exists but carries an empty root view, so "exposed AND has content" is
+// the tell. Switcher surfaces are excluded - they are handled separately.
+static BOOL LMVEasterAppWindowPresent(NSArray<UIWindow *> *windows) {
+    for(UIWindow *window in windows) {
+        if(!LMVEasterWindowExposed(window))continue;
+        NSString *name=NSStringFromClass(window.class);
+        if(![name isEqualToString:@"SBWindow"] && ![name containsString:@"AppWindow"])continue;
+        UIView *root=window.rootViewController.viewIfLoaded;
+        if(root && root.subviews.count)return YES;
+    }
+    return NO;
 }
 static NSUInteger LMVEasterQuickHostMask(NSArray<UIWindow *> *windows) {
     NSUInteger mask=0;
@@ -286,6 +295,7 @@ static NSUInteger LMVEasterQuickHostMask(NSArray<UIWindow *> *windows) {
     // The switcher is not one of the three hosts, but opening/closing it changes
     // whether the home host is legal, so it has to invalidate the snapshot too.
     if (LMVEasterSwitcherPresented(windows)) mask|=4;
+    if (LMVEasterAppWindowPresent(windows)) mask|=8;
     return mask;
 }
 static BOOL LMVEasterScopePolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,uint64_t locked,
@@ -604,6 +614,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // probe nor the home window's own visibility can tell it apart from "at the
     // desktop". It is asked once per apply and vetoes the home host outright.
     BOOL switcher=LMVEasterSwitcherPresented(windows);
+    BOOL appWindow=LMVEasterAppWindowPresent(windows);
     for (UIWindow *window in windows) {
         if(window==self.window || !window.windowScene)continue;
         if(LMVEasterNCWindowExposed(window) && (!ncHost || window.windowLevel>ncHost.windowLevel))ncHost=window;
@@ -619,7 +630,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         // lost its host and the ball vanished (nc=0 cc=0 home=0 captured=1). The
         // user needs the ball visible in the recording, so an exposed Home window
         // is a valid host while the display is captured.
-        if(LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window) && !switcher &&
+        if(LMVEasterKnownWindow(window,@[@"SBHomeScreenWindow"]) && LMVEasterWindowExposed(window) && !switcher && !appWindow &&
            (foreground==1 || keyHome || LMVEasterScreenCaptured()))homeHost=window;
     }
     // Probe roots plus the physical NC/CC surfaces, never the scrolling module
@@ -640,22 +651,6 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
     self.lastPhysicalCheck=CACurrentMediaTime();
     UIWindow *host=ccHost ?: ncHost ?: homeHost;
-    // 2.12: SHOW LATE, HIDE AT ONCE. Unlocking straight into an app reads as
-    // "SpringBoard in front with the home window exposed" for a frame or two, so
-    // the ball used to flash there before the app took key. The home surface must
-    // now hold for a moment before it may draw. Every hide path below still runs
-    // on this very tick, with no delay.
-    if(host && host==homeHost) {
-        CFTimeInterval now=CACurrentMediaTime();
-        if(self.homeCandidate!=homeHost) {self.homeCandidate=homeHost;self.homeSince=now;}
-        if(!LMVEasterHomeSettled(self.homeSince,now)) {
-            [self hide];
-            [self reportWindow:@"home-settle"];
-            return;
-        }
-    } else {
-        self.homeCandidate=nil;self.homeSince=0;
-    }
     BOOL authenticated=self.authenticatedSession;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;

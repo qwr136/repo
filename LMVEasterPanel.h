@@ -328,7 +328,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换长按菜单素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换长按菜单素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
             id selected = LMVEasterRead(@"HomeMenuVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -344,7 +344,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
             // 1.63: 四个手势面板（右一/右二/左一/左二）共用同一个视频素材
-            cell.textLabel.text = @"切换视频"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换视频"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
             id selected = LMVEasterRead(@"SquidPanelVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -359,7 +359,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换 AT 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换 AT 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
             id selected = LMVEasterRead(@"ATVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -374,7 +374,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil;
+            cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
             id selected = LMVEasterRead(@"CVVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -389,7 +389,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"MyrtleBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换 Myrtle 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换 Myrtle 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
             id selected = LMVEasterRead(@"MyrtleVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -404,7 +404,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"PABackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换电话助手素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换电话助手素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
             id selected = LMVEasterRead(@"PAVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -457,7 +457,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         toggle.on = [LMVEasterRead([target stringByAppendingString:@"BackgroundEnabled"]) boolValue];
         [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
     } else {
-        cell.textLabel.text = @"选择素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.textLabel.text = @"选择素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
         id selected = LMVEasterRead([target stringByAppendingString:@"Video"]);
         NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@"", @"Desktop":@""};
         NSString *relative = [selected isKindOfClass:NSString.class] ? selected : legacy[target];
