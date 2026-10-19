@@ -54,6 +54,9 @@
 @property(nonatomic) CGPoint panelOffset;
 @property(nonatomic) NSUInteger generation, frame, lastHostSignature;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
+// 2.14: cover-sheet exposure origin (began unlocked = Notification Center; began
+// locked = the lock screen, including the whole Face ID/unlock animation).
+@property(nonatomic) BOOL coverWasExposed, coverStartedUnlocked;
 @property(nonatomic) CGPoint normalized;
 // Cache only physical probes, never permission/scope decisions. Notifications
 // invalidate them; a bounded default-mode audit catches silent tree replacement.
@@ -129,14 +132,7 @@ static BOOL LMVEasterNCPolicy(BOOL blankKnown,uint64_t blank,BOOL lockKnown,uint
     if (!blankKnown || blank || !lockKnown) { *authenticated=NO; return NO; }
     // Only learn an unlocked session outside CoverSheet. Face ID can unlock
     // while the real lock screen remains onscreen; that is not Notification Center.
-    // 2.14: A LOCKED SCREEN IS NEVER AN AUTHENTICATED SESSION. This flag used to
-    // survive the next lock, so after the first unlock of a session the cover
-    // sheet read as "authenticated" and the ball appeared over the lock screen
-    // exactly while Face ID was scanning (and rode that cover into the app).
-    // It is now cleared by the lock itself and re-learned only from an unlocked,
-    // cover-free screen - which is still how NC over an unlocked app qualifies.
-    if (locked) *authenticated=NO;
-    else if (!exposed) *authenticated=YES;
+    if (!locked && !exposed) *authenticated=YES;
     return exposed && *authenticated;
 }
 static UIView *LMVEasterFindCover(UIView *view,NSUInteger depth,NSUInteger *budget) {
@@ -658,7 +654,19 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     self.physicalSnapshot=LMVEasterPhysicalSnapshot(physical,probes,foreground,blankKnown,blank,lockKnown,locked);
     self.lastPhysicalCheck=CACurrentMediaTime();
     UIWindow *host=ccHost ?: ncHost ?: homeHost;
-    BOOL authenticated=self.authenticatedSession;
+    // 2.14: WHAT MATTERS IS HOW THE EXPOSURE STARTED, NOT WHAT LOCKSTATE SAYS NOW.
+    // The ball flashed at the exact instant Face ID recognised the face: the cover
+    // sheet stays on screen through the unlock, the flag below used to be "learned"
+    // during that animation, and the cover then read as Notification Center. An
+    // exposure that BEGAN while unlocked really is NC; one that began on the lock
+    // screen is the lock screen, even after Face ID flips lockstate under it. This
+    // is recomputed every tick from that origin, so the lockstate pulse Sent while
+    // NC is being pulled still cannot make the ball flicker.
+    BOOL coverExposed=ncHost!=nil;
+    if(coverExposed && !self.coverWasExposed) self.coverStartedUnlocked=!locked;
+    if(!coverExposed) self.coverStartedUnlocked=NO;
+    self.coverWasExposed=coverExposed;
+    BOOL authenticated=coverExposed && self.coverStartedUnlocked;
     BOOL legacyAllows=LMVEasterScopePolicy(blankKnown,blank,lockKnown,locked,ncHost!=nil,ccHost!=nil,homeHost!=nil,&authenticated);
     self.authenticatedSession=authenticated;
     // 0.0.117 user policy: a surface that may not present the ball loses it
