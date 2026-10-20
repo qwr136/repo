@@ -51,6 +51,7 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *thumbnailRetries;
 @property(nonatomic, strong) NSMutableSet<NSString *> *retryScheduled;
 - (void)requestThumbnail:(NSDictionary *)row;
+- (void)drainBacklog;
 - (void)scheduleRetryForKey:(NSString *)key;
 - (BOOL)thumbnailIsPending:(NSDictionary *)row;
 - (void)tracePreview:(NSString *)stage row:(NSDictionary *)row;
@@ -62,6 +63,13 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 static NSCache<NSString *, UIImage *> *sharedThumbnails;
 static NSMutableDictionary<NSString *, NSNumber *> *sharedFailures, *sharedRetries;
 static NSMutableSet<NSString *> *sharedScheduled, *sharedPending;
+// 2.45: keys that were DEFERRED because the queue was full. They used to be dropped
+// without a trace: -requestThumbnail: returned on defer-queue-full and nothing ever
+// asked again, while -thumbnailIsPending: kept answering YES (a deferred row has not
+// spent any retry budget), so every row past the twelfth stayed on 生成中 until the
+// user happened to scroll it into view. Deferred keys now wait here and are drained
+// as workers finish.
+static NSMutableOrderedSet<NSString *> *sharedBacklog;
 static NSOperationQueue *sharedQueue;
 static dispatch_once_t LMVMaterialSharedOnce;
 // 1.34: one initializer for the shared state, reachable from -init AND from
@@ -84,6 +92,7 @@ static void LMVMaterialSharedState(void) {
         sharedFailures = [NSMutableDictionary new];
         sharedRetries = [NSMutableDictionary new];
         sharedScheduled = [NSMutableSet new];
+    sharedBacklog = [NSMutableOrderedSet new];
         sharedPending = [NSMutableSet new];
         sharedQueue = [NSOperationQueue new];
         // 0.0.123: two workers instead of one.
@@ -150,6 +159,7 @@ static void LMVMaterialSharedState(void) {
 // still lands in the shared cache for the next open.
 // Rows skipped while the queue was full are requested once scrolling settles.
 - (void)requestVisibleThumbnails {
+    [self drainBacklog];
     if (!self.showsThumbnails) return;
     for (NSIndexPath *index in self.tableView.indexPathsForVisibleRows)
         if (index.row < self.materials.count) [self requestThumbnail:self.materials[index.row]];
@@ -244,6 +254,13 @@ static void LMVMaterialSharedState(void) {
             LMVMaterialPicker *picker = weakSelf;
             if (!picker || picker.generation != generation) return;
             picker.materials = rows;
+            // 2.45: a deferred key whose file was deleted would otherwise sit in the
+            // backlog forever (nothing can satisfy it). Keep only keys that still
+            // exist in the refreshed catalog.
+            NSMutableSet *live = [NSMutableSet set];
+            for (NSDictionary *row in rows) [live addObject:row[@"revision"]];
+            for (NSString *key in sharedBacklog.array)
+                if (![live containsObject:key]) [sharedBacklog removeObject:key];
             [picker.previewStages removeAllObjects];
             LMVThumbnailLog([NSString stringWithFormat:@"catalog-ready count=%lu generation=%lu", (unsigned long)rows.count, (unsigned long)generation], @"", nil);
             [picker.tableView reloadData];
@@ -301,6 +318,23 @@ static void LMVMaterialSharedState(void) {
             if ([material[@"revision"] isEqualToString:key]) { [picker requestThumbnail:material]; return; }
     });
 }
+// 2.45: refill from the deferred set once the queue has room. Called on the main
+// thread right after a worker finishes (and after a scroll settles), so a list with
+// more materials than the ceiling fills itself in without any user action.
+- (void)drainBacklog {
+    if (!sharedBacklog.count) return;
+    NSUInteger ceiling = 6;
+    if (self.pending.count >= ceiling) return;
+    for (NSString *key in sharedBacklog.array) {
+        if (self.pending.count >= ceiling) break;
+        [sharedBacklog removeObject:key];
+        for (NSDictionary *row in self.materials) {
+            if (![row[@"revision"] isEqualToString:key]) continue;
+            [self requestThumbnail:row];
+            break;
+        }
+    }
+}
 - (void)requestThumbnail:(NSDictionary *)row {
     if (!self.showsThumbnails) return;
     NSString *key = row[@"revision"];
@@ -313,7 +347,11 @@ static void LMVMaterialSharedState(void) {
     NSInteger failures = self.thumbnailFailures[key].integerValue;
     if (failures >= LMVMaterialThumbnailMaxFailures) { [self tracePreview:@"skip-previous-failure" row:row]; return; }
     if ([self.pending containsObject:key]) { [self tracePreview:@"skip-pending" row:row]; return; }
-    if (self.pending.count >= 12) { [self tracePreview:@"defer-queue-full" row:row]; return; }
+    if (self.pending.count >= 12) {
+        [self tracePreview:@"defer-queue-full" row:row];
+        [sharedBacklog addObject:key];
+        return;
+    }
     [self tracePreview:@"enqueue" row:row];
     [self.pending addObject:key];
     NSString *relative = row[@"path"];
@@ -354,6 +392,7 @@ static void LMVMaterialSharedState(void) {
                         else [picker requestThumbnail:visible];
                     }
                 }
+                [picker drainBacklog];
             });
         }
     }];

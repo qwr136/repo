@@ -352,6 +352,8 @@ static void LMVNotify(void) {
 // own tag pair, so both can be painted without touching any private API.
 // 2.04: one tag pair per coloured row. The original pair-by-pair logic covered two
 // rows only; with a third row the recycled-cell cleanup has to know all of them.
+// 2.45: the chosen material's name, drawn on the row (PSButtonCell has no subtitle).
+static NSInteger const LMVMaterialValueTag = 0x5F2C;
 static NSInteger LMVTextColorTagFor(NSString *key, BOOL value) {
     NSInteger base = 0x5A2C;
     if ([key isEqualToString:LMVSquidTextColorKey]) base = 0x5B2C;
@@ -382,7 +384,34 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     // 2.42: the material rows are all called 切换素材 now; the chosen file is shown
     // on the right so the row still says WHICH material is in use.
     NSString *materialID = [specifier propertyForKey:@"id"];
-    if ([materialID hasSuffix:@"Material"]) {
+    BOOL materialRow = [materialID hasSuffix:@"Material"];
+    // 2.45: PSButtonCell is a plain (default-style) cell, so its detailTextLabel is
+    // nil and 2.44's assignment went nowhere - on the device every 切换素材 row stayed
+    // blank. The name is now painted by our own label, in the same column as every
+    // switch and colour swatch (trailing -16).
+    UILabel *materialValue = [cell.contentView viewWithTag:LMVMaterialValueTag];
+    if (!materialRow) {
+        [materialValue removeFromSuperview];
+    } else {
+        if (!materialValue) {
+            materialValue = [UILabel new];
+            materialValue.tag = LMVMaterialValueTag;
+            materialValue.font = [UIFont systemFontOfSize:15];
+            materialValue.textColor = [UIColor secondaryLabelColor];
+            materialValue.textAlignment = NSTextAlignmentRight;
+            materialValue.numberOfLines = 1;
+            materialValue.adjustsFontSizeToFitWidth = YES;
+            materialValue.minimumScaleFactor = 0.8;
+            materialValue.userInteractionEnabled = NO;
+            materialValue.translatesAutoresizingMaskIntoConstraints = NO;
+            [cell.contentView addSubview:materialValue];
+            [NSLayoutConstraint activateConstraints:@[
+                [materialValue.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+                [materialValue.trailingAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-16],
+                [materialValue.leadingAnchor constraintGreaterThanOrEqualToAnchor:cell.contentView.leadingAnchor constant:150]
+            ]];
+        }
+        materialValue.accessibilityIdentifier = @"LMVMaterialValue";
         NSString *key = [materialID stringByReplacingOccurrencesOfString:@"Material" withString:@"Video"];
         id value = LMVEasterRead(key);
         NSString *path = [value isKindOfClass:NSString.class] ? value : nil;
@@ -393,12 +422,12 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
         if (![name isKindOfClass:NSString.class] || !name.length)
             name = path.length ? [path.lastPathComponent stringByDeletingPathExtension] : nil;
-        cell.detailTextLabel.text = name.length ? name : @"未选择";
+        materialValue.text = name.length ? name : @"未选择";
     }
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
-        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D), @(0x5E2C), @(0x5E2D)])
+        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D), @(0x5E2C), @(0x5E2D), @(0x5F2C)])
             [[cell.contentView viewWithTag:tag.unsignedIntegerValue] removeFromSuperview];
         return;
     }
@@ -425,7 +454,9 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         value.tag = valueTag;
         value.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular];
         value.textColor = [UIColor secondaryLabelColor];
-        value.textAlignment = NSTextAlignmentLeft;
+        // 2.45: right-aligned so every colour row's value ends on the same vertical
+        // line as its swatch, instead of starting at a fixed x and growing rightwards.
+        value.textAlignment = NSTextAlignmentRight;
         value.userInteractionEnabled = NO;
         [cell.contentView addSubview:value];
     }
@@ -447,8 +478,8 @@ static NSString *LMVTextColorSummary(UIColor *color) {
             // inset content view) is what puts the swatch inside that column.
             [dot.centerXAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-41.5],
             [value.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-            [value.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:98],
-            [value.trailingAnchor constraintLessThanOrEqualToAnchor:dot.leadingAnchor constant:-8]
+            [value.leadingAnchor constraintGreaterThanOrEqualToAnchor:cell.contentView.leadingAnchor constant:98],
+            [value.trailingAnchor constraintEqualToAnchor:dot.leadingAnchor constant:-8]
         ]];
     }
     dot.layer.cornerRadius = size / 2;

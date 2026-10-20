@@ -426,7 +426,12 @@ class UISectionOrder(unittest.TestCase):
         # reported list showed the same entry twice). Only row assembly changed; the
         # delete routing below still covers the same handlers, so the frozen digest is
         # refreshed for that one edit.
-        self.assertEqual(digest(PICKER), '04fa34a767099a80396988e099a5c6a61ce2588676f8ec9e756390914a997afa')
+        # 2.45: rows past the 12-request ceiling used to be dropped (defer-queue-full
+        # returned without any follow-up), so every material beyond the twelfth kept
+        # saying 生成中 until it was scrolled into view. Deferred keys now wait in a
+        # backlog that is drained as workers finish. Delete routing is still untouched,
+        # so the digest is refreshed for that queue change only.
+        self.assertEqual(digest(PICKER), '4e534f92e086ea7ec113f49497c26f1b5563a01317a5d5113b2634f13901e7c5')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')

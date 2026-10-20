@@ -59,8 +59,6 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,copy) void (^didChange)(void);
 @property(nonatomic) BOOL persistentPosterEnabled;
 @property(nonatomic) CMTime pendingSeek;
-// 2.39: which channel's tuning this playback obeys (Tune.<target>.*).
-@property(nonatomic,copy) NSString *target;
 - (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;
 - (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision;
 - (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;
@@ -113,9 +111,6 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
         [self replacePlayerLayer];
     }
     return self;
-}
-- (void)setTarget:(NSString *)target {
-    _target=[target copy];
 }
 - (void)replacePlayerLayer {
     if (self.observingLayer) [self.playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];

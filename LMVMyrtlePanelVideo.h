@@ -182,7 +182,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 - (instancetype)init {
     if(!LMVMyrtlePanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.target=@"Myrtle";_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVMyrtlePanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.myrtle-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];

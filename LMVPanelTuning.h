@@ -31,20 +31,18 @@ static inline NSString *LMVTuneTargetName(NSString *target) {
     return target ?: @"";
 }
 
-// One parameter. `choices`/`values` are only used by enum rows (PSButtonCell);
-// everything else is a slider between min and max.
+// One numeric parameter, edited by tapping the row (see LMVTuneController).
+// 2.45: the enum form (choices/values) went away with the playback group - every
+// remaining parameter is a bounded integer - so the two array arguments are gone
+// rather than being passed nil at every call site.
 static inline NSDictionary *LMVTuneParam(NSString *key,
                                   NSString *title,
                                   NSInteger minValue,
                                   NSInteger maxValue,
-                                  NSInteger defaultValue,
-                                  NSArray *choices,
-                                  NSArray *values) {
+                                  NSInteger defaultValue) {
     NSMutableDictionary *p = [NSMutableDictionary dictionary];
     p[@"key"] = key; p[@"title"] = title;
     p[@"min"] = @(minValue); p[@"max"] = @(maxValue); p[@"def"] = @(defaultValue);
-    if (choices) p[@"choices"] = choices;
-    if (values) p[@"values"] = values;
     return p;
 }
 
@@ -67,15 +65,15 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     NSMutableArray *groups = [NSMutableArray array];
     if (LMVTuneHasTimer(target)) {
         NSMutableArray *probe = [NSMutableArray array];
-        [probe addObject:LMVTuneParam(@"ProbeHz", @"检测频率 (Hz, 1~60)", 1, 60, 5, nil, nil)];
+        [probe addObject:LMVTuneParam(@"ProbeHz", @"检测频率 (Hz, 1~60)", 1, 60, 5)];
         if (LMVTuneHasSheetDelay(target)) {
-            [probe addObject:LMVTuneParam(@"ShowDelayMs", @"出现延迟 (ms, 0~1000)", 0, 1000, 0, nil, nil)];
-            [probe addObject:LMVTuneParam(@"HideDelayMs", @"关闭延迟 (ms, 0~2000)", 0, 2000, 0, nil, nil)];
+            [probe addObject:LMVTuneParam(@"ShowDelayMs", @"出现延迟 (ms, 0~1000)", 0, 1000, 0)];
+            [probe addObject:LMVTuneParam(@"HideDelayMs", @"关闭延迟 (ms, 0~2000)", 0, 2000, 0)];
         }
         // Keep the hook row separate: only GS/CopyLogX have a callback to throttle, and
         // showing it on the other six would be exactly the dead switch we just removed.
         if (LMVTuneHasHook(target)) {
-            [probe addObject:LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms, 0~200)", 0, 200, 50, nil, nil)];
+            [probe addObject:LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms, 0~200)", 0, 200, 50)];
         }
         [groups addObject:@{@"title":@"探测", @"params":probe}];
     }
@@ -104,9 +102,6 @@ static inline NSString *LMVTuneFullKey(NSString *target, NSString *key) {
 // 2.41: Settings writes in another process. CFPreferences keeps a per-process cache,
 // so without this the dylib keeps reading the value it saw at launch and every
 // setting looks dead. Throttled to once a second.
-static inline void LMVTuneSyncNow(void) {
-    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneDomain);
-}
 static inline void LMVTuneSync(void) {
     static NSTimeInterval last;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
@@ -127,22 +122,8 @@ static inline NSInteger LMVTuneValue(NSString *target, NSString *key) {
         NSInteger lo = [p[@"min"] integerValue], hi = [p[@"max"] integerValue];
         if (n < lo) n = lo;
         if (n > hi) n = hi;
-        // An enum stored under an older build (e.g. MaxFPS = 4 from the 0...4 index
-        // range in 2.39) is not one of the choices any more - fall back to the default
-        // instead of showing "?" forever.
-        NSArray *values = p[@"values"];
-        if (values.count && ![values containsObject:@(n)]) n = [p[@"def"] integerValue];
     }
     return n;
-}
-// True when this channel/key was ever written - lets a legacy key keep its own
-// default until the user actually touches the new slider.
-static inline BOOL LMVTuneHasValue(NSString *target, NSString *key) {
-    if (!target.length || !key.length) return NO;
-    LMVTuneSync();
-    CFStringRef full = (__bridge CFStringRef)LMVTuneFullKey(target, key);
-    id value = (__bridge_transfer id)CFPreferencesCopyAppValue(full, (__bridge CFStringRef)LMVTuneDomain);
-    return [value isKindOfClass:NSNumber.class];
 }
 static inline void LMVTuneSetValue(NSString *target, NSString *key, NSInteger value) {
     if (!target.length || !key.length) return;

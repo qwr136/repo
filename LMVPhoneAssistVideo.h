@@ -323,7 +323,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 - (instancetype)init {
     if(!LMVPhoneAssistEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.target=@"PA";_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVPhoneAssistVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.phoneassist.render";
         [_host.layer addSublayer:_playback.renderLayer];

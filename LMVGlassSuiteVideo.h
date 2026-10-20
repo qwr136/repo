@@ -323,7 +323,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 - (instancetype)init {
     if(!LMVGlassSuiteEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.target=@"GS";_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVGlassSuiteVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.glasssuite.render";
         [_host.layer addSublayer:_playback.renderLayer];

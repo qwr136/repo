@@ -18,14 +18,8 @@
 }
 
 - (NSString *)labelForParam:(NSDictionary *)p {
+    // 2.45: every remaining parameter is numeric, so the enum wording is gone.
     NSInteger current = LMVTuneValue(self.target, p[@"key"]);
-    NSArray *choices = p[@"choices"];
-    NSArray *values = p[@"values"];
-    if (choices.count) {
-        NSUInteger idx = [values indexOfObject:@(current)];
-        NSString *choice = (idx != NSNotFound && idx < choices.count) ? choices[idx] : @"?";
-        return [NSString stringWithFormat:@"%@：%@", p[@"title"], choice];
-    }
     return [NSString stringWithFormat:@"%@：%ld", p[@"title"], (long)current];
 }
 // 2.41: PSSliderCell never drew its label on the user's iOS, so a row was just a
@@ -61,41 +55,19 @@
 - (void)writeValue:(id)value specifier:(PSSpecifier *)specifier {
     LMVTuneSetValue(self.target, [specifier propertyForKey:@"tuneKey"], [value integerValue]);
 }
-- (void)cycleEnum:(PSSpecifier *)specifier {
-    NSDictionary *p = [specifier propertyForKey:@"tuneParam"];
-    NSArray *choices = p[@"choices"], *values = p[@"values"];
-    if (!choices.count || choices.count != values.count) return;
-    NSInteger current = LMVTuneValue(self.target, p[@"key"]);
-    NSUInteger idx = [values indexOfObject:@(current)];
-    NSUInteger next = (idx == NSNotFound || idx + 1 >= values.count) ? 0 : idx + 1;
-    LMVTuneSetValue(self.target, p[@"key"], [values[next] integerValue]);
-    [specifier setName:[NSString stringWithFormat:@"%@：%@", p[@"title"], choices[next]]];
-    [self reloadSpecifier:specifier animated:YES];
-}
-
 - (NSArray *)specifiers {
     if (!_specifiers) {
         NSMutableArray *rows = [NSMutableArray array];
         for (NSDictionary *group in LMVTuneGroupsForTarget(self.target)) {
             [rows addObject:[PSSpecifier groupSpecifierWithName:group[@"title"]]];
             for (NSDictionary *p in group[@"params"]) {
-                if ([p[@"choices"] count]) {
-                    PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:[self labelForParam:p]
-                                                                    target:self set:nil get:nil
-                                                                    detail:nil cell:PSButtonCell edit:nil];
-                    s.buttonAction = @selector(cycleEnum:);
-                    [s setProperty:p[@"key"] forKey:@"tuneKey"];
-                    [s setProperty:p forKey:@"tuneParam"];
-                    [rows addObject:s];
-                } else {
-                    PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:[self labelForParam:p]
-                                                                    target:self set:nil get:nil
-                                                                    detail:nil cell:PSButtonCell edit:nil];
-                    s.buttonAction = @selector(editNumber:);
-                    [s setProperty:p[@"key"] forKey:@"tuneKey"];
-                    [s setProperty:p forKey:@"tuneParam"];
-                    [rows addObject:s];
-                }
+                PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:[self labelForParam:p]
+                                                                target:self set:nil get:nil
+                                                                detail:nil cell:PSButtonCell edit:nil];
+                s.buttonAction = @selector(editNumber:);
+                [s setProperty:p[@"key"] forKey:@"tuneKey"];
+                [s setProperty:p forKey:@"tuneParam"];
+                [rows addObject:s];
             }
         }
         _specifiers = [rows copy];

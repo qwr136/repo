@@ -90,7 +90,12 @@ channels = [
 ]
 for file, target in channels:
     src = (root / file).read_text()
-    assert f'_playback.target=@"{target}";' in src, f'{file}: target'
+    # 2.45: LMVLockVideoPlayback.target existed only to look up Tune.<target>.* at
+    # playback time. 2.44 removed every key it could look up, which left it as a
+    # write-only property; it is now deleted outright, so the per-channel assertion
+    # that required the assignment is gone (behaviour is unchanged - the probe
+    # interval below is still read per channel).
+    assert '_playback.target' not in src, f'{file}: target assignment must be gone'
     assert f'LMVTuneProbeInterval(@"{target}")' in src, f'{file}: probe'
 
 # ---- 8) 素材显示：设置行必须查目录里的显示名，而不是文件 UUID -------------------

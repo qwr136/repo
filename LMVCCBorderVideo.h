@@ -248,7 +248,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 - (instancetype)init {
     if(!LMVCCBorderEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.target=@"CCBorder";_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVCCBorderVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.ccborder.render";
         [_host.layer addSublayer:_playback.renderLayer];

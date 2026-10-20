@@ -352,7 +352,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 - (instancetype)init {
     if(!LMVCopyLogXEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.target=@"CopyLogX";_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVCopyLogXVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.copylogx.render";
         [_host.layer addSublayer:_playback.renderLayer];

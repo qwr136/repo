@@ -191,7 +191,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 - (instancetype)init {
     if(!LMVATPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.target=@"AT";_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVATPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.at-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
