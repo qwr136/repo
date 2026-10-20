@@ -318,7 +318,11 @@ class UISectionOrder(unittest.TestCase):
                        and 'clxText' not in x and 'clxDebug' not in x and 'clxGroup' not in x
                        and 'tuneGroup' not in x and 'tuneTarget' not in x
                        and 'row.buttonAction' not in x)
-        self.assertEqual(digest('\n'.join(props)), '9fe474875b4b362fac3159ace348ce13788f8ac7e1c5cfb3abd5d0f409744be6')
+        # 2.47: the five base material rows now carry an id (<target>Material) so the
+        # "which material is in use" label can resolve <target>Video. Row order,
+        # actions and count are unchanged; only that one property was added, so the
+        # frozen digest is refreshed for it.
+        self.assertEqual(digest('\n'.join(props)), '46c5d7177fd204fee03e684739196397939626c077e53ce9d9099749f8523094')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)

@@ -906,7 +906,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // exact frame the desktop is uncovered.
     NSInteger wantFPS=(self.playback.frozen || self.appAway)?
         (burst?60:LMVDesktopCadence(@"CoveredFPS")):LMVDesktopCadence(@"IdleFPS");
-    if (link.preferredFramesPerSecond!=wantFPS) link.preferredFramesPerSecond=wantFPS;
+    if (link.preferredFramesPerSecond!=wantFPS) {
+        link.preferredFramesPerSecond=wantFPS;
+        // 2.47: one line per CHANGE, so a tuning edit can be confirmed from a single
+        // capture instead of guessing from smoothness. It only fires when the value
+        // changes, so the steady state stays silent.
+        LMVDiagnostic([NSString stringWithFormat:@"desktop-cadence want=%ld idle=%ld covered=%ld frozen=%d away=%d",
+            (long)wantFPS,(long)LMVDesktopCadence(@"IdleFPS"),(long)LMVDesktopCadence(@"CoveredFPS"),
+            (int)self.playback.frozen,(int)self.appAway]);
+    }
     // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
     // full cover measurement - window enumeration, a class match per window, a
     // subview walk and presentation-layer conversions inside it - on EVERY frame,

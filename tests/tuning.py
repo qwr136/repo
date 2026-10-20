@@ -49,6 +49,9 @@ desktop = (root / 'LMVDesktopVideo.h').read_text()
 assert 'LMVTuneValue(@"Desktop",@"IdleFPS")' in desktop
 assert 'LMVTuneValue(@"Desktop",@"CoveredFPS")' in desktop
 assert 'burst?60:LMVDesktopCadence(@"CoveredFPS")' in desktop
+# 2.47: a change of cadence must leave one diagnostic line, so "did my value take
+# effect?" is answerable from a capture instead of from feel.
+assert 'desktop-cadence want=%ld idle=%ld covered=%ld' in desktop
 assert 'LMVDesktopCadence(@"IdleFPS")' in desktop
 
 # ---- 3) 写入必须广播，常驻通道才知道值变了 --------------------------------------

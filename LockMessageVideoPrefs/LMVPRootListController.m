@@ -84,6 +84,12 @@ static void LMVNotify(void) {
         [_specifiers addObject:enabled];
         PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:titles[i] target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
         choose.buttonAction = actions[i];
+        // 2.47: these five rows and the two control-centre rows never carried an id, so
+        // the "which material is in use" label had nothing to key off and only the
+        // channels below (HomeMenu onwards) showed a name. The id is the target plus
+        // "Material", which is exactly what -willDisplayCell: turns back into the
+        // stored <target>Video key.
+        [choose setProperty:[LMVTargets()[i] stringByAppendingString:@"Material"] forKey:@"id"];
         [_specifiers addObject:choose];
         [self appendAudioForTarget:LMVTargets()[i] title:@"播放"];
     }
@@ -96,10 +102,12 @@ static void LMVNotify(void) {
     [_specifiers addObject:controlCenterEnabled];
     PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterDark.buttonAction = @selector(switchControlCenterDark:);
+    [controlCenterDark setProperty:@"ControlCenterDarkMaterial" forKey:@"id"];
     [_specifiers addObject:controlCenterDark];
     [self appendAudioForTarget:@"ControlCenterDark" title:@"深色模式"];
     PSSpecifier *controlCenterLight = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
+    [controlCenterLight setProperty:@"ControlCenterLightMaterial" forKey:@"id"];
     [_specifiers addObject:controlCenterLight];
     [self appendAudioForTarget:@"ControlCenterLight" title:@"浅色模式"];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];
