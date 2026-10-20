@@ -99,9 +99,12 @@ static inline NSDictionary *LMVTuneFindParam(NSString *key) {
     dispatch_once(&once, ^{
         NSMutableDictionary *map = [NSMutableDictionary dictionary];
         // 2.46: every channel's own group is scanned, so the desktop's two cadence
-        // keys get their min/max/default like the probe keys do.
-        for (NSString *target in LMVTuneTargets())
-            for (NSDictionary *group in LMVTuneGroupsForTarget(target))
+        // keys get their min/max/default like the probe keys do. LMVTuneTargets()
+        // returns DICTIONARIES, so the id has to be taken out of each item - passing
+        // the dictionary itself made -isEqualToString: go through forwarding and
+        // abort the native fixture.
+        for (NSDictionary *item in LMVTuneTargets())
+            for (NSDictionary *group in LMVTuneGroupsForTarget(item[@"id"]))
                 for (NSDictionary *p in group[@"params"])
                     if (!map[p[@"key"]]) map[p[@"key"]] = p;
         index = [map copy];
