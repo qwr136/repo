@@ -69,6 +69,12 @@ assert 'LMVCopyLogXIsCard' not in pa and 'LMVCopyLogXClaimed' not in pa
 assert 'LMVPhoneAssistStructuralCard' not in pa, 'PA 的结构兜底已删除'
 # 没有卡片时必须能说出原因
 assert 'clx-nocard windows=%@' in src
+# 2.36: the line must now carry enough to identify the sheet next to FLEX - every
+# visible window with its root controller and two levels of subview class names.
+assert 'static NSString *LMVCopyLogXWindowDump(void)' in src
+assert 'cand=%d rvc=%@' in src
+assert 'for(UIView *top in window.subviews)' in src
+assert 'for(UIView *child in top.subviews)' in src
 assert '#import "LMVCopyLogXVideo.h"' in tweak
 assert tweak.index('#import "LMVCopyLogXVideo.h"') < tweak.index('#import "LMVPhoneAssistVideo.h"')
 
@@ -116,5 +122,5 @@ assert 'tests/copylogx-panel-video.py' in workflow
 print('PASS: CopyLogX clipboard-panel channel - independent switch/material/sound/volume/'
       'text-colour settings, structural detection (non-system window + bottom-anchored '
       'wide effect-content card, table breaks ties), index-0 mount inside the card, PA no '
-      'longer claims this card, clx-nocard diagnostics, audio plumbing, '
+      'longer claims this card, clx-nocard window-tree diagnostics, audio plumbing, '
       'floating-panel sync without the colour row, no debug-size row, CI wired')

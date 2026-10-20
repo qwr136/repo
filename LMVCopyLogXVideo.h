@@ -80,6 +80,45 @@ static BOOL LMVCopyLogXWindowKind(UIWindow *window) {
         if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return NO;
     return YES;
 }
+// 2.36: THE PROBE THAT TELLS US WHAT TO LOOK FOR. "clx-nocard" used to print only
+// window class names, which is useless when the sheet lives inside a plain
+// UIWindow: there is nothing to search for. This dumps every visible window with
+// its root controller and two levels of subviews, so the line can be read next to
+// FLEX and the real card class can be copied straight out of it. Capped at six
+// children per level; printed only when the dump changes.
+static NSString *LMVCopyLogXWindowDump(void) {
+    NSMutableString *out=[NSMutableString string];
+    NSInteger windows=0;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(window.hidden || window.alpha<.01)continue;
+            if([NSStringFromClass(window.class) isEqualToString:@"LMVEasterWindow"])continue;
+            windows++;
+            NSString *root=NSStringFromClass(window.rootViewController.class);
+            [out appendFormat:@" [%@ %.0fx%.0f cand=%d rvc=%@]",
+                NSStringFromClass(window.class),window.bounds.size.width,window.bounds.size.height,
+                (int)LMVCopyLogXWindowKind(window),root.length?root:@"none"];
+            NSInteger topCount=0;
+            for(UIView *top in window.subviews) {
+                if(topCount++>=6){[out appendString:@" ..."];break;}
+                [out appendFormat:@" %@@%.0f,%.0f %.0fx%.0f%s{",NSStringFromClass(top.class),
+                    top.frame.origin.x,top.frame.origin.y,top.frame.size.width,top.frame.size.height,
+                    top.hidden?"(h)":""];
+                NSInteger childCount=0;
+                for(UIView *child in top.subviews) {
+                    if(childCount++>=6){[out appendString:@"..."];break;}
+                    NSString *name=NSStringFromClass(child.class);
+                    if(name.length>40)name=[name substringToIndex:40];
+                    [out appendFormat:@"%@%s|",name,child.hidden?"(h)":""];
+                }
+                [out appendString:@"}"];
+            }
+        }
+    }
+    if(!windows)[out appendString:@" none"];
+    return out;
+}
 // 2.35: the list is the IDENTITY, not a tie-breaker. CopyVault's panel carries a
 // `_UIVisualEffectContentView` of exactly the right size and position, so shape
 // alone cannot tell the two apart - but its table lives OUTSIDE that content view
@@ -273,17 +312,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
         // 2.33: say WHY, the way the PA channel does. Without this line "switch on,
         // material picked, still nothing" is indistinguishable from "no card".
         if(LMVDiagnosticsEnabled.load()) {
-            NSMutableString *visible=[NSMutableString new];
-            for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-                if(![scene isKindOfClass:UIWindowScene.class])continue;
-                for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
-                    if(candidate.hidden || candidate.alpha<.01)continue;
-                    if(!LMVCopyLogXWindowKind(candidate))continue;
-                    [visible appendFormat:@"%@@%.0fx%.0f ",NSStringFromClass(candidate.class),
-                        candidate.bounds.size.width,candidate.bounds.size.height];
-                }
-            }
-            NSString *line=[NSString stringWithFormat:@"clx-nocard windows=%@",visible.length?visible:@"none"];
+            NSString *line=[NSString stringWithFormat:@"clx-nocard windows=%@",LMVCopyLogXWindowDump()];
             static NSString *lastLine=nil;
             if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
         }

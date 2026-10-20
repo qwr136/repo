@@ -49,6 +49,17 @@ static NSString *LMVGlassSuiteImageName(Class cls) {
     if(dladdr((__bridge const void *)cls,&info)==0 || !info.dli_fname)return nil;
     return [NSString stringWithUTF8String:info.dli_fname];
 }
+// 2.36: the class chain from the card up to its window, so the line can be matched
+// one-to-one against FLEX instead of guessing which view was picked.
+static NSString *LMVGlassSuiteChain(UIView *view) {
+    NSMutableArray *names=[NSMutableArray array];
+    UIView *node=view;NSInteger depth=0;
+    while(node && depth++<8) {
+        [names insertObject:NSStringFromClass(node.class) atIndex:0];
+        node=node.superview;
+    }
+    return [names componentsJoinedByString:@">"];
+}
 static NSInteger const LMVGlassSuiteHostTag=0x5A29;
 static CGFloat LMVGlassSuiteVisibleArea(CGRect frame,CGRect bounds) {
     if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
@@ -59,19 +70,34 @@ static CGFloat LMVGlassSuiteVisibleArea(CGRect frame,CGRect bounds) {
     CGFloat visible=onScreen.size.width*onScreen.size.height;
     return visible/total>=.5?visible:0;
 }
+// 2.36: dladdr is the expensive half of every probe (it walks the loaded images),
+// so the answer is cached per class. Only names that could plausibly present a
+// sheet are worth the lookup at all - a plain UIView never is.
+static NSMutableDictionary<NSString *, NSNumber *> *LMVGlassSuiteOwnerCache;
+static BOOL LMVGlassSuiteOwnedByGlassSuiteX(Class cls) {
+    if(!cls)return NO;
+    if(!LMVGlassSuiteOwnerCache)LMVGlassSuiteOwnerCache=[NSMutableDictionary dictionary];
+    NSString *key=NSStringFromClass(cls);
+    NSNumber *hit=LMVGlassSuiteOwnerCache[key];
+    if(hit)return hit.boolValue;
+    if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllObjects];
+    NSString *owner=LMVGlassSuiteImageName(cls);
+    BOOL owned=owner && [owner rangeOfString:@"GlassSuiteX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
+    LMVGlassSuiteOwnerCache[key]=@(owned);
+    return owned;
+}
 // The container GlassSuiteX presents the sheet through. Name first: the 2.26 log
-// names it GAXAlertOverlayView. Owner second: whatever class it uses next, if the
-// dylib that owns it is GlassSuiteX, the same window is still ours.
+// names it GAXAlertOverlayView, and the 2.35 capture shows it at depth 2 under
+// SBHomeScreenWindow (SBHomeScreenWindow > UITransitionView > GAXAlertOverlayView).
 static BOOL LMVGlassSuiteContainerKind(UIView *view) {
     if(!view)return NO;
     NSString *name=NSStringFromClass(view.class);
     if([name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
-    NSString *owner=LMVGlassSuiteImageName(view.class);
-    return owner && [owner rangeOfString:@"GlassSuiteX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
-}
-static BOOL LMVGlassSuiteShellKind(UIView *view) {
-    NSString *name=NSStringFromClass(view.class);
-    return [name containsString:@"Dimming"] || [name containsString:@"Backdrop"];
+    BOOL plausible=NO;
+    for(NSString *word in @[@"Overlay",@"Alert",@"Panel",@"Sheet",@"Present",@"Window"])
+        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){plausible=YES;break;}
+    if(!plausible)return NO;
+    return LMVGlassSuiteOwnedByGlassSuiteX(view.class);
 }
 static BOOL LMVGlassSuiteGlassKind(UIView *view) {
     if(!view)return NO;
@@ -111,65 +137,73 @@ static UIView *LMVGlassSuiteCardIn(UIView *root,UIWindow *window) {
     }
     return best;
 }
-static UIView *LMVGlassSuiteCard(UIWindow *window) {
+// 2.36: the home screen window carries the entire icon grid. Nothing in it can
+// hold the sheet, and walking it was over 90% of every 0.1s probe.
+static BOOL LMVGlassSuiteSkipSubtree(UIView *view) {
+    if(!view)return NO;
+    NSString *name=NSStringFromClass(view.class);
+    for(NSString *word in @[@"SBIcon",@"SBRecycled",@"SBFolder",@"Backdrop",@"Wallpaper",
+                            @"StatusBar",@"Dock",@"Switcher"])
+        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
+    return NO;
+}
+// 2.36: cache the CARD, not the window. The old cache stored SBHomeScreenWindow,
+// so every probe re-walked the whole home screen even while the sheet was up.
+static __weak UIView *LMVGlassSuiteCardRef;
+static UIView *LMVGlassSuiteCachedCard(UIWindow **windowOut) {
+    UIView *card=LMVGlassSuiteCardRef;
+    if(!card || !card.superview || card.hidden || card.alpha<.01)return nil;
+    UIWindow *window=(UIWindow *)card.window;
+    if(!window || window.hidden || window.alpha<.01)return nil;
+    if(windowOut)*windowOut=window;
+    return card;
+}
+// 2.36: two levels, no deep scan. The 2.35 capture puts GAXAlertOverlayView at
+// depth 2 under SBHomeScreenWindow, so a few dozen comparisons find it.
+static UIView *LMVGlassSuiteShallowCard(UIWindow *window) {
     if(!window)return nil;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
-    NSUInteger budget=600;
-    while(pending.count && budget) {
-        --budget;
-        UIView *node=pending.lastObject;[pending removeLastObject];
-        for(UIView *child in node.subviews) {
-            if(!budget--)break;
+    for(UIView *layer in window.subviews) {
+        if(layer.tag==LMVGlassSuiteHostTag || layer.hidden || layer.alpha<.01)continue;
+        if(LMVGlassSuiteSkipSubtree(layer))continue;
+        if(LMVGlassSuiteContainerKind(layer)) {
+            UIView *card=LMVGlassSuiteCardIn(layer,window);
+            if(card)return card;
+        }
+        for(UIView *child in layer.subviews) {
             if(child.tag==LMVGlassSuiteHostTag || child.hidden || child.alpha<.01)continue;
+            if(LMVGlassSuiteSkipSubtree(child))continue;
             if(LMVGlassSuiteContainerKind(child)) {
                 UIView *card=LMVGlassSuiteCardIn(child,window);
                 if(card)return card;
             }
-            if(child.subviews.count&&budget)[pending addObject:child];
         }
-    }
-    // Renamed container: a window owned by GlassSuiteX is searched structurally -
-    // the sheet always carries a Dimming/Backdrop material.
-    NSString *owner=LMVGlassSuiteImageName(window.class);
-    if(!owner || [owner rangeOfString:@"GlassSuiteX" options:NSCaseInsensitiveSearch].location==NSNotFound)return nil;
-    pending=[NSMutableArray arrayWithObject:(id)window];budget=600;
-    while(pending.count && budget) {
-        --budget;
-        UIView *node=pending.lastObject;[pending removeLastObject];
-        BOOL shell=NO;
-        for(UIView *child in node.subviews) {
-            if(child.tag==LMVGlassSuiteHostTag)continue;
-            if(LMVGlassSuiteShellKind(child))shell=YES;
-            if(child.subviews.count&&budget)[pending addObject:child];
-        }
-        if(!shell)continue;
-        return LMVGlassSuiteCardIn(node,window);
     }
     return nil;
 }
-static __weak UIWindow *LMVGlassSuiteLastWindow;
 static UIView *LMVGlassSuiteFindCard(UIWindow **windowOut) {
     if(windowOut)*windowOut=nil;
-    if(LMVGlassSuiteLastWindow && !LMVGlassSuiteLastWindow.hidden &&
-       LMVGlassSuiteLastWindow.alpha>=.01) {
-        UIView *card=LMVGlassSuiteCard(LMVGlassSuiteLastWindow);
-        if(card) {if(windowOut)*windowOut=LMVGlassSuiteLastWindow;return card;}
-    }
+    UIView *cached=LMVGlassSuiteCachedCard(windowOut);
+    if(cached)return cached;
+    LMVGlassSuiteCardRef=nil;
     UIView *best=nil;UIWindow *bestWindow=nil;
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
         for(UIWindow *window in ((UIWindowScene *)scene).windows) {
             if(window.hidden || window.alpha<.01)continue;
-            UIWindow *home=[NSStringFromClass(window.class) containsString:@"SBHomeScreen"]?window:nil;
-            UIView *card=LMVGlassSuiteCard(window);
+            NSString *name=NSStringFromClass(window.class);
+            BOOL skipWindow=NO;
+            for(NSString *word in @[@"SystemAperture",@"TouchVisualizer",@"TextEffects",@"RecordingIndicator"])
+                if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){skipWindow=YES;break;}
+            if(skipWindow)continue;
+            UIView *card=LMVGlassSuiteShallowCard(window);
             if(!card)continue;
-            if(home) {best=card;bestWindow=window;break;}
+            if([name containsString:@"SBHomeScreen"]) {best=card;bestWindow=window;break;}
             if(!best) {best=card;bestWindow=window;}
         }
         if(best && [NSStringFromClass(bestWindow.class) containsString:@"SBHomeScreen"])break;
     }
     if(best) {
-        LMVGlassSuiteLastWindow=bestWindow;
+        LMVGlassSuiteCardRef=best;
         if(windowOut)*windowOut=bestWindow;
     }
     return best;
@@ -298,6 +332,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
     LMVGlassSuiteRestoreTextColor();
+    LMVGlassSuiteCardRef=nil;
     self.card=nil;self.mode=nil;
 }
 - (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {
@@ -362,7 +397,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"gs-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0fx%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@ size=%.0fx%.0f",
+        NSString *status=[NSString stringWithFormat:@"gs-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0fx%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@ size=%.0fx%.0f chain=%@",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
@@ -372,18 +407,30 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
             (int)(self.playback.posterLayer.contents!=nil),
             self.playback.player?self.playback.player.rate:0.0,
             LMVGlassSuiteTextColor()?@"on":@"off",
-            frame.size.width,frame.size.height];
+            frame.size.width,frame.size.height,
+            LMVGlassSuiteChain(self.card)];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
     self.updating=NO;
 }
 @end
+// 2.36: THE PROBE IS THE COST. 0.1s meant ten full home-screen walks a second even
+// with no sheet on screen. Three gears now: sheet cached -> 0.25s (just babysit it),
+// no sheet -> 0.75s (wait for it), switch off -> 2s (nothing to do but stay alive,
+// so a missed preference notification cannot leave the channel dead). `tolerance`
+// lets the system coalesce the wake-ups.
+static NSTimeInterval LMVGlassSuiteInterval(void) {
+    if(!LMVGlassSuiteEnabled)return 2.0;
+    if(LMVGlassSuiteCardRef)return .25;
+    return .75;
+}
 static void LMVGlassSuiteRetune(void) {
-    NSTimeInterval want=LMVGlassSuiteEnabled?.1:.5;
+    NSTimeInterval want=LMVGlassSuiteInterval();
     if(LMVGlassSuiteTimer && fabs(LMVGlassSuiteTimer.timeInterval-want)<.001)return;
     [LMVGlassSuiteTimer invalidate];
     LMVGlassSuiteTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVGlassSuiteVideoRefresh(NO);}];
+    LMVGlassSuiteTimer.tolerance=want*.3;
     [NSRunLoop.mainRunLoop addTimer:LMVGlassSuiteTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVGlassSuiteVideoRefresh(BOOL reload) {
@@ -397,16 +444,17 @@ static void LMVGlassSuiteVideoRefresh(BOOL reload) {
         LMVGlassSuitePath=LMVCCSelectedPath(@"GSVideo");
         LMVGlassSuiteRevision=LMVLockVideoRevision(LMVGlassSuitePath);
     }
-    LMVGlassSuiteRetune();
     if(!LMVGlassSuiteEnabled || !LMVGlassSuitePath.length || !LMVGlassSuiteRevision.length) {
         [LMVGlassSuiteVideo detach];
         if(LMVGlassSuiteVideo.playback.path)[LMVGlassSuiteVideo.playback clear];
+        LMVGlassSuiteRetune();
         return;
     }
-    if(!LMVGlassSuiteEnvironment()) {[LMVGlassSuiteVideo detach];return;}
+    if(!LMVGlassSuiteEnvironment()) {[LMVGlassSuiteVideo detach];LMVGlassSuiteRetune();return;}
     if(!LMVGlassSuiteVideo)LMVGlassSuiteVideo=[LMVGlassSuiteVideoManager new];
     @try {[LMVGlassSuiteVideo update];}
     @catch(NSException *exception) {[LMVGlassSuiteVideo detach];}
+    LMVGlassSuiteRetune();
 }
 static void LMVGlassSuiteVideoSuspend(void) {
     if(!NSThread.isMainThread)return;
