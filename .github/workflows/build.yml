@@ -61,6 +61,7 @@ jobs:
           check python3 tests/squid-panel-video.py
           check python3 tests/cv-panel-video.py
           check python3 tests/myrtle-panel-video.py
+          check python3 tests/ccb-detection.py
           check python3 tests/text-color-picker.py
           check python3 tests/media-audio-runtime.py
           check python3 tests/lock-video-native.py
@@ -93,6 +94,7 @@ jobs:
           check clang -fobjc-arc -framework Foundation -framework CoreGraphics -framework ImageIO -framework CoreMedia tests/frame-disk.m -o "$RUNNER_TEMP/lmv-frame-disk"
           check "$RUNNER_TEMP/lmv-frame-disk"
           check python3 tests/settings-import-regression.py
+          check python3 tests/copylogx-panel-video.py
           check python3 tests/preferences-routing.py
           check python3 tests/startup-reentry.py
           check python3 tests/screen-transitions.py

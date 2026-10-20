@@ -50,6 +50,11 @@ static void LMVATPanelVideoSuspend(void){atPanelPaused++;}
 static void LMVCopyVaultPanelVideoSuspend(void){cvPanelPaused++;}
 static void LMVMyrtlePanelVideoSuspend(void){}
 static void LMVPhoneAssistVideoSuspend(void){paPanelPaused++;}
+static void LMVGlassSuiteVideoSuspend(void){}
+// 2.30: the CCBorder channel suspends with the other panel channels.
+static void LMVCCBorderVideoSuspend(void){}
+// 2.32: so does the CopyLogX one.
+static void LMVCopyLogXVideoSuspend(void){}
 '''
 main=r'''
 int main(void){@autoreleasepool{

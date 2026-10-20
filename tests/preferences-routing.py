@@ -17,8 +17,8 @@ assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'switchMyrtle:', 'switchPA:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 16
+assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'switchMyrtle:', 'switchPA:', 'switchGS:', 'switchCCBorder:', 'switchCopyLogX:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
+assert len(actions) == 19
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
@@ -62,7 +62,13 @@ cv_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithNam
 myrtle_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Myrtle 面板背景视频"]];')
 # 2.04: the phone-assist sheet sits right below Myrtle, the way the user asked.
 pa_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"电话助手弹窗背景视频"]];')
-assert home_start < squid_start < at_start < cv_start < myrtle_start < pa_start < egg_start < display_start
+# 2.29: the GlassSuiteX group is created as a variable (it carries a footer).
+gs_start=source.index('PSSpecifier *gsGroup = [PSSpecifier groupSpecifierWithName:@"GlassSuiteX 弹窗背景视频"];')
+# 2.30: the CCBorder group sits between GlassSuiteX and the egg group.
+ccb_start=source.index('PSSpecifier *ccbGroup = [PSSpecifier groupSpecifierWithName:@"CCBorder 视频背景"];')
+# 2.32: the CopyLogX clipboard panel group sits between CCBorder and the egg group.
+clx_start=source.index('PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];')
+assert home_start < squid_start < at_start < cv_start < myrtle_start < pa_start < gs_start < ccb_start < clx_start < egg_start < display_start
 home_section = source[home_start:squid_start]
 assert cc_start < home_start < display_start
 assert home_section.count('cell:PSSwitchCell') == 1 and home_section.count('cell:PSButtonCell') == 1
@@ -97,12 +103,36 @@ assert 'cvMaterial.buttonAction = @selector(switchCV:);' in cv_section
 assert 'CopyVault 面板背景视频' in cv_section and '切换 CopyVault 素材' in cv_section
 # 1.77: the Myrtle (App Library panel) group - same layout again.
 myrtle_section = source[myrtle_start:pa_start]
-pa_section = source[pa_start:egg_start]
+pa_section = source[pa_start:gs_start]
+gs_section = source[gs_start:ccb_start]
+ccb_section = source[ccb_start:clx_start]
+clx_section = source[clx_start:egg_start]
 assert pa_section.count('cell:PSSwitchCell') == 1 and pa_section.count('cell:PSButtonCell') == 2
 assert '[paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"]' in pa_section
 assert 'paMaterial.buttonAction = @selector(switchPA:);' in pa_section
 assert 'paText.buttonAction = @selector(openPATextColor:);' in pa_section
 assert '[self appendAudioForTarget:@"PA" title:@"播放"]' in pa_section
+assert gs_section.count('cell:PSSwitchCell') == 2 and gs_section.count('cell:PSButtonCell') == 2
+assert '[gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"]' in gs_section
+assert 'gsMaterial.buttonAction = @selector(switchGS:);' in gs_section
+assert 'gsText.buttonAction = @selector(openGSTextColor:);' in gs_section
+assert '[gsDebug setProperty:@"GSDebugSize" forKey:@"key"]' in gs_section
+assert '[self appendAudioForTarget:@"GS" title:@"播放"]' in gs_section
+assert ccb_section.count('cell:PSSwitchCell') == 2 and ccb_section.count('cell:PSButtonCell') == 1
+assert '[ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"]' in ccb_section
+assert '[ccbEnabled setProperty:@NO forKey:@"default"]' in ccb_section
+assert 'ccbMaterial.buttonAction = @selector(switchCCBorder:);' in ccb_section
+assert '[ccbDebug setProperty:@"CCBorderDebugSize" forKey:@"key"]' in ccb_section
+assert '[ccbDebug setProperty:@NO forKey:@"default"]' in ccb_section
+assert '[self appendAudioForTarget:@"CCBorder" title:@"播放"]' in ccb_section
+assert '文字颜色' not in ccb_section
+assert clx_section.count('cell:PSSwitchCell') == 2 and clx_section.count('cell:PSButtonCell') == 2
+assert '[clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"]' in clx_section
+assert '[clxEnabled setProperty:@NO forKey:@"default"]' in clx_section
+assert 'clxMaterial.buttonAction = @selector(switchCopyLogX:);' in clx_section
+assert 'clxText.buttonAction = @selector(openCopyLogXTextColor:);' in clx_section
+assert '[clxDebug setProperty:@"CopyLogXDebugSize" forKey:@"key"]' in clx_section
+assert '[self appendAudioForTarget:@"CopyLogX" title:@"播放"]' in clx_section
 assert myrtle_section.count('cell:PSSwitchCell') == 1 and myrtle_section.count('cell:PSButtonCell') == 1
 assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in myrtle_section
 assert '[myrtleEnabled setProperty:@NO forKey:@"default"]' in myrtle_section
@@ -119,10 +149,10 @@ for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
     assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation
 assert '消息、选项、清除视频透明度' in source
-assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];' in source
+assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in source
 assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
 allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotify(')]
-assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA']
+assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
 selection = source[source.index('- (void)selectFile:'):source.index('- (void)switchMessage:')]
@@ -205,7 +235,7 @@ int main(void) { @autoreleasepool {
     row.cellType = PSButtonCell; row.target = controller; row.properties = [NSMutableDictionary new];
     controller.testRow = row;
     NSArray *selectors = @SELECTORS@;
-    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchAT:":@"AT", @"switchCV:":@"CV", @"switchMyrtle:":@"Myrtle", @"switchPA:":@"PA"};
+    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchAT:":@"AT", @"switchCV:":@"CV", @"switchMyrtle:":@"Myrtle", @"switchPA:":@"PA", @"switchGS:":@"GS", @"switchCCBorder:":@"CCBorder", @"switchCopyLogX:":@"CopyLogX"};
     for (NSString *selector in selectors) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];

@@ -33,11 +33,11 @@ def section(name):
 
 class UISectionOrder(unittest.TestCase):
     def test_panel_sections_and_row_counts(self):
-        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PhoneAssist', 'Display', 'Opacity', 'Import']
+        names = ['ControlCenter', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PhoneAssist', 'GlassSuite', 'CCBorder', 'CopyLogX', 'Display', 'Opacity', 'Import']
         actual = [section('LMVEaster' + name + 'Section') for name in names]
-        self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+        self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])
         total = re.search(r'numberOfSectionsInTableView:.*?\{ return (LMVEaster\w+Section)\(\) \+ 1;', PANEL).group(1)
-        self.assertEqual(section(total) + 1, 15)
+        self.assertEqual(section(total) + 1, 18)
         for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
@@ -46,6 +46,9 @@ class UISectionOrder(unittest.TestCase):
                      'if (section == LMVEasterCVSection()) return 4;',
                      'if (section == LMVEasterMyrtleSection()) return 4;',
                      'if (section == LMVEasterPhoneAssistSection()) return 4;',
+                     'if (section == LMVEasterGlassSuiteSection()) return 5;',
+                     'if (section == LMVEasterCCBorderSection()) return 5;',
+                     'if (section == LMVEasterCopyLogXSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
         disp, imp = section('LMVEasterDisplaySection'), section('LMVEasterImportSection')
@@ -54,9 +57,16 @@ class UISectionOrder(unittest.TestCase):
         # 上滑 and 上上滑), the reset row, the swap row and the shared sound pair, so it is
         # five rows taller than its neighbours.
         pa = section('LMVEasterPhoneAssistSection')
-        rows = [4 if i == squid else 4 if i < 5 or i in (actual[1], actual[3], actual[5], pa) else 5 if i == actual[4] else 7 if i == actual[0] else 1 if i in (disp, imp) else 2 for i in range(15)]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 56)
+        gs = section('LMVEasterGlassSuiteSection')
+        ccb = section('LMVEasterCCBorderSection')
+        clx = section('LMVEasterCopyLogXSection')
+        # 2.30: the CCBorder section is five rows (switch / material / sound / volume /
+        # debug size), the same shape as the GlassSuiteX one, and it sits between the
+        # GlassSuiteX channel and the display section.
+        # 2.32: CopyLogX is four rows (switch / material / sound / volume).
+        rows = [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 4, 5, 5, 4, 1, 2, 1]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 4, 5, 5, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 70)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -65,6 +75,9 @@ class UISectionOrder(unittest.TestCase):
         self.assertEqual(routes, {'LMVEasterControlCenterSection': 'ControlCenterBackgroundEnabled',
                                  'LMVEasterMyrtleSection': 'MyrtleBackgroundEnabled',
                                  'LMVEasterPhoneAssistSection': 'PABackgroundEnabled',
+                                 'LMVEasterGlassSuiteSection': 'GSBackgroundEnabled',
+                                 'LMVEasterCCBorderSection': 'CCBorderBackgroundEnabled',
+                                 'LMVEasterCopyLogXSection': 'CopyLogXBackgroundEnabled',
                                  'LMVEasterHomeMenuSection': 'HomeMenuBackgroundEnabled',
                                  'LMVEasterSquidPanelSection': 'SquidPanelBackgroundEnabled',
                                  'LMVEasterATSection': 'ATBackgroundEnabled',
@@ -80,13 +93,14 @@ class UISectionOrder(unittest.TestCase):
         resolved.update({i: target + 'BackgroundEnabled' for i, target in enumerate(TARGETS)})
         def key_for(tag):
             return None if tag < 0 or tag > section(bound) else resolved.get(tag)
-        self.assertEqual([key_for(i) for i in range(15)],
+        self.assertEqual([key_for(i) for i in range(18)],
                          [t + 'BackgroundEnabled' for t in TARGETS] +
                          ['ControlCenterBackgroundEnabled', 'HomeMenuBackgroundEnabled', 'SquidPanelBackgroundEnabled',
                           'ATBackgroundEnabled', 'CVBackgroundEnabled', 'MyrtleBackgroundEnabled',
-                          'PABackgroundEnabled', None, 'VideoOpacityEnabled', None])
+                          'PABackgroundEnabled', 'GSBackgroundEnabled', 'CCBorderBackgroundEnabled',
+                          'CopyLogXBackgroundEnabled', None, 'VideoOpacityEnabled', None])
         self.assertIsNone(key_for(-1))
-        self.assertIsNone(key_for(14))
+        self.assertIsNone(key_for(17))
 
     def test_panel_selection_cells_import_defaults_unchanged(self):
         cells = PANEL[PANEL.index('- (UITableViewCell *)tableView:'):PANEL.index('- (void)toggle:')]
@@ -189,6 +203,21 @@ class UISectionOrder(unittest.TestCase):
         if (index.row != 1) return;
         key = @"PAVideo";
 ''', '')
+        # 2.29: the GlassSuiteX branch is new; drop it the same way.
+        selection_for_digest = selection_for_digest.replace('''    } else if (index.section == LMVEasterGlassSuiteSection()) {
+        if (index.row != 1) return;
+        key = @"GSVideo";
+''', '')
+        # 2.30: the CCBorder branch is new as well - drop it the same way.
+        selection_for_digest = selection_for_digest.replace('''    } else if (index.section == LMVEasterCCBorderSection()) {
+        if (index.row != 1) return;
+        key = @"CCBorderVideo";
+''', '')
+        # 2.32: and the CopyLogX branch is new too.
+        selection_for_digest = selection_for_digest.replace('''    } else if (index.section == LMVEasterCopyLogXSection()) {
+        if (index.row != 1) return;
+        key = @"CopyLogXVideo";
+''', '')
         # 1.50: and the claim branch it gained - drop that too, then the swap branch
         # added by 1.46.
         selection_for_digest = selection_for_digest.replace('''        if (index.row == 5) { [self claimSquidPanel]; return; }
@@ -257,19 +286,22 @@ class UISectionOrder(unittest.TestCase):
             'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial', 'cvText',
             'group:Myrtle 面板背景视频', 'myrtleEnabled', 'myrtleMaterial',
             'group:电话助手弹窗背景视频', 'paEnabled', 'paMaterial', 'paText',
+            'gsGroup', 'gsEnabled', 'gsMaterial', 'gsText', 'gsDebug',
+            'ccbGroup', 'ccbEnabled', 'ccbMaterial', 'ccbDebug',
+            'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText', 'clxDebug',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 56)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 70)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
-        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 9)
-        self.assertEqual(55 + (len(TARGETS) + 7) * 2, 79)  # 55 non-audio rows + 12 audio channels x 2
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter') for x in sequence) + 4, 19)
+        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 12)
+        self.assertEqual(69 + (len(TARGETS) + 10) * 2, 99)  # 69 non-audio rows + 15 audio channels x 2
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup') for x in sequence) + 4, 22)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
                        if ('setProperty:' in x or '.buttonAction =' in x)
@@ -278,7 +310,13 @@ class UISectionOrder(unittest.TestCase):
                        and 'cvEnabled' not in x and 'cvMaterial' not in x
                        and 'squidPanelMaterial2' not in x and 'squidPanelSwap' not in x
                        and 'squidPanelMaterial3' not in x and 'squidPanelMaterial4' not in x
-                       and 'squidPanelReset' not in x and 'cvText' not in x and 'squidText' not in x)
+                       and 'squidPanelReset' not in x and 'cvText' not in x and 'squidText' not in x
+                       and 'gsEnabled' not in x and 'gsMaterial' not in x and 'gsText' not in x
+                       and 'gsDebug' not in x and 'gsGroup' not in x
+                       and 'ccbEnabled' not in x and 'ccbMaterial' not in x
+                       and 'ccbDebug' not in x and 'ccbGroup' not in x
+                       and 'clxEnabled' not in x and 'clxMaterial' not in x
+                       and 'clxText' not in x and 'clxDebug' not in x and 'clxGroup' not in x)
         self.assertEqual(digest('\n'.join(props)), '9fe474875b4b362fac3159ace348ce13788f8ac7e1c5cfb3abd5d0f409744be6')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
@@ -325,6 +363,40 @@ class UISectionOrder(unittest.TestCase):
         picker_start = old_handlers.index('- (void)openCVTextColor:')
         picker_end = old_handlers.index('- (void)setEnabled:', picker_start)
         old_handlers = old_handlers[:picker_start] + old_handlers[picker_end:]
+        # 2.29: the GlassSuiteX channel is new - strip its handler, its colour key
+        # and its tag pair before the frozen digest, exactly like AT/CV/Myrtle/PA.
+        old_handlers = old_handlers.replace('- (void)switchGS:(PSSpecifier *)specifier { [self switchTarget:@"GS"]; }\n', '')
+        old_handlers = old_handlers.replace('    else if ([key isEqualToString:LMVGlassSuiteTextColorKey]) base = 0x5D2C;\n', '')
+        old_handlers = old_handlers.replace('    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C), @(0x5D2C)]) {',
+                                            '    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C)]) {')
+        old_handlers = old_handlers.replace('        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D)])',
+                                            '        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D)])')
+        old_handlers = old_handlers.replace('    else if ([identifier isEqualToString:@"GSTextColor"]) key = LMVGlassSuiteTextColorKey;\n', '')
+        old_handlers = old_handlers.replace('''// 2.29: the GlassSuiteX sheet's own colour row.
+- (void)openGSTextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVGlassSuiteTextColorKey];
+}
+''', '')
+        old_handlers = old_handlers.replace(', @"GS": @"GlassSuiteX 弹窗背景视频"', '').replace(', @"GS": @""', '')
+        # 2.30: the CCBorder channel is new as well - strip its handler and its two
+        # map entries before the frozen digest, exactly like AT/CV/Myrtle/PA/GS.
+        old_handlers = old_handlers.replace('- (void)switchCCBorder:(PSSpecifier *)specifier { [self switchTarget:@"CCBorder"]; }\n', '')
+        old_handlers = old_handlers.replace(', @"CCBorder": @"CCBorder 视频背景"', '').replace(', @"CCBorder": @""', '')
+        # 2.32: the CopyLogX channel is new too - strip its handler, its colour row
+        # and its two map entries before the frozen digest.
+        old_handlers = old_handlers.replace('- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }\n', '')
+        old_handlers = old_handlers.replace('''// 2.32: the CopyLogX clipboard panel's own colour row.
+- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVCopyLogXTextColorKey];
+}
+''', '')
+        old_handlers = old_handlers.replace('    else if ([key isEqualToString:LMVCopyLogXTextColorKey]) base = 0x5E2C;\n', '')
+        old_handlers = old_handlers.replace('    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C), @(0x5D2C), @(0x5E2C)]) {',
+                                            '    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C), @(0x5D2C)]) {')
+        old_handlers = old_handlers.replace('        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D), @(0x5E2C), @(0x5E2D)])',
+                                            '        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D)])')
+        old_handlers = old_handlers.replace('    else if ([identifier isEqualToString:@"CopyLogXTextColor"]) key = LMVCopyLogXTextColorKey;\n', '')
+        old_handlers = old_handlers.replace(', @"CopyLogX": @"CopyLogX 视频背景"', '').replace(', @"CopyLogX": @""', '')
         self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),

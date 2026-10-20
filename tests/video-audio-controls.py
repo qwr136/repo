@@ -6,7 +6,7 @@ import math, platform, re, subprocess, tempfile
 root = Path(__file__).resolve().parents[1]
 panel = (root / 'LMVEasterPanel.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
-targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA']
+targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
 
 def body(source, anchor):
     start = source.index(anchor)
@@ -27,7 +27,7 @@ assert '(row == 2 || row == 3)) return @"SquidPanel";' in mapping
 assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'if (row == 2 || row == 3) return @"ControlCenterDark";' in mapping
 assert 'if (row == 5 || row == 6) return @"ControlCenterLight";' in mapping
-assert mapping.count('return ') == 10 and mapping.endswith('return nil;\n}')
+assert mapping.count('return ') == 13 and mapping.endswith('return nil;\n}')
 cc_key = body(panel, 'static NSString *LMVEasterControlCenterKey(')
 actual_material_rows = {int(row): target for row, target in re.findall(r'row == (\d+) \? @"(\w+)Video"', cc_key)}
 assert actual_material_rows == {1: 'ControlCenterDark', 4: 'ControlCenterLight'}
@@ -85,7 +85,7 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
 for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV'), ('myrtleMaterial', 'Myrtle')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
-assert specifiers.count('appendAudioForTarget:') == 9
+assert specifiers.count('appendAudioForTarget:') == 12
 # 2.05: the audio module derives its keys from the CHANNEL name, so the channel must
 # be called PA - calling it PhoneAssist read PhoneAssistSoundEnabled while the rows
 # wrote PASoundEnabled, and the switch did nothing.
@@ -224,7 +224,7 @@ static NSIndexPath *path(NSInteger section, NSInteger row) { NSUInteger v[]={sec
 int main(void) { @autoreleasepool {
  store=[NSMutableDictionary new];
  NSArray *targets=LMVEasterAudioTargets();
- for (NSInteger section=0;section<15;section++) {
+ for (NSInteger section=0;section<18;section++) {
   for (NSInteger row=0;row<9;row++) {
    NSString *expected=nil;
    if(section<5&&(row==2||row==3))expected=targets[section];
@@ -236,14 +236,17 @@ int main(void) { @autoreleasepool {
    if(section==9&&(row==2||row==3))expected=targets[10];
    if(section==10&&(row==2||row==3))expected=targets[11];
   if(section==11&&(row==2||row==3))expected=targets[12];
+  if(section==12&&(row==2||row==3))expected=targets[13];
+  if(section==13&&(row==2||row==3))expected=targets[14];
+  if(section==14&&(row==2||row==3))expected=targets[15];
    NSString *actual=LMVEasterAudioTarget(section,row);
    assert((!actual&&!expected)||[actual isEqual:expected]);
    BOOL volumeRow=(section==7)?(row==3):(row==3||row==6);
    assert(LMVEasterAudioVolumeRow(section,row)==(expected&&volumeRow));
   }
  }
- assert(!LMVEasterAudioTarget(-1,2)&&!LMVEasterAudioTarget(14,2));
- assert(!LMVEasterAudioTargetForTag(-1)&&!LMVEasterAudioTargetForTag(13));
+ assert(!LMVEasterAudioTarget(-1,2)&&!LMVEasterAudioTarget(18,2));
+ assert(!LMVEasterAudioTargetForTag(-1)&&!LMVEasterAudioTargetForTag(16));
  assert(LMVEasterAudioVolume(nil)==0.5&&LMVEasterAudioVolume(@"0.8")==0.5);
  for(NSNumber *value in @[@(-1),@0,@0.5,@1,@2,@(NAN),@(INFINITY),@(-INFINITY)]) {
   double raw=value.doubleValue, expected=isfinite(raw)?MAX(0,MIN(1,raw)):0.5;
@@ -251,7 +254,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==82);
+ assert(rows.count==102);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -282,10 +285,10 @@ int main(void) { @autoreleasepool {
    assert([[settings volume:volume] doubleValue]==expected*100);
   }
  }
- assert(switches==13&&sliders==13);
+ assert(switches==16&&sliders==16);
  LMVEasterPanel *p=[LMVEasterPanel new];p.tableView=[UITableView new];p.navigationController=[Navigation new];
  UISwitch *toggle=[UISwitch new];UISlider *slider=[UISlider new];
- for(NSInteger tag=0;tag<12;tag++) {
+ for(NSInteger tag=0;tag<14;tag++) {
   NSString *target=targets[tag];toggle.tag=tag;toggle.on=YES;
   NSInteger before=writes;[p soundChanged:toggle];
   assert(writes==before+1&&[lastKey isEqual:[target stringByAppendingString:@"SoundEnabled"]]);
@@ -294,8 +297,8 @@ int main(void) { @autoreleasepool {
   assert([store[lastKey] doubleValue]==0.75&&[slider.accessibilityValue isEqual:@"75%"]);
   slider.tracking=NO;slider.value=NAN;[p volumeChanged:slider];assert(!p.volumeTracking&&[store[lastKey] doubleValue]==0.5);
  }
- for(NSNumber *tag in @[@(-1),@13,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;slider.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:slider];assert(writes==before);}
- for(NSInteger section=0;section<14;section++)for(NSInteger row=0;row<10;row++) {
+ for(NSNumber *tag in @[@(-1),@16,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;slider.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:slider];assert(writes==before);}
+ for(NSInteger section=0;section<18;section++)for(NSInteger row=0;row<10;row++) {
   NSInteger before=p.navigationController.pushes,imports=p.imports;
   NSString *expected=nil;
   if(section<5&&row==1)expected=[targets[section] stringByAppendingString:@"Video"];
@@ -306,16 +309,19 @@ int main(void) { @autoreleasepool {
   if(section==9&&row==1)expected=@"CVVideo";
   if(section==10&&row==1)expected=@"MyrtleVideo";
   if(section==11&&row==1)expected=@"PAVideo";
+  if(section==12&&row==1)expected=@"GSVideo";
+  if(section==13&&row==1)expected=@"CCBorderVideo";
+  if(section==14&&row==1)expected=@"CopyLogXVideo";
   [p tableView:p.tableView didSelectRowAtIndexPath:path(section,row)];
   if(expected) {assert(p.navigationController.pushes==before+1);LMVMaterialPicker *picker=p.navigationController.last;picker.apply(@"library/test.mov",@"Test");assert([lastKey isEqual:expected]);}
-  else if(section==12&&row==0)assert(p.navigationController.pushes==before+1);
-  else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==14&&row==0));}
+  else if(section==15&&row==0)assert(p.navigationController.pushes==before+1);
+  else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==17&&row==0));}
  }
  puts("PASS: exact production specifiers (76), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
-    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'openCVTextColor', 'openSquidTextColor', 'openPATextColor'))
+    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'openCVTextColor', 'openSquidTextColor', 'openPATextColor', 'openGSTextColor', 'openCopyLogXTextColor'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))

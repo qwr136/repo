@@ -51,7 +51,10 @@ assert 'static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterContro
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel
-assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterPhoneAssistSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterGlassSuiteSection(void) { return LMVEasterPhoneAssistSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterCCBorderSection(void) { return LMVEasterGlassSuiteSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLogXSection() + 1; }' in panel
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', panel) is not None
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()

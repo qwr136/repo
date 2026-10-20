@@ -1,5 +1,4 @@
 #pragma once
-#import <dlfcn.h>
 // 2.04: the PHONE-ASSIST pop-up background (电话助手弹窗背景视频).
 //
 // This is the sheet the phone-assistant tweak presents over the home screen. It is
@@ -38,11 +37,46 @@ static BOOL LMVPhoneAssistEnvironment(void) {
 // 2.15: WHO IS COVERING US. The device log has to answer "mounted, playing, yet
 // invisible" without another round trip, so the card's ancestors and every sibling
 // drawn ABOVE our host are printed with hidden/alpha/opaque/background alpha.
-static NSString *LMVPhoneAssistImageName(Class cls) {
-    if(!cls)return nil;
-    Dl_info info;
-    if(dladdr((__bridge const void *)cls,&info)==0 || !info.dli_fname)return nil;
-    return [NSString stringWithUTF8String:info.dli_fname];
+// 2.30: WHICH CONTROL-CENTER MODULE OWNS THE MENU? The context menu is presented
+// on the window, so its ancestors never name the module. The module container is a
+// sibling subtree; the one whose frame contains the card's centre is the owner.
+// Its identifier only exists through KVC on private classes, so every probe is
+// guarded and the fallback is the container's class name.
+static NSString *LMVPhoneAssistTrim(id value) {
+    NSString *text=nil;
+    if([value isKindOfClass:NSString.class] || [value isKindOfClass:NSNumber.class])text=[value description];
+    else if(value)text=NSStringFromClass([value class]);
+    if(text.length>64)text=[text substringToIndex:64];
+    return text.length?text:@"?";
+}
+static NSString *LMVPhoneAssistModuleIdentifier(UIWindow *window,UIView *card) {
+    if(!window || !card)return @"?";
+    CGPoint centre=[card convertPoint:CGPointMake(CGRectGetMidX(card.bounds),CGRectGetMidY(card.bounds)) toView:window];
+    UIView *best=nil;CGFloat bestArea=CGFLOAT_MAX;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSUInteger budget=800;
+    while(pending.count && budget) {
+        --budget;
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            [pending addObject:child];
+            NSString *name=NSStringFromClass(child.class);
+            if([name rangeOfString:@"ModuleContainer" options:NSCaseInsensitiveSearch].location==NSNotFound &&
+               [name rangeOfString:@"CCUIContentModule" options:NSCaseInsensitiveSearch].location==NSNotFound)continue;
+            if(child.hidden || child.alpha<.01)continue;
+            CGRect frame=[child convertRect:child.bounds toView:window];
+            if(!CGRectContainsPoint(frame,centre))continue;
+            CGFloat area=frame.size.width*frame.size.height;
+            if(area<bestArea){bestArea=area;best=child;}
+        }
+    }
+    if(!best)return @"none";
+    for(NSString *key in @[@"moduleIdentifier",@"module",@"contentModule",@"identifier"]) {
+        @try { id value=[best valueForKey:key]; if(value)return LMVPhoneAssistTrim(value); }
+        @catch(NSException *exception) {}
+    }
+    return NSStringFromClass(best.class);
 }
 static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
     NSMutableString *out=[NSMutableString stringWithFormat:@"pa-stack card=%@",NSStringFromClass(card.class)];
@@ -58,10 +92,8 @@ static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
             for(NSUInteger i=(NSUInteger)index+1;i<container.subviews.count && shown<6;i++,shown++) {
                 UIView *sibling=container.subviews[i];
                 CGFloat background=sibling.backgroundColor?CGColorGetAlpha(sibling.backgroundColor.CGColor):0;
-                NSString *owner=LMVPhoneAssistImageName(sibling.class);
-                NSString *ownerName=owner?owner.lastPathComponent:@"?";
-                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f @%@] ",NSStringFromClass(sibling.class),
-                    (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background,ownerName];
+                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",NSStringFromClass(sibling.class),
+                    (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background];
             }
         }
     }
@@ -93,57 +125,6 @@ static BOOL LMVPhoneAssistSheetKind(UIView *view) {
 // names are simply gone, and the channel reported "no card" while the popup was on
 // screen. Every alert sheet still carries the dimming/backdrop material, so that is
 // a structural signature we can follow without trusting any single class name.
-// 2.27: GLASSSUITEX (named on the device) does not just decorate the alert - it
-// puts its glass in a WINDOW OF ITS OWN, which sits above the alert window. No
-// amount of sibling re-ordering inside the alert can beat that, which is why the
-// sheet said "mounted, playing, invisible". Two answers, tried in this order:
-//   1. that plugin's window becomes the container and the video sits at its top;
-//   2. otherwise, skip over any glass/effect sibling the plugin inserted above the
-//      material, so the video lands ABOVE the glass instead of underneath it.
-static UIWindow *LMVPhoneAssistGlassWindow(UIWindow *alertWindow) {
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window==alertWindow || window.hidden || window.alpha<.01)continue;
-            if([NSStringFromClass(window.class) isEqualToString:@"LMVEasterWindow"])continue;
-            NSString *owner=LMVPhoneAssistImageName(window.class);
-            if(owner && [owner containsString:@"GlassSuiteX"])return window;
-        }
-    }
-    return nil;
-}
-static BOOL LMVPhoneAssistGlassKind(UIView *view) {
-    if(!view)return NO;
-    if([view isKindOfClass:UIVisualEffectView.class])return YES;
-    NSString *name=NSStringFromClass(view.class);
-    for(NSString *word in @[@"Blur",@"Glass",@"Vibrancy",@"Dimming",@"Backdrop",@"Effect"])
-        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
-    return NO;
-}
-// 2.28: the overlay window. Fully transparent, refuses every touch, never becomes
-// key: it exists only to carry the video above whatever the cover plugin draws.
-@interface LMVPhoneAssistOverlayWindow:UIWindow
-@end
-@implementation LMVPhoneAssistOverlayWindow
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event { return nil; }
-- (BOOL)canBecomeKeyWindow { return NO; }
-@end
-static CGFloat LMVPhoneAssistTopWindowLevel(UIWindow *base) {
-    CGFloat top=base?base.windowLevel:0;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if(!isfinite(window.windowLevel))continue;
-            // Some system windows report DBL_MAX (the touch visualiser seen while
-            // recording). Treating that as a competitor would put our level at a
-            // value that cannot be represented sanely, so it is ignored.
-            if(window.windowLevel>1e9 || window.windowLevel<-1e9)continue;
-            if(window.windowLevel>top)top=window.windowLevel;
-        }
-    }
-    return top;
-}
 static NSString *LMVPhoneAssistCardMatch=nil;
 // 2.26: when nothing is found we must be able to say WHAT was on screen instead of
 // only which windows existed. Class + frame + alpha per view is what tells a
@@ -259,6 +240,9 @@ static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
                 if(window.hidden || window.alpha<.01)continue;
                 // Never treat our own floating overlay as the popup.
                 if([NSStringFromClass(window.class) isEqualToString:@"LMVEasterWindow"])continue;
+                // 2.30: a Control Center context menu is NOT the phone-assist sheet.
+                // It used to match the Dimming/Backdrop shell and got a PA video.
+                if([NSStringFromClass(window.class) containsString:@"SBControlCenter"])continue;
                 UIView *card=LMVPhoneAssistStructuralCard(window);
                 if(card) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"shell";break;}
             }
@@ -375,8 +359,6 @@ static void LMVPhoneAssistRestoreTextColor(void) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
-@property(nonatomic,strong) LMVPhoneAssistOverlayWindow *overlay;
-- (void)presentOverlayForCard:(UIView *)card inWindow:(UIWindow *)window;
 - (void)detach;
 - (void)update;
 @end
@@ -393,31 +375,9 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     return self;
 }
 - (void)dealloc {[_host removeFromSuperview];}
-- (void)presentOverlayForCard:(UIView *)card inWindow:(UIWindow *)window {
-    if(!card || !window || !window.windowScene) {self.overlay.hidden=YES;return;}
-    if(!self.overlay || self.overlay.windowScene!=window.windowScene) {
-        if(self.host.superview)[self.host removeFromSuperview];
-        UIViewController *root=[UIViewController new];
-        root.view.backgroundColor=UIColor.clearColor;
-        root.view.userInteractionEnabled=NO;
-        LMVPhoneAssistOverlayWindow *overlay=
-            [[LMVPhoneAssistOverlayWindow alloc] initWithWindowScene:window.windowScene];
-        overlay.backgroundColor=UIColor.clearColor;
-        overlay.rootViewController=root;
-        overlay.hidden=YES;
-        self.overlay=overlay;
-    }
-    CGFloat level=LMVPhoneAssistTopWindowLevel(window)+1;
-    if(!isfinite(level) || level<=window.windowLevel) level=window.windowLevel+1;
-    if(self.overlay.windowLevel!=level) self.overlay.windowLevel=level;
-    UIView *canvas=self.overlay.rootViewController.view;
-    if(self.host.superview!=canvas)[canvas addSubview:self.host];
-    if(self.overlay.hidden)self.overlay.hidden=NO;
-}
 - (void)detach {
     if(self.host.superview)[self.host removeFromSuperview];
     self.host.hidden=YES;
-    self.overlay.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
     LMVPhoneAssistRestoreTextColor();
     self.card=nil;self.mode=nil;
@@ -425,8 +385,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 - (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {
     if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;
     [self.host removeFromSuperview];
-    NSUInteger slot=MIN(index,container.subviews.count);
-    @try {[container insertSubview:self.host atIndex:slot];}
+    @try {[container insertSubview:self.host atIndex:index];}
     @catch(NSException *exception) {[self.host removeFromSuperview];return NO;}
     return self.host.superview==container;
 }
@@ -469,6 +428,11 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
         }
         [self detach];self.updating=NO;return;
     }
+    // 2.32: the CopyLogX clipboard panel is NOT this sheet. It lives in a plain
+    // UIWindow as a 411x470 bottom card, and the structural shell fallback used to
+    // claim it (pa-panel ... card=_UIVisualEffectContentView). Its own channel owns
+    // it now, so this one stands down instead of painting a second video there.
+    if(LMVCopyLogXIsCard(card)) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     LMVPhoneAssistApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVPhoneAssistPath] ||
@@ -480,55 +444,28 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVPhoneAssistMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
-    // 2.28: A STANDALONE TRANSPARENT WINDOW, NOT A SUBVIEW OF ANYBODY'S TREE.
-    // Every earlier attempt lost the same way: the cover plugin (GlassSuiteX) can
-    // inject a glass layer at any moment, or own a window above the alert, so any
-    // z-order won inside a view tree is temporary. Window level is decided last, so
-    // the video gets a window of its own, one level above the highest visible one,
-    // and draws only inside the sheet's rectangle. That window is transparent and
-    // refuses every touch, so nothing else on screen changes. The in-tree mount is
-    // kept as the fallback for a system where no window scene is available.
-    [self presentOverlayForCard:card inWindow:window];
-    BOOL usingOverlay=NO;
-    if(self.overlay) {
-        usingOverlay=YES; mode=@"overlay";
-        container=self.overlay.rootViewController.view;
-        index=0;
-        target=[card convertRect:card.bounds toView:nil];
-    } else if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
+    // Fix: place the video ABOVE the material, not inside its contentView.
+    // The device log named the failure exactly: pa-panel mode=content live=1
+    // host=270x607 ready=1 poster=1 rate=1.0 - mounted, decoded and playing, yet
+    // invisible. This sheet's material is _UIDimmingKnockoutBackdropView (a
+    // UIVisualEffectView subclass); on this system its own effect layers paint
+    // over the content view, so a subview placed at contentView index 0 is
+    // covered. It is the same failure 1.93 hit on the Squid panel, whose fix was
+    // to sit above the effect view and below the content. The alert group is
+    // [_UIDimmingKnockoutBackdropView, content UIView], so index material+1 lands
+    // between the dimming layer and the labels.
+    if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
         container=material.superview;
         NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
         if(near==NSNotFound) {[self detach];self.updating=NO;return;}
-        NSUInteger slot=(NSUInteger)(near+1);
-        // Land ABOVE any glass/effect layer the cover plugin slipped in after the
-        // material, still below the labels (the first non-glass sibling).
-        for(NSUInteger i=slot;i<container.subviews.count;i++) {
-            UIView *sibling=container.subviews[i];
-            if(sibling.tag==LMVPhoneAssistHostTag)break;
-            if(!LMVPhoneAssistGlassKind(sibling))break;
-            slot=i+1;
-        }
-        index=slot;target=material.frame;mode=@"above-material";
-    } else {
-        UIWindow *glassWindow=LMVPhoneAssistGlassWindow(window);
-        if(glassWindow) {
-            container=glassWindow;
-            NSInteger current=self.host.superview==glassWindow ?
-                (NSInteger)[glassWindow.subviews indexOfObjectIdenticalTo:self.host] : NSNotFound;
-            BOOL topmost=current>=0 && current==(NSInteger)glassWindow.subviews.count-1;
-            index=topmost ? (NSUInteger)current : glassWindow.subviews.count;
-            target=[card convertRect:card.bounds toView:glassWindow];
-            mode=@"glass-window";
-        }
+        index=(NSUInteger)(near+1);target=material.frame;mode=@"above-material";
     }
     if(!container) {container=card;index=0;target=card.bounds;}
     self.mode=mode;
-    BOOL placed=self.host.superview==container;
-    if(placed && !usingOverlay)
-        placed=(NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;
+    BOOL placed=self.host.superview==container &&
+        (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;
     if(!placed) {
-        if(usingOverlay) [container insertSubview:self.host atIndex:0];
-        else if(![self insertHostInto:container at:index]) {[self detach];self.updating=NO;return;}
+        if(![self insertHostInto:container at:index]) {[self detach];self.updating=NO;return;}
     }
     [CATransaction begin];[CATransaction setDisableActions:YES];
     if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;
@@ -541,11 +478,11 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(self.host.hidden)self.host.hidden=NO;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f match=%@ mode=%@ olvl=%.0f card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
+        NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f match=%@ mode=%@ module=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             LMVPhoneAssistCardMatch?:@"none",
             self.mode?:@"none",
-            self.overlay?self.overlay.windowLevel:0.0,
+            LMVPhoneAssistModuleIdentifier(window,self.card),
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,
             LMVPhoneAssistVisibleArea(frame,bounds),(int)live,

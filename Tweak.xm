@@ -186,7 +186,10 @@ static void LMVDiagnostic(NSString *event) {
 #import "LMVHomeMenuVideo.h"
 #import "LMVSquidPanelVideo.h"
 #import "LMVATPanelVideo.h"
+#import "LMVCopyLogXVideo.h"
 #import "LMVPhoneAssistVideo.h"
+#import "LMVGlassSuiteVideo.h"
+#import "LMVCCBorderVideo.h"
 #include "LMVCopyVaultPanelVideo.h"
 #include "LMVMyrtlePanelVideo.h"
 #import "LMVMediaAudio.h"
@@ -1414,6 +1417,18 @@ static void LMVSyncAudioVisibility(void) {
     BOOL paPanelVisible=paPanel.wantsPlayback && !LMVPhoneAssistVideo.host.hidden &&
         LMVAudioLayerExposed(paPanel.renderLayer,LMVPhoneAssistVideo.host.window);
     LMVAudioConsume(@"PA",paPanel.path,paPanel.revision,paPanelVisible,paPanel.player.currentTime);
+    LMVLockVideoPlayback *gsPanel=LMVGlassSuiteVideo.playback;
+    BOOL gsPanelVisible=gsPanel.wantsPlayback && !LMVGlassSuiteVideo.host.hidden &&
+        LMVAudioLayerExposed(gsPanel.renderLayer,LMVGlassSuiteVideo.host.window);
+    LMVAudioConsume(@"GS",gsPanel.path,gsPanel.revision,gsPanelVisible,gsPanel.player.currentTime);
+    LMVLockVideoPlayback *ccbPanel=LMVCCBorderVideo.playback;
+    BOOL ccbPanelVisible=ccbPanel.wantsPlayback && !LMVCCBorderVideo.host.hidden &&
+        LMVAudioLayerExposed(ccbPanel.renderLayer,LMVCCBorderVideo.host.window);
+    LMVAudioConsume(@"CCBorder",ccbPanel.path,ccbPanel.revision,ccbPanelVisible,ccbPanel.player.currentTime);
+    LMVLockVideoPlayback *clxPanel=LMVCopyLogXVideo.playback;
+    BOOL clxPanelVisible=clxPanel.wantsPlayback && !LMVCopyLogXVideo.host.hidden &&
+        LMVAudioLayerExposed(clxPanel.renderLayer,LMVCopyLogXVideo.host.window);
+    LMVAudioConsume(@"CopyLogX",clxPanel.path,clxPanel.revision,clxPanelVisible,clxPanel.player.currentTime);
     LMVLockVideoPlayback *myrtle=LMVMyrtlePanelVideo.playback;
     BOOL myrtleVisible=myrtle.wantsPlayback && !LMVMyrtlePanelVideo.host.hidden &&
         LMVAudioLayerExposed(myrtle.renderLayer,LMVMyrtlePanelVideo.host.window);
@@ -1463,6 +1478,9 @@ static void LMVRefresh(BOOL reload) {
     LMVSquidPanelVideoRefresh(reload);
     LMVATPanelVideoRefresh(reload);
     LMVPhoneAssistVideoRefresh(reload);
+    LMVGlassSuiteVideoRefresh(reload);
+    LMVCCBorderVideoRefresh(reload);
+    LMVCopyLogXVideoRefresh(reload);
     LMVCopyVaultPanelVideoRefresh(reload);
     LMVMyrtlePanelVideoRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);
@@ -1493,6 +1511,9 @@ static void LMVSuspend(void) {
     LMVSquidPanelVideoSuspend();
     LMVATPanelVideoSuspend();
     LMVPhoneAssistVideoSuspend();
+    LMVGlassSuiteVideoSuspend();
+    LMVCCBorderVideoSuspend();
+    LMVCopyLogXVideoSuspend();
     LMVCopyVaultPanelVideoSuspend();
     LMVMyrtlePanelVideoSuspend();
     LMVReleaseAllPlayers();
@@ -1695,8 +1716,11 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
                     LMVSquidPanelVideoSuspend();
                     LMVATPanelVideoSuspend();
                     LMVPhoneAssistVideoSuspend();
-    LMVCopyVaultPanelVideoSuspend();
-    LMVMyrtlePanelVideoSuspend();
+                    LMVGlassSuiteVideoSuspend();
+                    LMVCCBorderVideoSuspend();
+                    LMVCopyLogXVideoSuspend();
+                    LMVCopyVaultPanelVideoSuspend();
+                    LMVMyrtlePanelVideoSuspend();
                     LMVRequestSyncDisplayLink();LMVRequestSafeUpdate();
                 }
             });
@@ -1718,6 +1742,9 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVSquidPanelVideoInstallHooks();
         LMVATPanelVideoInstallHooks();
         LMVPhoneAssistVideoInstallHooks();
+        LMVGlassSuiteVideoInstallHooks();
+        LMVCCBorderVideoInstallHooks();
+        LMVCopyLogXVideoInstallHooks();
         LMVCopyVaultPanelVideoInstallHooks();
         Class coverWindow = NSClassFromString(@"SBCoverSheetWindow");
         if (coverWindow && [coverWindow isSubclassOfClass:UIWindow.class]) %init(LMVCoverWindowHooks);

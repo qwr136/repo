@@ -4,6 +4,8 @@
 NSString *const LMVTextColorKey = @"CVTextColor";
 NSString *const LMVSquidTextColorKey = @"SquidTextColor";
 NSString *const LMVPhoneAssistTextColorKey = @"PATextColor";
+NSString *const LMVGlassSuiteTextColorKey = @"GSTextColor";
+NSString *const LMVCopyLogXTextColorKey = @"CopyLogXTextColor";
 static CFStringRef const kLMVColorPrefsID = CFSTR("com.minis.lockmessagevideo");
 
 static uint32_t LMVColorWord(UIColor *color) {

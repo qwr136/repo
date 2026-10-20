@@ -18,6 +18,10 @@ extern NSString *const LMVTextColorKey;
 extern NSString *const LMVSquidTextColorKey;
 // 2.04: the phone-assist sheet keeps its own colour, like the other panels.
 extern NSString *const LMVPhoneAssistTextColorKey;
+// 2.29: the GlassSuiteX sheet keeps its own colour as well.
+extern NSString *const LMVGlassSuiteTextColorKey;
+// 2.32: the CopyLogX clipboard panel keeps its own colour too.
+extern NSString *const LMVCopyLogXTextColorKey;
 UIColor *LMVTextColorCurrent(void);
 UIColor *LMVTextColorForKey(NSString *key);
 void LMVTextColorStore(UIColor *color);

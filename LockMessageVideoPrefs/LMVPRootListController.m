@@ -20,7 +20,7 @@ static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", 
 static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];
+    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];
 }
 static void LMVNotify(void) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -190,6 +190,70 @@ static void LMVNotify(void) {
     paText.buttonAction = @selector(openPATextColor:);
     [paText setProperty:@"PATextColor" forKey:@"id"];
     [_specifiers addObject:paText];
+    // 2.29: the GlassSuiteX sheet (GAXAlertOverlayView in the 2.26 log). Its own
+    // switch / material / sound / volume, its own text colour, and a debug switch
+    // that writes the detected card size to the diagnostic log.
+    PSSpecifier *gsGroup = [PSSpecifier groupSpecifierWithName:@"GlassSuiteX 弹窗背景视频"];
+    [gsGroup setProperty:@"开启诊断日志后，弹窗尺寸会写入 shared-render.log（gs-size 行）。" forKey:@"footerText"];
+    [_specifiers addObject:gsGroup];
+    PSSpecifier *gsEnabled = [PSSpecifier preferenceSpecifierNamed:@"GlassSuiteX 弹窗背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"];
+    [gsEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:gsEnabled];
+    PSSpecifier *gsMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 GlassSuiteX 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    gsMaterial.buttonAction = @selector(switchGS:);
+    [gsMaterial setProperty:@"GSMaterial" forKey:@"id"];
+    [_specifiers addObject:gsMaterial];
+    [self appendAudioForTarget:@"GS" title:@"播放"];
+    PSSpecifier *gsText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    gsText.buttonAction = @selector(openGSTextColor:);
+    [gsText setProperty:@"GSTextColor" forKey:@"id"];
+    [_specifiers addObject:gsText];
+    PSSpecifier *gsDebug = [PSSpecifier preferenceSpecifierNamed:@"调试：记录弹窗尺寸" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [gsDebug setProperty:@"GSDebugSize" forKey:@"key"];
+    [gsDebug setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:gsDebug];
+    // 2.30: the Control Center long-press menu (a real surface the 2.29 capture
+    // found). Same layout as the other panel channels; the module that owns the
+    // menu is written to the diagnostic line as module=...
+    PSSpecifier *ccbGroup = [PSSpecifier groupSpecifierWithName:@"CCBorder 视频背景"];
+    [ccbGroup setProperty:@"控制中心长按菜单的背景视频；诊断日志会带 module= 标识，调试开关会输出弹窗尺寸。" forKey:@"footerText"];
+    [_specifiers addObject:ccbGroup];
+    PSSpecifier *ccbEnabled = [PSSpecifier preferenceSpecifierNamed:@"CCBorder 视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"];
+    [ccbEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:ccbEnabled];
+    PSSpecifier *ccbMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 CCBorder 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    ccbMaterial.buttonAction = @selector(switchCCBorder:);
+    [ccbMaterial setProperty:@"CCBorderMaterial" forKey:@"id"];
+    [_specifiers addObject:ccbMaterial];
+    [self appendAudioForTarget:@"CCBorder" title:@"播放"];
+    PSSpecifier *ccbDebug = [PSSpecifier preferenceSpecifierNamed:@"调试：记录弹窗尺寸" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [ccbDebug setProperty:@"CCBorderDebugSize" forKey:@"key"];
+    [ccbDebug setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:ccbDebug];
+    // 2.32: the CopyLogX clipboard panel - the 411x470 bottom sheet the 2.31 capture
+    // caught the phone-assist channel mounting on by mistake.
+    PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];
+    [clxGroup setProperty:@"剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel / clx-size。" forKey:@"footerText"];
+    [_specifiers addObject:clxGroup];
+    PSSpecifier *clxEnabled = [PSSpecifier preferenceSpecifierNamed:@"CopyLogX 视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"];
+    [clxEnabled setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:clxEnabled];
+    PSSpecifier *clxMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 CopyLogX 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    clxMaterial.buttonAction = @selector(switchCopyLogX:);
+    [clxMaterial setProperty:@"CopyLogXMaterial" forKey:@"id"];
+    [_specifiers addObject:clxMaterial];
+    [self appendAudioForTarget:@"CopyLogX" title:@"播放"];
+    PSSpecifier *clxText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    clxText.buttonAction = @selector(openCopyLogXTextColor:);
+    [clxText setProperty:@"CopyLogXTextColor" forKey:@"id"];
+    [_specifiers addObject:clxText];
+    PSSpecifier *clxDebug = [PSSpecifier preferenceSpecifierNamed:@"调试：记录弹窗尺寸" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [clxDebug setProperty:@"CopyLogXDebugSize" forKey:@"key"];
+    [clxDebug setProperty:@NO forKey:@"default"];
+    [_specifiers addObject:clxDebug];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -281,6 +345,8 @@ static NSInteger LMVTextColorTagFor(NSString *key, BOOL value) {
     NSInteger base = 0x5A2C;
     if ([key isEqualToString:LMVSquidTextColorKey]) base = 0x5B2C;
     else if ([key isEqualToString:LMVPhoneAssistTextColorKey]) base = 0x5C2C;
+    else if ([key isEqualToString:LMVGlassSuiteTextColorKey]) base = 0x5D2C;
+    else if ([key isEqualToString:LMVCopyLogXTextColorKey]) base = 0x5E2C;
     return base + (value ? 1 : 0);
 }
 static NSString *LMVTextColorSummary(UIColor *color) {
@@ -295,6 +361,8 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if ([identifier isEqualToString:@"CVTextColor"]) key = LMVTextColorKey;
     else if ([identifier isEqualToString:@"SquidTextColor"]) key = LMVSquidTextColorKey;
     else if ([identifier isEqualToString:@"PATextColor"]) key = LMVPhoneAssistTextColorKey;
+    else if ([identifier isEqualToString:@"GSTextColor"]) key = LMVGlassSuiteTextColorKey;
+    else if ([identifier isEqualToString:@"CopyLogXTextColor"]) key = LMVCopyLogXTextColorKey;
     if (!key) return nil;
     return @{@"key": key, @"dot": @(LMVTextColorTagFor(key, NO)), @"value": @(LMVTextColorTagFor(key, YES))};
 }
@@ -303,14 +371,14 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
-        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D)])
+        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D), @(0x5E2C), @(0x5E2D)])
             [[cell.contentView viewWithTag:tag.unsignedIntegerValue] removeFromSuperview];
         return;
     }
     NSInteger dotTag = [row[@"dot"] integerValue];
     NSInteger valueTag = [row[@"value"] integerValue];
     // A cell recycled between the two colour rows must not keep the other row's pair.
-    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C)]) {
+    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C), @(0x5D2C), @(0x5E2C)]) {
         if (base.integerValue == dotTag) continue;
         [[cell.contentView viewWithTag:base.unsignedIntegerValue] removeFromSuperview];
         [[cell.contentView viewWithTag:base.unsignedIntegerValue + 1] removeFromSuperview];
@@ -413,6 +481,14 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 - (void)openPATextColor:(PSSpecifier *)specifier {
     [self openTextColorForKey:LMVPhoneAssistTextColorKey];
 }
+// 2.29: the GlassSuiteX sheet's own colour row.
+- (void)openGSTextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVGlassSuiteTextColorKey];
+}
+// 2.32: the CopyLogX clipboard panel's own colour row.
+- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {
+    [self openTextColorForKey:LMVCopyLogXTextColorKey];
+}
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotify();
@@ -505,7 +581,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频", @"GS": @"GlassSuiteX 弹窗背景视频", @"CCBorder": @"CCBorder 视频背景", @"CopyLogX": @"CopyLogX 视频背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -514,7 +590,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @"", @"Myrtle": @"", @"PA": @""};
+    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @"", @"Myrtle": @"", @"PA": @"", @"GS": @"", @"CCBorder": @"", @"CopyLogX": @""};
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -539,6 +615,10 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 - (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
 - (void)switchMyrtle:(PSSpecifier *)specifier { [self switchTarget:@"Myrtle"]; }
 - (void)switchPA:(PSSpecifier *)specifier { [self switchTarget:@"PA"]; }
+- (void)switchGS:(PSSpecifier *)specifier { [self switchTarget:@"GS"]; }
+- (void)switchCCBorder:(PSSpecifier *)specifier { [self switchTarget:@"CCBorder"]; }
+// 2.32: the CopyLogX clipboard panel.
+- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];

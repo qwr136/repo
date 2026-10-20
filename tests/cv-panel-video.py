@@ -122,7 +122,7 @@ assert '    LMVCopyVaultPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVCopyVaultPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVCopyVaultPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPanel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA"];' in audio
+assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"];' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];' in prefs
@@ -130,7 +130,7 @@ assert '[cvEnabled setProperty:@NO forKey:@"default"];' in prefs
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in prefs
 assert '- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];' in prefs
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA"] containsObject:target];' in prefs, 'CV is a selectable material target'
+assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in prefs, 'CV is a selectable material target'
 assert '[self appendAudioForTarget:@"CV" title:@"播放"];' in prefs
 import re
 at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'
@@ -143,7 +143,10 @@ assert re.search(r'@"CV": @""', prefs), 'the CV material fallback is empty (noth
 
 # ---- floating panel -------------------------------------------------------
 assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel
-assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterPhoneAssistSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterGlassSuiteSection(void) { return LMVEasterPhoneAssistSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterCCBorderSection(void) { return LMVEasterGlassSuiteSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel
+assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLogXSection() + 1; }' in panel
 assert 'if (section == LMVEasterCVSection()) return 4;' in panel
 assert 'if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";' in panel
 cv_cells = panel[panel.index('if (index.section == LMVEasterCVSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
@@ -155,8 +158,8 @@ assert 'else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled
 selection = panel[panel.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:'):]
 assert 'key = @"CVVideo";' in selection and 'index.section == LMVEasterCVSection()' in selection
 audio_list = re.search(r'static NSArray \*LMVEasterAudioTargets\(void\) \{\s*return @\[(.*?)\];', panel, re.S).group(1)
-assert re.findall(r'@"(.*?)"', audio_list)[-3:] == ['CV', 'Myrtle', 'PA'], \
-    'the CV sound channel closes the panel audio list'
+assert re.findall(r'@"(.*?)"', audio_list)[-6:] == ['CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX'], \
+    'the CV sound channel is followed by the newer panel channels'
 
 # ---- shared material plumbing ----------------------------------------------
 assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete

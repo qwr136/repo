@@ -1,0 +1,348 @@
+#pragma once
+#import <dlfcn.h>
+// 2.32: the CopyLogX clipboard panel (CopyLogX 视频背景).
+//
+// The 2.31 capture showed the phone-assist channel mounting a video on this panel
+// by mistake - it is NOT the phone-assist sheet, and it gets its own channel now:
+//
+//   UIWindow@0,0,430,932                       <- plain UIWindow, no named subclass
+//     UIView
+//       UIView
+//         UIVisualEffectView
+//           _UIVisualEffectContentView@10,462,411,470 r0   <- THE CARD
+//             UIControl
+//             UITableView
+//
+// The panel is a bottom sheet: 411pt wide on a 430pt screen (10pt insets), 470pt
+// tall, its bottom edge flush with the screen bottom. Those four facts - plain
+// UIWindow, a `_UIVisualEffectContentView` card, bottom-anchored, wider than 80% of
+// the screen - plus "the card actually contains a table" are the signature. Nothing
+// of CopyLogX is hooked or guessed by class name, so a rename cannot take the
+// channel down; the table requirement is what keeps the same geometry from also
+// matching an unrelated bottom sheet.
+//
+// Mount: index 0 inside the card - above its background, below the table. That is
+// the level the 2.31 capture proved visible (pa-panel ... card=_UIVisualEffectContentView
+// idx=0 live=1).
+//
+// Requires the shared helpers imported earlier in the translation unit
+// (LMVLockVideoPlayback, LMVCCSelectedPath, LMVLockVideoRevision, LMVInitialized,
+// LMVLaunchReady, LMVBlankToken, LMVLockToken, LMVDiagnosticsEnabled,
+// LMVDiagnostic, kLMVPrefsID).
+
+static void LMVCopyLogXVideoRefresh(BOOL reload);
+static void LMVCopyLogXVideoSuspend(void);
+static BOOL LMVCopyLogXEnabled,LMVCopyLogXPrefsKnown,LMVCopyLogXDebugSize;
+static NSString *LMVCopyLogXPath,*LMVCopyLogXRevision;
+static NSTimer *LMVCopyLogXTimer;
+
+static BOOL LMVCopyLogXSpringBoard(void) {
+    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
+}
+static BOOL LMVCopyLogXEnvironment(void) {
+    uint64_t blank=1,locked=1;
+    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVCopyLogXSpringBoard() &&
+        LMVBlankToken>=0 && LMVLockToken>=0 &&
+        notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
+        notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
+}
+static NSInteger const LMVCopyLogXHostTag=0x5A49;
+static CGFloat LMVCopyLogXVisibleArea(CGRect frame,CGRect bounds) {
+    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
+    CGRect onScreen=CGRectIntersection(frame,bounds);
+    if(CGRectIsEmpty(onScreen))return 0;
+    CGFloat total=frame.size.width*frame.size.height;
+    if(total<=0)return 0;
+    CGFloat visible=onScreen.size.width*onScreen.size.height;
+    return visible/total>=.5?visible:0;
+}
+// The window CopyLogX presents the sheet in. It is a PLAIN UIWindow - there is no
+// named subclass to look for - so the window is only a candidate once the card
+// signature below is found inside it. A window whose root controller is named after
+// the tweak is accepted as well, for the case where it later gets its own subclass.
+static BOOL LMVCopyLogXWindowKind(UIWindow *window) {
+    if(!window)return NO;
+    NSString *name=NSStringFromClass(window.class);
+    if([name containsString:@"CopyLog"] || [name containsString:@"CLX"])return YES;
+    if(![name isEqualToString:@"UIWindow"])return NO;
+    NSString *root=NSStringFromClass(window.rootViewController.class);
+    return root.length==0 || [root isEqualToString:@"UIViewController"] ||
+        [root containsString:@"CopyLog"] || [root containsString:@"CLX"];
+}
+static BOOL LMVCopyLogXHasTable(UIView *root) {
+    if(!root)return NO;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
+    NSUInteger budget=200;
+    while(pending.count && budget) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            if([child isKindOfClass:UITableView.class])return YES;
+            [pending addObject:child];
+        }
+    }
+    return NO;
+}
+// The card: a `_UIVisualEffectContentView` bottom-anchored to the window, wider than
+// 80% of it, at least a quarter of the screen tall, with a table inside.
+static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view) {
+    if(!window || !view)return NO;
+    CGRect bounds=window.bounds;
+    if(CGRectIsEmpty(bounds))return NO;
+    NSString *name=NSStringFromClass(view.class);
+    if([name rangeOfString:@"UIVisualEffectContentView" options:NSCaseInsensitiveSearch].location==NSNotFound)return NO;
+    CGRect frame=[view convertRect:view.bounds toView:window];
+    if(frame.size.width<bounds.size.width*.8)return NO;
+    if(frame.size.height<bounds.size.height*.25 || frame.size.height>bounds.size.height*.75)return NO;
+    // Bottom sheet: its bottom edge sits on the screen bottom (the closed panel is
+    // parked off screen instead of being hidden, so this also keeps it out).
+    if(fabs(CGRectGetMaxY(frame)-bounds.size.height)>16)return NO;
+    return LMVCopyLogXHasTable(view);
+}
+// The card CopyLogX is showing right now, or nil. Public to the PA channel: that one
+// asked the same window for "a Dimming/Backdrop shell" and mounted a phone-assist
+// video here in 2.31, so it now skips exactly this card.
+static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
+    if(windowOut)*windowOut=nil;
+    UIView *best=nil;UIWindow *bestWindow=nil;CGFloat bestArea=0;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(window.hidden || window.alpha<.01)continue;
+            if(!LMVCopyLogXWindowKind(window))continue;
+            NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+            NSUInteger budget=600;
+            while(pending.count && budget) {
+                UIView *node=pending.lastObject;[pending removeLastObject];
+                for(UIView *child in node.subviews) {
+                    if(!budget--)break;
+                    if(child.tag==LMVCopyLogXHostTag || child.hidden || child.alpha<.01)continue;
+                    [pending addObject:child];
+                    if(!LMVCopyLogXCardKind(window,child))continue;
+                    CGRect frame=[child convertRect:child.bounds toView:window];
+                    CGFloat visible=LMVCopyLogXVisibleArea(frame,window.bounds);
+                    if(visible>bestArea){bestArea=visible;best=child;bestWindow=window;}
+                }
+            }
+        }
+    }
+    if(best && windowOut)*windowOut=bestWindow;
+    return best;
+}
+static BOOL LMVCopyLogXIsCard(UIView *card) {
+    if(!card)return NO;
+    UIWindow *window=card.window;
+    return window && LMVCopyLogXCardKind(window,card);
+}
+// Text colour, same contract as the CopyVault channel: the first colour seen for
+// each label is remembered and handed back when the panel goes away or the switch
+// is turned off, so nothing stays tinted.
+static NSMapTable<UIView *,id> *LMVCopyLogXTextOriginal;
+static UIColor *LMVCopyLogXTextColor(void) {
+    NSNumber *value=(__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("CopyLogXTextColor"),kLMVPrefsID);
+    if(![value isKindOfClass:NSNumber.class])return nil;
+    uint32_t word=value.unsignedIntValue;
+    return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
+                           blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
+}
+static BOOL LMVCopyLogXColorEqual(UIColor *a,UIColor *b) {
+    if(!a || !b)return a==b;
+    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
+    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
+    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
+}
+static void LMVCopyLogXApplyTextColor(UIView *root) {
+    UIColor *color=LMVCopyLogXTextColor();
+    if(!root || !color)return;
+    if(!LMVCopyLogXTextOriginal)LMVCopyLogXTextOriginal=[NSMapTable weakToStrongObjectsMapTable];
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
+    NSUInteger budget=300;
+    while(pending.count && budget) {
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            if(child.tag==LMVCopyLogXHostTag)continue;
+            [pending addObject:child];
+            if(![child isKindOfClass:UILabel.class])continue;
+            UILabel *label=(UILabel *)child;
+            if(label.attributedText.length) {
+                UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+                if(LMVCopyLogXColorEqual(now,color))continue;
+                if(![LMVCopyLogXTextOriginal objectForKey:label])[LMVCopyLogXTextOriginal setObject:label.attributedText forKey:label];
+                NSMutableAttributedString *text=[label.attributedText mutableCopy];
+                [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
+                label.attributedText=text;
+            } else if(label.text.length) {
+                if(LMVCopyLogXColorEqual(label.textColor,color))continue;
+                if(![LMVCopyLogXTextOriginal objectForKey:label])
+                    [LMVCopyLogXTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
+                label.textColor=color;
+            }
+        }
+    }
+}
+static void LMVCopyLogXRestoreTextColor(void) {
+    if(!LMVCopyLogXTextOriginal)return;
+    for(UIView *view in LMVCopyLogXTextOriginal.keyEnumerator) {
+        if(![view isKindOfClass:UILabel.class])continue;
+        id original=[LMVCopyLogXTextOriginal objectForKey:view];
+        UILabel *label=(UILabel *)view;
+        if([original isKindOfClass:NSAttributedString.class])label.attributedText=original;
+        else if([original isKindOfClass:UIColor.class])label.textColor=original;
+    }
+    [LMVCopyLogXTextOriginal removeAllObjects];
+}
+@interface LMVCopyLogXVideoHost:UIView
+@property(nonatomic,strong) LMVLockVideoPlayback *playback;
+@end
+@implementation LMVCopyLogXVideoHost
+- (instancetype)initWithFrame:(CGRect)frame {
+    if((self=[super initWithFrame:frame])) {
+        self.backgroundColor=UIColor.clearColor;
+        self.opaque=NO;
+        self.userInteractionEnabled=NO;
+        self.tag=LMVCopyLogXHostTag;
+    }
+    return self;
+}
+- (void)layoutSubviews {[super layoutSubviews];[self.playback layoutInBounds:self.bounds];}
+@end
+@interface LMVCopyLogXVideoManager:NSObject
+@property(nonatomic,strong) LMVLockVideoPlayback *playback;
+@property(nonatomic,strong) LMVCopyLogXVideoHost *host;
+@property(nonatomic,weak) UIView *card;
+@property(nonatomic,copy) NSString *mode;
+@property(nonatomic) BOOL updating;
+- (void)detach;
+- (void)update;
+@end
+static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
+@implementation LMVCopyLogXVideoManager
+- (instancetype)init {
+    if(!LMVCopyLogXEnvironment())return nil;
+    if(([super init])) {
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _host=[[LMVCopyLogXVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
+        _playback.renderLayer.name=@"com.minis.lockmessagevideo.copylogx.render";
+        [_host.layer addSublayer:_playback.renderLayer];
+    }
+    return self;
+}
+- (void)dealloc {[_host removeFromSuperview];}
+- (void)detach {
+    if(self.host.superview)[self.host removeFromSuperview];
+    self.host.hidden=YES;
+    if(self.playback.wantsPlayback)[self.playback setVisible:NO];
+    LMVCopyLogXRestoreTextColor();
+    self.card=nil;self.mode=nil;
+}
+- (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {
+    if(!container || [container isKindOfClass:UIVisualEffectView.class])return NO;
+    [self.host removeFromSuperview];
+    NSUInteger slot=MIN(index,container.subviews.count);
+    @try {[container insertSubview:self.host atIndex:slot];}
+    @catch(NSException *exception) {[self.host removeFromSuperview];return NO;}
+    return self.host.superview==container;
+}
+- (void)update {
+    if(self.updating)return;self.updating=YES;
+    UIWindow *window=nil;
+    UIView *card=LMVCopyLogXFindCard(&window);
+    if(!card) {[self detach];self.updating=NO;return;}
+    if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
+    BOOL changed=![self.playback.path isEqualToString:LMVCopyLogXPath] ||
+        ![self.playback.revision isEqualToString:LMVCopyLogXRevision];
+    if(changed) {
+        [self.host removeFromSuperview];
+        [self.playback preparePosterForPath:LMVCopyLogXPath revision:LMVCopyLogXRevision];
+        [self.playback selectPath:LMVCopyLogXPath revision:LMVCopyLogXRevision];
+    }
+    if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
+    BOOL hasPoster=self.playback.posterLayer.contents!=nil;
+    BOOL live=self.playback.player && !self.playback.error &&
+        (hasPoster || self.playback.playerLayer.readyForDisplay);
+    if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
+    // Index 0 of the card: above the sheet's background, below the clipboard table.
+    UIView *container=card;NSUInteger index=0;CGRect target=card.bounds;NSString *mode=@"card";
+    self.mode=mode;
+    BOOL placed=self.host.superview==container &&
+        (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;
+    if(!placed && ![self insertHostInto:container at:index]) {[self detach];self.updating=NO;return;}
+    CGFloat radius=card.layer.cornerRadius;
+    UIView *material=card.superview;
+    if([material isKindOfClass:UIVisualEffectView.class] && material.layer.cornerRadius>0)
+        radius=material.layer.cornerRadius;
+    [CATransaction begin];[CATransaction setDisableActions:YES];
+    if(!CGRectEqualToRect(self.host.frame,target))self.host.frame=target;
+    UIViewAutoresizing mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
+    if(self.host.layer.cornerRadius!=radius)self.host.layer.cornerRadius=radius;
+    self.host.layer.masksToBounds=YES;
+    [self.playback layoutInBounds:self.host.bounds];
+    [CATransaction commit];
+    if(self.host.hidden)self.host.hidden=NO;
+    LMVCopyLogXApplyTextColor(card);
+    if(LMVDiagnosticsEnabled.load()) {
+        CGRect bounds=window.bounds,frame=[card convertRect:card.bounds toView:window];
+        NSString *status=[NSString stringWithFormat:@"clx-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0fx%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f",
+            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            self.mode?:@"none",
+            NSStringFromClass(card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
+            radius,LMVCopyLogXVisibleArea(frame,bounds),(int)live,
+            self.host.bounds.size.width,self.host.bounds.size.height,
+            (int)self.playback.playerLayer.readyForDisplay,
+            (int)(self.playback.posterLayer.contents!=nil),
+            self.playback.player?self.playback.player.rate:0.0];
+        static NSString *lastStatus=nil;
+        if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
+        if(LMVCopyLogXDebugSize) LMVDiagnostic([NSString stringWithFormat:@"clx-size card=%.0fx%.0f screen=%.0fx%.0f",
+            frame.size.width,frame.size.height,bounds.size.width,bounds.size.height]);
+    }
+    self.updating=NO;
+}
+@end
+static void LMVCopyLogXRetune(void) {
+    NSTimeInterval want=LMVCopyLogXEnabled?.1:.5;
+    if(LMVCopyLogXTimer && fabs(LMVCopyLogXTimer.timeInterval-want)<.001)return;
+    [LMVCopyLogXTimer invalidate];
+    LMVCopyLogXTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyLogXVideoRefresh(NO);}];
+    [NSRunLoop.mainRunLoop addTimer:LMVCopyLogXTimer forMode:NSRunLoopCommonModes];
+}
+static void LMVCopyLogXVideoRefresh(BOOL reload) {
+    if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;
+    if(reload || !LMVCopyLogXPrefsKnown) {
+        LMVCopyLogXPrefsKnown=YES;
+        id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CopyLogXBackgroundEnabled"),kLMVPrefsID);
+        id globalValue=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
+        id debug=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CopyLogXDebugSize"),kLMVPrefsID);
+        LMVCopyLogXEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&
+            [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
+        LMVCopyLogXDebugSize=[debug isKindOfClass:NSNumber.class] && [debug boolValue];
+        LMVCopyLogXPath=LMVCCSelectedPath(@"CopyLogXVideo");
+        LMVCopyLogXRevision=LMVLockVideoRevision(LMVCopyLogXPath);
+    }
+    LMVCopyLogXRetune();
+    if(!LMVCopyLogXEnabled || !LMVCopyLogXPath.length || !LMVCopyLogXRevision.length) {
+        if(LMVDiagnosticsEnabled.load()) {
+            static NSString *lastGate=nil;
+            NSString *gate=[NSString stringWithFormat:@"clx-panel gate enabled=%d path=%d revision=%d (no video: switch off or no material selected)",
+                (int)LMVCopyLogXEnabled,(int)(LMVCopyLogXPath.length>0),(int)(LMVCopyLogXRevision.length>0)];
+            if(![gate isEqualToString:lastGate]) {lastGate=[gate copy];LMVDiagnostic(gate);}
+        }
+        [LMVCopyLogXVideo detach];
+        if(LMVCopyLogXVideo.playback.path)[LMVCopyLogXVideo.playback clear];
+        return;
+    }
+    if(!LMVCopyLogXEnvironment()) {[LMVCopyLogXVideo detach];return;}
+    if(!LMVCopyLogXVideo)LMVCopyLogXVideo=[LMVCopyLogXVideoManager new];
+    @try {[LMVCopyLogXVideo update];}
+    @catch(NSException *exception) {[LMVCopyLogXVideo detach];}
+}
+static void LMVCopyLogXVideoSuspend(void) {
+    if(!NSThread.isMainThread)return;
+    [LMVCopyLogXVideo detach];
+}
+static void LMVCopyLogXVideoInstallHooks(void) {
+    if(LMVCopyLogXTimer || !LMVCopyLogXSpringBoard())return;
+    LMVCopyLogXRetune();
+}
