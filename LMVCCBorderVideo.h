@@ -42,7 +42,7 @@
 
 static void LMVCCBorderVideoRefresh(BOOL reload);
 static void LMVCCBorderVideoSuspend(void);
-static BOOL LMVCCBorderEnabled,LMVCCBorderPrefsKnown,LMVCCBorderDebugSize;
+static BOOL LMVCCBorderEnabled,LMVCCBorderPrefsKnown;
 static NSString *LMVCCBorderPath,*LMVCCBorderRevision;
 static NSTimer *LMVCCBorderTimer;
 
@@ -372,8 +372,6 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
         NSString *stack=LMVCCBorderStackDescription(self.card,self.host);
         static NSString *lastStack=nil;
         if(![stack isEqualToString:lastStack]) {lastStack=[stack copy];LMVDiagnostic(stack);}
-        if(LMVCCBorderDebugSize) LMVDiagnostic([NSString stringWithFormat:@"ccb-size card=%.0fx%.0f module=%@",
-            frame.size.width,frame.size.height,LMVPhoneAssistModuleIdentifier(window,self.card)]);
     }
     self.updating=NO;
 }
@@ -391,10 +389,8 @@ static void LMVCCBorderVideoRefresh(BOOL reload) {
         LMVCCBorderPrefsKnown=YES;
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CCBorderBackgroundEnabled"),kLMVPrefsID);
         id globalValue=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
-        id debug=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CCBorderDebugSize"),kLMVPrefsID);
         LMVCCBorderEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&
             [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
-        LMVCCBorderDebugSize=[debug isKindOfClass:NSNumber.class] && [debug boolValue];
         LMVCCBorderPath=LMVCCSelectedPath(@"CCBorderVideo");
         LMVCCBorderRevision=LMVLockVideoRevision(LMVCCBorderPath);
     }

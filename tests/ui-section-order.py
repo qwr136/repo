@@ -46,8 +46,8 @@ class UISectionOrder(unittest.TestCase):
                      'if (section == LMVEasterCVSection()) return 4;',
                      'if (section == LMVEasterMyrtleSection()) return 4;',
                      'if (section == LMVEasterPhoneAssistSection()) return 4;',
-                     'if (section == LMVEasterGlassSuiteSection()) return 5;',
-                     'if (section == LMVEasterCCBorderSection()) return 5;',
+                     'if (section == LMVEasterGlassSuiteSection()) return 4;',
+                     'if (section == LMVEasterCCBorderSection()) return 4;',
                      'if (section == LMVEasterCopyLogXSection()) return 4;',
                      'return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;']:
             self.assertIn(line, PANEL)
@@ -60,13 +60,11 @@ class UISectionOrder(unittest.TestCase):
         gs = section('LMVEasterGlassSuiteSection')
         ccb = section('LMVEasterCCBorderSection')
         clx = section('LMVEasterCopyLogXSection')
-        # 2.30: the CCBorder section is five rows (switch / material / sound / volume /
-        # debug size), the same shape as the GlassSuiteX one, and it sits between the
-        # GlassSuiteX channel and the display section.
-        # 2.32: CopyLogX is four rows (switch / material / sound / volume).
-        rows = [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 4, 5, 5, 4, 1, 2, 1]
-        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 5, 4, 4, 5, 5, 4, 1, 2, 1])
-        self.assertEqual(sum(rows), 70)
+        # 2.34: the "调试：记录弹窗尺寸" row is gone from GS and CCBorder, so both are
+        # four rows now (switch / material / sound / volume), like everyone else.
+        rows = [4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 2, 1]
+        self.assertEqual(rows, [4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 2, 1])
+        self.assertEqual(sum(rows), 67)
 
     def test_panel_toggle_tags_and_boundary(self):
         body = PANEL[PANEL.index('- (void)toggle:'):PANEL.index('- (void)opacityChanged:')]
@@ -286,21 +284,21 @@ class UISectionOrder(unittest.TestCase):
             'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial', 'cvText',
             'group:Myrtle 面板背景视频', 'myrtleEnabled', 'myrtleMaterial',
             'group:电话助手弹窗背景视频', 'paEnabled', 'paMaterial', 'paText',
-            'gsGroup', 'gsEnabled', 'gsMaterial', 'gsText', 'gsDebug',
-            'ccbGroup', 'ccbEnabled', 'ccbMaterial', 'ccbDebug',
-            'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText', 'clxDebug',
+            'gsGroup', 'gsEnabled', 'gsMaterial', 'gsText',
+            'ccbGroup', 'ccbEnabled', 'ccbMaterial',
+            'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 70)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 67)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 12)
-        self.assertEqual(69 + (len(TARGETS) + 10) * 2, 99)  # 69 non-audio rows + 15 audio channels x 2
+        self.assertEqual(66 + (len(TARGETS) + 10) * 2, 96)  # 66 non-audio rows + 15 audio channels x 2
         self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup') for x in sequence) + 4, 22)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()

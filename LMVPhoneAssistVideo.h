@@ -146,42 +146,6 @@ static NSString *LMVPhoneAssistTreeDump(UIWindow *window) {
     [out appendString:@"}"];
     return out;
 }
-static BOOL LMVPhoneAssistShellKind(UIView *view) {
-    NSString *name=NSStringFromClass(view.class);
-    return [name containsString:@"Dimming"] || [name containsString:@"Backdrop"];
-}
-static UIView *LMVPhoneAssistStructuralCard(UIWindow *window) {
-    if(!window)return nil;
-    CGRect bounds=window.bounds;
-    if(CGRectIsEmpty(bounds))return nil;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
-    NSUInteger budget=600;
-    while(pending.count && budget) {
-        --budget;
-        UIView *node=pending.lastObject;[pending removeLastObject];
-        BOOL shell=NO;
-        for(UIView *child in node.subviews) {
-            if(child.tag==LMVPhoneAssistHostTag)continue;
-            if(LMVPhoneAssistShellKind(child)) {shell=YES;}
-            if(child.subviews.count && budget){[pending addObject:child];}
-        }
-        if(!shell)continue;
-        // The shell's own container is the alert container; the sheet is the largest
-        // visible sibling that is not the shell and not full-screen.
-        UIView *best=nil;CGFloat bestArea=0;
-        for(UIView *child in node.subviews) {
-            if(child.tag==LMVPhoneAssistHostTag || child.hidden || child.alpha<.01)continue;
-            if(LMVPhoneAssistShellKind(child))continue;
-            CGRect frame=[child convertRect:child.bounds toView:window];
-            if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
-            if(frame.size.width<bounds.size.width*.3 || frame.size.height<bounds.size.height*.05)continue;
-            CGFloat visible=LMVPhoneAssistVisibleArea(frame,bounds);
-            if(visible>bestArea){bestArea=visible;best=child;}
-        }
-        if(best)return best;
-    }
-    return nil;
-}
 static UIView *LMVPhoneAssistCard(UIWindow *window) {
     if(!window)return nil;
     CGRect bounds=window.bounds;
@@ -233,22 +197,12 @@ static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
         }
         if(home)break;
     }
-    if(!best) {
-        for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if(![scene isKindOfClass:UIWindowScene.class])continue;
-            for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-                if(window.hidden || window.alpha<.01)continue;
-                // Never treat our own floating overlay as the popup.
-                if([NSStringFromClass(window.class) isEqualToString:@"LMVEasterWindow"])continue;
-                // 2.30: a Control Center context menu is NOT the phone-assist sheet.
-                // It used to match the Dimming/Backdrop shell and got a PA video.
-                if([NSStringFromClass(window.class) containsString:@"SBControlCenter"])continue;
-                UIView *card=LMVPhoneAssistStructuralCard(window);
-                if(card) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"shell";break;}
-            }
-            if(best)break;
-        }
-    }
+    // 2.34: NO STRUCTURAL FALLBACK. 2.26 added "any window carrying a Dimming /
+    // Backdrop shell" as a rename-proof net, and it did exactly what a net does: the
+    // 2.31 capture shows it catching the Dynamic Island, a Control Center menu and
+    // the CopyLogX clipboard panel, one after another, every 100 ms. Each of those
+    // surfaces has its own channel now, so this one goes back to what it was before
+    // 2.26 - it mounts on ITS OWN alert sheet, by class, and nowhere else.
     if(best) {
         LMVPhoneAssistLastWindow=bestWindow;
         if(windowOut)*windowOut=bestWindow;
@@ -428,15 +382,6 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
         }
         [self detach];self.updating=NO;return;
     }
-    // 2.32: the CopyLogX clipboard panel is NOT this sheet. It lives in a plain
-    // UIWindow as a 411x470 bottom card, and the structural shell fallback used to
-    // claim it (pa-panel ... card=_UIVisualEffectContentView). Its own channel owns
-    // it now, so this one stands down instead of painting a second video there.
-    // 2.33: only step aside once the CopyLogX channel can actually paint there.
-    // 2.32 skipped the card unconditionally, so with its switch off (or no material
-    // picked yet) NEITHER channel mounted and the panel showed no video at all -
-    // which is exactly the "上个版本电话助手能显示、这个版本没有" report.
-    if(LMVCopyLogXIsCard(card) && LMVCopyLogXClaimed()) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     LMVPhoneAssistApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVPhoneAssistPath] ||

@@ -124,7 +124,10 @@ assert 'numberOfSectionsInTableView:' in image and 'return LMVEasterImageRotatio
 assert 'static NSInteger LMVEasterImageDisplaySection(void) { return LMVEasterImageSection() + 1; }' in image
 assert 'static NSInteger LMVEasterImageRotationSection(void) { return LMVEasterImageDisplaySection() + 1; }' in image
 assert 'section == LMVEasterImageDisplaySection() ? LMVEasterImageDisplayKeys().count : 2' in image
-assert '通知中心、控制中心和桌面默认显示。四项互相独立。' in image
+# 2.34: the lock-screen row is removed from both surfaces; the preference key is kept.
+assert '通知中心、控制中心和桌面默认显示；三项互相独立。' in image
+assert '@[@"EasterEggShowOnNotificationCenter", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]' in image
+assert '在锁屏显示小彩蛋' not in image
 assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
 assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
 assert 'index.section != LMVEasterImageSection() || index.row != 1' in image
@@ -140,9 +143,8 @@ assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterB
 assert 'VideoOpacityEnabled' in panel and 'opacityChanged:' in panel
 assert 'pushViewController:picker' in panel and 'picker.pushed = YES' in panel
 assert 'LMVMaterialDisplayName(relative' in panel
-assert '@[@"EasterEggShowOnLockScreen", @"EasterEggShowOnNotificationCenter", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]' in image
-assert '@[@"在锁屏显示小彩蛋", @"在通知中心显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]' in image
-assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@NO, @YES, @YES, @YES]; }' in image
+assert '@[@"在通知中心显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]' in image
+assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@YES, @YES, @YES]; }' in image
 assert 'return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;' in image
 assert 'toggle.on = LMVEasterImageBool(key, LMVEasterImageDisplayDefaults()[index.row].boolValue);' in image
 assert 'LMVEasterImageBool(@"EasterEggRotationEnabled", NO)' in image

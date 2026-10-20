@@ -29,7 +29,7 @@
 
 static void LMVGlassSuiteVideoRefresh(BOOL reload);
 static void LMVGlassSuiteVideoSuspend(void);
-static BOOL LMVGlassSuiteEnabled,LMVGlassSuitePrefsKnown,LMVGlassSuiteDebugSize;
+static BOOL LMVGlassSuiteEnabled,LMVGlassSuitePrefsKnown;
 static NSString *LMVGlassSuitePath,*LMVGlassSuiteRevision;
 static NSTimer *LMVGlassSuiteTimer;
 
@@ -375,8 +375,6 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
             frame.size.width,frame.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
-        if(LMVGlassSuiteDebugSize) LMVDiagnostic([NSString stringWithFormat:@"gs-size card=%.0fx%.0f win=%@",
-            frame.size.width,frame.size.height,NSStringFromClass(window.class)]);
     }
     self.updating=NO;
 }
@@ -394,10 +392,8 @@ static void LMVGlassSuiteVideoRefresh(BOOL reload) {
         LMVGlassSuitePrefsKnown=YES;
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GSBackgroundEnabled"),kLMVPrefsID);
         id globalValue=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
-        id debug=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GSDebugSize"),kLMVPrefsID);
         LMVGlassSuiteEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&
             [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
-        LMVGlassSuiteDebugSize=[debug isKindOfClass:NSNumber.class] && [debug boolValue];
         LMVGlassSuitePath=LMVCCSelectedPath(@"GSVideo");
         LMVGlassSuiteRevision=LMVLockVideoRevision(LMVGlassSuitePath);
     }

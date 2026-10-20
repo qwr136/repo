@@ -28,7 +28,8 @@ workflow = (root / '.github/workflows/build.yml').read_text()
 assert 'static void LMVCopyLogXVideoRefresh(BOOL reload);' in src
 assert 'static void LMVCopyLogXVideoSuspend(void);' in src
 assert 'static void LMVCopyLogXVideoInstallHooks(void) {' in src
-for key in ('CopyLogXBackgroundEnabled', 'CopyLogXVideo', 'CopyLogXTextColor', 'CopyLogXDebugSize'):
+# 2.34: the "调试：记录弹窗尺寸" switch (and its key) is gone.
+for key in ('CopyLogXBackgroundEnabled', 'CopyLogXVideo', 'CopyLogXTextColor'):
     assert f'CFSTR("{key}")' in src or f'@"{key}"' in src, key
 assert 'LMVCCSelectedPath(@"CopyLogXVideo")' in src
 assert 'LMVLockVideoRevision(LMVCopyLogXPath)' in src
@@ -58,12 +59,10 @@ assert 'com.minis.lockmessagevideo.copylogx.render' in src
 # 文字颜色可还原
 assert 'LMVCopyLogXApplyTextColor(card)' in src and 'LMVCopyLogXRestoreTextColor()' in src
 
-# ---- 4) PA 通道只在 CopyLogX 真能挂载时让路 --------------------------------
-assert 'static BOOL LMVCopyLogXClaimed(void)' in src
-assert 'return LMVCopyLogXReady && LMVCopyLogXEnabled &&' in src
-assert 'LMVCopyLogXPath.length>0 && LMVCopyLogXRevision.length>0' in src
-assert 'if(LMVCopyLogXIsCard(card) && LMVCopyLogXClaimed()) {[self detach];self.updating=NO;return;}' in pa
-# 2.33: 没有卡片时必须能说出原因
+# ---- 4) PA 只挂自己的弹窗，不再认领这张卡 --------------------------------
+assert 'LMVCopyLogXIsCard' not in pa and 'LMVCopyLogXClaimed' not in pa
+assert 'LMVPhoneAssistStructuralCard' not in pa, 'PA 的结构兜底已删除'
+# 没有卡片时必须能说出原因
 assert 'clx-nocard windows=%@' in src
 assert '#import "LMVCopyLogXVideo.h"' in tweak
 assert tweak.index('#import "LMVCopyLogXVideo.h"') < tweak.index('#import "LMVPhoneAssistVideo.h"')
@@ -82,7 +81,7 @@ assert '[clxEnabled setProperty:@NO forKey:@"default"]' in prefs
 assert 'clxMaterial.buttonAction = @selector(switchCopyLogX:);' in prefs
 assert '[self appendAudioForTarget:@"CopyLogX" title:@"播放"]' in prefs
 assert 'clxText.buttonAction = @selector(openCopyLogXTextColor:);' in prefs
-assert '[clxDebug setProperty:@"CopyLogXDebugSize" forKey:@"key"]' in prefs
+assert 'CopyLogXDebugSize' not in prefs and 'clxDebug' not in prefs
 assert '- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }' in prefs
 assert '- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {' in prefs
 assert 'LMVCopyLogXTextColorKey' in prefs
@@ -110,7 +109,7 @@ assert 'CCBorderVideo' not in clx_section
 assert 'tests/copylogx-panel-video.py' in workflow
 
 print('PASS: CopyLogX clipboard-panel channel - independent switch/material/sound/volume/'
-      'text-colour/debug settings, structural detection (non-system window + bottom-anchored '
-      'wide effect-content card, table breaks ties), index-0 mount inside the card, PA stands '
-      'down only when this channel can paint, clx-nocard diagnostics, audio plumbing, '
-      'floating-panel sync without the colour row, CI wired')
+      'text-colour settings, structural detection (non-system window + bottom-anchored '
+      'wide effect-content card, table breaks ties), index-0 mount inside the card, PA no '
+      'longer claims this card, clx-nocard diagnostics, audio plumbing, '
+      'floating-panel sync without the colour row, no debug-size row, CI wired')

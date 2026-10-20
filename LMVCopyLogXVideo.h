@@ -32,11 +32,7 @@
 
 static void LMVCopyLogXVideoRefresh(BOOL reload);
 static void LMVCopyLogXVideoSuspend(void);
-static BOOL LMVCopyLogXEnabled,LMVCopyLogXPrefsKnown,LMVCopyLogXDebugSize;
-// 2.33: "this channel is ready to mount". Only then may the phone-assist channel
-// step aside. Standing down unconditionally (2.32) is what left the panel with NO
-// video at all: PA let go, and this channel had not found the card yet.
-static BOOL LMVCopyLogXReady;
+static BOOL LMVCopyLogXEnabled,LMVCopyLogXPrefsKnown;
 static NSString *LMVCopyLogXPath,*LMVCopyLogXRevision;
 static NSTimer *LMVCopyLogXTimer;
 
@@ -147,17 +143,6 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
     }
     if(best && windowOut)*windowOut=bestWindow;
     return best;
-}
-// Hand-over contract with the PA channel: it may only skip this card when this
-// channel has both a switch and a material, i.e. when it can actually paint.
-static BOOL LMVCopyLogXClaimed(void) {
-    return LMVCopyLogXReady && LMVCopyLogXEnabled &&
-        LMVCopyLogXPath.length>0 && LMVCopyLogXRevision.length>0;
-}
-static BOOL LMVCopyLogXIsCard(UIView *card) {
-    if(!card)return NO;
-    UIWindow *window=card.window;
-    return window && LMVCopyLogXCardKind(window,card);
 }
 // Text colour, same contract as the CopyVault channel: the first colour seen for
 // each label is remembered and handed back when the panel goes away or the switch
@@ -339,8 +324,6 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
             self.playback.player?self.playback.player.rate:0.0];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
-        if(LMVCopyLogXDebugSize) LMVDiagnostic([NSString stringWithFormat:@"clx-size card=%.0fx%.0f screen=%.0fx%.0f",
-            frame.size.width,frame.size.height,bounds.size.width,bounds.size.height]);
     }
     self.updating=NO;
 }
@@ -358,15 +341,12 @@ static void LMVCopyLogXVideoRefresh(BOOL reload) {
         LMVCopyLogXPrefsKnown=YES;
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CopyLogXBackgroundEnabled"),kLMVPrefsID);
         id globalValue=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
-        id debug=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CopyLogXDebugSize"),kLMVPrefsID);
         LMVCopyLogXEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]) &&
             [enabled isKindOfClass:NSNumber.class] && [enabled boolValue];
-        LMVCopyLogXDebugSize=[debug isKindOfClass:NSNumber.class] && [debug boolValue];
         LMVCopyLogXPath=LMVCCSelectedPath(@"CopyLogXVideo");
         LMVCopyLogXRevision=LMVLockVideoRevision(LMVCopyLogXPath);
     }
     LMVCopyLogXRetune();
-    LMVCopyLogXReady=YES;
     if(!LMVCopyLogXEnabled || !LMVCopyLogXPath.length || !LMVCopyLogXRevision.length) {
         if(LMVDiagnosticsEnabled.load()) {
             static NSString *lastGate=nil;

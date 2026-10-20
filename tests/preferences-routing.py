@@ -112,26 +112,25 @@ assert '[paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"]' in pa_sect
 assert 'paMaterial.buttonAction = @selector(switchPA:);' in pa_section
 assert 'paText.buttonAction = @selector(openPATextColor:);' in pa_section
 assert '[self appendAudioForTarget:@"PA" title:@"播放"]' in pa_section
-assert gs_section.count('cell:PSSwitchCell') == 2 and gs_section.count('cell:PSButtonCell') == 2
+assert gs_section.count('cell:PSSwitchCell') == 1 and gs_section.count('cell:PSButtonCell') == 2
 assert '[gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"]' in gs_section
 assert 'gsMaterial.buttonAction = @selector(switchGS:);' in gs_section
 assert 'gsText.buttonAction = @selector(openGSTextColor:);' in gs_section
-assert '[gsDebug setProperty:@"GSDebugSize" forKey:@"key"]' in gs_section
+assert 'GSDebugSize' not in gs_section and '调试：记录弹窗尺寸' not in gs_section
 assert '[self appendAudioForTarget:@"GS" title:@"播放"]' in gs_section
-assert ccb_section.count('cell:PSSwitchCell') == 2 and ccb_section.count('cell:PSButtonCell') == 1
+assert ccb_section.count('cell:PSSwitchCell') == 1 and ccb_section.count('cell:PSButtonCell') == 1
 assert '[ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"]' in ccb_section
 assert '[ccbEnabled setProperty:@NO forKey:@"default"]' in ccb_section
 assert 'ccbMaterial.buttonAction = @selector(switchCCBorder:);' in ccb_section
-assert '[ccbDebug setProperty:@"CCBorderDebugSize" forKey:@"key"]' in ccb_section
-assert '[ccbDebug setProperty:@NO forKey:@"default"]' in ccb_section
+assert 'CCBorderDebugSize' not in ccb_section and '调试：记录弹窗尺寸' not in ccb_section
 assert '[self appendAudioForTarget:@"CCBorder" title:@"播放"]' in ccb_section
 assert '文字颜色' not in ccb_section
-assert clx_section.count('cell:PSSwitchCell') == 2 and clx_section.count('cell:PSButtonCell') == 2
+assert clx_section.count('cell:PSSwitchCell') == 1 and clx_section.count('cell:PSButtonCell') == 2
 assert '[clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"]' in clx_section
 assert '[clxEnabled setProperty:@NO forKey:@"default"]' in clx_section
 assert 'clxMaterial.buttonAction = @selector(switchCopyLogX:);' in clx_section
 assert 'clxText.buttonAction = @selector(openCopyLogXTextColor:);' in clx_section
-assert '[clxDebug setProperty:@"CopyLogXDebugSize" forKey:@"key"]' in clx_section
+assert 'CopyLogXDebugSize' not in clx_section and '调试：记录弹窗尺寸' not in clx_section
 assert '[self appendAudioForTarget:@"CopyLogX" title:@"播放"]' in clx_section
 assert myrtle_section.count('cell:PSSwitchCell') == 1 and myrtle_section.count('cell:PSButtonCell') == 1
 assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in myrtle_section

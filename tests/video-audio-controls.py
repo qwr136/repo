@@ -254,7 +254,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==102);
+ assert(rows.count==99);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];

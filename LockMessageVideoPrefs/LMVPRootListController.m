@@ -194,7 +194,7 @@ static void LMVNotify(void) {
     // switch / material / sound / volume, its own text colour, and a debug switch
     // that writes the detected card size to the diagnostic log.
     PSSpecifier *gsGroup = [PSSpecifier groupSpecifierWithName:@"GlassSuiteX 弹窗背景视频"];
-    [gsGroup setProperty:@"开启诊断日志后，弹窗尺寸会写入 shared-render.log（gs-size 行）。" forKey:@"footerText"];
+    [gsGroup setProperty:@"开启诊断日志后，挂载状态会写入 shared-render.log（gs-panel 行）。" forKey:@"footerText"];
     [_specifiers addObject:gsGroup];
     PSSpecifier *gsEnabled = [PSSpecifier preferenceSpecifierNamed:@"GlassSuiteX 弹窗背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"];
@@ -209,15 +209,11 @@ static void LMVNotify(void) {
     gsText.buttonAction = @selector(openGSTextColor:);
     [gsText setProperty:@"GSTextColor" forKey:@"id"];
     [_specifiers addObject:gsText];
-    PSSpecifier *gsDebug = [PSSpecifier preferenceSpecifierNamed:@"调试：记录弹窗尺寸" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [gsDebug setProperty:@"GSDebugSize" forKey:@"key"];
-    [gsDebug setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:gsDebug];
     // 2.30: the Control Center long-press menu (a real surface the 2.29 capture
     // found). Same layout as the other panel channels; the module that owns the
     // menu is written to the diagnostic line as module=...
     PSSpecifier *ccbGroup = [PSSpecifier groupSpecifierWithName:@"CCBorder 视频背景"];
-    [ccbGroup setProperty:@"控制中心长按菜单的背景视频；诊断日志会带 module= 标识，调试开关会输出弹窗尺寸。" forKey:@"footerText"];
+    [ccbGroup setProperty:@"控制中心长按菜单的背景视频；诊断日志会带 module= 标识。" forKey:@"footerText"];
     [_specifiers addObject:ccbGroup];
     PSSpecifier *ccbEnabled = [PSSpecifier preferenceSpecifierNamed:@"CCBorder 视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"];
@@ -228,14 +224,10 @@ static void LMVNotify(void) {
     [ccbMaterial setProperty:@"CCBorderMaterial" forKey:@"id"];
     [_specifiers addObject:ccbMaterial];
     [self appendAudioForTarget:@"CCBorder" title:@"播放"];
-    PSSpecifier *ccbDebug = [PSSpecifier preferenceSpecifierNamed:@"调试：记录弹窗尺寸" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [ccbDebug setProperty:@"CCBorderDebugSize" forKey:@"key"];
-    [ccbDebug setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:ccbDebug];
     // 2.32: the CopyLogX clipboard panel - the 411x470 bottom sheet the 2.31 capture
     // caught the phone-assist channel mounting on by mistake.
     PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];
-    [clxGroup setProperty:@"剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel / clx-size。" forKey:@"footerText"];
+    [clxGroup setProperty:@"剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel。" forKey:@"footerText"];
     [_specifiers addObject:clxGroup];
     PSSpecifier *clxEnabled = [PSSpecifier preferenceSpecifierNamed:@"CopyLogX 视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"];
@@ -250,10 +242,6 @@ static void LMVNotify(void) {
     clxText.buttonAction = @selector(openCopyLogXTextColor:);
     [clxText setProperty:@"CopyLogXTextColor" forKey:@"id"];
     [_specifiers addObject:clxText];
-    PSSpecifier *clxDebug = [PSSpecifier preferenceSpecifierNamed:@"调试：记录弹窗尺寸" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [clxDebug setProperty:@"CopyLogXDebugSize" forKey:@"key"];
-    [clxDebug setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:clxDebug];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];

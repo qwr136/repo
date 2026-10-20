@@ -268,8 +268,8 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterCVSection()) return 4;
     if (section == LMVEasterMyrtleSection()) return 4;
     if (section == LMVEasterPhoneAssistSection()) return 4;
-    if (section == LMVEasterGlassSuiteSection()) return 5;
-    if (section == LMVEasterCCBorderSection()) return 5;
+    if (section == LMVEasterGlassSuiteSection()) return 4;
+    if (section == LMVEasterCCBorderSection()) return 4;
     if (section == LMVEasterCopyLogXSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
@@ -441,11 +441,6 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
             cell.detailTextLabel.numberOfLines = 2;
-        } else if (index.row == 4) {
-            cell.textLabel.text = @"调试：记录弹窗尺寸"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-            UISwitch *toggle = [UISwitch new]; toggle.tag = 0x5E39;
-            toggle.on = [LMVEasterRead(@"CCBorderDebugSize") boolValue];
-            [toggle addTarget:self action:@selector(ccBorderDebugSizeChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         }
         return cell;
     }
@@ -479,11 +474,6 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
             cell.detailTextLabel.numberOfLines = 2;
-        } else if (index.row == 4) {
-            cell.textLabel.text = @"调试：记录弹窗尺寸"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-            UISwitch *toggle = [UISwitch new]; toggle.tag = 0x5E29;
-            toggle.on = [LMVEasterRead(@"GSDebugSize") boolValue];
-            [toggle addTarget:self action:@selector(debugSizeChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         }
         return cell;
     }
@@ -558,12 +548,6 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
-}
-- (void)debugSizeChanged:(UISwitch *)toggle {
-    LMVEasterSet(@"GSDebugSize", @(toggle.on));
-}
-- (void)ccBorderDebugSizeChanged:(UISwitch *)toggle {
-    LMVEasterSet(@"CCBorderDebugSize", @(toggle.on));
 }
 - (void)soundChanged:(UISwitch *)toggle {
     NSString *target = LMVEasterAudioTargetForTag(toggle.tag);
