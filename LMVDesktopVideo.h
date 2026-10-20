@@ -917,6 +917,13 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     NSInteger wantReason = (self.playback.frozen || self.appAway) ? (burst ? 2 : 1) : 0;
     LMVTuneReport(@"Desktop",@"WantFPS",wantFPS);
     LMVTuneReport(@"Desktop",@"WantReason",wantReason);
+    if (!(self.playback.frozen || self.appAway)) {
+        // 2.51: what the desktop ACTUALLY ran at while it was visible. Settings can only
+        // be opened from an app, where the desktop is covered by definition, so without
+        // this the page could never show the visible-state value - it always read
+        // "被遮挡" and looked like the setting had never been applied.
+        LMVTuneReport(@"Desktop",@"IdleApplied",wantFPS);
+    }
     if (link.preferredFramesPerSecond!=wantFPS) {
         link.preferredFramesPerSecond=wantFPS;
         // 2.47: one line per CHANGE, so a tuning edit can be confirmed from a single

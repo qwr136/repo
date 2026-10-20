@@ -44,6 +44,8 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     }
     // The desktop reports the frame rate it really applied, which can differ from the
     // two settings while a reveal burst is running.
+    NSNumber *idleApplied = LMVTuneRuntime(self.target, @"IdleApplied");
+    if (idleApplied) [parts addObject:[NSString stringWithFormat:@"桌面时 %ld", (long)idleApplied.integerValue]];
     NSNumber *want = LMVTuneRuntime(self.target, @"WantFPS");
     if (want) {
         NSNumber *reason = LMVTuneRuntime(self.target, @"WantReason");
@@ -60,7 +62,10 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     NSString *freshness = nil;
     if (age < 0) freshness = @"通道未运行";
     else if (age < 1.5) freshness = @"刚刚";
-    else freshness = [NSString stringWithFormat:@"%.0f 秒前", age];
+    else if (age < 10) freshness = [NSString stringWithFormat:@"%.0f 秒前", age];
+    // The timestamp only moves when the VALUE changes, so "287 秒前" meant "unchanged
+    // for 287 seconds", which read as "not working". Say what it means.
+    else freshness = @"持续生效";
     return [NSString stringWithFormat:@"当前生效：%@（%@）", [parts componentsJoinedByString:@" / "], freshness];
 }
 - (void)refreshStatus {
