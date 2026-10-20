@@ -43,7 +43,10 @@ assert picker.count('- (void)touchesBegan:') == 2, 'one per custom colour view'
 assert 'UIPanGestureRecognizer' not in picker, 'raw touches only - a recogniser lost the drag'
 assert 'dim.tag=0x5A30;' in picker, 'own dimming layer instead of a page sheet'
 assert '[dot.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor]' in prefs
-assert '[dot.centerXAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-41.5]' in prefs
+# 2.46: the swatch is aligned by its RIGHT EDGE with the switch's right edge (16pt in),
+# not centre-to-centre. The swatch is 22pt against the switch's 51pt, so the old -41.5
+# left it 14.5pt to the left of the column the user marked on the device. 16 + 11 = 27.
+assert '[dot.centerXAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-27]' in prefs
 assert '@"不透明度"' in picker, 'alpha slider'
 assert '恢复默认颜色' in picker, 'reset row'
 assert 'CAGradientLayer' in picker, 'the slider tracks are gradients'

@@ -23,6 +23,10 @@ static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
         @{@"id":@"GS",            @"name":@"GlassSuiteX 弹窗"},
         @{@"id":@"CCBorder",      @"name":@"CCBorder 长按菜单"},
         @{@"id":@"CopyLogX",      @"name":@"CopyLogX 面板"},
+        // 2.46: the desktop is the one non-panel channel that runs a display link all
+        // the time, so its cadence is worth exposing. It still has no probe/delay rows:
+        // what the user can tune here is how often the surface is re-measured.
+        @{@"id":@"Desktop",       @"name":@"桌面背景视频"},
     ];
 }
 static inline NSString *LMVTuneTargetName(NSString *target) {
@@ -62,6 +66,15 @@ static inline BOOL LMVTuneHasHook(NSString *target) {
     return [@[@"GS",@"CopyLogX"] containsObject:target];
 }
 static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) {
+    // 2.46: the desktop has its own two cadences instead of the probe/delay group -
+    // it is driven by a display link, not by a polling timer, so "出现延迟" and
+    // "钩子节流" would mean nothing there.
+    if ([target isEqualToString:@"Desktop"]) {
+        return @[@{@"title":@"刷新", @"params":@[
+            LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 10~60)", 10, 60, 30),
+            LMVTuneParam(@"CoveredFPS", @"被遮挡时心跳 (Hz, 1~30)", 1, 30, 5),
+        ]}];
+    }
     NSMutableArray *groups = [NSMutableArray array];
     if (LMVTuneHasTimer(target)) {
         NSMutableArray *probe = [NSMutableArray array];
@@ -85,9 +98,9 @@ static inline NSDictionary *LMVTuneFindParam(NSString *key) {
     static NSDictionary *index; static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableDictionary *map = [NSMutableDictionary dictionary];
-        // Only the probe group is left (2.44 removed playback/visibility/perf),
-        // and GS carries every key it defines: frequency, delays and hook throttle.
-        for (NSString *target in @[@"GS"])
+        // 2.46: every channel's own group is scanned, so the desktop's two cadence
+        // keys get their min/max/default like the probe keys do.
+        for (NSString *target in LMVTuneTargets())
             for (NSDictionary *group in LMVTuneGroupsForTarget(target))
                 for (NSDictionary *p in group[@"params"])
                     if (!map[p[@"key"]]) map[p[@"key"]] = p;

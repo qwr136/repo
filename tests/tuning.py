@@ -24,7 +24,11 @@ workflow = (root / '.github/workflows/build.yml').read_text()
 targets = ['SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
 for target in targets:
     assert f'@"{target}"' in tuning, target
-for gone in ('Lock', 'Desktop', 'ControlCenter', 'HomeMenu', 'Bubble'):
+# 2.46: the user asked for the desktop's cadence to be tunable (it is the only
+# non-panel channel running a display link all the time), so Desktop is back in the
+# list with its own 刷新 group. Lock/ControlCenter/HomeMenu/Bubble stay out.
+assert '@"Desktop"' in tuning
+for gone in ('Lock', 'ControlCenter', 'HomeMenu', 'Bubble'):
     assert f'@"{gone}"' not in tuning, f'{gone} must be gone from the tuning targets'
 
 # ---- 2) 参数表：只有探测组 ------------------------------------------------------
@@ -38,6 +42,14 @@ assert '@"探测"' in tuning
 for gone in ('@"播放"', '@"可见性"', '@"性能"'):
     assert gone not in tuning, gone
 assert 'LMVTuneBubbleGroups' not in tuning
+# desktop cadence rows, and the runtime must actually read them
+assert 'LMVTuneParam(@"IdleFPS"' in tuning and 'LMVTuneParam(@"CoveredFPS"' in tuning
+assert '@"刷新"' in tuning
+desktop = (root / 'LMVDesktopVideo.h').read_text()
+assert 'LMVTuneValue(@"Desktop",@"IdleFPS")' in desktop
+assert 'LMVTuneValue(@"Desktop",@"CoveredFPS")' in desktop
+assert 'burst?60:LMVDesktopCadence(@"CoveredFPS")' in desktop
+assert 'LMVDesktopCadence(@"IdleFPS")' in desktop
 
 # ---- 3) 写入必须广播，常驻通道才知道值变了 --------------------------------------
 assert 'CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter()' in tuning

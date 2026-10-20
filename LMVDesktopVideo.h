@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelTuning.h"
 // Included after LMVLockVideo.h: use its proven video-only playback class as a
 // separate instance. No player/item/looper/position/poster is shared with Lock.
 static BOOL LMVDesktopObjectGetter(id object,SEL selector) {
@@ -858,6 +859,25 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 - (void)stopCoverWatch {
     [self.coverWatch invalidate];self.coverWatch=nil;
 }
+// 2.46: the desktop cadence is user-tunable now (设置 → 自定义参数 → 桌面背景视频).
+// The read is cached for a second on purpose: this runs up to 60 times a second, and
+// a preferences lookup per frame would be exactly the cost these knobs exist to remove.
+static NSInteger LMVDesktopCadence(NSString *key) {
+    static CFTimeInterval lastRead;
+    static NSInteger idleFPS=30, coveredFPS=5;
+    CFTimeInterval now=CACurrentMediaTime();
+    if (now-lastRead>=1.0) {
+        lastRead=now;
+        idleFPS=LMVTuneValue(@"Desktop",@"IdleFPS");
+        coveredFPS=LMVTuneValue(@"Desktop",@"CoveredFPS");
+    }
+    NSInteger value=[key isEqualToString:@"IdleFPS"]?idleFPS:coveredFPS;
+    NSInteger lo=[key isEqualToString:@"IdleFPS"]?10:1;
+    NSInteger hi=[key isEqualToString:@"IdleFPS"]?60:30;
+    if (value<lo) value=lo;
+    if (value>hi) value=hi;
+    return value;
+}
 - (void)coverWatchTick:(CADisplayLink *)link {
     if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
     // 2.07: A COVERED DESKTOP IS A WATCHDOG, NOT A RENDERER.
@@ -878,7 +898,14 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // 2.10: with the key-window edge doing the waking, the heartbeat only has to be a
     // backstop for transitions that do not change the key window. 5 Hz is enough for
     // that and costs half of the 10 Hz version.
-    NSInteger wantFPS=(self.playback.frozen || self.appAway)?(burst?60:5):60;
+    // 2.46: the VISIBLE state was still 60 Hz, which is one main-thread wake per
+    // frame for as long as the desktop video exists - even when the tick returns at
+    // its cheap gate. A reveal can only be late by one interval, and the cross-fade
+    // itself lasts 200-400 ms, so 30 Hz halves that wake traffic with no visible
+    // difference; the 1 s burst after a key-window change stays at 60 Hz to catch the
+    // exact frame the desktop is uncovered.
+    NSInteger wantFPS=(self.playback.frozen || self.appAway)?
+        (burst?60:LMVDesktopCadence(@"CoveredFPS")):LMVDesktopCadence(@"IdleFPS");
     if (link.preferredFramesPerSecond!=wantFPS) link.preferredFramesPerSecond=wantFPS;
     // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
     // full cover measurement - window enumeration, a class match per window, a
@@ -908,7 +935,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // simply "desktop video is on" - the decoder is not the only one working.
         // 20 Hz is three times cheaper and still spots a reveal within 50 ms, which
         // is under the cross-fade's own duration.
-        if (gateNow-self.probeCountAt < .05) return;
+        // 2.46: 10 Hz instead of 20 Hz. The count only decides whether a FULL probe
+        // is worth running; the reveal itself is still evaluated on every tick.
+        if (gateNow-self.probeCountAt < .1) return;
         self.probeCountAt=gateNow;
         NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
         if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
