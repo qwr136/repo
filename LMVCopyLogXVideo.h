@@ -33,6 +33,9 @@
 static void LMVCopyLogXVideoRefresh(BOOL reload);
 static void LMVCopyLogXVideoSuspend(void);
 static BOOL LMVCopyLogXEnabled,LMVCopyLogXPrefsKnown;
+// 2.37: "the card is on screen right now" - drives the probe gear the same way the
+// GS channel does, so an idle panel costs almost nothing.
+static BOOL LMVCopyLogXCardLive;
 static NSString *LMVCopyLogXPath,*LMVCopyLogXRevision;
 static NSTimer *LMVCopyLogXTimer;
 
@@ -60,9 +63,25 @@ static CGFloat LMVCopyLogXVisibleArea(CGRect frame,CGRect bounds) {
 // named subclass to look for - so the window is only a candidate once the card
 // signature below is found inside it. A window whose root controller is named after
 // the tweak is accepted as well, for the case where it later gets its own subclass.
+// 2.37: THE PANEL NAMES ITSELF. The 2.36 window dump printed
+//
+//   [UIWindow 430x932 cand=1 rvc=CopylogXPanelHostController] {UIControl|UIView|}
+//
+// so there is no need to guess from ratios any more: the window is identified by
+// its root controller, exactly like any other app window. The window class stays
+// plain UIWindow - only the controller carries the name.
+static BOOL LMVCopyLogXIdentityWindow(UIWindow *window) {
+    if(!window)return NO;
+    NSString *root=NSStringFromClass(window.rootViewController.class);
+    if(!root.length)return NO;
+    for(NSString *word in @[@"CopylogX",@"CopyLog",@"CopyLogX",@"CLX"])
+        if([root rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
+    return NO;
+}
 static BOOL LMVCopyLogXWindowKind(UIWindow *window) {
     if(!window)return NO;
     NSString *name=NSStringFromClass(window.class);
+    if(LMVCopyLogXIdentityWindow(window))return YES;
     if([name containsString:@"CopyLog"] || [name containsString:@"CLX"])return YES;
     // 2.33: the 2.31 capture showed the panel in a PLAIN `UIWindow` whose root
     // controller tells us nothing (`rvc=none`). Requiring a known root class was
@@ -165,8 +184,57 @@ static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view) {
 // The card CopyLogX is showing right now, or nil. Public to the PA channel: that one
 // asked the same window for "a Dimming/Backdrop shell" and mounted a phone-assist
 // video here in 2.31, so it now skips exactly this card.
+// 2.37: inside the identity window the card is just the largest visible
+// effect-content view. The width / height / bottom thresholds existed only to tell
+// CopyLogX apart from CopyVault - the window does that now, so they are gone.
+static UIView *LMVCopyLogXCardInIdentityWindow(UIWindow *window) {
+    if(!window)return nil;
+    CGRect bounds=window.bounds;
+    if(CGRectIsEmpty(bounds))return nil;
+    UIView *best=nil;CGFloat bestArea=0;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+    NSUInteger budget=400;
+    while(pending.count && budget) {
+        --budget;
+        UIView *node=pending.lastObject;[pending removeLastObject];
+        for(UIView *child in node.subviews) {
+            if(!budget--)break;
+            if(child.tag==LMVCopyLogXHostTag || child.hidden || child.alpha<.01)continue;
+            [pending addObject:child];
+            NSString *name=NSStringFromClass(child.class);
+            if([name rangeOfString:@"UIVisualEffectContentView" options:NSCaseInsensitiveSearch].location==NSNotFound)continue;
+            CGRect frame=[child convertRect:child.bounds toView:window];
+            if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
+            CGFloat visible=LMVCopyLogXVisibleArea(frame,bounds);
+            if(visible<=0)continue;
+            if(LMVCopyLogXHasList(child))visible*=2;
+            if(visible>bestArea){bestArea=visible;best=child;}
+        }
+    }
+    return best;
+}
+// Which path found (or failed to find) the card - printed as scan= in clx-panel.
+static NSString *LMVCopyLogXScan=nil;
 static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
     if(windowOut)*windowOut=nil;
+    LMVCopyLogXScan=nil;
+    // 2.37: identity window first. Only that one window is walked, and if it exists
+    // but the panel is closed we stop here - other windows cannot be CopyLogX.
+    BOOL identityPresent=NO;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if(!LMVCopyLogXIdentityWindow(window))continue;
+            identityPresent=YES;
+            if(window.hidden || window.alpha<.01)continue;
+            UIView *card=LMVCopyLogXCardInIdentityWindow(window);
+            if(card) {LMVCopyLogXScan=@"identity";if(windowOut)*windowOut=window;return card;}
+        }
+    }
+    if(identityPresent) {LMVCopyLogXScan=@"identity";return nil;}
+    // Structural fallback: kept only for a future build that drops the controller
+    // name. It is what 2.36 did, ratios and all.
+    LMVCopyLogXScan=@"structural";
     UIView *best=nil;UIWindow *bestWindow=nil;CGFloat bestArea=0;
     for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if(![scene isKindOfClass:UIWindowScene.class])continue;
@@ -294,6 +362,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
     self.host.hidden=YES;
     if(self.playback.wantsPlayback)[self.playback setVisible:NO];
     LMVCopyLogXRestoreTextColor();
+    LMVCopyLogXCardLive=NO;
     self.card=nil;self.mode=nil;
 }
 - (BOOL)insertHostInto:(UIView *)container at:(NSUInteger)index {
@@ -308,6 +377,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=nil;
     UIView *card=LMVCopyLogXFindCard(&window);
+    LMVCopyLogXCardLive=(card!=nil);
     if(!card) {
         // 2.33: say WHY, the way the PA channel does. Without this line "switch on,
         // material picked, still nothing" is indistinguishable from "no card".
@@ -353,7 +423,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
     LMVCopyLogXApplyTextColor(card);
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[card convertRect:card.bounds toView:window];
-        NSString *status=[NSString stringWithFormat:@"clx-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0fx%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f",
+        NSString *status=[NSString stringWithFormat:@"clx-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0fx%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f scan=%@",
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
@@ -361,18 +431,27 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
             self.host.bounds.size.width,self.host.bounds.size.height,
             (int)self.playback.playerLayer.readyForDisplay,
             (int)(self.playback.posterLayer.contents!=nil),
-            self.playback.player?self.playback.player.rate:0.0];
+            self.playback.player?self.playback.player.rate:0.0,
+            LMVCopyLogXScan?:@"none"];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
     self.updating=NO;
 }
 @end
+// 2.37: same three gears as the GS channel. The identity path only ever walks one
+// window, so even the "waiting" gear is cheap.
+static NSTimeInterval LMVCopyLogXInterval(void) {
+    if(!LMVCopyLogXEnabled)return 2.0;
+    if(LMVCopyLogXCardLive)return .25;
+    return .3;
+}
 static void LMVCopyLogXRetune(void) {
-    NSTimeInterval want=LMVCopyLogXEnabled?.1:.5;
+    NSTimeInterval want=LMVCopyLogXInterval();
     if(LMVCopyLogXTimer && fabs(LMVCopyLogXTimer.timeInterval-want)<.001)return;
     [LMVCopyLogXTimer invalidate];
     LMVCopyLogXTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyLogXVideoRefresh(NO);}];
+    LMVCopyLogXTimer.tolerance=want*.3;
     [NSRunLoop.mainRunLoop addTimer:LMVCopyLogXTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVCopyLogXVideoRefresh(BOOL reload) {

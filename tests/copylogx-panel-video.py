@@ -37,6 +37,22 @@ assert 'LMVLockVideoRevision(LMVCopyLogXPath)' in src
 assert '![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]' in src
 
 # ---- 2) 结构识别：普通窗口 + 底部 + 宽度 + 表格 ------------------------------
+# 2.37: the panel's window names itself through its root controller -
+# rvc=CopylogXPanelHostController in the 2.36 dump - so the identity path walks
+# that window only and never touches another one.
+assert 'static BOOL LMVCopyLogXIdentityWindow(UIWindow *window)' in src
+assert '@[@"CopylogX",@"CopyLog",@"CopyLogX",@"CLX"]' in src
+assert 'BOOL identityPresent=NO;' in src
+assert 'if(identityPresent) {LMVCopyLogXScan=@"identity";return nil;}' in src
+assert 'static UIView *LMVCopyLogXCardInIdentityWindow(UIWindow *window)' in src
+assert 'scan=%@' in src
+# identity 路径不看比例/贴底，只要求「最大可见的 effect-content 卡片」
+assert 'bounds.size.width*.6' in src, 'the structural fallback still uses ratios'
+# 三档轮询
+assert 'static NSTimeInterval LMVCopyLogXInterval(void)' in src
+assert 'if(LMVCopyLogXCardLive)return .25;' in src
+assert 'return .3;' in src
+assert 'LMVCopyLogXTimer.tolerance=want*.3;' in src
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src
 assert 'static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view)' in src
 assert 'static BOOL LMVCopyLogXHasList(UIView *root)' in src
@@ -122,5 +138,6 @@ assert 'tests/copylogx-panel-video.py' in workflow
 print('PASS: CopyLogX clipboard-panel channel - independent switch/material/sound/volume/'
       'text-colour settings, structural detection (non-system window + bottom-anchored '
       'wide effect-content card, table breaks ties), index-0 mount inside the card, PA no '
-      'longer claims this card, clx-nocard window-tree diagnostics, audio plumbing, '
+      'longer claims this card, identity window via rvc=CopylogXPanelHostController, '
+      'clx-nocard window-tree diagnostics, three-gear probe, audio plumbing, '
       'floating-panel sync without the colour row, no debug-size row, CI wired')

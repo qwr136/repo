@@ -1,5 +1,6 @@
 #pragma once
 #import <dlfcn.h>
+#import <objc/runtime.h>
 // 2.29: the GlassSuiteX pop-up background (GlassSuiteX 弹窗背景视频).
 //
 // GlassSuiteX re-hosts the phone-assist sheet into its own hierarchy and renames
@@ -29,6 +30,7 @@
 
 static void LMVGlassSuiteVideoRefresh(BOOL reload);
 static void LMVGlassSuiteVideoSuspend(void);
+static void LMVGlassSuiteInstallContainerHook(void);
 static BOOL LMVGlassSuiteEnabled,LMVGlassSuitePrefsKnown;
 static NSString *LMVGlassSuitePath,*LMVGlassSuiteRevision;
 static NSTimer *LMVGlassSuiteTimer;
@@ -423,7 +425,10 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 static NSTimeInterval LMVGlassSuiteInterval(void) {
     if(!LMVGlassSuiteEnabled)return 2.0;
     if(LMVGlassSuiteCardRef)return .25;
-    return .75;
+    // 2.37: while waiting for the sheet, 0.2s. The scan is two levels deep with the
+    // icon grid pruned, so this is still a few hundred comparisons per second - and
+    // it is what makes the video appear with the sheet instead of a second later.
+    return .2;
 }
 static void LMVGlassSuiteRetune(void) {
     NSTimeInterval want=LMVGlassSuiteInterval();
@@ -435,6 +440,7 @@ static void LMVGlassSuiteRetune(void) {
 }
 static void LMVGlassSuiteVideoRefresh(BOOL reload) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;
+    LMVGlassSuiteInstallContainerHook();
     if(reload || !LMVGlassSuitePrefsKnown) {
         LMVGlassSuitePrefsKnown=YES;
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GSBackgroundEnabled"),kLMVPrefsID);
@@ -460,7 +466,46 @@ static void LMVGlassSuiteVideoSuspend(void) {
     if(!NSThread.isMainThread)return;
     [LMVGlassSuiteVideo detach];
 }
+// 2.37: THE SHEET IS NOT IN OUR WINDOW, SO THERE IS NO WINDOW NOTIFICATION.
+// GlassSuiteX adds GAXAlertOverlayView to SBHomeScreenWindow's UITransitionView;
+// waiting for the next probe is what made the video show up a second after the
+// sheet. Hooking the container's own didMoveToSuperview fires the moment it enters
+// the hierarchy - i.e. at the start of the presentation animation. The probe timer
+// stays as a fallback, so a missed hook only costs one interval.
+// Adding the method to the subclass first is essential: setting the inherited IMP
+// would replace UIView's didMoveToSuperview for every view on the system.
+static IMP LMVGlassSuiteContainerMovedOriginal;
+static BOOL LMVGlassSuiteContainerHooked;
+static NSTimeInterval LMVGlassSuiteLastHookRefresh;
+static void LMVGlassSuiteContainerMoved(id self,SEL _cmd) {
+    if(LMVGlassSuiteContainerMovedOriginal)
+        ((void(*)(id,SEL))LMVGlassSuiteContainerMovedOriginal)(self,_cmd);
+    NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+    if(now-LMVGlassSuiteLastHookRefresh<.05)return;
+    LMVGlassSuiteLastHookRefresh=now;
+    LMVGlassSuiteVideoRefresh(NO);
+}
+static void LMVGlassSuiteInstallContainerHook(void) {
+    if(LMVGlassSuiteContainerHooked)return;
+    Class cls=NSClassFromString(@"GAXAlertOverlayView");
+    if(!cls)return;
+    SEL sel=@selector(didMoveToSuperview);
+    Method inherited=class_getInstanceMethod(cls,sel);
+    if(!inherited)return;
+    IMP original=method_getImplementation(inherited);
+    const char *types=method_getTypeEncoding(inherited);
+    if(class_addMethod(cls,sel,(IMP)LMVGlassSuiteContainerMoved,types)) {
+        LMVGlassSuiteContainerMovedOriginal=original;
+    } else {
+        Method own=class_getInstanceMethod(cls,sel);
+        LMVGlassSuiteContainerMovedOriginal=method_getImplementation(own);
+        method_setImplementation(own,(IMP)LMVGlassSuiteContainerMoved);
+    }
+    LMVGlassSuiteContainerHooked=YES;
+}
 static void LMVGlassSuiteVideoInstallHooks(void) {
-    if(LMVGlassSuiteTimer || !LMVGlassSuiteSpringBoard())return;
+    if(!LMVGlassSuiteSpringBoard())return;
+    LMVGlassSuiteInstallContainerHook();
+    if(LMVGlassSuiteTimer)return;
     LMVGlassSuiteRetune();
 }

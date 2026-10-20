@@ -63,7 +63,9 @@ assert 'if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllO
 assert 'static NSTimeInterval LMVGlassSuiteInterval(void)' in src
 assert 'if(!LMVGlassSuiteEnabled)return 2.0;' in src
 assert 'if(LMVGlassSuiteCardRef)return .25;' in src
-assert 'return .75;' in src
+# 2.37: waiting gear drops to 0.2s so the video shows up with the sheet, not after it.
+assert 'return .2;' in src
+assert 'return .75;' not in src
 assert 'LMVGlassSuiteTimer.tolerance=want*.3;' in src
 # 0.1 秒的旧节拍不能再出现
 assert 'LMVGlassSuiteEnabled?.1:.5' not in src
@@ -80,9 +82,22 @@ assert 'chain=%@' in src
 assert 'static NSString *LMVGlassSuiteChain(UIView *view)' in src
 assert 'componentsJoinedByString:@">"' in src
 
+# ---- 7b) 弹窗出现即触发，而不是等下一次轮询 ----------------------------------
+assert 'static void LMVGlassSuiteInstallContainerHook(void)' in src
+assert 'NSClassFromString(@"GAXAlertOverlayView")' in src
+assert '@selector(didMoveToSuperview)' in src
+# 必须先给子类加方法，否则会把 UIView 的 didMoveToSuperview 全局替换掉
+assert 'if(class_addMethod(cls,sel,(IMP)LMVGlassSuiteContainerMoved,types))' in src
+assert 'LMVGlassSuiteContainerMovedOriginal=method_getImplementation(own);' in src
+# 钩子里有 50ms 节流，避免动画期间每帧都刷新
+assert 'if(now-LMVGlassSuiteLastHookRefresh<.05)return;' in src
+# 刷新入口会补装钩子（dylib 可能晚于本插件加载）
+assert src.count('LMVGlassSuiteInstallContainerHook();') >= 2
+
 # ---- 8) CI 必须跑本测试 ------------------------------------------------------
 assert 'check python3 tests/glasssuite-probe.py' in workflow
 
 print('PASS: GlassSuiteX probe cost - card-level cache (not window), two-level scan '
       'with icon/folder/wallpaper subtrees pruned, per-class dladdr cache, three-gear '
-      'timer with tolerance, mount point unchanged, chain diagnostics, CI wired')
+      'timer with tolerance, 0.2s waiting gear, container didMoveToSuperview hook for '
+      'instant mount, mount point unchanged, chain diagnostics, CI wired')
