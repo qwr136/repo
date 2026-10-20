@@ -84,8 +84,10 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
             LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms)", 0, 200, 50, nil, nil),
         ]},
         @{@"title":@"播放", @"params":@[
-            LMVTuneParam(@"MaxFPS", @"帧率上限", 0, 4, 0, @[@"原始", @"60", @"30", @"24", @"15"], @[@0, @60, @30, @24, @15]),
-            LMVTuneParam(@"RatePercent", @"播放速度", 0, 3, 1, @[@"0.5x", @"1x", @"1.5x", @"2x"], @[@50, @100, @150, @200]),
+            // min/max are the REAL value range, not the choice index: the read path
+            // clamps to them, so 0...4 would turn 60 fps into 4.
+            LMVTuneParam(@"MaxFPS", @"帧率上限", 0, 60, 0, @[@"原始", @"60", @"30", @"24", @"15"], @[@0, @60, @30, @24, @15]),
+            LMVTuneParam(@"RatePercent", @"播放速度", 50, 200, 100, @[@"0.5x", @"1x", @"1.5x", @"2x"], @[@50, @100, @150, @200]),
             LMVTuneParam(@"Gravity", @"填充方式", 0, 1, 0, @[@"填充", @"适应"], @[@0, @1]),
             LMVTuneParam(@"Loop", @"循环", 0, 1, 0, @[@"循环", @"播放一次"], @[@0, @1]),
         ]},

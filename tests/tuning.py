@@ -67,6 +67,9 @@ assert 'cell:PSButtonCell' in tune_controller
 assert 'cycleEnum:' in tune_controller
 assert 'LMVTuneGroupsForTarget(self.target)' in tune_controller
 assert 'LMVTuneSetValue(self.target' in tune_controller
+# 2.40: PSSliderCell needs label + showValue, otherwise the row is a nameless bar.
+assert '[s setProperty:p[@"title"] forKey:@"label"]' in tune_controller
+assert '[s setProperty:@YES forKey:@"showValue"]' in tune_controller
 
 # ---- 5) 探测参数被各通道读取 -------------------------------------------------
 channels = [

@@ -66,6 +66,11 @@
                                                                        get:@selector(readValue:)
                                                                     detail:nil cell:PSSliderCell edit:nil];
                     [s setProperty:p[@"key"] forKey:@"tuneKey"];
+                    // PSSliderCell draws its title from the `label` property, not from
+                    // the specifier name, and only prints the number when showValue is
+                    // set. Without these two the row is a nameless bar (2.39 bug).
+                    [s setProperty:p[@"title"] forKey:@"label"];
+                    [s setProperty:@YES forKey:@"showValue"];
                     [s setProperty:@([p[@"min"] integerValue]) forKey:@"min"];
                     [s setProperty:@([p[@"max"] integerValue]) forKey:@"max"];
                     [s setProperty:@([p[@"def"] integerValue]) forKey:@"default"];
