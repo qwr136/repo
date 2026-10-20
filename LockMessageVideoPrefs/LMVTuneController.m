@@ -24,7 +24,9 @@
 // Short names so the status line fits on one line on a phone.
 static NSString *LMVTuneShortLabel(NSString *key) {
     if ([key isEqualToString:@"ProbeHz"] || [key isEqualToString:@"TickHz"]) return @"检测";
-    if ([key isEqualToString:@"FPS"] || [key isEqualToString:@"IdleFPS"] || [key isEqualToString:@"WantFPS"]) return @"刷新";
+    if ([key isEqualToString:@"FPS"]) return @"刷新";
+    if ([key isEqualToString:@"IdleFPS"]) return @"可见";
+    if ([key isEqualToString:@"WantFPS"]) return @"实际";
     if ([key isEqualToString:@"CoveredFPS"]) return @"遮挡";
     if ([key isEqualToString:@"ShowDelayMs"]) return @"出现";
     if ([key isEqualToString:@"HideDelayMs"]) return @"关闭";
@@ -43,7 +45,17 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     // The desktop reports the frame rate it really applied, which can differ from the
     // two settings while a reveal burst is running.
     NSNumber *want = LMVTuneRuntime(self.target, @"WantFPS");
-    if (want) [parts addObject:[NSString stringWithFormat:@"实际 %ld", (long)want.integerValue]];
+    if (want) {
+        NSNumber *reason = LMVTuneRuntime(self.target, @"WantReason");
+        NSString *suffix = @"";
+        if (reason) {
+            NSInteger code = reason.integerValue;
+            if (code == 2) suffix = @"，爆发中";
+            else if (code == 1) suffix = @"，被遮挡";
+            else suffix = @"，桌面可见";
+        }
+        [parts addObject:[NSString stringWithFormat:@"实际 %ld%@", (long)want.integerValue, suffix]];
+    }
     NSTimeInterval age = LMVTuneRuntimeAge(self.target);
     NSString *freshness = nil;
     if (age < 0) freshness = @"通道未运行";

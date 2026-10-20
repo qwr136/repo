@@ -870,6 +870,11 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         lastRead=now;
         idleFPS=LMVTuneValue(@"Desktop",@"IdleFPS");
         coveredFPS=LMVTuneValue(@"Desktop",@"CoveredFPS");
+        // 2.49: these two are read through LMVTuneValue (not through the probe/delay
+        // helpers), so they were never reported and the settings page showed
+        // "未上报" next to values the channel was clearly using.
+        LMVTuneReport(@"Desktop",@"IdleFPS",idleFPS);
+        LMVTuneReport(@"Desktop",@"CoveredFPS",coveredFPS);
     }
     NSInteger value=[key isEqualToString:@"IdleFPS"]?idleFPS:coveredFPS;
     NSInteger lo=[key isEqualToString:@"IdleFPS"]?10:1;
@@ -906,7 +911,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // exact frame the desktop is uncovered.
     NSInteger wantFPS=(self.playback.frozen || self.appAway)?
         (burst?60:LMVDesktopCadence(@"CoveredFPS")):LMVDesktopCadence(@"IdleFPS");
+    // 0 = idle (desktop visible), 1 = covered heartbeat, 2 = the 1 s burst that runs
+    // right after a key-window change. Without this the page showed "实际 60" while
+    // the user had set 10 and looked like the setting was ignored.
+    NSInteger wantReason = (self.playback.frozen || self.appAway) ? (burst ? 2 : 1) : 0;
     LMVTuneReport(@"Desktop",@"WantFPS",wantFPS);
+    LMVTuneReport(@"Desktop",@"WantReason",wantReason);
     if (link.preferredFramesPerSecond!=wantFPS) {
         link.preferredFramesPerSecond=wantFPS;
         // 2.47: one line per CHANGE, so a tuning edit can be confirmed from a single
