@@ -75,6 +75,15 @@ assert 'CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotify
 assert 'com.minis.lockmessagevideo/preferencesChanged' in tuning
 assert 'if (hz > 60) hz = 60;' in tuning
 assert '[NSString stringWithFormat:@"Tune.%@.%@", target, key]' in tuning
+# 2.50: the runtime report MUST use its own domain. Writing Runtime.* into the
+# settings domain and synchronising from SpringBoard flushed that process's stale
+# snapshot back to disk and silently reverted the saved value (device log: idle=30
+# after the user set 10). Guard the separation so it cannot come back.
+assert 'LMVTuneRuntimeDomain = @"com.minis.lockmessagevideo.runtime"' in tuning
+report_body = tuning[tuning.index('LMVTuneReport(NSString *target'):]
+report_body = report_body[:report_body.index('\n}')]
+assert 'LMVTuneRuntimeDomain' in report_body
+assert 'LMVTuneDomain)' not in report_body, 'runtime report must not touch the settings domain'
 assert 'LMVTuneRuntimeAge' in tuning and '当前生效' in (root / 'LockMessageVideoPrefs/LMVTuneController.m').read_text()
 assert 'LMVTuneProbeInterval(NSString *target)' in tuning
 assert 'LMVTuneDelay(NSString *target, NSString *key)' in tuning

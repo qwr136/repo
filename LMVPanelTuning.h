@@ -11,6 +11,12 @@
 // bundle, so everything here is `static` and depends only on Foundation.
 
 static NSString *const LMVTuneDomain = @"com.minis.lockmessagevideo";
+// 2.50: the runtime report MUST live in its own domain. Writing Runtime.* into the
+// settings domain and then calling CFPreferencesAppSynchronize from SpringBoard
+// flushed that process's stale snapshot back to disk, overwriting the value the user
+// had just saved in Settings (device log: idle went back to 30, covered to 1, while
+// the page still showed 10). Separate domain, no shared keys, no way to collide.
+static NSString *const LMVTuneRuntimeDomain = @"com.minis.lockmessagevideo.runtime";
 
 // The channels, in the same order Settings lists them. "group" splits the settings
 // list into sections (面板 / 其他) instead of one long block of nine rows.
@@ -190,27 +196,36 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     last[identity] = @(value);
     NSString *full = [NSString stringWithFormat:@"Runtime.%@.%@", target, key];
     CFPreferencesSetAppValue((__bridge CFStringRef)full, (__bridge CFNumberRef)@(value),
-                             (__bridge CFStringRef)LMVTuneDomain);
+                             (__bridge CFStringRef)LMVTuneRuntimeDomain);
     NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.At", target];
     CFPreferencesSetAppValue((__bridge CFStringRef)stamp,
                              (__bridge CFNumberRef)@(NSDate.date.timeIntervalSince1970),
-                             (__bridge CFStringRef)LMVTuneDomain);
-    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneDomain);
+                             (__bridge CFStringRef)LMVTuneRuntimeDomain);
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneRuntimeDomain);
+}
+// Reads come from Settings, writes from SpringBoard, so the runtime domain is
+// synchronised here too - throttled, because the page reads once a second anyway.
+static inline void LMVTuneRuntimeSync(void) {
+    static NSTimeInterval last;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (now - last < 0.9) return;
+    last = now;
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneRuntimeDomain);
 }
 static inline NSNumber *LMVTuneRuntime(NSString *target, NSString *key) {
     if (!target.length || !key.length) return nil;
-    LMVTuneSync();
+    LMVTuneRuntimeSync();
     NSString *full = [NSString stringWithFormat:@"Runtime.%@.%@", target, key];
     id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)full,
-                                                               (__bridge CFStringRef)LMVTuneDomain);
+                                                               (__bridge CFStringRef)LMVTuneRuntimeDomain);
     return [value isKindOfClass:NSNumber.class] ? value : nil;
 }
 static inline NSTimeInterval LMVTuneRuntimeAge(NSString *target) {
     if (!target.length) return -1;
-    LMVTuneSync();
+    LMVTuneRuntimeSync();
     NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.At", target];
     id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)stamp,
-                                                               (__bridge CFStringRef)LMVTuneDomain);
+                                                               (__bridge CFStringRef)LMVTuneRuntimeDomain);
     if (![value isKindOfClass:NSNumber.class]) return -1;
     return MAX(0.0, NSDate.date.timeIntervalSince1970 - [value doubleValue]);
 }
