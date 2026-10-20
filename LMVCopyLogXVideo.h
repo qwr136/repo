@@ -1,5 +1,6 @@
 #pragma once
 #import <dlfcn.h>
+#import <objc/runtime.h>
 // 2.32: the CopyLogX clipboard panel (CopyLogX 视频背景).
 //
 // The 2.31 capture showed the phone-assist channel mounting a video on this panel
@@ -31,6 +32,7 @@
 // LMVDiagnostic, kLMVPrefsID).
 
 static void LMVCopyLogXVideoRefresh(BOOL reload);
+static void LMVCopyLogXInstallControllerHook(void);
 static void LMVCopyLogXVideoSuspend(void);
 static BOOL LMVCopyLogXEnabled,LMVCopyLogXPrefsKnown;
 // 2.37: "the card is on screen right now" - drives the probe gear the same way the
@@ -444,7 +446,9 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 static NSTimeInterval LMVCopyLogXInterval(void) {
     if(!LMVCopyLogXEnabled)return 2.0;
     if(LMVCopyLogXCardLive)return .25;
-    return .3;
+    // 2.38: 0.15s while waiting. Only one window is ever walked, so this is a few
+    // hundred comparisons a second - cheap next to the sheet appearing without video.
+    return .15;
 }
 static void LMVCopyLogXRetune(void) {
     NSTimeInterval want=LMVCopyLogXInterval();
@@ -456,6 +460,7 @@ static void LMVCopyLogXRetune(void) {
 }
 static void LMVCopyLogXVideoRefresh(BOOL reload) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;
+    LMVCopyLogXInstallControllerHook();
     if(reload || !LMVCopyLogXPrefsKnown) {
         LMVCopyLogXPrefsKnown=YES;
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("CopyLogXBackgroundEnabled"),kLMVPrefsID);
@@ -486,7 +491,59 @@ static void LMVCopyLogXVideoSuspend(void) {
     if(!NSThread.isMainThread)return;
     [LMVCopyLogXVideo detach];
 }
+// 2.38: THE PANEL HAS ITS OWN CONTROLLER, SO ASK IT DIRECTLY.
+// 2.36's window dump named it: rvc=CopylogXPanelHostController. Waiting for the
+// next probe is what let the sheet appear before the video, so both appearance
+// callbacks now trigger an immediate refresh - viewWillAppear fires while the
+// sheet is still sliding in. The probe timer stays as a fallback.
+// class_addMethod first: replacing an inherited IMP would hit every UIViewController.
+static IMP LMVCopyLogXWillAppearOriginal;
+static IMP LMVCopyLogXDidAppearOriginal;
+static BOOL LMVCopyLogXControllerHooked;
+static NSTimeInterval LMVCopyLogXLastHookRefresh;
+static void LMVCopyLogXHookPing(void) {
+    NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+    if(now-LMVCopyLogXLastHookRefresh<.05)return;
+    LMVCopyLogXLastHookRefresh=now;
+    LMVCopyLogXVideoRefresh(NO);
+}
+static void LMVCopyLogXWillAppear(id self,SEL _cmd,BOOL animated) {
+    if(LMVCopyLogXWillAppearOriginal)
+        ((void(*)(id,SEL,BOOL))LMVCopyLogXWillAppearOriginal)(self,_cmd,animated);
+    LMVCopyLogXHookPing();
+}
+static void LMVCopyLogXDidAppear(id self,SEL _cmd,BOOL animated) {
+    if(LMVCopyLogXDidAppearOriginal)
+        ((void(*)(id,SEL,BOOL))LMVCopyLogXDidAppearOriginal)(self,_cmd,animated);
+    LMVCopyLogXHookPing();
+}
+static void LMVCopyLogXHookSelector(Class cls,SEL sel,IMP replacement,IMP *original) {
+    Method inherited=class_getInstanceMethod(cls,sel);
+    if(!inherited) {
+        class_addMethod(cls,sel,replacement,"v@:B");
+        return;
+    }
+    IMP inheritedIMP=method_getImplementation(inherited);
+    const char *types=method_getTypeEncoding(inherited);
+    if(class_addMethod(cls,sel,replacement,types)) {
+        *original=inheritedIMP;
+    } else {
+        Method own=class_getInstanceMethod(cls,sel);
+        *original=method_getImplementation(own);
+        method_setImplementation(own,replacement);
+    }
+}
+static void LMVCopyLogXInstallControllerHook(void) {
+    if(LMVCopyLogXControllerHooked)return;
+    Class cls=NSClassFromString(@"CopylogXPanelHostController");
+    if(!cls)return;
+    LMVCopyLogXHookSelector(cls,@selector(viewWillAppear:),(IMP)LMVCopyLogXWillAppear,&LMVCopyLogXWillAppearOriginal);
+    LMVCopyLogXHookSelector(cls,@selector(viewDidAppear:),(IMP)LMVCopyLogXDidAppear,&LMVCopyLogXDidAppearOriginal);
+    LMVCopyLogXControllerHooked=YES;
+}
 static void LMVCopyLogXVideoInstallHooks(void) {
-    if(LMVCopyLogXTimer || !LMVCopyLogXSpringBoard())return;
+    if(!LMVCopyLogXSpringBoard())return;
+    LMVCopyLogXInstallControllerHook();
+    if(LMVCopyLogXTimer)return;
     LMVCopyLogXRetune();
 }

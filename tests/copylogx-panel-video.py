@@ -46,12 +46,22 @@ assert 'BOOL identityPresent=NO;' in src
 assert 'if(identityPresent) {LMVCopyLogXScan=@"identity";return nil;}' in src
 assert 'static UIView *LMVCopyLogXCardInIdentityWindow(UIWindow *window)' in src
 assert 'scan=%@' in src
+# 2.38: the controller itself announces the panel - viewWillAppear fires while the
+# sheet is still sliding in, so the video is mounted at the same time as the sheet.
+assert 'static void LMVCopyLogXInstallControllerHook(void)' in src
+assert 'NSClassFromString(@"CopylogXPanelHostController")' in src
+assert '@selector(viewWillAppear:)' in src and '@selector(viewDidAppear:)' in src
+# 先 class_addMethod 到子类，避免把 UIViewController 的实现全局替换
+assert 'if(class_addMethod(cls,sel,replacement,types))' in src
+assert 'if(now-LMVCopyLogXLastHookRefresh<.05)return;' in src
 # identity 路径不看比例/贴底，只要求「最大可见的 effect-content 卡片」
 assert 'bounds.size.width*.6' in src, 'the structural fallback still uses ratios'
 # 三档轮询
 assert 'static NSTimeInterval LMVCopyLogXInterval(void)' in src
 assert 'if(LMVCopyLogXCardLive)return .25;' in src
-assert 'return .3;' in src
+# 2.38: waiting gear 0.15s - only the identity window is ever walked.
+assert 'return .15;' in src
+assert 'return .3;' not in src
 assert 'LMVCopyLogXTimer.tolerance=want*.3;' in src
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src
 assert 'static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view)' in src
@@ -139,5 +149,6 @@ print('PASS: CopyLogX clipboard-panel channel - independent switch/material/soun
       'text-colour settings, structural detection (non-system window + bottom-anchored '
       'wide effect-content card, table breaks ties), index-0 mount inside the card, PA no '
       'longer claims this card, identity window via rvc=CopylogXPanelHostController, '
-      'clx-nocard window-tree diagnostics, three-gear probe, audio plumbing, '
+      'clx-nocard window-tree diagnostics, three-gear probe, controller appearance hook, '
+      'audio plumbing, '
       'floating-panel sync without the colour row, no debug-size row, CI wired')
