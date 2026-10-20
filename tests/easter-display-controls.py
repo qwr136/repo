@@ -78,7 +78,9 @@ int main(void) { @autoreleasepool {
         assert(runPolicy(c,YES,0,YES,0,NO,YES,NO,NO,YES)==(on && c.showOnControlCenter?LMVEasterDisplayControlCenter:LMVEasterDisplayNone));
         assert(runPolicy(c,YES,0,YES,0,YES,NO,NO,YES,YES)==(on?LMVEasterDisplayNC:LMVEasterDisplayNone));
         assert(runPolicy(c,YES,0,YES,1,YES,NO,NO,YES,YES)==(on?LMVEasterDisplayNC:LMVEasterDisplayNone)); // NC lockstate pulse
-        assert(runPolicy(c,YES,0,YES,1,YES,NO,NO,NO,YES)==(on && c.showOnLockScreen?LMVEasterDisplayLockScreen:LMVEasterDisplayNone));
+        // 2.35: the Lock Screen scene is permanently off - the stored flag is ignored.
+        assert(!c.showOnLockScreen);
+        assert(runPolicy(c,YES,0,YES,1,YES,NO,NO,NO,YES)==LMVEasterDisplayNone);
         assert(runPolicy(c,YES,0,YES,0,YES,NO,NO,NO,YES)==LMVEasterDisplayNone); // Face ID alone is not NC
         assert(runPolicy(c,YES,0,YES,0,YES,YES,YES,NO,YES)==LMVEasterDisplayNone); // overlapping CC never bypasses that gate
         assert(runPolicy(c,YES,0,YES,0,NO,NO,NO,NO,YES)==LMVEasterDisplayNone); // ordinary app/unknown
@@ -94,6 +96,8 @@ int main(void) { @autoreleasepool {
         }
     }
     LMVEasterDisplayControls c=LMVEasterDisplayControlsFromValues(@YES,@YES,@YES,@YES,@YES,@45);
+    // 2.35: even an explicit YES for the Lock Screen key must not enable that scene.
+    assert(!c.showOnLockScreen);
     SBCoverSheetWindow *window=[SBCoverSheetWindow new];
     CSCoverSheetView *cover=[CSCoverSheetView new];cover.superview=window;cover.window=window;
     [window.layer addSublayer:cover.layer];cover.layer.frame=window.bounds;window.subviews=@[cover];
@@ -101,7 +105,7 @@ int main(void) { @autoreleasepool {
     [cover.layer addSublayer:content.layer];content.layer.frame=cover.bounds;cover.subviews=@[content];cover.slideableContentView=content;
     window.rootViewController.viewIfLoaded=cover;
     assert(LMVEasterNCWindowExposed(window));
-    assert(runPolicy(c,YES,0,YES,1,LMVEasterNCWindowExposed(window),NO,NO,NO,YES)==LMVEasterDisplayLockScreen);
+    assert(runPolicy(c,YES,0,YES,1,LMVEasterNCWindowExposed(window),NO,NO,NO,YES)==LMVEasterDisplayNone);
     content.layer.frame=CGRectMake(0,-844,390,844);
     assert(!LMVEasterNCWindowExposed(window));
     assert(runPolicy(c,YES,0,YES,1,LMVEasterNCWindowExposed(window),NO,NO,NO,YES)==LMVEasterDisplayNone);

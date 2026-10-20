@@ -70,21 +70,31 @@ static BOOL LMVCopyLogXWindowKind(UIWindow *window) {
     // by what it is NOT: our own floating window and the system chrome. The card
     // signature below is what actually picks the sheet.
     if([name isEqualToString:@"LMVEasterWindow"])return NO;
+    // 2.35: other channels' own panels can contain the very same effect-content
+    // view (CopyVault's panel does), so their windows are never candidates.
+    for(NSString *word in @[@"CVPanel",@"CopyVault",@"Myrtle",@"SGPanel",@"SquidPanel"])
+        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return NO;
     for(NSString *word in @[@"SystemAperture",@"TouchVisualizer",@"TextEffects",@"Wallpaper",
                             @"RecordingIndicator",@"StatusBar",@"FloatingDock",@"Switcher",
                             @"SBControlCenter",@"SBMain",@"SBHomeScreen"])
         if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return NO;
     return YES;
 }
-static BOOL LMVCopyLogXHasTable(UIView *root) {
+// 2.35: the list is the IDENTITY, not a tie-breaker. CopyVault's panel carries a
+// `_UIVisualEffectContentView` of exactly the right size and position, so shape
+// alone cannot tell the two apart - but its table lives OUTSIDE that content view
+// (a sibling of the material), while CopyLogX's table is INSIDE the card. Any
+// scroll view counts, so a switch from UITableView to a collection view (or a
+// future restyle) keeps working.
+static BOOL LMVCopyLogXHasList(UIView *root) {
     if(!root)return NO;
     NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
-    NSUInteger budget=200;
+    NSUInteger budget=300;
     while(pending.count && budget) {
         UIView *node=pending.lastObject;[pending removeLastObject];
         for(UIView *child in node.subviews) {
             if(!budget--)break;
-            if([child isKindOfClass:UITableView.class])return YES;
+            if([child isKindOfClass:UIScrollView.class])return YES;
             [pending addObject:child];
         }
     }
@@ -103,14 +113,15 @@ static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view) {
     // The old 80%/25%/16pt window was needlessly tight: a one-point inset or the
     // sheet's own entrance animation was enough to miss it entirely and leave the
     // channel with nothing to mount on.
-    if(frame.size.width<bounds.size.width*.75)return NO;
-    if(frame.size.height<bounds.size.height*.2 || frame.size.height>bounds.size.height*.85)return NO;
+    // 2.35: RATIOS, NOT THE 411x470 NUMBERS. Resizing the panel (taller, shorter,
+    // wider) keeps working as long as it stays inside these bounds; the list below
+    // is what actually proves it is CopyLogX and not some other bottom sheet.
+    if(frame.size.width<bounds.size.width*.6)return NO;
+    if(frame.size.height<bounds.size.height*.15 || frame.size.height>bounds.size.height*.9)return NO;
     // Bottom sheet: its bottom edge sits on (or near) the screen bottom. A closed
     // panel is parked off screen, so this also keeps that copy out.
-    if(fabs(CGRectGetMaxY(frame)-bounds.size.height)>40)return NO;
-    // A clipboard list is expected but not required - `LMVCopyLogXHasTable` only
-    // breaks ties, so a renamed/collection-based list no longer kills the channel.
-    return YES;
+    if(fabs(CGRectGetMaxY(frame)-bounds.size.height)>60)return NO;
+    return LMVCopyLogXHasList(view);
 }
 // The card CopyLogX is showing right now, or nil. Public to the PA channel: that one
 // asked the same window for "a Dimming/Backdrop shell" and mounted a phone-assist
@@ -134,8 +145,8 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
                     if(!LMVCopyLogXCardKind(window,child))continue;
                     CGRect frame=[child convertRect:child.bounds toView:window];
                     CGFloat visible=LMVCopyLogXVisibleArea(frame,window.bounds);
-                    // A card that really holds the list wins over a look-alike.
-                    if(LMVCopyLogXHasTable(child)) visible*=2;
+                    // A tighter fit to the sheet edges wins when several match.
+                    if(LMVCopyLogXHasList(child)) visible*=2;
                     if(visible>bestArea){bestArea=visible;best=child;bestWindow=window;}
                 }
             }

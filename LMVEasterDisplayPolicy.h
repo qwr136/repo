@@ -21,7 +21,13 @@ static double LMVEasterRotationSpeed(id value) {
     return fmax(5.0,fmin(720.0,speed));
 }
 static LMVEasterDisplayControls LMVEasterDisplayControlsFromValues(id enabled,id lock,id cc,id desktop,id rotation,id speed) {
-    return (LMVEasterDisplayControls){LMVEasterDisplayBool(enabled,NO),LMVEasterDisplayBool(lock,NO),
+    // 2.35: the Lock Screen scene is permanently OFF. Its switch is gone from both
+    // surfaces (Settings and the floating panel), and the stored value is ignored on
+    // purpose: a build that once set EasterEggShowOnLockScreen=YES must not keep the
+    // egg on the Lock Screen after upgrading. The key and the policy branch below
+    // stay in the code, so the feature is still there - just never enabled.
+    (void)lock;
+    return (LMVEasterDisplayControls){LMVEasterDisplayBool(enabled,NO),NO,
         LMVEasterDisplayBool(cc,YES),LMVEasterDisplayBool(desktop,YES),LMVEasterDisplayBool(rotation,NO),
         LMVEasterRotationSpeed(speed)};
 }

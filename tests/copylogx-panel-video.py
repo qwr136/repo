@@ -39,16 +39,21 @@ assert '![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]' 
 # ---- 2) 结构识别：普通窗口 + 底部 + 宽度 + 表格 ------------------------------
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src
 assert 'static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view)' in src
-assert 'static BOOL LMVCopyLogXHasTable(UIView *root)' in src
+assert 'static BOOL LMVCopyLogXHasList(UIView *root)' in src
 assert 'UIVisualEffectContentView' in src, 'the card class the 2.31 capture named'
-assert 'bounds.size.width*.75' in src, 'the 411pt card on a 430pt screen is 95% wide'
-assert 'bounds.size.height*.2' in src and 'bounds.size.height*.85' in src
-assert 'fabs(CGRectGetMaxY(frame)-bounds.size.height)>40' in src, 'bottom-anchored'
-assert 'isKindOfClass:UITableView.class' in src, 'the clipboard list breaks ties'
-# 2.33: the window is judged by exclusion (system chrome), not by a root class name
+# 2.35: ratios, not the 411x470 numbers - resizing the panel still matches.
+assert 'bounds.size.width*.6' in src, 'the 411pt card on a 430pt screen is 95% wide'
+assert 'bounds.size.height*.15' in src and 'bounds.size.height*.9' in src
+assert 'fabs(CGRectGetMaxY(frame)-bounds.size.height)>60' in src, 'bottom-anchored'
+# 2.35: the list is the IDENTITY (hard requirement), not a tie-breaker.
+assert 'isKindOfClass:UIScrollView.class' in src
+assert 'return LMVCopyLogXHasList(view);' in src
+assert 'static BOOL LMVCopyLogXHasList(UIView *root)' in src
+# the window is judged by exclusion (system chrome + other channels' panels)
 assert '[name isEqualToString:@"LMVEasterWindow"]' in src
 assert '@"SystemAperture"' in src and '@"SBControlCenter"' in src
-assert 'LMVCopyLogXHasTable(child)) visible*=2' in src
+assert '@"CVPanel",@"CopyVault",@"Myrtle",@"SGPanel",@"SquidPanel"' in src
+assert 'LMVCopyLogXHasList(child)) visible*=2' in src
 # 关闭的面板不能被挂载
 assert 'LMVCopyLogXVisibleArea(frame,window.bounds)' in src
 
