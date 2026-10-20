@@ -18,13 +18,41 @@
 }
 
 - (NSString *)labelForParam:(NSDictionary *)p {
+    NSInteger current = LMVTuneValue(self.target, p[@"key"]);
     NSArray *choices = p[@"choices"];
     NSArray *values = p[@"values"];
-    if (!choices.count) return p[@"title"];
+    if (choices.count) {
+        NSUInteger idx = [values indexOfObject:@(current)];
+        NSString *choice = (idx != NSNotFound && idx < choices.count) ? choices[idx] : @"?";
+        return [NSString stringWithFormat:@"%@：%@", p[@"title"], choice];
+    }
+    return [NSString stringWithFormat:@"%@：%ld", p[@"title"], (long)current];
+}
+// 2.41: PSSliderCell never drew its label on the user's iOS, so a row was just a
+// nameless bar. Numbers are edited by tapping the row instead - the title and the
+// current value are always visible, which is the whole point of a settings page.
+- (void)editNumber:(PSSpecifier *)specifier {
+    NSDictionary *p = [specifier propertyForKey:@"tuneParam"];
     NSInteger current = LMVTuneValue(self.target, p[@"key"]);
-    NSUInteger idx = [values indexOfObject:@(current)];
-    NSString *choice = (idx != NSNotFound && idx < choices.count) ? choices[idx] : @"?";
-    return [NSString stringWithFormat:@"%@：%@", p[@"title"], choice];
+    NSString *message = [NSString stringWithFormat:@"范围 %@ ~ %@", p[@"min"], p[@"max"]];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:p[@"title"]
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.keyboardType = UIKeyboardTypeNumberPad;
+        field.text = [NSString stringWithFormat:@"%ld", (long)current];
+        field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSInteger value = [alert.textFields.firstObject.text integerValue];
+        LMVTuneSetValue(weakSelf.target, p[@"key"], value);
+        NSInteger applied = LMVTuneValue(weakSelf.target, p[@"key"]);
+        [specifier setName:[NSString stringWithFormat:@"%@：%ld", p[@"title"], (long)applied]];
+        [weakSelf reloadSpecifier:specifier animated:YES];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (id)readValue:(PSSpecifier *)specifier {
@@ -60,20 +88,12 @@
                     [s setProperty:p forKey:@"tuneParam"];
                     [rows addObject:s];
                 } else {
-                    PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:p[@"title"]
-                                                                    target:self
-                                                                       set:@selector(writeValue:specifier:)
-                                                                       get:@selector(readValue:)
-                                                                    detail:nil cell:PSSliderCell edit:nil];
+                    PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:[self labelForParam:p]
+                                                                    target:self set:nil get:nil
+                                                                    detail:nil cell:PSButtonCell edit:nil];
+                    s.buttonAction = @selector(editNumber:);
                     [s setProperty:p[@"key"] forKey:@"tuneKey"];
-                    // PSSliderCell draws its title from the `label` property, not from
-                    // the specifier name, and only prints the number when showValue is
-                    // set. Without these two the row is a nameless bar (2.39 bug).
-                    [s setProperty:p[@"title"] forKey:@"label"];
-                    [s setProperty:@YES forKey:@"showValue"];
-                    [s setProperty:@([p[@"min"] integerValue]) forKey:@"min"];
-                    [s setProperty:@([p[@"max"] integerValue]) forKey:@"max"];
-                    [s setProperty:@([p[@"def"] integerValue]) forKey:@"default"];
+                    [s setProperty:p forKey:@"tuneParam"];
                     [rows addObject:s];
                 }
             }

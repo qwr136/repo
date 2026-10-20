@@ -62,34 +62,44 @@ static inline NSArray<NSDictionary *> *LMVTuneBubbleGroups(void) {
     dispatch_once(&once, ^{
         groups = @[
             @{@"title":@"悬浮球", @"params":@[
-                LMVTuneParam(@"BubbleSize", @"尺寸", 24, 128, 52, nil, nil),
-                LMVTuneParam(@"BubbleAlpha", @"不透明度 (%)", 20, 100, 100, nil, nil),
-                LMVTuneParam(@"BubbleSnap", @"贴边吸附", 0, 1, 1, @[@"关", @"开"], @[@0, @1]),
-                LMVTuneParam(@"BubbleAutoHide", @"自动隐藏 (秒, 0=不隐藏)", 0, 30, 0, nil, nil),
-                LMVTuneParam(@"BubbleDragScale", @"拖动缩放 (%)", 80, 140, 100, nil, nil),
+                // Only what the overlay actually reads: size and opacity.
+                LMVTuneParam(@"BubbleSize", @"尺寸 (24~128)", 24, 128, 52, nil, nil),
+                LMVTuneParam(@"BubbleAlpha", @"不透明度 (%, 20~100)", 20, 100, 100, nil, nil),
             ]},
         ];
     });
     return groups;
 }
+// 2.41: only show parameters this channel actually reads. A switch that changes
+// nothing is worse than no switch.
+static inline BOOL LMVTuneHasTimer(NSString *target) {
+    return [@[@"AT",@"CCBorder",@"CV",@"Myrtle",@"PA",@"SquidPanel",@"GS",@"CopyLogX"] containsObject:target];
+}
+static inline BOOL LMVTuneHasSheetDelay(NSString *target) {
+    return [@[@"GS",@"CopyLogX"] containsObject:target];
+}
 static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) {
     if ([target isEqualToString:@"Bubble"]) return LMVTuneBubbleGroups();
-    static NSArray *groups; static dispatch_once_t once;
+    NSMutableArray *groups = [NSMutableArray array];
+    if (LMVTuneHasTimer(target)) {
+        NSMutableArray *probe = [NSMutableArray array];
+        [probe addObject:LMVTuneParam(@"ProbeHz", @"检测频率 (Hz, 1~60)", 1, 60, 5, nil, nil)];
+        if (LMVTuneHasSheetDelay(target)) {
+            [probe addObject:LMVTuneParam(@"ShowDelayMs", @"出现延迟 (ms, 0~1000)", 0, 1000, 0, nil, nil)];
+            [probe addObject:LMVTuneParam(@"HideDelayMs", @"关闭延迟 (ms, 0~2000)", 0, 2000, 0, nil, nil)];
+            [probe addObject:LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms, 0~200)", 0, 200, 50, nil, nil)];
+        }
+        [groups addObject:@{@"title":@"探测", @"params":probe}];
+    }
+    static NSArray *rest; static dispatch_once_t once;
     dispatch_once(&once, ^{
-    groups = @[
-        @{@"title":@"探测", @"params":@[
-            LMVTuneParam(@"ProbeHz", @"检测频率 (Hz)", 1, 20, 5, nil, nil),
-            LMVTuneParam(@"ShowDelayMs", @"出现延迟 (ms)", 0, 1000, 0, nil, nil),
-            LMVTuneParam(@"HideDelayMs", @"关闭延迟 (ms)", 0, 2000, 0, nil, nil),
-            LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms)", 0, 200, 50, nil, nil),
-        ]},
+    rest = @[
         @{@"title":@"播放", @"params":@[
-            // min/max are the REAL value range, not the choice index: the read path
-            // clamps to them, so 0...4 would turn 60 fps into 4.
-            LMVTuneParam(@"MaxFPS", @"帧率上限", 0, 60, 0, @[@"原始", @"60", @"30", @"24", @"15"], @[@0, @60, @30, @24, @15]),
-            LMVTuneParam(@"RatePercent", @"播放速度", 50, 200, 100, @[@"0.5x", @"1x", @"1.5x", @"2x"], @[@50, @100, @150, @200]),
+            // 2.41: free numbers, not preset choices. 0 fps = keep the source rate.
+            LMVTuneParam(@"MaxFPS", @"帧率上限 (0=原始, 1~120)", 0, 120, 0, nil, nil),
+            LMVTuneParam(@"RatePercent", @"播放速度 (%, 10~400)", 10, 400, 100, nil, nil),
             LMVTuneParam(@"Gravity", @"填充方式", 0, 1, 0, @[@"填充", @"适应"], @[@0, @1]),
-            LMVTuneParam(@"Loop", @"循环", 0, 1, 0, @[@"循环", @"播放一次"], @[@0, @1]),
+            LMVTuneParam(@"LoopCount", @"循环次数 (0=无限, 1~99)", 0, 99, 0, nil, nil),
         ]},
         @{@"title":@"可见性", @"params":@[
             LMVTuneParam(@"HiddenAction", @"面板不可见", 0, 2, 0, @[@"暂停", @"继续", @"暂停并隐藏"], @[@0, @1, @2]),
@@ -103,6 +113,7 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
         ]},
     ];
     });
+    [groups addObjectsFromArray:rest];
     return groups;
 }
 
@@ -111,7 +122,9 @@ static inline NSDictionary *LMVTuneFindParam(NSString *key) {
     static NSDictionary *index; static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableDictionary *map = [NSMutableDictionary dictionary];
-        for (NSString *target in @[@"_", @"Bubble"])
+        // GS carries the probe group, Lock carries playback/visibility/perf,
+        // Bubble carries its own two. Together they cover every key.
+        for (NSString *target in @[@"GS", @"Lock", @"Bubble"])
             for (NSDictionary *group in LMVTuneGroupsForTarget(target))
                 for (NSDictionary *p in group[@"params"])
                     if (!map[p[@"key"]]) map[p[@"key"]] = p;
@@ -123,7 +136,18 @@ static inline NSDictionary *LMVTuneFindParam(NSString *key) {
 static inline NSString *LMVTuneFullKey(NSString *target, NSString *key) {
     return [NSString stringWithFormat:@"Tune.%@.%@", target, key];
 }
-static NSInteger LMVTuneValue(NSString *target, NSString *key) {
+// 2.41: Settings writes in another process. CFPreferences keeps a per-process cache,
+// so without this the dylib keeps reading the value it saw at launch and every
+// setting looks dead. Throttled to once a second.
+static inline void LMVTuneSync(void) {
+    static NSTimeInterval last;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (now - last < 1.0) return;
+    last = now;
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneDomain);
+}
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) {
+    LMVTuneSync();
     NSDictionary *p = LMVTuneFindParam(key);
     NSInteger fallback = p ? [p[@"def"] integerValue] : 0;
     if (!target.length || !key.length) return fallback;
@@ -135,6 +159,11 @@ static NSInteger LMVTuneValue(NSString *target, NSString *key) {
         NSInteger lo = [p[@"min"] integerValue], hi = [p[@"max"] integerValue];
         if (n < lo) n = lo;
         if (n > hi) n = hi;
+        // An enum stored under an older build (e.g. MaxFPS = 4 from the 0...4 index
+        // range in 2.39) is not one of the choices any more - fall back to the default
+        // instead of showing "?" forever.
+        NSArray *values = p[@"values"];
+        if (values.count && ![values containsObject:@(n)]) n = [p[@"def"] integerValue];
     }
     return n;
 }
@@ -142,6 +171,7 @@ static NSInteger LMVTuneValue(NSString *target, NSString *key) {
 // default until the user actually touches the new slider.
 static inline BOOL LMVTuneHasValue(NSString *target, NSString *key) {
     if (!target.length || !key.length) return NO;
+    LMVTuneSync();
     CFStringRef full = (__bridge CFStringRef)LMVTuneFullKey(target, key);
     id value = (__bridge_transfer id)CFPreferencesCopyAppValue(full, (__bridge CFStringRef)LMVTuneDomain);
     return [value isKindOfClass:NSNumber.class];

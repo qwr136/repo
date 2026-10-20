@@ -30,7 +30,7 @@ assert len(targets) == 13
 
 # ---- 1) 参数表 --------------------------------------------------------------
 for key in ('ProbeHz', 'ShowDelayMs', 'HideDelayMs', 'HookThrottleMs',
-            'MaxFPS', 'RatePercent', 'Gravity', 'Loop',
+            'MaxFPS', 'RatePercent', 'Gravity', 'LoopCount',
             'HiddenAction', 'OccludedAction', 'LockedAction', 'ForegroundAction',
             'LowPowerAction', 'ThermalAction'):
     assert f'LMVTuneParam(@"{key}"' in tuning, key
@@ -39,8 +39,9 @@ for group in ('@"探测"', '@"播放"', '@"可见性"', '@"性能"'):
 
 # 悬浮球只有自己的一组，不出现视频参数
 bubble = tuning[tuning.index('LMVTuneBubbleGroups'):tuning.index('LMVTuneGroupsForTarget(NSString *target)')]
-assert 'BubbleSize' in bubble and 'BubbleAlpha' in bubble and 'BubbleSnap' in bubble
+assert 'BubbleSize' in bubble and 'BubbleAlpha' in bubble
 assert 'MaxFPS' not in bubble and 'HiddenAction' not in bubble
+assert 'BubbleSnap' not in bubble, 'drop knobs the overlay never reads'
 
 # ---- 2) 存储：每个通道独立 ---------------------------------------------------
 assert '[NSString stringWithFormat:@"Tune.%@.%@", target, key]' in tuning
@@ -62,14 +63,15 @@ assert 'initWithTarget:target' in prefs
 assert 'LMVTuneController.m' in makefile
 
 # ---- 4) 子控制器：滑块 + 枚举 ------------------------------------------------
-assert 'cell:PSSliderCell' in tune_controller
+# 2.41: numbers are edited by tapping the row - PSSliderCell never drew its label.
 assert 'cell:PSButtonCell' in tune_controller
+assert '@selector(editNumber:)' in tune_controller
+assert 'UIKeyboardTypeNumberPad' in tune_controller
 assert 'cycleEnum:' in tune_controller
 assert 'LMVTuneGroupsForTarget(self.target)' in tune_controller
 assert 'LMVTuneSetValue(self.target' in tune_controller
 # 2.40: PSSliderCell needs label + showValue, otherwise the row is a nameless bar.
-assert '[s setProperty:p[@"title"] forKey:@"label"]' in tune_controller
-assert '[s setProperty:@YES forKey:@"showValue"]' in tune_controller
+assert '[values containsObject:@(n)]' in tuning, 'stale enum values must fall back'
 
 # ---- 5) 探测参数被各通道读取 -------------------------------------------------
 channels = [
@@ -107,7 +109,7 @@ assert 'LMVTuneDelay(@"CopyLogX",@"HideDelayMs")' in clx
 # ---- 7) 播放层 ---------------------------------------------------------------
 assert 'LMVTuneValue(self.target,@"Gravity")' in playback
 assert 'LMVTuneValue(self.target,@"RatePercent")' in playback
-assert 'LMVTuneValue(live.target,@"Loop")' in playback
+assert 'LMVTuneValue(live.target,@"LoopCount")' in playback
 assert 'LMVTuneValue(self.target,@"HiddenAction")' in playback
 assert 'LMVTuneValue(self.target,@"LowPowerAction")' in playback
 assert 'LMVTuneValue(self.target,@"ThermalAction")' in playback

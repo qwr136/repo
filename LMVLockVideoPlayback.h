@@ -58,6 +58,7 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,readonly) NSUInteger generation,buildCount;
 @property(nonatomic,copy) void (^didChange)(void);
 @property(nonatomic) BOOL persistentPosterEnabled;
+@property(nonatomic) NSInteger loopRemaining;
 // 2.39: which channel's tuning this playback obeys (Tune.<target>.*).
 @property(nonatomic,copy) NSString *target;
 - (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;
@@ -123,6 +124,12 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     BOOL fit=LMVTuneValue(self.target,@"Gravity")==1;
     self.playerLayer.videoGravity=fit?AVLayerVideoGravityResizeAspect:AVLayerVideoGravityResizeAspectFill;
     self.posterLayer.contentsGravity=fit?kCAGravityResizeAspect:kCAGravityResizeAspectFill;
+    // 2.41: speed changes take effect on the spot, not on the next rebuild.
+    NSInteger percent=LMVTuneValue(self.target,@"RatePercent");
+    if(percent>0 && self.player) {
+        CGFloat rate=percent/100.0;
+        if(self.player.rate>0.01 && fabs(self.player.rate-rate)>0.01) self.player.rate=rate;
+    }
 }
 - (void)replacePlayerLayer {
     if (self.observingLayer) [self.playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];
@@ -200,6 +207,8 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
         self.player.rate=rate;
 }
 - (void)setVisible:(BOOL)visible {
+    // 2.41: pick up any changed tuning before deciding how to show.
+    [self applyTuning];
     // 2.39: per-channel "面板不可见" policy. 1 = keep playing (the caller asked to
     // hide, but the user chose "继续"), everything else keeps the old behaviour.
     if (!visible && self.target.length && LMVTuneValue(self.target,@"HiddenAction")==1) visible=YES;
@@ -345,15 +354,36 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
             }
             if (!composition || error) {live.error=error;[live updatePresentation];return;}
             live.templateItem=[AVPlayerItem playerItemWithAsset:composition];
+            // 2.41: frame-rate cap. 0 keeps the source rate. Applied when the item is
+            // built, i.e. on the next panel open / material change.
+            NSInteger maxFPS=live.target.length?LMVTuneValue(live.target,@"MaxFPS"):0;
+            if(maxFPS>0) {
+                AVMutableVideoComposition *limited=[AVMutableVideoComposition videoCompositionWithPropertiesOfAsset:composition];
+                if(limited) {
+                    limited.frameDuration=CMTimeMake(1,(int32_t)MIN(maxFPS,120));
+                    live.templateItem.videoComposition=limited;
+                }
+            }
             live.templateItem.preferredForwardBufferDuration=1;
             live.player=[AVQueuePlayer queuePlayerWithItems:@[]];live.player.muted=YES;live.player.volume=0;
             live.player.allowsExternalPlayback=NO;
             if ([live.player respondsToSelector:@selector(setPreventsDisplaySleepDuringVideoPlayback:)])
                 live.player.preventsDisplaySleepDuringVideoPlayback=NO;
             live.player.automaticallyWaitsToMinimizeStalling=NO;
-            if (live.target.length && LMVTuneValue(live.target,@"Loop")==1) {
+            NSInteger loops=live.target.length?LMVTuneValue(live.target,@"LoopCount"):0;
+            if (loops>0) {
+                // 2.41: a finite count - play once, then replay (loops-1) times.
                 live.player.actionAtItemEnd=AVPlayerActionAtItemEndPause;
                 [live.player insertItem:live.templateItem afterItem:nil];
+                live.loopRemaining=loops-1;
+                [NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                    object:live.templateItem queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+                    LMVLockVideoPlayback *cur=weakSelf;
+                    if(!cur || cur.generation!=generation || cur.loopRemaining<=0) return;
+                    cur.loopRemaining--;
+                    [cur.player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+                    [cur.player playImmediatelyAtRate:LMVTuneValue(cur.target,@"RatePercent")/100.0];
+                }];
             } else {
                 live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:live.templateItem];
             }
