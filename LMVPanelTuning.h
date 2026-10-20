@@ -75,7 +75,14 @@ static inline NSArray<NSDictionary *> *LMVTuneBubbleGroups(void) {
 static inline BOOL LMVTuneHasTimer(NSString *target) {
     return [@[@"AT",@"CCBorder",@"CV",@"Myrtle",@"PA",@"SquidPanel",@"GS",@"CopyLogX"] containsObject:target];
 }
+// 2.43: all eight panel channels implement show/hide delay (each one carries its own
+// pendingShow/pendingHide in its update path). The settings page only listed two, so
+// six of them had no way to reach the code at all.
 static inline BOOL LMVTuneHasSheetDelay(NSString *target) {
+    return [@[@"PA",@"GS",@"CCBorder",@"CopyLogX",@"SquidPanel",@"AT",@"CV",@"Myrtle"] containsObject:target];
+}
+// Hooks exist only where a system callback was confirmed by a capture.
+static inline BOOL LMVTuneHasHook(NSString *target) {
     return [@[@"GS",@"CopyLogX"] containsObject:target];
 }
 static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) {
@@ -87,6 +94,10 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
         if (LMVTuneHasSheetDelay(target)) {
             [probe addObject:LMVTuneParam(@"ShowDelayMs", @"出现延迟 (ms, 0~1000)", 0, 1000, 0, nil, nil)];
             [probe addObject:LMVTuneParam(@"HideDelayMs", @"关闭延迟 (ms, 0~2000)", 0, 2000, 0, nil, nil)];
+        }
+        // Keep the hook row separate: only GS/CopyLogX have a callback to throttle, and
+        // showing it on the other six would be exactly the dead switch we just removed.
+        if (LMVTuneHasHook(target)) {
             [probe addObject:LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms, 0~200)", 0, 200, 50, nil, nil)];
         }
         [groups addObject:@{@"title":@"探测", @"params":probe}];

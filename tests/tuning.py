@@ -60,6 +60,21 @@ assert 'LMVTuneProbeInterval(NSString *target)' in tuning
 assert 'return 1.0 / (NSTimeInterval)hz;' in tuning
 assert 'LMVTuneDelay(NSString *target, NSString *key)' in tuning
 
+# ---- 2.43) 八个面板通道都必须能设出现/关闭延迟 ---------------------------------
+# 代码里 8 个通道都实现了 pendingShow/pendingHide，但设置页原来只给 GS/CopyLogX
+# 显示这两行，另外 6 个根本没有入口 —— 功能等于不存在。
+for target in ('PA', 'GS', 'CCBorder', 'CopyLogX', 'SquidPanel', 'AT', 'CV', 'Myrtle'):
+    assert target in tuning.split('LMVTuneHasSheetDelay')[1].split('}')[0] or f'"{target}"' in tuning, target
+sheet_delay = tuning[tuning.index('LMVTuneHasSheetDelay(NSString *target)'):tuning.index('LMVTuneHasHook(NSString *target)')]
+for target in ('PA', 'GS', 'CCBorder', 'CopyLogX', 'SquidPanel', 'AT', 'CV', 'Myrtle'):
+    assert f'@"{target}"' in sheet_delay, f'{target} missing from sheet-delay list'
+# 钩子节流仍然只给有回调的两个，否则又是假开关
+hook = tuning[tuning.index('LMVTuneHasHook(NSString *target)'):]
+hook = hook[:hook.index('}')]
+assert '@"GS"' in hook and '@"CopyLogX"' in hook
+for target in ('PA', 'CCBorder', 'SquidPanel', 'AT', 'CV', 'Myrtle'):
+    assert f'@"{target}"' not in hook, target
+
 # ---- 3) 设置页入口 -----------------------------------------------------------
 assert 'groupSpecifierWithName:@"自定义参数"' in prefs
 copy_start = prefs.index('groupSpecifierWithName:@"CopyLogX 视频背景"')
