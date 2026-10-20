@@ -40,7 +40,7 @@ for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
     assert f'@selector(switchControlCenter{mode}:)' in prefs
     assert f'@"ControlCenter{mode}": @""' in prefs
     assert f'@"ControlCenter{mode}Video"' in panel
-    assert f'切换{title}模式素材' in prefs and f'切换{title}模式素材' in panel
+    assert '切换素材' in prefs and '切换素材' in panel
 prefs_import = prefs[prefs.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
 assert 'for (NSString *target in @[@"Message", @"Options", @"Clear"])' in prefs_import
 assert 'ControlCenter' not in prefs_import and 'LockScreen' not in prefs_import and 'Desktop' not in prefs_import

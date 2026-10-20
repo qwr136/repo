@@ -181,6 +181,8 @@ static UIView *LMVATPanelMaterial(UIView *root,UIWindow *window) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+// 2.42: per-channel show/hide delay timestamps.
+@property(nonatomic) NSTimeInterval pendingShow,pendingHide;
 - (void)detach;
 - (void)update;
 @end
@@ -217,6 +219,22 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=LMVATPanelHomeWindow();
     UIView *card=window?LMVATPanelCard(window):nil;
+    NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
+    if(card && !self.card) {
+        NSTimeInterval show=LMVTuneDelay(@"AT",@"ShowDelayMs");
+        if(self.pendingShow<=0)self.pendingShow=tuneNow;
+        if(show>0 && tuneNow-self.pendingShow<show) {self.updating=NO;return;}
+        self.pendingShow=0;
+    } else if(!card) {
+        self.pendingShow=0;
+    }
+
+    NSTimeInterval hide=LMVTuneDelay(@"AT",@"HideDelayMs");
+    if(hide>0 && self.card && self.host.superview) {
+        if(self.pendingHide<=0)self.pendingHide=tuneNow;
+        if(tuneNow-self.pendingHide<hide) {self.updating=NO;return;}
+    }
+    self.pendingHide=0;
     if(!card) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVATPanelPath] ||

@@ -60,7 +60,7 @@ assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLog
 assert 'if (section == LMVEasterATSection()) return 4;' in panel
 assert 'if (section == LMVEasterATSection()) return @"AT 背景视频";' in panel
 at_cells = panel[panel.index('if (index.section == LMVEasterATSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
-assert 'cell.textLabel.text = @"AT 背景视频";' in at_cells and 'cell.textLabel.text = @"切换 AT 素材";' in at_cells
+assert 'cell.textLabel.text = @"AT 背景视频";' in at_cells and 'cell.textLabel.text = @"切换素材";' in at_cells
 assert 'toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];' in at_cells
 assert 'id selected = LMVEasterRead(@"ATVideo");' in at_cells, 'the panel material row reads its own key'
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')

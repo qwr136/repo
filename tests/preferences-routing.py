@@ -21,7 +21,7 @@ assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLo
 assert len(actions) == 19
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
-assert '@[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"]' in source
+assert '@[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"]' in source
 for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '右一·右上滑面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
     assert f'@"{target}": @"{title}"' in source
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
@@ -39,7 +39,7 @@ assert '[controlCenterEnabled setProperty:@NO forKey:@"default"]' in cc_section
 assert '按系统深浅色模式自动选择素材；未选择对应模式素材时保留系统背景。' in cc_section
 assert 'forKey:@"footerText"' in cc_section
 for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
-    assert f'@"切换{title}模式素材"' in cc_section
+    assert "@\"切换素材\"" in cc_section
     assert f'controlCenter{mode}.buttonAction = @selector(switchControlCenter{mode}:);' in cc_section
 for forbidden in ('Opacity', 'Blur', 'PSSliderCell', 'ControlCenterDarkBackgroundEnabled', 'ControlCenterLightBackgroundEnabled'):
     assert forbidden not in cc_section
@@ -75,13 +75,13 @@ assert home_section.count('cell:PSSwitchCell') == 1 and home_section.count('cell
 assert '[homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"]' in home_section
 assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
 assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
-assert '桌面长按菜单视频背景' in home_section and '切换长按菜单素材' in home_section
+assert '桌面长按菜单视频背景' in home_section and '切换素材' in home_section
 squid_section = source[squid_start:at_start]
 assert squid_section.count('cell:PSSwitchCell') == 1 and squid_section.count('cell:PSButtonCell') == 2
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"]' in squid_section
 assert '[squidPanelEnabled setProperty:@NO forKey:@"default"]' in squid_section
 assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in squid_section
-assert '鱿鱼面板背景视频' in squid_section and '切换视频' in squid_section
+assert '鱿鱼面板背景视频' in squid_section and '切换素材' in squid_section
 # 1.90: the Squid panel carries its own text-colour row (Settings only).
 assert 'preferenceSpecifierNamed:@"文字颜色"' in squid_section and 'openSquidTextColor:' in squid_section
 assert '[squidText setProperty:@"SquidTextColor" forKey:@"id"]' in squid_section
@@ -91,7 +91,7 @@ assert at_section.count('cell:PSSwitchCell') == 1 and at_section.count('cell:PSB
 assert '[atEnabled setProperty:@"ATBackgroundEnabled" forKey:@"key"]' in at_section
 assert '[atEnabled setProperty:@NO forKey:@"default"]' in at_section
 assert 'atMaterial.buttonAction = @selector(switchAT:);' in at_section
-assert 'AT 背景视频' in at_section and '切换 AT 素材' in at_section
+assert 'AT 背景视频' in at_section and '切换素材' in at_section
 assert '[self appendAudioForTarget:@"AT" title:@"播放"]' in at_section
 # 1.43: the CopyVault (clipboard panel) group - same switch/material/sound layout.
 cv_section = source[cv_start:myrtle_start]
@@ -100,7 +100,7 @@ assert 'preferenceSpecifierNamed:@"文字颜色"' in cv_section and 'openCVTextC
 assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"]' in cv_section
 assert '[cvEnabled setProperty:@NO forKey:@"default"]' in cv_section
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in cv_section
-assert 'CopyVault 面板背景视频' in cv_section and '切换 CopyVault 素材' in cv_section
+assert 'CopyVault 面板背景视频' in cv_section and '切换素材' in cv_section
 # 1.77: the Myrtle (App Library panel) group - same layout again.
 myrtle_section = source[myrtle_start:pa_start]
 pa_section = source[pa_start:gs_start]
@@ -143,7 +143,7 @@ assert myrtle_section.count('cell:PSSwitchCell') == 1 and myrtle_section.count('
 assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in myrtle_section
 assert '[myrtleEnabled setProperty:@NO forKey:@"default"]' in myrtle_section
 assert 'myrtleMaterial.buttonAction = @selector(switchMyrtle:);' in myrtle_section
-assert 'Myrtle 面板背景视频' in myrtle_section and '切换 Myrtle 素材' in myrtle_section
+assert 'Myrtle 面板背景视频' in myrtle_section and '切换素材' in myrtle_section
 assert '[self appendAudioForTarget:@"CV" title:@"播放"]' in cv_section
 display_section=source[display_start:source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];')]
 assert '显示场景与图片旋转' in display_section and 'openEaster:' in display_section

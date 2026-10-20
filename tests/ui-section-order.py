@@ -172,7 +172,7 @@ class UISectionOrder(unittest.TestCase):
             cell.detailTextLabel.numberOfLines = 1;
 ''', '')
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
-        self.assertEqual(digest(old_cells), '21710189a445157b27bd64be293fd318f6059e0baa5b95cee7abf9d6baaa7e02')
+        self.assertEqual(digest(old_cells), '216e2081d2e010d761463cb266dd7fdf9434a293c2d30b662a955eea7fb7027b')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;

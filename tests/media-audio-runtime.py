@@ -3,6 +3,8 @@
 Cannot prove iOS external music mixing or device compositing."""
 import platform,subprocess,tempfile,wave,struct,math
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
 r=Path(__file__).resolve().parents[1];h=(r/'LMVMediaAudio.h').read_text();s=(r/'Tweak.xm').read_text()
 assert 'AVAudioSessionCategoryAmbient' in h and 'AVAudioSessionCategoryOptionMixWithOthers' in h
 assert 'setActive:NO' not in h and 'DuckOthers' not in h and 'AVMediaTypeAudio' in h
@@ -69,5 +71,7 @@ with tempfile.TemporaryDirectory() as d:
   f.setnchannels(1);f.setsampwidth(2);f.setframerate(22050)
   f.writeframes(b''.join(struct.pack('<h',int(2000*math.sin(i*2*math.pi*440/22050))) for i in range(44100)))
  src.write_text(pre+h.replace('#pragma once','').replace('AVAudioSession','LMVTestAudioSession')+main)
- subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia',str(src),'-o',str(out)],check=True)
+ # 2.42: LMVMediaAudio.h now includes LMVPanelTuning.h for the playback-rate reader,
+ # so the fixture needs the repo root on the include path.
+ subprocess.run(['clang','-fobjc-arc','-I',str(ROOT),'-framework','Foundation','-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia',str(src),'-o',str(out)],check=True)
  subprocess.run([str(out),str(wav)],check=True,timeout=45)

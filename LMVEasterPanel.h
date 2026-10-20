@@ -344,7 +344,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换长按菜单素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"HomeMenuVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -375,7 +375,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换 AT 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"ATVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -390,7 +390,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换 CopyVault 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil;
             id selected = LMVEasterRead(@"CVVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -405,7 +405,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"MyrtleBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换 Myrtle 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"MyrtleVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -420,7 +420,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"PABackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换电话助手素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"PAVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -436,7 +436,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"CCBorderBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换 CCBorder 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"CCBorderVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -452,7 +452,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"CopyLogXBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换 CopyLogX 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"CopyLogXVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -469,7 +469,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"GSBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换 GlassSuiteX 素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(@"GSVideo");
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
             cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
@@ -485,7 +485,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             toggle.on = [LMVEasterRead(@"ControlCenterBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = index.row == 1 ? @"切换深色模式素材" : @"切换浅色模式素材";
+            cell.textLabel.text = index.row == 1 ? @"切换素材" : @"切换素材";
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             id selected = LMVEasterRead(LMVEasterControlCenterKey(index.row));
             NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";

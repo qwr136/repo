@@ -2,6 +2,11 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 #import <math.h>
+// 2.42: the audio chain follows the channel's playback speed, so it needs the same
+// tuning reader the video layer uses. Imported here rather than relying on the
+// translation unit having included it first (the CI audio fixture compiles this
+// header on its own).
+#import "LMVPanelTuning.h"
 // Separate audio-only chains: visual video-only compositions and success masks
 // are not changed. Default OFF; no session/category work while every switch is OFF.
 static NSArray<NSString *> *LMVAudioTargets(void) {
@@ -79,6 +84,13 @@ static void LMVAudioPauseTarget(NSString *target) {
 // the gap the user hears when an app exits or the Control Center slides back.
 // Seek now happens only on a real drift (>0.25 s); otherwise the paused player
 // simply plays, so the resume costs one play call on both paths.
+// 2.42: the sound follows the channel's playback speed, the same percent the video
+// layer uses. TimeDomain keeps the pitch natural at 0.5x~2x.
+static CGFloat LMVAudioRate(NSString *target) {
+    NSInteger percent=LMVTuneValue(target,@"RatePercent");
+    if(percent<10 || percent>400)percent=100;
+    return percent/100.0;
+}
 static void LMVAudioResumeTarget(NSString *target,CMTime time) {
     if(!LMVAudioChannels)return;
     LMVAudioChannel *c=LMVAudioChannels[target];if(!c || !c.enabled || c.volume<=0 || c.loading)return;
@@ -94,7 +106,10 @@ static void LMVAudioResumeTarget(NSString *target,CMTime time) {
                     drift=fabs(CMTimeGetSeconds(now)-CMTimeGetSeconds(time))>0.25;
             }
             if(drift)[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.2,600) toleranceAfter:CMTimeMakeWithSeconds(.2,600)];
-            [c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();
+            [c.player playImmediatelyAtRate:LMVAudioRate(target)];c.lastSync=CACurrentMediaTime();
+        } else {
+            CGFloat rate=LMVAudioRate(target);
+            if(fabs(c.player.rate-rate)>0.01)c.player.rate=rate;
         }
     }
 }
@@ -124,12 +139,29 @@ static void LMVAudioConsume(NSString *target,NSString *path,NSString *revision,B
                 LMVAudioChannel *live=weak;if(!live || live.generation!=epoch || ![live.path isEqualToString:path] || ![live.revision isEqualToString:revision])return;
                 live.loading=NO;if(!audio || error || !live.enabled)return;
                 AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:audio];
+                item.audioTimePitchAlgorithm=AVAudioTimePitchAlgorithmTimeDomain;
                 live.player=[AVQueuePlayer queuePlayerWithItems:@[]];live.player.volume=live.volume;
                 live.player.automaticallyWaitsToMinimizeStalling=NO;live.player.allowsExternalPlayback=NO;
-                live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:item];
+                CGFloat rate=LMVAudioRate(target);
+                if(rate!=1.0) {
+                    // 2.42: AVPlayerLooper re-seeks on every lap; at 0.5x that seek is
+                    // what the user hears as choppy sound. Manual replay instead.
+                    live.player.actionAtItemEnd=AVPlayerActionAtItemEndPause;
+                    [live.player insertItem:item afterItem:nil];
+                    __weak LMVAudioChannel *loopChannel=live;
+                    [NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                        object:item queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+                        LMVAudioChannel *cur=loopChannel;
+                        if(!cur || cur.generation!=epoch || !cur.player) return;
+                        [cur.player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+                        [cur.player playImmediatelyAtRate:LMVAudioRate(target)];
+                    }];
+                } else {
+                    live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:item];
+                }
                 if(live.visible && live.volume>0 && LMVAudioActivateMixing()) {
                     [live.player seekToTime:live.desiredTime toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
-                    [live.player playImmediatelyAtRate:1];live.lastSync=CACurrentMediaTime();
+                    [live.player playImmediatelyAtRate:LMVAudioRate(target)];live.lastSync=CACurrentMediaTime();
                 }
             });
         }];
@@ -143,9 +175,12 @@ static void LMVAudioConsume(NSString *target,NSString *path,NSString *revision,B
         // seek itself still happens exactly when the measured drift exceeds the
         // threshold, so playback stays in step with the video.
         if(c.player.volume!=c.volume)c.player.volume=c.volume;
+        CGFloat wanted=LMVAudioRate(target);
         if(c.player.rate==0) {
             if(CMTIME_IS_NUMERIC(time))[c.player seekToTime:time toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
-            [c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();
+            [c.player playImmediatelyAtRate:wanted];c.lastSync=CACurrentMediaTime();
+        } else if(fabs(c.player.rate-wanted)>0.01) {
+            c.player.rate=wanted;
         }
         CFTimeInterval now=CACurrentMediaTime();
         if(now-c.lastSync>=2) {

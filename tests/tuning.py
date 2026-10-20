@@ -31,9 +31,11 @@ assert len(targets) == 13
 # ---- 1) 参数表 --------------------------------------------------------------
 for key in ('ProbeHz', 'ShowDelayMs', 'HideDelayMs', 'HookThrottleMs',
             'MaxFPS', 'RatePercent', 'Gravity', 'LoopCount',
-            'HiddenAction', 'OccludedAction', 'LockedAction', 'ForegroundAction',
-            'LowPowerAction', 'ThermalAction'):
+            'HiddenAction', 'LowPowerAction', 'ThermalAction'):
     assert f'LMVTuneParam(@"{key}"' in tuning, key
+# 2.42: 这三项从 2.39 起就有界面、但运行时从未读过，已撤掉，接好再放回来。
+for gone in ('OccludedAction', 'LockedAction', 'ForegroundAction'):
+    assert f'LMVTuneParam(@"{gone}"' not in tuning, gone
 for group in ('@"探测"', '@"播放"', '@"可见性"', '@"性能"'):
     assert group in tuning, group
 
@@ -42,6 +44,13 @@ bubble = tuning[tuning.index('LMVTuneBubbleGroups'):tuning.index('LMVTuneGroupsF
 assert 'BubbleSize' in bubble and 'BubbleAlpha' in bubble
 assert 'MaxFPS' not in bubble and 'HiddenAction' not in bubble
 assert 'BubbleSnap' not in bubble, 'drop knobs the overlay never reads'
+
+# 2.42: 写入必须广播，否则常驻通道（桌面/锁屏/控制中心）只知道启动时的值
+assert 'CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter()' in tuning
+assert 'com.minis.lockmessagevideo/preferencesChanged' in tuning
+# 检测频率上限必须与输入框一致（原来是 20，填 30 会被悄悄改成 20）
+assert 'if (hz > 60) hz = 60;' in tuning
+assert 'if (hz > 20) hz = 20;' not in tuning
 
 # ---- 2) 存储：每个通道独立 ---------------------------------------------------
 assert '[NSString stringWithFormat:@"Tune.%@.%@", target, key]' in tuning
@@ -123,3 +132,18 @@ print('PASS: per-channel tuning - 13 channels (incl. bubble), four groups with '
       'PSListController with sliders/enums, probe Hz + hook throttle + show/hide '
       'delay wired in GS/CopyLogX, playback gravity/rate/loop/visibility/'
       'low-power/thermal, CI wired')
+
+# ---- 2.42) 播放层：循环次数 / 帧率上限 改完即重建 ------------------------------
+playback = (root / 'LMVLockVideoPlayback.h').read_text()
+assert 'static AVMutableVideoComposition *LMVLockFrameLimitedComposition(AVComposition *composition, NSInteger fps)' in playback
+assert '[AVMutableVideoComposition videoCompositionWithPropertiesOfAsset:composition]' not in playback, '那个便利方法对本插件的 composition 返回 nil'
+assert 'video.renderSize = render;' in playback
+assert 'video.frameDuration = CMTimeMake(1, (int32_t)fps);' in playback
+assert 'instruction.layerInstructions = @[layer];' in playback
+assert 'live.itemLoopCount=loops;live.itemMaxFPS=maxFPS;live.itemTuningValid=YES;' in playback
+assert 'if(loops!=self.itemLoopCount || fps!=self.itemMaxFPS) [self scheduleTuningRebuild];' in playback
+assert '- (void)scheduleTuningRebuild {' in playback
+assert 'me.pendingSeek=resume;' in playback
+# 「暂停并隐藏」要真的隐藏，不是只暂停
+assert 'self.policyHidden = (action==2);' in playback
+assert '|| self.policyHidden;' in playback

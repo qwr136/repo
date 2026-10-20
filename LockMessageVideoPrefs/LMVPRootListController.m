@@ -74,7 +74,7 @@ static void LMVNotify(void) {
     [global setProperty:@"GlobalEnabled" forKey:@"key"];
     [global setProperty:@YES forKey:@"default"];
     [_specifiers addObject:global];
-    NSArray *titles = @[@"切换背景素材", @"切换选项素材", @"切换清除素材", @"切换锁屏素材", @"切换桌面素材"];
+    NSArray *titles = @[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"];
     SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:), @selector(switchLockScreen:), @selector(switchDesktop:)};
     for (NSUInteger i = 0; i < LMVTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
@@ -94,11 +94,11 @@ static void LMVNotify(void) {
     [controlCenterEnabled setProperty:@"ControlCenterBackgroundEnabled" forKey:@"key"];
     [controlCenterEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:controlCenterEnabled];
-    PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换深色模式素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterDark.buttonAction = @selector(switchControlCenterDark:);
     [_specifiers addObject:controlCenterDark];
     [self appendAudioForTarget:@"ControlCenterDark" title:@"深色模式"];
-    PSSpecifier *controlCenterLight = [PSSpecifier preferenceSpecifierNamed:@"切换浅色模式素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *controlCenterLight = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
     [_specifiers addObject:controlCenterLight];
     [self appendAudioForTarget:@"ControlCenterLight" title:@"浅色模式"];
@@ -107,7 +107,7 @@ static void LMVNotify(void) {
     [homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"];
     [homeMenuEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:homeMenuEnabled];
-    PSSpecifier *homeMenuMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换长按菜单素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *homeMenuMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);
     [homeMenuMaterial setProperty:@"HomeMenuMaterial" forKey:@"id"];
     [_specifiers addObject:homeMenuMaterial];
@@ -119,7 +119,7 @@ static void LMVNotify(void) {
     [squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];
     [squidPanelEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:squidPanelEnabled];
-    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换视频" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);
     [squidPanelMaterial setProperty:@"SquidPanelMaterial" forKey:@"id"];
     [_specifiers addObject:squidPanelMaterial];
@@ -138,7 +138,7 @@ static void LMVNotify(void) {
     [atEnabled setProperty:@"ATBackgroundEnabled" forKey:@"key"];
     [atEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:atEnabled];
-    PSSpecifier *atMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 AT 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *atMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     atMaterial.buttonAction = @selector(switchAT:);
     [atMaterial setProperty:@"ATMaterial" forKey:@"id"];
     [_specifiers addObject:atMaterial];
@@ -150,7 +150,7 @@ static void LMVNotify(void) {
     [cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];
     [cvEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:cvEnabled];
-    PSSpecifier *cvMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 CopyVault 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *cvMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     cvMaterial.buttonAction = @selector(switchCV:);
     [cvMaterial setProperty:@"CVMaterial" forKey:@"id"];
     [_specifiers addObject:cvMaterial];
@@ -168,7 +168,7 @@ static void LMVNotify(void) {
     [myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"];
     [myrtleEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:myrtleEnabled];
-    PSSpecifier *myrtleMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 Myrtle 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *myrtleMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     myrtleMaterial.buttonAction = @selector(switchMyrtle:);
     [myrtleMaterial setProperty:@"MyrtleMaterial" forKey:@"id"];
     [_specifiers addObject:myrtleMaterial];
@@ -183,7 +183,7 @@ static void LMVNotify(void) {
     [paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"];
     [paEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:paEnabled];
-    PSSpecifier *paMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换电话助手素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *paMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     paMaterial.buttonAction = @selector(switchPA:);
     [paMaterial setProperty:@"PAMaterial" forKey:@"id"];
     [_specifiers addObject:paMaterial];
@@ -202,7 +202,7 @@ static void LMVNotify(void) {
     [gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"];
     [gsEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:gsEnabled];
-    PSSpecifier *gsMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 GlassSuiteX 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *gsMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     gsMaterial.buttonAction = @selector(switchGS:);
     [gsMaterial setProperty:@"GSMaterial" forKey:@"id"];
     [_specifiers addObject:gsMaterial];
@@ -221,7 +221,7 @@ static void LMVNotify(void) {
     [ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"];
     [ccbEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:ccbEnabled];
-    PSSpecifier *ccbMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 CCBorder 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *ccbMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     ccbMaterial.buttonAction = @selector(switchCCBorder:);
     [ccbMaterial setProperty:@"CCBorderMaterial" forKey:@"id"];
     [_specifiers addObject:ccbMaterial];
@@ -235,7 +235,7 @@ static void LMVNotify(void) {
     [clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"];
     [clxEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:clxEnabled];
-    PSSpecifier *clxMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换 CopyLogX 素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    PSSpecifier *clxMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     clxMaterial.buttonAction = @selector(switchCopyLogX:);
     [clxMaterial setProperty:@"CopyLogXMaterial" forKey:@"id"];
     [_specifiers addObject:clxMaterial];
@@ -379,6 +379,15 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
+    // 2.42: the material rows are all called 切换素材 now; the chosen file is shown
+    // on the right so the row still says WHICH material is in use.
+    NSString *materialID = [specifier propertyForKey:@"id"];
+    if ([materialID hasSuffix:@"Material"]) {
+        NSString *key = [materialID stringByReplacingOccurrencesOfString:@"Material" withString:@"Video"];
+        id value = LMVEasterRead(key);
+        NSString *name = [value isKindOfClass:NSString.class] ? [value lastPathComponent] : nil;
+        cell.detailTextLabel.text = name.length ? name : @"未选择";
+    }
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.

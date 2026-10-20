@@ -150,7 +150,7 @@ assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLog
 assert 'if (section == LMVEasterCVSection()) return 4;' in panel
 assert 'if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";' in panel
 cv_cells = panel[panel.index('if (index.section == LMVEasterCVSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
-assert 'cell.textLabel.text = @"CopyVault 面板背景视频";' in cv_cells and 'cell.textLabel.text = @"切换 CopyVault 素材";' in cv_cells
+assert 'cell.textLabel.text = @"CopyVault 面板背景视频";' in cv_cells and 'cell.textLabel.text = @"切换素材";' in cv_cells
 assert 'toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];' in cv_cells
 assert 'id selected = LMVEasterRead(@"CVVideo");' in cv_cells, 'the panel material row reads its own key'
 assert '(row == 2 || row == 3)) return @"CV";' in panel

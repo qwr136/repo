@@ -50,14 +50,14 @@ assert 'section == LMVEasterImportSection() || section == LMVEasterDisplaySectio
 assert 'if (section < LMVEasterTargets().count) return LMVEasterTitles()[section]' in video
 assert 'ControlCenterBackgroundEnabled' in video
 assert 'ControlCenterDarkVideo' in video and 'ControlCenterLightVideo' in video
-assert '切换深色模式素材' in video and '切换浅色模式素材' in video
+assert '切换素材' in video and '切换素材' in video
 assert 'toggle.tag = LMVEasterOpacitySection();' in video
 assert 'toggle.tag > LMVEasterOpacitySection()' in video
 assert 'else if (toggle.tag == LMVEasterHomeMenuSection()) key = @"HomeMenuBackgroundEnabled";' in video
 assert 'else if (toggle.tag < LMVEasterTargets().count)' in video and 'else return;' in video
 assert 'toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];' in video
 assert 'id selected = LMVEasterRead(@"HomeMenuVideo");' in video
-assert 'key = @"HomeMenuVideo";' in video and '切换长按菜单素材' in video
+assert 'key = @"HomeMenuVideo";' in video and '切换素材' in video
 assert 'toggle.tag == LMVEasterControlCenterSection()' in video
 assert 'if (index.section == LMVEasterImportSection())' in video
 assert 'if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;' in video

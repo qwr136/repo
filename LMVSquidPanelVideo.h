@@ -1115,6 +1115,8 @@ static void LMVSquidPanelRestoreTextColor(void) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+// 2.42: per-channel show/hide delay timestamps.
+@property(nonatomic) NSTimeInterval pendingShow,pendingHide;
 // 1.99: the icon scroller is a SIBLING above the host, so any fill colour it
 // carries is painted straight over the picture. Remember it and hand it back.
 @property(nonatomic,weak) UIScrollView *scroller;
@@ -1169,7 +1171,22 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=LMVSquidPanelWindow();
     UIView *card=window?LMVSquidPanelCard(window):nil;
+    NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
+    if(card && !self.card) {
+        NSTimeInterval show=LMVTuneDelay(@"SquidPanel",@"ShowDelayMs");
+        if(self.pendingShow<=0)self.pendingShow=tuneNow;
+        if(show>0 && tuneNow-self.pendingShow<show) {self.updating=NO;return;}
+        self.pendingShow=0;
+    } else if(!card) {
+        self.pendingShow=0;
+    }
     if(!card) {
+        NSTimeInterval hide=LMVTuneDelay(@"SquidPanel",@"HideDelayMs");
+        if(hide>0 && self.card && self.host.superview) {
+            if(self.pendingHide<=0)self.pendingHide=tuneNow;
+            if(tuneNow-self.pendingHide<hide) {self.updating=NO;return;}
+        }
+        self.pendingHide=0;
         // 2.00: A PANEL THE WINDOW RULE DOES NOT KNOW ABOUT IS COMPLETELY SILENT.
         // No card means an early return before any log line, so "the log does not
         // even see it" is itself the evidence - and that is exactly the status-bar

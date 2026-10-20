@@ -238,6 +238,8 @@ static UIView *LMVCCBorderFindCard(UIWindow **windowOut,UIView **menuOut) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+// 2.42: per-channel show/hide delay timestamps.
+@property(nonatomic) NSTimeInterval pendingShow,pendingHide;
 - (void)detach;
 - (void)update;
 @end
@@ -272,7 +274,22 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=nil;UIView *menu=nil;
     UIView *card=LMVCCBorderFindCard(&window,&menu);
+    NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
+    if(card && !self.card) {
+        NSTimeInterval show=LMVTuneDelay(@"CCBorder",@"ShowDelayMs");
+        if(self.pendingShow<=0)self.pendingShow=tuneNow;
+        if(show>0 && tuneNow-self.pendingShow<show) {self.updating=NO;return;}
+        self.pendingShow=0;
+    } else if(!card) {
+        self.pendingShow=0;
+    }
     if(!card) {
+        NSTimeInterval hide=LMVTuneDelay(@"CCBorder",@"HideDelayMs");
+        if(hide>0 && self.card && self.host.superview) {
+            if(self.pendingHide<=0)self.pendingHide=tuneNow;
+            if(tuneNow-self.pendingHide<hide) {self.updating=NO;return;}
+        }
+        self.pendingHide=0;
         [self detach];self.updating=NO;
         // 2.31: no silent return - name what was on screen instead, so "the menu
         // was open but nothing was found" is distinguishable from "no menu".

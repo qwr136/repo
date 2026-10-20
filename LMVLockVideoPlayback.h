@@ -41,6 +41,34 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
     return composition;
 }
 
+static void LMVPlaybackPrefsChanged(CFNotificationCenterRef center,void *observer,CFStringRef name,
+                                    const void *object,CFDictionaryRef userInfo);
+// 2.42: a REAL frame limiter. +videoCompositionWithPropertiesOfAsset: is meant for a
+// file-backed asset and returns nil for the assembled AVMutableComposition this layer
+// plays - it did, silently, so the cap never applied to the Desktop channel at all.
+// The composition is built by hand here, honouring the track's preferred transform.
+static AVMutableVideoComposition *LMVLockFrameLimitedComposition(AVComposition *composition, NSInteger fps) {
+    if (!composition || fps < 1 || fps > 120) return nil;
+    AVAssetTrack *track = [composition tracksWithMediaType:AVMediaTypeVideo].firstObject;
+    if (!track) return nil;
+    CGSize natural = track.naturalSize;
+    CGAffineTransform transform = track.preferredTransform;
+    if (natural.width < 1 || natural.height < 1) return nil;
+    CGRect box = CGRectApplyAffineTransform(CGRectMake(0, 0, natural.width, natural.height), transform);
+    CGSize render = CGSizeMake(fabs(box.size.width), fabs(box.size.height));
+    if (render.width < 1 || render.height < 1) return nil;
+    AVMutableVideoComposition *video = [AVMutableVideoComposition videoComposition];
+    video.renderSize = render;
+    video.frameDuration = CMTimeMake(1, (int32_t)fps);
+    AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, composition.duration);
+    AVMutableVideoCompositionLayerInstruction *layer =
+        [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:track];
+    [layer setTransform:transform atTime:kCMTimeZero];
+    instruction.layerInstructions = @[layer];
+    video.instructions = @[instruction];
+    return video;
+}
 @interface LMVLockVideoPlayback : NSObject
 @property(nonatomic,readonly,strong) CALayer *renderLayer,*posterLayer;
 @property(nonatomic,readonly,strong) AVPlayerLayer *playerLayer;
@@ -59,6 +87,14 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,copy) void (^didChange)(void);
 @property(nonatomic) BOOL persistentPosterEnabled;
 @property(nonatomic) NSInteger loopRemaining;
+// 2.42: what the item was BUILT with. LoopCount / MaxFPS cannot change on a running
+// item, so applyTuning compares these snapshots and rebuilds when they differ.
+@property(nonatomic) NSInteger itemLoopCount,itemMaxFPS;
+@property(nonatomic) BOOL itemTuningValid;
+// 2.42: "暂停并隐藏" - suspended but keep the surface off screen.
+@property(nonatomic) BOOL policyHidden;
+@property(nonatomic) BOOL rebuilding;
+@property(nonatomic) CMTime pendingSeek;
 // 2.39: which channel's tuning this playback obeys (Tune.<target>.*).
 @property(nonatomic,copy) NSString *target;
 - (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;
@@ -96,10 +132,11 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic) NSUInteger posterGeneration;
 @property(nonatomic) BOOL posterOnlyVisible;
 @property(nonatomic) BOOL frozen;
-@property(nonatomic) BOOL presentationValid,lastLoading,lastReady,lastWants,lastFrozen,lastPosterOnly;
+@property(nonatomic) BOOL presentationValid,lastLoading,lastReady,lastWants,lastFrozen,lastPosterOnly,lastPolicyHidden;
 @property(nonatomic) NSUInteger lastPresentationGeneration;
 @property(nonatomic) uintptr_t lastPresentationPlayer,lastPresentationPoster,lastPresentationError;
 - (void)updatePresentation;
+- (void)scheduleTuningRebuild;
 - (void)replacePlayerLayer;
 @end
 static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTimeControlContext;
@@ -111,6 +148,10 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
         _posterLayer=[CALayer layer];_posterLayer.name=@"com.minis.lockmessagevideo.lock.poster";
         _posterLayer.contentsGravity=kCAGravityResizeAspectFill;
         [self replacePlayerLayer];
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+            (__bridge const void *)self, LMVPlaybackPrefsChanged,
+            CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately);
     }
     return self;
 }
@@ -119,8 +160,17 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     [self applyTuning];
 }
 // Gravity / poster fill. Called again whenever the layer is rebuilt.
+// 2.42: the settings app writes in another process. A Darwin notification tells us
+// something changed; re-read immediately instead of waiting for the 1s throttle,
+// otherwise a Desktop channel keeps the old fill mode until the next layout.
+static void LMVPlaybackPrefsChanged(CFNotificationCenterRef center,void *observer,CFStringRef name,
+                                    const void *object,CFDictionaryRef userInfo) {
+    LMVLockVideoPlayback *playback=(__bridge LMVLockVideoPlayback *)observer;
+    dispatch_async(dispatch_get_main_queue(),^{ [playback applyTuning]; });
+}
 - (void)applyTuning {
     if(!self.target.length)return;
+    LMVTuneSyncNow();
     BOOL fit=LMVTuneValue(self.target,@"Gravity")==1;
     self.playerLayer.videoGravity=fit?AVLayerVideoGravityResizeAspect:AVLayerVideoGravityResizeAspectFill;
     self.posterLayer.contentsGravity=fit?kCAGravityResizeAspect:kCAGravityResizeAspectFill;
@@ -130,6 +180,31 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
         CGFloat rate=percent/100.0;
         if(self.player.rate>0.01 && fabs(self.player.rate-rate)>0.01) self.player.rate=rate;
     }
+    // 2.42: loop count and frame cap are baked into the item, so a change can only
+    // take effect by rebuilding. Compare against what the item was built with and
+    // schedule one rebuild (debounced) instead of waiting for the next panel open.
+    if(self.path.length && self.templateItem && self.itemTuningValid) {
+        NSInteger loops=LMVTuneValue(self.target,@"LoopCount");
+        NSInteger fps=LMVTuneValue(self.target,@"MaxFPS");
+        if(loops!=self.itemLoopCount || fps!=self.itemMaxFPS) [self scheduleTuningRebuild];
+    }
+}
+// One rebuild per burst: typing 3 then 30 must not build two players.
+- (void)scheduleTuningRebuild {
+    if(self.rebuilding || !self.path.length) return;
+    self.rebuilding=YES;
+    CMTime resume=self.player?self.player.currentTime:kCMTimeZero;
+    NSString *path=self.path,*revision=self.revision;
+    __weak typeof(self) weakSelf=self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(.3*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+        LMVLockVideoPlayback *me=weakSelf;
+        if(!me)return;
+        me.rebuilding=NO;
+        if(![me.path isEqualToString:path] || ![me.revision isEqualToString:revision]) return;
+        if(CMTIME_IS_NUMERIC(resume) && CMTimeGetSeconds(resume)>.05) me.pendingSeek=resume;
+        // selectPath keeps the current frame on screen (2.42), so this does not flash.
+        [me selectPath:path revision:revision];
+    });
 }
 - (void)replacePlayerLayer {
     if (self.observingLayer) [self.playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];
@@ -142,6 +217,8 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     [self applyTuning];
 }
 - (void)dealloc {
+    CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+        (__bridge const void *)self, CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL);
     if (_observingLayer) [_playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];
     if (_observingPlayer) {
         [_player removeObserver:self forKeyPath:@"status" context:&LMVLockPlayerStatusContext];
@@ -211,7 +288,21 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     [self applyTuning];
     // 2.39: per-channel "面板不可见" policy. 1 = keep playing (the caller asked to
     // hide, but the user chose "继续"), everything else keeps the old behaviour.
-    if (!visible && self.target.length && LMVTuneValue(self.target,@"HiddenAction")==1) visible=YES;
+    if (!visible && self.target.length) {
+        NSInteger action=LMVTuneValue(self.target,@"HiddenAction");
+        // 1 = keep playing, 2 = pause AND take the surface off screen (it used to be
+        // just a pause, so the last frame stayed visible over the UI).
+        if (action==1) visible=YES;
+        self.policyHidden = (action==2);
+    } else {
+        self.policyHidden=NO;
+    }
+    if (visible && self.target.length) {
+        // 2.42: hidden resets the loop budget, so showing the panel again starts a
+        // fresh count instead of resuming a half-spent one.
+        NSInteger loops=LMVTuneValue(self.target,@"LoopCount");
+        self.loopRemaining=loops>0?loops-1:0;
+    }
     self.posterOnlyVisible=NO;
     _frozen=NO;
     self.wantsPlayback=visible;
@@ -242,7 +333,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     BOOL blank=!ready && !self.posterLayer.contents && !retainedPlayer;
     BOOL playerHidden=!(ready || retainedPlayer);
     BOOL posterHidden=(ready || retainedPlayer) || !self.posterLayer.contents || self.error!=nil;
-    BOOL renderHidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || blank;
+    BOOL renderHidden=(!self.wantsPlayback && !self.posterOnlyVisible && !self.frozen) || self.error!=nil || blank || self.policyHidden;
     uintptr_t player=(uintptr_t)(__bridge void *)self.player;
     uintptr_t poster=(uintptr_t)(__bridge void *)self.posterLayer.contents;
     uintptr_t error=(uintptr_t)(__bridge void *)self.error;
@@ -250,6 +341,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
         self.lastPresentationPlayer!=player || self.lastPresentationPoster!=poster || self.lastPresentationError!=error ||
         self.lastLoading!=self.loading || self.lastReady!=ready || self.lastWants!=self.wantsPlayback ||
         self.lastFrozen!=self.frozen || self.lastPosterOnly!=self.posterOnlyVisible ||
+        self.lastPolicyHidden!=self.policyHidden ||
         self.playerLayer.hidden!=playerHidden || self.posterLayer.hidden!=posterHidden || self.renderLayer.hidden!=renderHidden;
     if(!changed)return;
     [CATransaction begin];[CATransaction setDisableActions:YES];
@@ -260,7 +352,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     self.presentationValid=YES;self.lastPresentationGeneration=self.generation;
     self.lastPresentationPlayer=player;self.lastPresentationPoster=poster;self.lastPresentationError=error;
     self.lastLoading=self.loading;self.lastReady=ready;self.lastWants=self.wantsPlayback;
-    self.lastFrozen=self.frozen;self.lastPosterOnly=self.posterOnlyVisible;
+    self.lastFrozen=self.frozen;self.lastPosterOnly=self.posterOnlyVisible;self.lastPolicyHidden=self.policyHidden;
     // KVO may report redundant status values. Only meaningful presentation
     // changes reach a manager; setters don't create a self-refresh feedback loop.
     if (changed && self.didChange) self.didChange();
@@ -330,7 +422,19 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     if ([self.path isEqualToString:path] && [self.revision isEqualToString:revision]) return;
     BOOL visible=self.wantsPlayback,posterVisible=self.posterOnlyVisible;
     CGImageRef prepared=self.preparedImage && [self.preparedPath isEqualToString:path] && [self.preparedRevision isEqualToString:revision]?CGImageRetain(self.preparedImage):NULL;
+    // 2.42: keep the frame that is on screen right now. `clear` used to blank the
+    // poster too, so switching material showed the panel's white background until the
+    // new player reported readyForDisplay. The old frame is retained here and put
+    // back below; the new poster replaces it as soon as it is decoded.
+    CGImageRef previousPoster=self.posterLayer.contents?CGImageRetain((__bridge CGImageRef)self.posterLayer.contents):NULL;
     [self clear];self.wantsPlayback=visible;self.posterOnlyVisible=posterVisible && prepared!=NULL;
+    if(previousPoster && !self.posterLayer.contents) {
+        self.posterLayer.contents=(__bridge id)previousPoster;
+        self.posterLayer.hidden=NO;
+        self.posterOnlyVisible=YES;
+        [self updatePresentation];
+    }
+    if(previousPoster)CGImageRelease(previousPoster);
     if (!path.length || !revision.length) {if(prepared)CGImageRelease(prepared);return;}
     self.path=path;self.revision=revision;self.loading=YES;
     if (prepared) {
@@ -358,11 +462,8 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
             // built, i.e. on the next panel open / material change.
             NSInteger maxFPS=live.target.length?LMVTuneValue(live.target,@"MaxFPS"):0;
             if(maxFPS>0) {
-                AVMutableVideoComposition *limited=[AVMutableVideoComposition videoCompositionWithPropertiesOfAsset:composition];
-                if(limited) {
-                    limited.frameDuration=CMTimeMake(1,(int32_t)MIN(maxFPS,120));
-                    live.templateItem.videoComposition=limited;
-                }
+                AVMutableVideoComposition *limited=LMVLockFrameLimitedComposition(composition,maxFPS);
+                if(limited) live.templateItem.videoComposition=limited;
             }
             live.templateItem.preferredForwardBufferDuration=1;
             live.player=[AVQueuePlayer queuePlayerWithItems:@[]];live.player.muted=YES;live.player.volume=0;
@@ -371,6 +472,9 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
                 live.player.preventsDisplaySleepDuringVideoPlayback=NO;
             live.player.automaticallyWaitsToMinimizeStalling=NO;
             NSInteger loops=live.target.length?LMVTuneValue(live.target,@"LoopCount"):0;
+            // Snapshot what this item was built with, so applyTuning can tell when a
+            // rebuild is needed. Valid only once the item really exists.
+            live.itemLoopCount=loops;live.itemMaxFPS=maxFPS;live.itemTuningValid=YES;
             if (loops>0) {
                 // 2.41: a finite count - play once, then replay (loops-1) times.
                 live.player.actionAtItemEnd=AVPlayerActionAtItemEndPause;
@@ -388,6 +492,12 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
                 live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:live.templateItem];
             }
             live.playerLayer.player=live.player;live.buildCount++;
+            if(CMTIME_IS_NUMERIC(live.pendingSeek) && CMTimeGetSeconds(live.pendingSeek)>.05) {
+                [live.player seekToTime:live.pendingSeek
+                    toleranceBefore:CMTimeMakeWithSeconds(.2,600)
+                    toleranceAfter:CMTimeMakeWithSeconds(.2,600)];
+                live.pendingSeek=kCMTimeInvalid;
+            }
             [live.player addObserver:live forKeyPath:@"status" options:NSKeyValueObservingOptionInitial context:&LMVLockPlayerStatusContext];
             [live.player addObserver:live forKeyPath:@"timeControlStatus" options:0 context:&LMVLockPlayerTimeControlContext];live.observingPlayer=YES;
             live.failedObserver=[NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemFailedToPlayToEndTimeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){

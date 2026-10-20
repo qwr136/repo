@@ -103,9 +103,9 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
         ]},
         @{@"title":@"可见性", @"params":@[
             LMVTuneParam(@"HiddenAction", @"面板不可见", 0, 2, 0, @[@"暂停", @"继续", @"暂停并隐藏"], @[@0, @1, @2]),
-            LMVTuneParam(@"OccludedAction", @"被完全遮挡", 0, 1, 0, @[@"暂停", @"继续"], @[@0, @1]),
-            LMVTuneParam(@"LockedAction", @"锁屏 / 息屏", 0, 1, 0, @[@"暂停", @"继续"], @[@0, @1]),
-            LMVTuneParam(@"ForegroundAction", @"App 前台", 0, 1, 0, @[@"暂停", @"继续"], @[@0, @1]),
+            // 2.42: 被完全遮挡 / 锁屏息屏 / App 前台 三项在 2.39 就摆在这里，但运行时
+            // 从来没读过。宁可先撤掉，也不留调了没反应的开关；遮挡判定各通道要自己算，
+            // 桌面还要先看清搜索界面的窗口类名，接好再放回来。
         ]},
         @{@"title":@"性能", @"params":@[
             LMVTuneParam(@"LowPowerAction", @"低电量模式", 0, 2, 0, @[@"不变", @"降帧", @"暂停"], @[@0, @1, @2]),
@@ -139,6 +139,9 @@ static inline NSString *LMVTuneFullKey(NSString *target, NSString *key) {
 // 2.41: Settings writes in another process. CFPreferences keeps a per-process cache,
 // so without this the dylib keeps reading the value it saw at launch and every
 // setting looks dead. Throttled to once a second.
+static inline void LMVTuneSyncNow(void) {
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneDomain);
+}
 static inline void LMVTuneSync(void) {
     static NSTimeInterval last;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
@@ -195,7 +198,7 @@ static inline void LMVTuneSetValue(NSString *target, NSString *key, NSInteger va
 static inline NSTimeInterval LMVTuneProbeInterval(NSString *target) {
     NSInteger hz = LMVTuneValue(target, @"ProbeHz");
     if (hz < 1) hz = 1;
-    if (hz > 20) hz = 20;
+    if (hz > 60) hz = 60;
     return 1.0 / (NSTimeInterval)hz;
 }
 static inline NSTimeInterval LMVTuneDelay(NSString *target, NSString *key) {

@@ -281,7 +281,7 @@ assert "LMVDesktopAudioCoverHook=^(BOOL covered){" in s
 assert 'else LMVAudioResumeTarget(@"Desktop",LMVDesktopVideo.playback.player?LMVDesktopVideo.playback.player.currentTime:kCMTimeZero);' in s
 audio=(r/'LMVMediaAudio.h').read_text()
 assert 'static void LMVAudioResumeTarget(NSString *target,CMTime time) {' in audio
-assert "[c.player playImmediatelyAtRate:1];c.lastSync=CACurrentMediaTime();" in audio, 'the audio sync gates on the cover, not just the player state'
+assert "[c.player playImmediatelyAtRate:LMVAudioRate(target)];c.lastSync=CACurrentMediaTime();" in audio, 'the audio sync gates on the cover, not just the player state'
 
 # 0.0.129: any OTHER visible window whose root view covers ~the whole screen is a
 # SHEET cover - the Control Center root slides in and out, and full-screen
