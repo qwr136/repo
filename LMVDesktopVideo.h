@@ -923,6 +923,11 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // this the page could never show the visible-state value - it always read
         // "被遮挡" and looked like the setting had never been applied.
         LMVTuneReport(@"Desktop",@"IdleApplied",wantFPS);
+        // 2.52: the report returns early while the value is unchanged, so on its own it
+        // could not say "this is what it is running at RIGHT NOW". The touch stamps the
+        // observation (once a second), so the page can show "10（3 分钟前）" and the user
+        // can tell a live reading from a stale one.
+        LMVTuneTouch(@"Desktop",@"IdleApplied");
     }
     if (link.preferredFramesPerSecond!=wantFPS) {
         link.preferredFramesPerSecond=wantFPS;

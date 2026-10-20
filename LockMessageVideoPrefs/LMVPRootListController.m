@@ -42,6 +42,25 @@ static void LMVNotify(void) {
     [super viewDidLoad];
     self.title = @"背景视频";
 }
+// 2.52: the material name on a row is painted in -willDisplayCell:, which UIKit only
+// calls when a row scrolls into view or is reloaded. Picking a material, renaming one
+// or deleting one all happen inside a modal, so the row behind it kept whatever name
+// it had the first time it was displayed - the preference had changed, the label had
+// not. That is the reported "外面那个素材名字没有跟着变".
+// Reloading only the material rows is enough, and it keeps the scroll position.
+- (void)refreshMaterialRows {
+    for (PSSpecifier *item in [_specifiers copy]) {
+        id identifier = [item propertyForKey:@"id"];
+        if (![identifier isKindOfClass:NSString.class]) continue;
+        if (![identifier hasSuffix:@"Material"]) continue;
+        [self reloadSpecifier:item animated:NO];
+    }
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // Covers the return from the picker, from import, and from a rename/delete.
+    [self refreshMaterialRows];
+}
 - (void)appendAudioForTarget:(NSString *)target title:(NSString *)title {
     NSString *volumeKey = [target stringByAppendingString:@"Volume"];
     PSSpecifier *sound = [PSSpecifier preferenceSpecifierNamed:[title stringByAppendingString:@"声音"] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -253,30 +272,21 @@ static void LMVNotify(void) {
     [clxText setProperty:@"CopyLogXTextColor" forKey:@"id"];
     [_specifiers addObject:clxText];
     // 2.39: per-channel tuning, directly below CopyLogX and above the egg group.
-    // One row per channel; each pushes its own page of sliders/enums.
-    // 2.48: two sections instead of one long block - the eight panels share the same
-    // probe/delay rows, while the desktop, the ball and the card link each carry a
-    // single cadence of their own. Grouping is data-driven (LMVTuneTargets' "group"),
-    // so adding a channel later only needs a new row there.
-    NSArray *tuneSections = @[
-        @{@"id":@"panel", @"title":@"自定义参数 · 面板",
-          @"footer":@"每个面板单独一套参数（检测频率 / 出现延迟 / 关闭延迟 / 钩子节流）。点进任意一项，页顶会显示它当前实际生效的值。"},
-        @{@"id":@"other", @"title":@"自定义参数 · 其他",
-          @"footer":@"桌面、悬浮球、通知卡片各自只有一项频率；页顶同样会显示当前实际生效的值。"},
-    ];
-    for (NSDictionary *section in tuneSections) {
-        PSSpecifier *group = [PSSpecifier groupSpecifierWithName:section[@"title"]];
-        [group setProperty:section[@"footer"] forKey:@"footerText"];
-        [_specifiers addObject:group];
-        for (NSDictionary *item in LMVTuneTargets()) {
-            if (![item[@"group"] isEqualToString:section[@"id"]]) continue;
-            PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:item[@"name"]
-                                                              target:self set:nil get:nil
-                                                              detail:nil cell:PSButtonCell edit:nil];
-            row.buttonAction = @selector(openTune:);
-            [row setProperty:item[@"id"] forKey:@"tuneTarget"];
-            [_specifiers addObject:row];
-        }
+    // One row per channel; each pushes its own page of parameters.
+    // 2.52: ONE flat section, per the user's request. 2.48 had split the index into
+    // 面板 / 其他, which made the same list look like two unrelated features. Every
+    // target now sits under a single heading; the per-channel pages are untouched.
+    // The order is still LMVTuneTargets' order, so a channel is added in one place.
+    PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"功能面板参数"];
+    [tuneGroup setProperty:@"每个通道单独一套参数（检测频率 / 出现延迟 / 关闭延迟 / 钩子节流 / 刷新率）。点进任意一项，页顶会显示它当前实际生效的值。" forKey:@"footerText"];
+    [_specifiers addObject:tuneGroup];
+    for (NSDictionary *item in LMVTuneTargets()) {
+        PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:item[@"name"]
+                                                          target:self set:nil get:nil
+                                                          detail:nil cell:PSButtonCell edit:nil];
+        row.buttonAction = @selector(openTune:);
+        [row setProperty:item[@"id"] forKey:@"tuneTarget"];
+        [_specifiers addObject:row];
     }
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -661,6 +671,10 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
     LMVNotify();
+    // 2.52: repaint this target's row now. The picker is an over-full-screen modal,
+    // so returning from it does not re-display the row underneath; without this the
+    // old name stayed until the user scrolled it out and back in.
+    [self refreshMaterialRows];
     NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频", @"GS": @"GlassSuiteX 弹窗背景视频", @"CCBorder": @"CCBorder 视频背景", @"CopyLogX": @"CopyLogX 视频背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];

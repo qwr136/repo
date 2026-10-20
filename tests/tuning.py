@@ -101,8 +101,10 @@ for target in targets:
 
 # ---- 5) 设置页入口与子控制器 ---------------------------------------------------
 # 2.48: one 自定义参数 block became two sections (面板 / 其他).
-assert '@"title":@"自定义参数 · 面板"' in prefs
-assert '@"title":@"自定义参数 · 其他"' in prefs
+# 2.52: back to ONE section, 功能面板参数, as the user asked; the per-channel pages
+# are unchanged, only the index stopped splitting the same list into two headings.
+assert 'groupSpecifierWithName:@"功能面板参数"' in prefs
+assert '自定义参数 · 面板' not in prefs and '自定义参数 · 其他' not in prefs
 assert 'for (NSDictionary *item in LMVTuneTargets())' in prefs
 assert 'row.buttonAction = @selector(openTune:);' in prefs
 assert 'initWithTarget:target' in prefs
@@ -110,6 +112,17 @@ assert 'LMVTuneController.m' in makefile
 assert 'cell:PSButtonCell' in tune_controller
 assert 'LMVTuneGroupsForTarget(self.target)' in tune_controller
 assert 'LMVTuneSetValue(self.target' in tune_controller
+# 2.52: the visible-state value must carry its OWN age (the shared stamp moves with the
+# 2 Hz heartbeat, which made a minutes-old value look freshly measured), and when it
+# disagrees with the saved setting the page has to say when it will apply.
+assert '"Runtime.%@.%@.At"' in tuning
+assert 'LMVTuneRuntimeKeyAge(NSString *target, NSString *key)' in tuning
+assert 'LMVTuneRuntimeKeyAge(self.target, @"IdleApplied")' in tune_controller
+assert '回桌面后按 %ld 生效' in tune_controller
+# ...and the observation itself has to be stamped, or "3 分钟前" would really mean
+# "the value has not changed for 3 minutes" (the report returns early on no change).
+assert 'LMVTuneTouch(NSString *target, NSString *key)' in tuning
+assert 'LMVTuneTouch(@"Desktop",@"IdleApplied")' in desktop
 
 # ---- 6) 运行时不再读被删掉的键 -------------------------------------------------
 assert 'LMVTune' not in playback, '播放引擎不应再读任何调参键'

@@ -289,7 +289,9 @@ class UISectionOrder(unittest.TestCase):
             'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText',
             # 2.48: two data-driven sections (group + row inside one loop) replace the
             # single 自定义参数 group and its flat row loop.
-            'group', 'row',
+            # 2.52: one section again (功能面板参数), still data-driven - the group is
+            # now a named local, so the append reads 'tuneGroup' instead of 'group'.
+            'tuneGroup', 'row',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
@@ -329,7 +331,12 @@ class UISectionOrder(unittest.TestCase):
         # 2.48: the 自定义参数 block became two data-driven sections (面板 / 其他) and
         # the five base rows gained the id added in 2.47; row order and count unchanged,
         # so the frozen digest is refreshed for that edit.
-        self.assertEqual(digest('\n'.join(props)), '4f3c37c7351d19ca26cc89033047269a5c0173ccbd5a6bd563269e7877a44cb7')
+        # 2.52: the two sections are one again. The only line this set loses is the
+        # section loop's dynamic footer ([group setProperty:section[@"footer"]...]);
+        # the replacement is [tuneGroup setProperty:...], which the "tuneGroup" filter
+        # above excludes. Row order and count are unchanged, so the digest is refreshed
+        # for exactly that one deletion.
+        self.assertEqual(digest('\n'.join(props)), '46c5d7177fd204fee03e684739196397939626c077e53ce9d9099749f8523094')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)
@@ -415,6 +422,14 @@ class UISectionOrder(unittest.TestCase):
         if tune_start >= 0:
             tune_end = old_handlers.index('- (void)openEaster:', tune_start)
             old_handlers = old_handlers[:tune_start] + old_handlers[tune_end:]
+        # 2.52: -selectFile: now repaints the material rows it just changed. The call is
+        # new, so it is stripped here - the frozen digest keeps guarding the handlers
+        # that predate it (and the repaint itself is asserted in tests/tuning.py).
+        old_handlers = old_handlers.replace('''    // 2.52: repaint this target's row now. The picker is an over-full-screen modal,
+    // so returning from it does not re-display the row underneath; without this the
+    // old name stayed until the user scrolled it out and back in.
+    [self refreshMaterialRows];
+''', '')
         self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
@@ -423,6 +438,19 @@ class UISectionOrder(unittest.TestCase):
         self.assertIn('PSSpecifier *row = [self specifierAtIndexPath:indexPath];', handlers)
         self.assertIn('invoke(self, action, row);', handlers)
         self.assertIn('eggImage.buttonAction = @selector(openEaster:);', SPECIFIERS)
+
+    def test_material_row_name_refreshes_after_pick(self):
+        # 2.52: the chosen name is painted in -willDisplayCell:, which UIKit does not
+        # re-run when a modal is dismissed. Picking/renaming/deleting a material left
+        # the old name on the row behind the picker ("外面那个素材名字没有跟着变").
+        # Both paths must repaint: the pick itself, and any return to this page.
+        self.assertIn('- (void)refreshMaterialRows {', SETTINGS)
+        self.assertIn('if (![identifier hasSuffix:@"Material"]) continue;', SETTINGS)
+        self.assertIn('[self reloadSpecifier:item animated:NO];', SETTINGS)
+        self.assertIn('- (void)viewWillAppear:(BOOL)animated {', SETTINGS)
+        self.assertEqual(SETTINGS.count('[self refreshMaterialRows];'), 2)
+        select = SETTINGS[SETTINGS.index('- (void)selectFile:'):]
+        self.assertIn("LMVNotify();\n    // 2.52: repaint this target's row now.", select)
 
     def test_shared_picker_delete_routing_unchanged(self):
         # 0.0.117: orientation support is added to the picker (rotation follow).

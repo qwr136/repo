@@ -33,6 +33,17 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     if ([key isEqualToString:@"HookThrottleMs"]) return @"节流";
     return key;
 }
+// 2.52: "when was this observed". The shared age answers "is the channel alive";
+// the per-key age answers "is this particular number current". Both are needed: the
+// desktop's visible-state rate can be minutes old while the channel talks to us
+// every second at its covered heartbeat.
+static NSString *LMVTuneAgoText(NSTimeInterval age) {
+    if (age < 0) return @"未上报";
+    if (age < 5) return @"刚刚";
+    if (age < 60) return [NSString stringWithFormat:@"%.0f 秒前", age];
+    if (age < 3600) return [NSString stringWithFormat:@"%.0f 分钟前", age / 60];
+    return [NSString stringWithFormat:@"%.1f 小时前", age / 3600];
+}
 - (NSString *)runtimeStatus {
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     for (NSDictionary *group in LMVTuneGroupsForTarget(self.target)) {
@@ -42,10 +53,21 @@ static NSString *LMVTuneShortLabel(NSString *key) {
                 value ? [NSString stringWithFormat:@"%ld", (long)value.integerValue] : @"未上报"]];
         }
     }
-    // The desktop reports the frame rate it really applied, which can differ from the
-    // two settings while a reveal burst is running.
+    // The desktop reports the frame rate it really applied while it was VISIBLE.
+    // 2.52: that value only ever comes from the desktop, and this page is an app - the
+    // desktop is covered for as long as the page is on screen - so it is necessarily a
+    // past observation. Stamping it with its own age stops "10" from reading as the
+    // current value; when it disagrees with the saved setting, say what happens next.
     NSNumber *idleApplied = LMVTuneRuntime(self.target, @"IdleApplied");
-    if (idleApplied) [parts addObject:[NSString stringWithFormat:@"桌面时 %ld", (long)idleApplied.integerValue]];
+    NSString *idleHint = nil;
+    if (idleApplied) {
+        NSTimeInterval idleAge = LMVTuneRuntimeKeyAge(self.target, @"IdleApplied");
+        [parts addObject:[NSString stringWithFormat:@"桌面时 %ld（%@）",
+            (long)idleApplied.integerValue, LMVTuneAgoText(idleAge)]];
+        NSNumber *idleSetting = LMVTuneRuntime(self.target, @"IdleFPS");
+        if (idleSetting && idleSetting.integerValue != idleApplied.integerValue)
+            idleHint = [NSString stringWithFormat:@"回桌面后按 %ld 生效", (long)idleSetting.integerValue];
+    }
     NSNumber *want = LMVTuneRuntime(self.target, @"WantFPS");
     if (want) {
         NSNumber *reason = LMVTuneRuntime(self.target, @"WantReason");
@@ -66,7 +88,11 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     // The timestamp only moves when the VALUE changes, so "287 秒前" meant "unchanged
     // for 287 seconds", which read as "not working". Say what it means.
     else freshness = @"持续生效";
-    return [NSString stringWithFormat:@"当前生效：%@（%@）", [parts componentsJoinedByString:@" / "], freshness];
+    NSString *line = [NSString stringWithFormat:@"当前生效：%@（%@）",
+                      [parts componentsJoinedByString:@" / "], freshness];
+    // Its own line: the hint is an action, not another measured value.
+    if (idleHint.length) line = [line stringByAppendingFormat:@"\n%@", idleHint];
+    return line;
 }
 - (void)refreshStatus {
     if (!self.statusGroup) return;

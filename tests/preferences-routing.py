@@ -107,9 +107,11 @@ pa_section = source[pa_start:gs_start]
 gs_section = source[gs_start:ccb_start]
 ccb_section = source[ccb_start:clx_start]
 # 2.39: the tuning group sits between CopyLogX and the egg group.
-# 2.48: the tuning block is now two data-driven sections (面板 / 其他) instead of one
-# group with a flat list, so the anchor is the section table rather than a group name.
-tune_start = source.index('NSArray *tuneSections = @[')
+# 2.48: the tuning block is now data-driven instead of one group with a flat list,
+# so the anchor is the section table rather than a group name.
+# 2.52: the index is ONE section again (功能面板参数) per the user's request, so the
+# anchor is that group's declaration; the rows still come from LMVTuneTargets().
+tune_start = source.index('PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"功能面板参数"]')
 clx_section = source[clx_start:tune_start]
 tune_section = source[tune_start:egg_start]
 assert tune_section.count('cell:PSButtonCell') == 1

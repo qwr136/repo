@@ -18,8 +18,11 @@ static NSString *const LMVTuneDomain = @"com.minis.lockmessagevideo";
 // the page still showed 10). Separate domain, no shared keys, no way to collide.
 static NSString *const LMVTuneRuntimeDomain = @"com.minis.lockmessagevideo.runtime";
 
-// The channels, in the same order Settings lists them. "group" splits the settings
-// list into sections (面板 / 其他) instead of one long block of nine rows.
+// The channels, in the same order Settings lists them. 2.52: the settings page no
+// longer splits on "group" - every target is listed under one heading (功能面板参数),
+// as the user asked - so the field is a classification label only. It is kept because
+// the order and the label are useful data, not because anything reads it to section
+// the list.
 static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
     return @[
         @{@"id":@"SquidPanel",    @"name":@"鱿鱼面板",                 @"group":@"panel"},
@@ -201,6 +204,39 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     CFPreferencesSetAppValue((__bridge CFStringRef)stamp,
                              (__bridge CFNumberRef)@(NSDate.date.timeIntervalSince1970),
                              (__bridge CFStringRef)LMVTuneRuntimeDomain);
+    // 2.52: a PER-KEY stamp as well. The shared one above moves whenever ANY value in
+    // this channel changes, so a value that is only written on the desktop (the
+    // visible-state frame rate) inherited the 2 Hz heartbeat's fresh timestamp and was
+    // read as "just measured" long after the desktop had been covered. Two keys, two
+    // truths: the shared one still answers "is the channel alive", this one answers
+    // "when was THIS value observed".
+    NSString *keyStamp = [NSString stringWithFormat:@"Runtime.%@.%@.At", target, key];
+    CFPreferencesSetAppValue((__bridge CFStringRef)keyStamp,
+                             (__bridge CFNumberRef)@(NSDate.date.timeIntervalSince1970),
+                             (__bridge CFStringRef)LMVTuneRuntimeDomain);
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneRuntimeDomain);
+}
+// 2.52: "this value was observed now", without rewriting the value. -LMVTuneReport:
+// returns early when the value did not change, so its stamp would otherwise mean
+// "when this number last CHANGED" - for the desktop's visible-state rate that reads as
+// "minutes ago" while the number is in fact current, and as "just now" while it is
+// stale. Touch is called on every observation (throttled to one write a second) and
+// only from the state that can actually observe it, so the stamp answers the question
+// the page asks: how long ago was this measured?
+static inline void LMVTuneTouch(NSString *target, NSString *key) {
+    if (!target.length || !key.length) return;
+    static NSMutableDictionary<NSString *, NSNumber *> *lastTouch;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lastTouch = [NSMutableDictionary new]; });
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSString *identity = [target stringByAppendingFormat:@".%@", key];
+    NSNumber *previous = lastTouch[identity];
+    if (previous && now - previous.doubleValue < 1.0) return;
+    lastTouch[identity] = @(now);
+    NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.%@.At", target, key];
+    CFPreferencesSetAppValue((__bridge CFStringRef)stamp,
+                             (__bridge CFNumberRef)@(now),
+                             (__bridge CFStringRef)LMVTuneRuntimeDomain);
     CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneRuntimeDomain);
 }
 // Reads come from Settings, writes from SpringBoard, so the runtime domain is
@@ -224,6 +260,17 @@ static inline NSTimeInterval LMVTuneRuntimeAge(NSString *target) {
     if (!target.length) return -1;
     LMVTuneRuntimeSync();
     NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.At", target];
+    id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)stamp,
+                                                               (__bridge CFStringRef)LMVTuneRuntimeDomain);
+    if (![value isKindOfClass:NSNumber.class]) return -1;
+    return MAX(0.0, NSDate.date.timeIntervalSince1970 - [value doubleValue]);
+}
+// 2.52: how long ago THIS value was observed, not when the channel last spoke. See
+// LMVTuneReport. Returns -1 when the key has never been reported.
+static inline NSTimeInterval LMVTuneRuntimeKeyAge(NSString *target, NSString *key) {
+    if (!target.length || !key.length) return -1;
+    LMVTuneRuntimeSync();
+    NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.%@.At", target, key];
     id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)stamp,
                                                                (__bridge CFStringRef)LMVTuneRuntimeDomain);
     if (![value isKindOfClass:NSNumber.class]) return -1;
