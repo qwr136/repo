@@ -4,6 +4,10 @@ from pathlib import Path
 import ast,platform,subprocess,tempfile
 r=Path(__file__).resolve().parents[1]
 h=(r/'LMVDesktopVideo.h').read_text();s=(r/'Tweak.xm').read_text()
+# 2.46: the desktop reads its two cadence values from the tuning table. The native
+# fixture compiles this header standalone (no repo include path), so the import is
+# replaced by the header's own text instead of being resolved by the compiler.
+h=h.replace('#import "LMVPanelTuning.h"', (r/'LMVPanelTuning.h').read_text().replace('#pragma once',''))
 assert '#import "LMVDesktopVideo.h"' in s and 'LMVDesktopVideoRefresh(reload)' in s
 assert 'LMVDesktopVideoInstallHooks()' in s and 'LMVDesktopVideoSuspend()' in s
 assert 'LMVCacheFrame' not in h and 'LMVAcquireOriginal' not in h
