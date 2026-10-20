@@ -100,7 +100,6 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic) NSUInteger lastPresentationGeneration;
 @property(nonatomic) uintptr_t lastPresentationPlayer,lastPresentationPoster,lastPresentationError;
 - (void)updatePresentation;
-- (void)scheduleTuningRebuild;
 - (void)replacePlayerLayer;
 @end
 static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTimeControlContext;
