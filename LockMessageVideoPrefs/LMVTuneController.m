@@ -5,6 +5,10 @@
 @interface LMVTuneController ()
 @property (nonatomic, copy) NSString *target;
 @property (nonatomic, copy) NSString *channelName;
+// 2.48: the block at the top of the page that answers "is my value actually in
+// effect?". It is a group footer, refreshed once a second while the page is visible.
+@property (nonatomic, strong) PSSpecifier *statusGroup;
+@property (nonatomic, strong) NSTimer *statusTimer;
 @end
 
 @implementation LMVTuneController
@@ -17,6 +21,58 @@
     return self;
 }
 
+// Short names so the status line fits on one line on a phone.
+static NSString *LMVTuneShortLabel(NSString *key) {
+    if ([key isEqualToString:@"ProbeHz"] || [key isEqualToString:@"TickHz"]) return @"检测";
+    if ([key isEqualToString:@"FPS"] || [key isEqualToString:@"IdleFPS"] || [key isEqualToString:@"WantFPS"]) return @"刷新";
+    if ([key isEqualToString:@"CoveredFPS"]) return @"遮挡";
+    if ([key isEqualToString:@"ShowDelayMs"]) return @"出现";
+    if ([key isEqualToString:@"HideDelayMs"]) return @"关闭";
+    if ([key isEqualToString:@"HookThrottleMs"]) return @"节流";
+    return key;
+}
+- (NSString *)runtimeStatus {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSDictionary *group in LMVTuneGroupsForTarget(self.target)) {
+        for (NSDictionary *p in group[@"params"]) {
+            NSNumber *value = LMVTuneRuntime(self.target, p[@"key"]);
+            [parts addObject:[NSString stringWithFormat:@"%@ %@", LMVTuneShortLabel(p[@"key"]),
+                value ? [NSString stringWithFormat:@"%ld", (long)value.integerValue] : @"未上报"]];
+        }
+    }
+    // The desktop reports the frame rate it really applied, which can differ from the
+    // two settings while a reveal burst is running.
+    NSNumber *want = LMVTuneRuntime(self.target, @"WantFPS");
+    if (want) [parts addObject:[NSString stringWithFormat:@"实际 %ld", (long)want.integerValue]];
+    NSTimeInterval age = LMVTuneRuntimeAge(self.target);
+    NSString *freshness = nil;
+    if (age < 0) freshness = @"通道未运行";
+    else if (age < 1.5) freshness = @"刚刚";
+    else freshness = [NSString stringWithFormat:@"%.0f 秒前", age];
+    return [NSString stringWithFormat:@"当前生效：%@（%@）", [parts componentsJoinedByString:@" / "], freshness];
+}
+- (void)refreshStatus {
+    if (!self.statusGroup) return;
+    NSString *text = [self runtimeStatus];
+    if ([text isEqualToString:[self.statusGroup propertyForKey:@"footerText"]]) return;
+    [self.statusGroup setProperty:text forKey:@"footerText"];
+    [self reloadSpecifier:self.statusGroup animated:NO];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshStatus];
+    if (self.statusTimer) return;
+    __weak typeof(self) weakSelf = self;
+    self.statusTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
+        [weakSelf refreshStatus];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:self.statusTimer forMode:NSRunLoopCommonModes];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self.statusTimer invalidate];
+    self.statusTimer = nil;
+}
 - (NSString *)labelForParam:(NSDictionary *)p {
     // 2.45: every remaining parameter is numeric, so the enum wording is gone.
     NSInteger current = LMVTuneValue(self.target, p[@"key"]);
@@ -58,6 +114,10 @@
 - (NSArray *)specifiers {
     if (!_specifiers) {
         NSMutableArray *rows = [NSMutableArray array];
+        PSSpecifier *status = [PSSpecifier groupSpecifierWithName:@"当前生效"];
+        [status setProperty:[self runtimeStatus] forKey:@"footerText"];
+        self.statusGroup = status;
+        [rows addObject:status];
         for (NSDictionary *group in LMVTuneGroupsForTarget(self.target)) {
             [rows addObject:[PSSpecifier groupSpecifierWithName:group[@"title"]]];
             for (NSDictionary *p in group[@"params"]) {

@@ -287,7 +287,9 @@ class UISectionOrder(unittest.TestCase):
             'gsGroup', 'gsEnabled', 'gsMaterial', 'gsText',
             'ccbGroup', 'ccbEnabled', 'ccbMaterial',
             'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText',
-            'tuneGroup', 'row',
+            # 2.48: two data-driven sections (group + row inside one loop) replace the
+            # single 自定义参数 group and its flat row loop.
+            'group', 'row',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
@@ -300,7 +302,9 @@ class UISectionOrder(unittest.TestCase):
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 12)
         self.assertEqual(68 + (len(TARGETS) + 10) * 2, 98)  # 68 non-audio rows + 15 audio channels x 2
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup', 'tuneGroup') for x in sequence) + 4, 23)
+        # 2.48: the tuning block adds its two section groups from ONE statement inside a
+# loop, so the static count drops by one (runtime still has both sections).
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup') for x in sequence) + 4, 22)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
                        if ('setProperty:' in x or '.buttonAction =' in x)
@@ -322,7 +326,10 @@ class UISectionOrder(unittest.TestCase):
         # "which material is in use" label can resolve <target>Video. Row order,
         # actions and count are unchanged; only that one property was added, so the
         # frozen digest is refreshed for it.
-        self.assertEqual(digest('\n'.join(props)), '46c5d7177fd204fee03e684739196397939626c077e53ce9d9099749f8523094')
+        # 2.48: the 自定义参数 block became two data-driven sections (面板 / 其他) and
+        # the five base rows gained the id added in 2.47; row order and count unchanged,
+        # so the frozen digest is refreshed for that edit.
+        self.assertEqual(digest('\n'.join(props)), '4f3c37c7351d19ca26cc89033047269a5c0173ccbd5a6bd563269e7877a44cb7')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)

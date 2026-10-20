@@ -1563,7 +1563,12 @@ static void LMVSyncDisplayLink(void) {
     if (LMVLink) return;
     LMVDisplayLinkTarget *target=[LMVDisplayLinkTarget new];
     LMVLink=[CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
-    LMVLink.preferredFramesPerSecond=30;
+    // 2.48: the card link's cadence is a setting now (设置 → 自定义参数 → 通知卡片).
+    NSInteger cardFPS=LMVTuneValue(@"Cards",@"FPS");
+    if (cardFPS<15) cardFPS=15;
+    if (cardFPS>60) cardFPS=60;
+    LMVTuneReport(@"Cards",@"FPS",cardFPS);
+    LMVLink.preferredFramesPerSecond=cardFPS;
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 #import "LMVCardMaintenance.h"

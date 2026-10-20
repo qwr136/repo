@@ -906,6 +906,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // exact frame the desktop is uncovered.
     NSInteger wantFPS=(self.playback.frozen || self.appAway)?
         (burst?60:LMVDesktopCadence(@"CoveredFPS")):LMVDesktopCadence(@"IdleFPS");
+    LMVTuneReport(@"Desktop",@"WantFPS",wantFPS);
     if (link.preferredFramesPerSecond!=wantFPS) {
         link.preferredFramesPerSecond=wantFPS;
         // 2.47: one line per CHANGE, so a tuning edit can be confirmed from a single

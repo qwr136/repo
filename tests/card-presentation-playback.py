@@ -20,7 +20,11 @@ assert '!backing && (layer.opacity<.01 || layer.masksToBounds || layer.mask)' no
 assert 'if (view.window) return view.window==window;' in h
 assert 'return LMVCardLayerAttached(view.layer,window.layer);' in h
 assert 'LMVCardAttached(state.overlay,window)' in h and 'state.overlay.window==window' not in h
-assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=30' in s
+# 2.48: the card link's cadence is a setting now (设置 → 自定义参数 → 通知卡片), so the
+# literal 30 became a value read from the tuning table and reported back to Settings.
+assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=cardFPS' in s
+assert 'LMVTuneValue(@"Cards",@"FPS")' in s
+assert 'LMVTuneReport(@"Cards",@"FPS",cardFPS)' in s
 resign=s[s.index('addObserverForName:UIApplicationWillResignActiveNotification'):]
 assert 'LMVRequestSyncDisplayLink();LMVRequestSafeUpdate();' in resign
 assert 'LMVReleaseAllPlayers();LMVRequestSafeUpdate();' not in resign

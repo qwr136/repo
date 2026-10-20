@@ -577,7 +577,15 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // still faster than app exit (the cross-fade alone is ~300 ms) and far faster
     // than a Control Center swipe or an unlock.
     BOOL hidden=!self.window || self.window.hidden || self.window.alpha<0.01;
-    NSTimeInterval want=hidden?0.2:0.05;
+    // 2.48: the visible tick used to be a hard-coded 20 Hz. It is a user setting now
+    // (设置 → 自定义参数 → 悬浮球); the hidden tick stays at 5 Hz because a hidden ball
+    // only has one answer to give.
+    NSInteger tickHz=LMVTuneValue(@"Bubble",@"TickHz");
+    if (tickHz<5) tickHz=5;
+    if (tickHz>30) tickHz=30;
+    LMVTuneReport(@"Bubble",@"TickHz",tickHz);
+    NSTimeInterval shown=1.0/(NSTimeInterval)tickHz;
+    NSTimeInterval want=hidden?0.2:shown;
     if (fabs(self.visibilityTimer.timeInterval-want)<0.001) return;
     [self.visibilityTimer invalidate];
     __weak typeof(self) weakSelf=self;

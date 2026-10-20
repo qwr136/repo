@@ -107,7 +107,9 @@ pa_section = source[pa_start:gs_start]
 gs_section = source[gs_start:ccb_start]
 ccb_section = source[ccb_start:clx_start]
 # 2.39: the tuning group sits between CopyLogX and the egg group.
-tune_start = source.index('PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"];')
+# 2.48: the tuning block is now two data-driven sections (面板 / 其他) instead of one
+# group with a flat list, so the anchor is the section table rather than a group name.
+tune_start = source.index('NSArray *tuneSections = @[')
 clx_section = source[clx_start:tune_start]
 tune_section = source[tune_start:egg_start]
 assert tune_section.count('cell:PSButtonCell') == 1

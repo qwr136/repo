@@ -12,21 +12,27 @@
 
 static NSString *const LMVTuneDomain = @"com.minis.lockmessagevideo";
 
-// The channels, in the same order Settings lists them.
+// The channels, in the same order Settings lists them. "group" splits the settings
+// list into sections (面板 / 其他) instead of one long block of nine rows.
 static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
     return @[
-        @{@"id":@"SquidPanel",    @"name":@"鱿鱼面板"},
-        @{@"id":@"AT",            @"name":@"AT 面板"},
-        @{@"id":@"CV",            @"name":@"CopyVault 面板"},
-        @{@"id":@"Myrtle",        @"name":@"Myrtle 面板"},
-        @{@"id":@"PA",            @"name":@"电话助手"},
-        @{@"id":@"GS",            @"name":@"GlassSuiteX 弹窗"},
-        @{@"id":@"CCBorder",      @"name":@"CCBorder 长按菜单"},
-        @{@"id":@"CopyLogX",      @"name":@"CopyLogX 面板"},
+        @{@"id":@"SquidPanel",    @"name":@"鱿鱼面板",                 @"group":@"panel"},
+        @{@"id":@"AT",            @"name":@"AT 面板",                  @"group":@"panel"},
+        @{@"id":@"CV",            @"name":@"CopyVault 面板",           @"group":@"panel"},
+        @{@"id":@"Myrtle",        @"name":@"Myrtle 面板",              @"group":@"panel"},
+        @{@"id":@"PA",            @"name":@"电话助手",                 @"group":@"panel"},
+        @{@"id":@"GS",            @"name":@"GlassSuiteX 弹窗",         @"group":@"panel"},
+        @{@"id":@"CCBorder",      @"name":@"CCBorder 长按菜单",        @"group":@"panel"},
+        @{@"id":@"CopyLogX",      @"name":@"CopyLogX 面板",            @"group":@"panel"},
         // 2.46: the desktop is the one non-panel channel that runs a display link all
         // the time, so its cadence is worth exposing. It still has no probe/delay rows:
         // what the user can tune here is how often the surface is re-measured.
-        @{@"id":@"Desktop",       @"name":@"桌面背景视频"},
+        @{@"id":@"Desktop",       @"name":@"桌面背景视频",             @"group":@"other"},
+        // 2.48: the two remaining always-on consumers. The ball's tick notices "the
+        // desktop came back"; the card link is the 30 Hz surface under the notification
+        // cards. Both used to be hard-coded.
+        @{@"id":@"Bubble",        @"name":@"悬浮球",                   @"group":@"other"},
+        @{@"id":@"Cards",         @"name":@"通知卡片（消息/选项/清除）", @"group":@"other"},
     ];
 }
 static inline NSString *LMVTuneTargetName(NSString *target) {
@@ -73,6 +79,18 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
         return @[@{@"title":@"刷新", @"params":@[
             LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 10~60)", 10, 60, 30),
             LMVTuneParam(@"CoveredFPS", @"被遮挡时心跳 (Hz, 1~30)", 1, 30, 5),
+        ]}];
+    }
+    // 2.48: the ball and the card link have one cadence each, and neither is a panel
+    // (no show/hide delay, no hook), so they get a single-row group of their own.
+    if ([target isEqualToString:@"Bubble"]) {
+        return @[@{@"title":@"检测", @"params":@[
+            LMVTuneParam(@"TickHz", @"悬浮球检测频率 (Hz, 5~30)", 5, 30, 20),
+        ]}];
+    }
+    if ([target isEqualToString:@"Cards"]) {
+        return @[@{@"title":@"刷新", @"params":@[
+            LMVTuneParam(@"FPS", @"通知卡片刷新率 (Hz, 15~60)", 15, 60, 30),
         ]}];
     }
     NSMutableArray *groups = [NSMutableArray array];
@@ -156,13 +174,61 @@ static inline void LMVTuneSetValue(NSString *target, NSString *key, NSInteger va
         CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
 }
 
+// 2.48: WHAT THE CHANNEL ACTUALLY RUNS AT. Settings and SpringBoard are separate
+// processes, so the page cannot read the display link's frame rate. Each channel
+// writes the value it APPLIED under Runtime.<target>.<key> (plus a timestamp), and
+// the page reads it back - that is the difference between "saved" and "in effect".
+// Writes happen only when the value CHANGES, so the steady state costs nothing.
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) {
+    if (!target.length || !key.length) return;
+    static NSMutableDictionary<NSString *, NSNumber *> *last;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ last = [NSMutableDictionary new]; });
+    NSString *identity = [target stringByAppendingFormat:@".%@", key];
+    NSNumber *previous = last[identity];
+    if (previous && previous.integerValue == value) return;
+    last[identity] = @(value);
+    NSString *full = [NSString stringWithFormat:@"Runtime.%@.%@", target, key];
+    CFPreferencesSetAppValue((__bridge CFStringRef)full, (__bridge CFNumberRef)@(value),
+                             (__bridge CFStringRef)LMVTuneDomain);
+    NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.At", target];
+    CFPreferencesSetAppValue((__bridge CFStringRef)stamp,
+                             (__bridge CFNumberRef)@(NSDate.date.timeIntervalSince1970),
+                             (__bridge CFStringRef)LMVTuneDomain);
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneDomain);
+}
+static inline NSNumber *LMVTuneRuntime(NSString *target, NSString *key) {
+    if (!target.length || !key.length) return nil;
+    LMVTuneSync();
+    NSString *full = [NSString stringWithFormat:@"Runtime.%@.%@", target, key];
+    id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)full,
+                                                               (__bridge CFStringRef)LMVTuneDomain);
+    return [value isKindOfClass:NSNumber.class] ? value : nil;
+}
+static inline NSTimeInterval LMVTuneRuntimeAge(NSString *target) {
+    if (!target.length) return -1;
+    LMVTuneSync();
+    NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.At", target];
+    id value = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)stamp,
+                                                               (__bridge CFStringRef)LMVTuneDomain);
+    if (![value isKindOfClass:NSNumber.class]) return -1;
+    return MAX(0.0, NSDate.date.timeIntervalSince1970 - [value doubleValue]);
+}
+
 // Probe interval in seconds. The channels use this instead of a hard-coded 0.2.
 static inline NSTimeInterval LMVTuneProbeInterval(NSString *target) {
     NSInteger hz = LMVTuneValue(target, @"ProbeHz");
     if (hz < 1) hz = 1;
     if (hz > 60) hz = 60;
+    // Every panel channel goes through here, so the applied frequency is reported
+    // once, in one place, instead of in eight files.
+    LMVTuneReport(target, @"ProbeHz", hz);
     return 1.0 / (NSTimeInterval)hz;
 }
 static inline NSTimeInterval LMVTuneDelay(NSString *target, NSString *key) {
-    return LMVTuneValue(target, key) / 1000.0;
+    NSInteger ms = LMVTuneValue(target, key);
+    // Same reason as LMVTuneProbeInterval: the value the channel actually uses is
+    // reported here, so every row on a tuning page can show "in effect", not "saved".
+    LMVTuneReport(target, key, ms);
+    return ms / 1000.0;
 }

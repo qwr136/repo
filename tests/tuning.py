@@ -28,7 +28,11 @@ for target in targets:
 # non-panel channel running a display link all the time), so Desktop is back in the
 # list with its own 刷新 group. Lock/ControlCenter/HomeMenu/Bubble stay out.
 assert '@"Desktop"' in tuning
-for gone in ('Lock', 'ControlCenter', 'HomeMenu', 'Bubble'):
+# 2.48: the ball and the notification-card link are tunable too, and the list is split
+# into two sections (panel / other) so nine+ rows are not one wall of text.
+assert '@"Bubble"' in tuning and '@"Cards"' in tuning
+assert '@"group":@"panel"' in tuning and '@"group":@"other"' in tuning
+for gone in ('Lock', 'ControlCenter', 'HomeMenu'):
     assert f'@"{gone}"' not in tuning, f'{gone} must be gone from the tuning targets'
 
 # ---- 2) 参数表：只有探测组 ------------------------------------------------------
@@ -52,6 +56,18 @@ assert 'burst?60:LMVDesktopCadence(@"CoveredFPS")' in desktop
 # 2.47: a change of cadence must leave one diagnostic line, so "did my value take
 # effect?" is answerable from a capture instead of from feel.
 assert 'desktop-cadence want=%ld idle=%ld covered=%ld' in desktop
+# 2.48: the two new cadences and the runtime report that makes "当前生效" possible.
+assert 'LMVTuneParam(@"TickHz"' in tuning and 'LMVTuneParam(@"FPS"' in tuning
+assert 'LMVTuneReport(NSString *target, NSString *key, NSInteger value)' in tuning
+assert '"Runtime.%@.%@"' in tuning
+overlay = (root / 'LMVEasterOverlay.h').read_text()
+assert 'LMVTuneValue(@"Bubble",@"TickHz")' in overlay
+assert 'LMVTuneReport(@"Bubble",@"TickHz",tickHz)' in overlay
+tweak = (root / 'Tweak.xm').read_text()
+assert 'LMVTuneValue(@"Cards",@"FPS")' in tweak
+# every applied value goes through the two readers below, so a page can always show it
+assert 'LMVTuneReport(target, @"ProbeHz", hz)' in tuning
+assert 'LMVTuneReport(target, key, ms)' in tuning
 assert 'LMVDesktopCadence(@"IdleFPS")' in desktop
 
 # ---- 3) 写入必须广播，常驻通道才知道值变了 --------------------------------------
@@ -59,6 +75,7 @@ assert 'CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotify
 assert 'com.minis.lockmessagevideo/preferencesChanged' in tuning
 assert 'if (hz > 60) hz = 60;' in tuning
 assert '[NSString stringWithFormat:@"Tune.%@.%@", target, key]' in tuning
+assert 'LMVTuneRuntimeAge' in tuning and '当前生效' in (root / 'LockMessageVideoPrefs/LMVTuneController.m').read_text()
 assert 'LMVTuneProbeInterval(NSString *target)' in tuning
 assert 'LMVTuneDelay(NSString *target, NSString *key)' in tuning
 
@@ -74,7 +91,9 @@ for target in targets:
         assert f'@"{target}"' not in hook, target
 
 # ---- 5) 设置页入口与子控制器 ---------------------------------------------------
-assert 'groupSpecifierWithName:@"自定义参数"' in prefs
+# 2.48: one 自定义参数 block became two sections (面板 / 其他).
+assert '@"title":@"自定义参数 · 面板"' in prefs
+assert '@"title":@"自定义参数 · 其他"' in prefs
 assert 'for (NSDictionary *item in LMVTuneTargets())' in prefs
 assert 'row.buttonAction = @selector(openTune:);' in prefs
 assert 'initWithTarget:target' in prefs

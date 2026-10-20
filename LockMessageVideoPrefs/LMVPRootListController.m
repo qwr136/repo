@@ -254,16 +254,29 @@ static void LMVNotify(void) {
     [_specifiers addObject:clxText];
     // 2.39: per-channel tuning, directly below CopyLogX and above the egg group.
     // One row per channel; each pushes its own page of sliders/enums.
-    PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"];
-    [tuneGroup setProperty:@"每个视频背景单独一套参数：探测 / 播放 / 可见性 / 性能。互不影响，小彩蛋里不显示这些开关。" forKey:@"footerText"];
-    [_specifiers addObject:tuneGroup];
-    for (NSDictionary *item in LMVTuneTargets()) {
-        PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:item[@"name"]
-                                                          target:self set:nil get:nil
-                                                          detail:nil cell:PSButtonCell edit:nil];
-        row.buttonAction = @selector(openTune:);
-        [row setProperty:item[@"id"] forKey:@"tuneTarget"];
-        [_specifiers addObject:row];
+    // 2.48: two sections instead of one long block - the eight panels share the same
+    // probe/delay rows, while the desktop, the ball and the card link each carry a
+    // single cadence of their own. Grouping is data-driven (LMVTuneTargets' "group"),
+    // so adding a channel later only needs a new row there.
+    NSArray *tuneSections = @[
+        @{@"id":@"panel", @"title":@"自定义参数 · 面板",
+          @"footer":@"每个面板单独一套参数（检测频率 / 出现延迟 / 关闭延迟 / 钩子节流）。点进任意一项，页顶会显示它当前实际生效的值。"},
+        @{@"id":@"other", @"title":@"自定义参数 · 其他",
+          @"footer":@"桌面、悬浮球、通知卡片各自只有一项频率；页顶同样会显示当前实际生效的值。"},
+    ];
+    for (NSDictionary *section in tuneSections) {
+        PSSpecifier *group = [PSSpecifier groupSpecifierWithName:section[@"title"]];
+        [group setProperty:section[@"footer"] forKey:@"footerText"];
+        [_specifiers addObject:group];
+        for (NSDictionary *item in LMVTuneTargets()) {
+            if (![item[@"group"] isEqualToString:section[@"id"]]) continue;
+            PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:item[@"name"]
+                                                              target:self set:nil get:nil
+                                                              detail:nil cell:PSButtonCell edit:nil];
+            row.buttonAction = @selector(openTune:);
+            [row setProperty:item[@"id"] forKey:@"tuneTarget"];
+            [_specifiers addObject:row];
+        }
     }
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
