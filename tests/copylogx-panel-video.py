@@ -53,15 +53,16 @@ assert 'NSClassFromString(@"CopylogXPanelHostController")' in src
 assert '@selector(viewWillAppear:)' in src and '@selector(viewDidAppear:)' in src
 # 先 class_addMethod 到子类，避免把 UIViewController 的实现全局替换
 assert 'if(class_addMethod(cls,sel,replacement,types))' in src
-assert 'if(now-LMVCopyLogXLastHookRefresh<.05)return;' in src
+assert 'NSTimeInterval limit=LMVTuneDelay(@"CopyLogX",@"HookThrottleMs");' in src
 # identity 路径不看比例/贴底，只要求「最大可见的 effect-content 卡片」
 assert 'bounds.size.width*.6' in src, 'the structural fallback still uses ratios'
 # 三档轮询
 assert 'static NSTimeInterval LMVCopyLogXInterval(void)' in src
-assert 'if(LMVCopyLogXCardLive)return .25;' in src
-# 2.38: waiting gear 0.15s - only the identity window is ever walked.
-assert 'return .15;' in src
-assert 'return .3;' not in src
+assert 'if(LMVCopyLogXCardLive)return MIN(base,.25);' in src
+# 2.39: the waiting gear is the channel's ProbeHz, not a hard-coded 0.15s.
+assert 'LMVTuneProbeInterval(@"CopyLogX")' in src
+assert 'return base;' in src
+assert 'return .15;' not in src
 assert 'LMVCopyLogXTimer.tolerance=want*.3;' in src
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src
 assert 'static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view)' in src

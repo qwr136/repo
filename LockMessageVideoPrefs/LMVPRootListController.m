@@ -11,6 +11,8 @@
 
 #import "LMVImport.h"
 #import "LMVMaterialPicker.h"
+#import "LMVTuneController.h"
+#import "../LMVPanelTuning.h"
 #import "../LMVEasterImageSettings.h"
 #import "../LMVPaths.h"
 #import "../LMVTextColorPicker.h"
@@ -242,6 +244,19 @@ static void LMVNotify(void) {
     clxText.buttonAction = @selector(openCopyLogXTextColor:);
     [clxText setProperty:@"CopyLogXTextColor" forKey:@"id"];
     [_specifiers addObject:clxText];
+    // 2.39: per-channel tuning, directly below CopyLogX and above the egg group.
+    // One row per channel; each pushes its own page of sliders/enums.
+    PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"];
+    [tuneGroup setProperty:@"每个视频背景单独一套参数：探测 / 播放 / 可见性 / 性能。互不影响，小彩蛋里不显示这些开关。" forKey:@"footerText"];
+    [_specifiers addObject:tuneGroup];
+    for (NSDictionary *item in LMVTuneTargets()) {
+        PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:item[@"name"]
+                                                          target:self set:nil get:nil
+                                                          detail:nil cell:PSButtonCell edit:nil];
+        row.buttonAction = @selector(openTune:);
+        [row setProperty:item[@"id"] forKey:@"tuneTarget"];
+        [_specifiers addObject:row];
+    }
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -312,6 +327,14 @@ static void LMVNotify(void) {
 - (id)enabled:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], kLMVPrefsID);
     return value ?: [specifier propertyForKey:@"default"] ?: @NO;
+}
+// 2.39: push the per-channel tuning page.
+- (void)openTune:(PSSpecifier *)specifier {
+    NSString *target = [specifier propertyForKey:@"tuneTarget"];
+    if (!target.length) return;
+    LMVTuneController *controller = [[LMVTuneController alloc] initWithTarget:target
+                                                                         name:LMVTuneTargetName(target)];
+    [self.navigationController pushViewController:controller animated:YES];
 }
 - (void)openEaster:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;

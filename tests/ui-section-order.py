@@ -287,19 +287,20 @@ class UISectionOrder(unittest.TestCase):
             'gsGroup', 'gsEnabled', 'gsMaterial', 'gsText',
             'ccbGroup', 'ccbEnabled', 'ccbMaterial',
             'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText',
+            'tuneGroup', 'row',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 67)
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 69)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 12)
-        self.assertEqual(66 + (len(TARGETS) + 10) * 2, 96)  # 66 non-audio rows + 15 audio channels x 2
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup') for x in sequence) + 4, 22)
+        self.assertEqual(68 + (len(TARGETS) + 10) * 2, 98)  # 68 non-audio rows + 15 audio channels x 2
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup', 'tuneGroup') for x in sequence) + 4, 23)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
                        if ('setProperty:' in x or '.buttonAction =' in x)
@@ -314,7 +315,9 @@ class UISectionOrder(unittest.TestCase):
                        and 'ccbEnabled' not in x and 'ccbMaterial' not in x
                        and 'ccbDebug' not in x and 'ccbGroup' not in x
                        and 'clxEnabled' not in x and 'clxMaterial' not in x
-                       and 'clxText' not in x and 'clxDebug' not in x and 'clxGroup' not in x)
+                       and 'clxText' not in x and 'clxDebug' not in x and 'clxGroup' not in x
+                       and 'tuneGroup' not in x and 'tuneTarget' not in x
+                       and 'row.buttonAction' not in x)
         self.assertEqual(digest('\n'.join(props)), '9fe474875b4b362fac3159ace348ce13788f8ac7e1c5cfb3abd5d0f409744be6')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
@@ -395,6 +398,12 @@ class UISectionOrder(unittest.TestCase):
                                             '        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D)])')
         old_handlers = old_handlers.replace('    else if ([identifier isEqualToString:@"CopyLogXTextColor"]) key = LMVCopyLogXTextColorKey;\n', '')
         old_handlers = old_handlers.replace(', @"CopyLogX": @"CopyLogX 视频背景"', '').replace(', @"CopyLogX": @""', '')
+        # 2.39: drop the tuning entry point before the frozen digest (the page itself
+        # lives in LMVTuneController.m and is covered by tests/tuning.py).
+        tune_start = old_handlers.find('// 2.39: push the per-channel tuning page.')
+        if tune_start >= 0:
+            tune_end = old_handlers.index('- (void)openEaster:', tune_start)
+            old_handlers = old_handlers[:tune_start] + old_handlers[tune_end:]
         self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),

@@ -314,7 +314,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 - (instancetype)init {
     if(!LMVCVPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"CV";_playback.persistentPosterEnabled=NO;
         _host=[[LMVCopyVaultPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.cv-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -426,7 +426,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 }
 @end
 static void LMVCVPanelRetune(void) {
-    NSTimeInterval want=LMVCVPanelEnabled?.1:.5;
+    NSTimeInterval want=LMVCVPanelEnabled?LMVTuneProbeInterval(@"CV"):.5;
     if(LMVCVPanelTimer && fabs(LMVCVPanelTimer.timeInterval-want)<.001)return;
     [LMVCVPanelTimer invalidate];
     LMVCVPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyVaultPanelVideoRefresh(NO);}];

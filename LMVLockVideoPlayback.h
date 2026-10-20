@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelTuning.h"
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
@@ -57,6 +58,8 @@ static AVMutableComposition *LMVLockVideoComposition(AVAsset *asset,NSError **er
 @property(nonatomic,readonly) NSUInteger generation,buildCount;
 @property(nonatomic,copy) void (^didChange)(void);
 @property(nonatomic) BOOL persistentPosterEnabled;
+// 2.39: which channel's tuning this playback obeys (Tune.<target>.*).
+@property(nonatomic,copy) NSString *target;
 - (void)preparePosterForPath:(NSString *)path revision:(NSString *)revision;
 - (void)applyPreparedPoster:(CGImageRef)image path:(NSString *)path revision:(NSString *)revision;
 - (void)loadCachedPosterNowForPath:(NSString *)path revision:(NSString *)revision;
@@ -110,6 +113,17 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     }
     return self;
 }
+- (void)setTarget:(NSString *)target {
+    _target=[target copy];
+    [self applyTuning];
+}
+// Gravity / poster fill. Called again whenever the layer is rebuilt.
+- (void)applyTuning {
+    if(!self.target.length)return;
+    BOOL fit=LMVTuneValue(self.target,@"Gravity")==1;
+    self.playerLayer.videoGravity=fit?AVLayerVideoGravityResizeAspect:AVLayerVideoGravityResizeAspectFill;
+    self.posterLayer.contentsGravity=fit?kCAGravityResizeAspect:kCAGravityResizeAspectFill;
+}
 - (void)replacePlayerLayer {
     if (self.observingLayer) [self.playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];
     self.observingLayer=NO;self.playerLayer.player=nil;[self.playerLayer removeFromSuperlayer];
@@ -118,6 +132,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
     [self.renderLayer addSublayer:self.posterLayer];[self.renderLayer addSublayer:self.playerLayer];
     [self.playerLayer addObserver:self forKeyPath:@"readyForDisplay" options:0 context:&LMVLockLayerReadyContext];self.observingLayer=YES;
     [self layoutInBounds:self.renderLayer.frame];
+    [self applyTuning];
 }
 - (void)dealloc {
     if (_observingLayer) [_playerLayer removeObserver:self forKeyPath:@"readyForDisplay" context:&LMVLockLayerReadyContext];
@@ -164,11 +179,30 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
 - (void)resumeIfNeeded {
     if (!self.wantsPlayback || self.frozen || self.posterOnlyVisible || !self.player || self.error ||
         self.player.status==AVPlayerStatusFailed) return;
+    CGFloat rate=1.0;
+    if (self.target.length) {
+        NSInteger percent=LMVTuneValue(self.target,@"RatePercent");
+        if (percent>0) rate=percent/100.0;
+        NSProcessInfo *info=NSProcessInfo.processInfo;
+        BOOL low=info.isLowPowerModeEnabled;
+        BOOL hot=info.thermalState>=NSProcessInfoThermalStateSerious;
+        NSInteger lowAction=LMVTuneValue(self.target,@"LowPowerAction");
+        NSInteger hotAction=LMVTuneValue(self.target,@"ThermalAction");
+        // 2 = pause, 1 = half speed (the closest thing to "降帧" without adding a
+        // video composition, which would cost more than it saves).
+        if ((low && lowAction==2) || (hot && hotAction==2)) {[self.player pause];return;}
+        if ((low && lowAction==1) || (hot && hotAction==1)) rate=MIN(rate,0.5);
+    }
     // Waiting with a requested rate is buffering, not a stopped decoder.
     if (self.player.rate==0 && self.player.timeControlStatus!=AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate)
-        [self.player playImmediatelyAtRate:1.0];
+        [self.player playImmediatelyAtRate:rate];
+    else if (fabs(self.player.rate-rate)>0.01)
+        self.player.rate=rate;
 }
 - (void)setVisible:(BOOL)visible {
+    // 2.39: per-channel "面板不可见" policy. 1 = keep playing (the caller asked to
+    // hide, but the user chose "继续"), everything else keeps the old behaviour.
+    if (!visible && self.target.length && LMVTuneValue(self.target,@"HiddenAction")==1) visible=YES;
     self.posterOnlyVisible=NO;
     _frozen=NO;
     self.wantsPlayback=visible;
@@ -317,7 +351,12 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
             if ([live.player respondsToSelector:@selector(setPreventsDisplaySleepDuringVideoPlayback:)])
                 live.player.preventsDisplaySleepDuringVideoPlayback=NO;
             live.player.automaticallyWaitsToMinimizeStalling=NO;
-            live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:live.templateItem];
+            if (live.target.length && LMVTuneValue(live.target,@"Loop")==1) {
+                live.player.actionAtItemEnd=AVPlayerActionAtItemEndPause;
+                [live.player insertItem:live.templateItem afterItem:nil];
+            } else {
+                live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:live.templateItem];
+            }
             live.playerLayer.player=live.player;live.buildCount++;
             [live.player addObserver:live forKeyPath:@"status" options:NSKeyValueObservingOptionInitial context:&LMVLockPlayerStatusContext];
             [live.player addObserver:live forKeyPath:@"timeControlStatus" options:0 context:&LMVLockPlayerTimeControlContext];live.observingPlayer=YES;

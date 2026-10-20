@@ -715,7 +715,7 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 - (instancetype)init {
     if (!NSThread.isMainThread || (!LMVLaunchReady && !LMVDesktopUIAvailable)) return nil;
     if ((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"Desktop";_playback.persistentPosterEnabled=YES;
         _host=[[LMVDesktopVideoHost alloc] initWithFrame:CGRectZero];
         _host.playback=_playback;_playback.renderLayer.name=@"com.minis.lockmessagevideo.desktop.render";
         _playback.renderLayer.backgroundColor=UIColor.blackColor.CGColor;[_host.layer addSublayer:_playback.renderLayer];

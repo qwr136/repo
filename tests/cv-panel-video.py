@@ -113,7 +113,7 @@ assert 'LMVCVPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globa
 # No player/UI while the channel is off, and a poll that never runs hot when idle.
 assert 'if(!LMVCVPanelEnabled || !LMVCVPanelPath.length || !LMVCVPanelRevision.length) {' in module
 assert 'if(!LMVCopyVaultPanelVideo)LMVCopyVaultPanelVideo=[LMVCopyVaultPanelVideoManager new];' in module
-assert 'NSTimeInterval want=LMVCVPanelEnabled?.1:.5;' in module
+assert 'NSTimeInterval want=LMVCVPanelEnabled?LMVTuneProbeInterval(@"CV"):.5;' in module
 assert 'dispatch_async(dispatch_get_main_queue()' not in module  # poll on the main run loop only
 
 # ---- wiring ---------------------------------------------------------------

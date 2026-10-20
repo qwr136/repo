@@ -94,6 +94,7 @@ jobs:
           check clang -fobjc-arc -framework Foundation -framework CoreGraphics -framework ImageIO -framework CoreMedia tests/frame-disk.m -o "$RUNNER_TEMP/lmv-frame-disk"
           check "$RUNNER_TEMP/lmv-frame-disk"
           check python3 tests/settings-import-regression.py
+          check python3 tests/tuning.py
           check python3 tests/glasssuite-probe.py
           check python3 tests/copylogx-panel-video.py
           check python3 tests/preferences-routing.py

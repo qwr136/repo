@@ -2,7 +2,7 @@ ARCHS = arm64 arm64e
 TARGET := iphone:clang:15.6:15.0
 INSTALL_TARGET_PROCESSES = SpringBoard
 THEOS_PACKAGE_SCHEME = roothide
-LMV_VERSION = 2.38
+LMV_VERSION = 2.39
 PACKAGE_VERSION = $(LMV_VERSION)
 
 include $(THEOS)/makefiles/common.mk
@@ -15,7 +15,7 @@ LockMessageVideo_LIBRARIES = roothide
 LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation CoreImage CoreVideo CoreMedia QuartzCore CoreGraphics ImageIO Photos PhotosUI
 
 BUNDLE_NAME = LockMessageVideoPrefs
-LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m LMVTextColorPicker.m
+LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m LockMessageVideoPrefs/LMVTuneController.m LMVTextColorPicker.m
 LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI AVFoundation CoreMedia CoreVideo ImageIO QuartzCore
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LockMessageVideoPrefs_RESOURCE_FILES = LockMessageVideoPrefs/Info.plist LockMessageVideoPrefs/icon.png LockMessageVideoPrefs/icon@2x.png LockMessageVideoPrefs/icon@3x.png

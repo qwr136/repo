@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelTuning.h"
 #import "LMVEasterPanel.h"
 #import "LMVEasterGeometry.h"
 #import "LMVEasterDisplayPolicy.h"
@@ -789,6 +790,9 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.bubbleImage.contentMode = UIViewContentModeScaleAspectFit; self.bubbleImage.userInteractionEnabled = NO;
         [self.bubble addSubview:self.bubbleImage]; self.bubble.userInteractionEnabled = YES;
         self.bubble.isAccessibilityElement = YES; self.bubble.accessibilityLabel = @"小彩蛋"; self.bubble.accessibilityTraits = UIAccessibilityTraitButton;
+        // 2.39: optional bubble transparency (Tune.Bubble.BubbleAlpha), 100 = opaque.
+        if (LMVTuneHasValue(@"Bubble", @"BubbleAlpha"))
+            self.bubble.alpha = MAX(0.2, MIN(1.0, LMVTuneValue(@"Bubble", @"BubbleAlpha") / 100.0));
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)];
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openPanel)]; [tap requireGestureRecognizerToFail:pan];
         [self.bubble addGestureRecognizer:pan]; [self.bubble addGestureRecognizer:tap]; [root.view addSubview:self.bubble]; self.window.bubble = self.bubble;

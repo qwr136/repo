@@ -1129,7 +1129,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 - (instancetype)init {
     if(!LMVSquidPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"SquidPanel";_playback.persistentPosterEnabled=NO;
         _host=[[LMVSquidPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.squid-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -1453,7 +1453,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 }
 @end
 static void LMVSquidPanelRetune(void) {
-    NSTimeInterval want=LMVSquidPanelEnabled?.1:.5;
+    NSTimeInterval want=LMVSquidPanelEnabled?LMVTuneProbeInterval(@"SquidPanel"):.5;
     if(LMVSquidPanelTimer && fabs(LMVSquidPanelTimer.timeInterval-want)<.001)return;
     [LMVSquidPanelTimer invalidate];
     LMVSquidPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVSquidPanelVideoRefresh(NO);}];

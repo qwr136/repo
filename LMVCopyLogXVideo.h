@@ -343,6 +343,7 @@ static void LMVCopyLogXRestoreTextColor(void) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+@property(nonatomic) NSTimeInterval pendingShow,pendingHide;
 - (void)detach;
 - (void)update;
 @end
@@ -351,7 +352,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 - (instancetype)init {
     if(!LMVCopyLogXEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"CopyLogX";_playback.persistentPosterEnabled=NO;
         _host=[[LMVCopyLogXVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.copylogx.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -380,6 +381,15 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
     UIWindow *window=nil;
     UIView *card=LMVCopyLogXFindCard(&window);
     LMVCopyLogXCardLive=(card!=nil);
+    NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+    if(card && !self.card) {
+        NSTimeInterval show=LMVTuneDelay(@"CopyLogX",@"ShowDelayMs");
+        if(self.pendingShow<=0)self.pendingShow=now;
+        if(show>0 && now-self.pendingShow<show) {self.updating=NO;return;}
+        self.pendingShow=0;
+    } else if(!card) {
+        self.pendingShow=0;
+    }
     if(!card) {
         // 2.33: say WHY, the way the PA channel does. Without this line "switch on,
         // material picked, still nothing" is indistinguishable from "no card".
@@ -388,8 +398,15 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
             static NSString *lastLine=nil;
             if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
         }
+        NSTimeInterval hide=LMVTuneDelay(@"CopyLogX",@"HideDelayMs");
+        if(hide>0 && self.card && self.host.superview) {
+            if(self.pendingHide<=0)self.pendingHide=now;
+            if(now-self.pendingHide<hide) {self.updating=NO;return;}
+        }
+        self.pendingHide=0;
         [self detach];self.updating=NO;return;
     }
+    self.pendingHide=0;
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCopyLogXPath] ||
         ![self.playback.revision isEqualToString:LMVCopyLogXRevision];
@@ -445,10 +462,9 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 // window, so even the "waiting" gear is cheap.
 static NSTimeInterval LMVCopyLogXInterval(void) {
     if(!LMVCopyLogXEnabled)return 2.0;
-    if(LMVCopyLogXCardLive)return .25;
-    // 2.38: 0.15s while waiting. Only one window is ever walked, so this is a few
-    // hundred comparisons a second - cheap next to the sheet appearing without video.
-    return .15;
+    NSTimeInterval base=LMVTuneProbeInterval(@"CopyLogX");
+    if(LMVCopyLogXCardLive)return MIN(base,.25);
+    return base;
 }
 static void LMVCopyLogXRetune(void) {
     NSTimeInterval want=LMVCopyLogXInterval();
@@ -503,7 +519,8 @@ static BOOL LMVCopyLogXControllerHooked;
 static NSTimeInterval LMVCopyLogXLastHookRefresh;
 static void LMVCopyLogXHookPing(void) {
     NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
-    if(now-LMVCopyLogXLastHookRefresh<.05)return;
+    NSTimeInterval limit=LMVTuneDelay(@"CopyLogX",@"HookThrottleMs");
+    if(now-LMVCopyLogXLastHookRefresh<limit)return;
     LMVCopyLogXLastHookRefresh=now;
     LMVCopyLogXVideoRefresh(NO);
 }

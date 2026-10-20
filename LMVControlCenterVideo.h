@@ -407,7 +407,7 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
 }
 - (instancetype)init {
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"ControlCenter";_playback.persistentPosterEnabled=YES;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.control-center.render";
         // 0.0.79 fix: an opaque black backing colour made the Control Center show a
         // black slab for as long as the first frame had not arrived yet - and with

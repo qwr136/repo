@@ -180,7 +180,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 - (instancetype)init {
     if(!LMVMyrtlePanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"Myrtle";_playback.persistentPosterEnabled=NO;
         _host=[[LMVMyrtlePanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.myrtle-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -286,7 +286,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 }
 @end
 static void LMVMyrtlePanelRetune(void) {
-    NSTimeInterval want=LMVMyrtlePanelEnabled?.1:.5;
+    NSTimeInterval want=LMVMyrtlePanelEnabled?LMVTuneProbeInterval(@"Myrtle"):.5;
     if(LMVMyrtlePanelTimer && fabs(LMVMyrtlePanelTimer.timeInterval-want)<.001)return;
     [LMVMyrtlePanelTimer invalidate];
     LMVMyrtlePanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVMyrtlePanelVideoRefresh(NO);}];

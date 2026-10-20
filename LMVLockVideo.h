@@ -552,7 +552,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
 @implementation LMVLockVideoManager
 - (instancetype)init {
     if ((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_host=[[LMVLockVideoHost alloc] initWithFrame:CGRectZero];
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"Lock";_host=[[LMVLockVideoHost alloc] initWithFrame:CGRectZero];
         _host.playback=_playback;_playback.renderLayer.backgroundColor=UIColor.blackColor.CGColor;
         [_host.layer addSublayer:_playback.renderLayer];
         __weak typeof(self) weakSelf=self;

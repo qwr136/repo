@@ -390,7 +390,7 @@ assert 'for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++)' in module
 assert 'if(LMVSquidPanelSlotPaths[i].length && LMVSquidPanelSlotRevisions[i].length)anySlot=YES;' in module
 assert 'if(!LMVSquidPanelEnabled || !anySlot) {' in module
 assert 'if(!LMVSquidPanelVideo)LMVSquidPanelVideo=[LMVSquidPanelVideoManager new];' in module
-assert 'NSTimeInterval want=LMVSquidPanelEnabled?.1:.5;' in module
+assert 'NSTimeInterval want=LMVSquidPanelEnabled?LMVTuneProbeInterval(@"SquidPanel"):.5;' in module
 assert 'dispatch_async(dispatch_get_main_queue()' not in module  # poll on the main run loop only
 
 # ---- wiring ---------------------------------------------------------------

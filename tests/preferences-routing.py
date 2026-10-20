@@ -106,7 +106,14 @@ myrtle_section = source[myrtle_start:pa_start]
 pa_section = source[pa_start:gs_start]
 gs_section = source[gs_start:ccb_start]
 ccb_section = source[ccb_start:clx_start]
-clx_section = source[clx_start:egg_start]
+# 2.39: the tuning group sits between CopyLogX and the egg group.
+tune_start = source.index('PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"];')
+clx_section = source[clx_start:tune_start]
+tune_section = source[tune_start:egg_start]
+assert tune_section.count('cell:PSButtonCell') == 1
+assert 'row.buttonAction = @selector(openTune:);' in tune_section
+assert 'for (NSDictionary *item in LMVTuneTargets())' in tune_section
+assert 'initWithTarget:target' in source
 assert pa_section.count('cell:PSSwitchCell') == 1 and pa_section.count('cell:PSButtonCell') == 2
 assert '[paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"]' in pa_section
 assert 'paMaterial.buttonAction = @selector(switchPA:);' in pa_section

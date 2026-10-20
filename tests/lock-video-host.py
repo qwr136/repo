@@ -178,6 +178,8 @@ pre+=r'''
 @property BOOL loading,wantsPlayback,frozen;
 @property(copy) void (^didChange)(void);
 @property(copy) NSString *path,*revision;
+// 2.39: per-channel tuning target.
+@property(copy) NSString *target;
 @property NSUInteger builds,clears;
 - (void)selectPath:(NSString *)path revision:(NSString *)revision;
 - (void)setVisible:(BOOL)visible;

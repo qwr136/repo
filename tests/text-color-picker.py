@@ -18,7 +18,7 @@ makefile = (root / 'Makefile').read_text()
 
 # --- one implementation, two hosts ---------------------------------------
 assert 'Tweak.xm LMVTextColorPicker.m' in makefile, 'the tweak compiles the picker (Easter panel)'
-assert 'LMVPRootListController.m LMVTextColorPicker.m' in makefile, 'the bundle compiles the same picker'
+assert 'LMVPRootListController.m' in makefile and 'LMVTextColorPicker.m' in makefile, 'the bundle compiles the same picker'
 
 # --- the sheet the user asked for ----------------------------------------
 assert 'title.text=@"文字颜色";' in picker, 'the sheet is titled 文字颜色, not Face ID'

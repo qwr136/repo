@@ -189,7 +189,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 - (instancetype)init {
     if(!LMVATPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"AT";_playback.persistentPosterEnabled=NO;
         _host=[[LMVATPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.at-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -276,7 +276,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 }
 @end
 static void LMVATPanelRetune(void) {
-    NSTimeInterval want=LMVATPanelEnabled?.1:.5;
+    NSTimeInterval want=LMVATPanelEnabled?LMVTuneProbeInterval(@"AT"):.5;
     if(LMVATPanelTimer && fabs(LMVATPanelTimer.timeInterval-want)<.001)return;
     [LMVATPanelTimer invalidate];
     LMVATPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVATPanelVideoRefresh(NO);}];

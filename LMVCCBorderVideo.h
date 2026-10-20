@@ -246,7 +246,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 - (instancetype)init {
     if(!LMVCCBorderEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"CCBorder";_playback.persistentPosterEnabled=NO;
         _host=[[LMVCCBorderVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.ccborder.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -377,7 +377,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 }
 @end
 static void LMVCCBorderRetune(void) {
-    NSTimeInterval want=LMVCCBorderEnabled?.1:.5;
+    NSTimeInterval want=LMVCCBorderEnabled?LMVTuneProbeInterval(@"CCBorder"):.5;
     if(LMVCCBorderTimer && fabs(LMVCCBorderTimer.timeInterval-want)<.001)return;
     [LMVCCBorderTimer invalidate];
     LMVCCBorderTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCCBorderVideoRefresh(NO);}];

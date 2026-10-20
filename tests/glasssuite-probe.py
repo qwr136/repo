@@ -62,9 +62,10 @@ assert 'if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllO
 # ---- 5) 三档轮询 + tolerance -------------------------------------------------
 assert 'static NSTimeInterval LMVGlassSuiteInterval(void)' in src
 assert 'if(!LMVGlassSuiteEnabled)return 2.0;' in src
-assert 'if(LMVGlassSuiteCardRef)return .25;' in src
-# 2.37: waiting gear drops to 0.2s so the video shows up with the sheet, not after it.
-assert 'return .2;' in src
+assert 'if(LMVGlassSuiteCardRef)return MIN(base,.25);' in src
+# 2.39: the waiting gear is the channel's ProbeHz (default 5Hz = 0.2s).
+assert 'LMVTuneProbeInterval(@"GS")' in src
+assert 'return base;' in src
 assert 'return .75;' not in src
 assert 'LMVGlassSuiteTimer.tolerance=want*.3;' in src
 # 0.1 秒的旧节拍不能再出现
@@ -89,8 +90,8 @@ assert '@selector(didMoveToSuperview)' in src
 # 必须先给子类加方法，否则会把 UIView 的 didMoveToSuperview 全局替换掉
 assert 'if(class_addMethod(cls,sel,(IMP)LMVGlassSuiteContainerMoved,types))' in src
 assert 'LMVGlassSuiteContainerMovedOriginal=method_getImplementation(own);' in src
-# 钩子里有 50ms 节流，避免动画期间每帧都刷新
-assert 'if(now-LMVGlassSuiteLastHookRefresh<.05)return;' in src
+# 钩子节流可调（默认 50ms），避免动画期间每帧都刷新
+assert 'NSTimeInterval limit=LMVTuneDelay(@"GS",@"HookThrottleMs");' in src
 # 刷新入口会补装钩子（dylib 可能晚于本插件加载）
 assert src.count('LMVGlassSuiteInstallContainerHook();') >= 2
 

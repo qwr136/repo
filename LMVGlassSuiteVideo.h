@@ -313,6 +313,8 @@ static void LMVGlassSuiteRestoreTextColor(void) {
 @property(nonatomic,weak) UIView *card;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic) BOOL updating;
+// 2.39: show/hide delay timestamps (0 = not pending).
+@property(nonatomic) NSTimeInterval pendingShow,pendingHide;
 - (void)detach;
 - (void)update;
 @end
@@ -321,7 +323,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 - (instancetype)init {
     if(!LMVGlassSuiteEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.target=@"GS";_playback.persistentPosterEnabled=NO;
         _host=[[LMVGlassSuiteVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.glasssuite.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -349,7 +351,28 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=nil;
     UIView *card=LMVGlassSuiteFindCard(&window);
-    if(!card) {[self detach];self.updating=NO;return;}
+    NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+    // 2.39: 出现延迟 - hold the sheet's first frame for N ms before mounting, so the
+    // video lands mid-animation instead of before it.
+    if(card && !self.card) {
+        NSTimeInterval show=LMVTuneDelay(@"GS",@"ShowDelayMs");
+        if(self.pendingShow<=0)self.pendingShow=now;
+        if(show>0 && now-self.pendingShow<show) {self.updating=NO;return;}
+        self.pendingShow=0;
+    } else if(!card) {
+        self.pendingShow=0;
+    }
+    if(!card) {
+        // 2.39: 关闭延迟 - keep the surface for N ms after the sheet goes away.
+        NSTimeInterval hide=LMVTuneDelay(@"GS",@"HideDelayMs");
+        if(hide>0 && self.card && self.host.superview) {
+            if(self.pendingHide<=0)self.pendingHide=now;
+            if(now-self.pendingHide<hide) {self.updating=NO;return;}
+        }
+        self.pendingHide=0;
+        [self detach];self.updating=NO;return;
+    }
+    self.pendingHide=0;
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     LMVGlassSuiteApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVGlassSuitePath] ||
@@ -424,11 +447,11 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 // lets the system coalesce the wake-ups.
 static NSTimeInterval LMVGlassSuiteInterval(void) {
     if(!LMVGlassSuiteEnabled)return 2.0;
-    if(LMVGlassSuiteCardRef)return .25;
-    // 2.37: while waiting for the sheet, 0.2s. The scan is two levels deep with the
-    // icon grid pruned, so this is still a few hundred comparisons per second - and
-    // it is what makes the video appear with the sheet instead of a second later.
-    return .2;
+    // 2.39: the waiting gear is the channel's own ProbeHz (default 5Hz = 0.2s).
+    NSTimeInterval base=LMVTuneProbeInterval(@"GS");
+    // With the sheet up we only babysit it, so never slower than 4Hz.
+    if(LMVGlassSuiteCardRef)return MIN(base,.25);
+    return base;
 }
 static void LMVGlassSuiteRetune(void) {
     NSTimeInterval want=LMVGlassSuiteInterval();
@@ -481,7 +504,8 @@ static void LMVGlassSuiteContainerMoved(id self,SEL _cmd) {
     if(LMVGlassSuiteContainerMovedOriginal)
         ((void(*)(id,SEL))LMVGlassSuiteContainerMovedOriginal)(self,_cmd);
     NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
-    if(now-LMVGlassSuiteLastHookRefresh<.05)return;
+    NSTimeInterval limit=LMVTuneDelay(@"GS",@"HookThrottleMs");
+    if(now-LMVGlassSuiteLastHookRefresh<limit)return;
     LMVGlassSuiteLastHookRefresh=now;
     LMVGlassSuiteVideoRefresh(NO);
 }

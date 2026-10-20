@@ -6,6 +6,19 @@ import math, platform, re, subprocess, tempfile
 root = Path(__file__).resolve().parents[1]
 panel = (root / 'LMVEasterPanel.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
+# 2.39: this fixture compiles the specifier builder; drop the tuning group and its
+# entry point (covered by tests/tuning.py) so the row counts stay comparable.
+def _strip_tuning(src):
+    a = src.find('    // 2.39: per-channel tuning')
+    if a >= 0:
+        b = src.find('    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];', a)
+        if b > a: src = src[:a] + src[b:]
+    a = src.find('// 2.39: push the per-channel tuning page.')
+    if a >= 0:
+        b = src.find('- (void)openEaster:', a)
+        if b > a: src = src[:a] + src[b:]
+    return src
+prefs = _strip_tuning(prefs)
 targets = ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
 
 def body(source, anchor):
