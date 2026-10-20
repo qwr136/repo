@@ -1477,10 +1477,12 @@ static void LMVRefresh(BOOL reload) {
     LMVHomeMenuVideoRefresh(reload);
     LMVSquidPanelVideoRefresh(reload);
     LMVATPanelVideoRefresh(reload);
+    // 2.33: CopyLogX refreshes FIRST, so the PA channel already knows whether this
+    // channel is able to paint before it decides to stand down on that card.
+    LMVCopyLogXVideoRefresh(reload);
     LMVPhoneAssistVideoRefresh(reload);
     LMVGlassSuiteVideoRefresh(reload);
     LMVCCBorderVideoRefresh(reload);
-    LMVCopyLogXVideoRefresh(reload);
     LMVCopyVaultPanelVideoRefresh(reload);
     LMVMyrtlePanelVideoRefresh(reload);
     for (UIView *presenter in LMVActionPresenters.allObjects) LMVUpdateActionPresenter(presenter);

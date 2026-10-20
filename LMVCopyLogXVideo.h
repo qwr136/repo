@@ -33,6 +33,10 @@
 static void LMVCopyLogXVideoRefresh(BOOL reload);
 static void LMVCopyLogXVideoSuspend(void);
 static BOOL LMVCopyLogXEnabled,LMVCopyLogXPrefsKnown,LMVCopyLogXDebugSize;
+// 2.33: "this channel is ready to mount". Only then may the phone-assist channel
+// step aside. Standing down unconditionally (2.32) is what left the panel with NO
+// video at all: PA let go, and this channel had not found the card yet.
+static BOOL LMVCopyLogXReady;
 static NSString *LMVCopyLogXPath,*LMVCopyLogXRevision;
 static NSTimer *LMVCopyLogXTimer;
 
@@ -64,10 +68,17 @@ static BOOL LMVCopyLogXWindowKind(UIWindow *window) {
     if(!window)return NO;
     NSString *name=NSStringFromClass(window.class);
     if([name containsString:@"CopyLog"] || [name containsString:@"CLX"])return YES;
-    if(![name isEqualToString:@"UIWindow"])return NO;
-    NSString *root=NSStringFromClass(window.rootViewController.class);
-    return root.length==0 || [root isEqualToString:@"UIViewController"] ||
-        [root containsString:@"CopyLog"] || [root containsString:@"CLX"];
+    // 2.33: the 2.31 capture showed the panel in a PLAIN `UIWindow` whose root
+    // controller tells us nothing (`rvc=none`). Requiring a known root class was
+    // one of the reasons the channel stayed silent, so the window is judged only
+    // by what it is NOT: our own floating window and the system chrome. The card
+    // signature below is what actually picks the sheet.
+    if([name isEqualToString:@"LMVEasterWindow"])return NO;
+    for(NSString *word in @[@"SystemAperture",@"TouchVisualizer",@"TextEffects",@"Wallpaper",
+                            @"RecordingIndicator",@"StatusBar",@"FloatingDock",@"Switcher",
+                            @"SBControlCenter",@"SBMain",@"SBHomeScreen"])
+        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return NO;
+    return YES;
 }
 static BOOL LMVCopyLogXHasTable(UIView *root) {
     if(!root)return NO;
@@ -92,12 +103,18 @@ static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view) {
     NSString *name=NSStringFromClass(view.class);
     if([name rangeOfString:@"UIVisualEffectContentView" options:NSCaseInsensitiveSearch].location==NSNotFound)return NO;
     CGRect frame=[view convertRect:view.bounds toView:window];
-    if(frame.size.width<bounds.size.width*.8)return NO;
-    if(frame.size.height<bounds.size.height*.25 || frame.size.height>bounds.size.height*.75)return NO;
-    // Bottom sheet: its bottom edge sits on the screen bottom (the closed panel is
-    // parked off screen instead of being hidden, so this also keeps it out).
-    if(fabs(CGRectGetMaxY(frame)-bounds.size.height)>16)return NO;
-    return LMVCopyLogXHasTable(view);
+    // 2.33: the 2.31 numbers were 411x470 on a 430x932 screen - 95% wide, 50% tall.
+    // The old 80%/25%/16pt window was needlessly tight: a one-point inset or the
+    // sheet's own entrance animation was enough to miss it entirely and leave the
+    // channel with nothing to mount on.
+    if(frame.size.width<bounds.size.width*.75)return NO;
+    if(frame.size.height<bounds.size.height*.2 || frame.size.height>bounds.size.height*.85)return NO;
+    // Bottom sheet: its bottom edge sits on (or near) the screen bottom. A closed
+    // panel is parked off screen, so this also keeps that copy out.
+    if(fabs(CGRectGetMaxY(frame)-bounds.size.height)>40)return NO;
+    // A clipboard list is expected but not required - `LMVCopyLogXHasTable` only
+    // breaks ties, so a renamed/collection-based list no longer kills the channel.
+    return YES;
 }
 // The card CopyLogX is showing right now, or nil. Public to the PA channel: that one
 // asked the same window for "a Dimming/Backdrop shell" and mounted a phone-assist
@@ -121,6 +138,8 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
                     if(!LMVCopyLogXCardKind(window,child))continue;
                     CGRect frame=[child convertRect:child.bounds toView:window];
                     CGFloat visible=LMVCopyLogXVisibleArea(frame,window.bounds);
+                    // A card that really holds the list wins over a look-alike.
+                    if(LMVCopyLogXHasTable(child)) visible*=2;
                     if(visible>bestArea){bestArea=visible;best=child;bestWindow=window;}
                 }
             }
@@ -128,6 +147,12 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
     }
     if(best && windowOut)*windowOut=bestWindow;
     return best;
+}
+// Hand-over contract with the PA channel: it may only skip this card when this
+// channel has both a switch and a material, i.e. when it can actually paint.
+static BOOL LMVCopyLogXClaimed(void) {
+    return LMVCopyLogXReady && LMVCopyLogXEnabled &&
+        LMVCopyLogXPath.length>0 && LMVCopyLogXRevision.length>0;
 }
 static BOOL LMVCopyLogXIsCard(UIView *card) {
     if(!card)return NO;
@@ -248,7 +273,26 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
     if(self.updating)return;self.updating=YES;
     UIWindow *window=nil;
     UIView *card=LMVCopyLogXFindCard(&window);
-    if(!card) {[self detach];self.updating=NO;return;}
+    if(!card) {
+        // 2.33: say WHY, the way the PA channel does. Without this line "switch on,
+        // material picked, still nothing" is indistinguishable from "no card".
+        if(LMVDiagnosticsEnabled.load()) {
+            NSMutableString *visible=[NSMutableString new];
+            for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if(![scene isKindOfClass:UIWindowScene.class])continue;
+                for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
+                    if(candidate.hidden || candidate.alpha<.01)continue;
+                    if(!LMVCopyLogXWindowKind(candidate))continue;
+                    [visible appendFormat:@"%@@%.0fx%.0f ",NSStringFromClass(candidate.class),
+                        candidate.bounds.size.width,candidate.bounds.size.height];
+                }
+            }
+            NSString *line=[NSString stringWithFormat:@"clx-nocard windows=%@",visible.length?visible:@"none"];
+            static NSString *lastLine=nil;
+            if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
+        }
+        [self detach];self.updating=NO;return;
+    }
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCopyLogXPath] ||
         ![self.playback.revision isEqualToString:LMVCopyLogXRevision];
@@ -322,6 +366,7 @@ static void LMVCopyLogXVideoRefresh(BOOL reload) {
         LMVCopyLogXRevision=LMVLockVideoRevision(LMVCopyLogXPath);
     }
     LMVCopyLogXRetune();
+    LMVCopyLogXReady=YES;
     if(!LMVCopyLogXEnabled || !LMVCopyLogXPath.length || !LMVCopyLogXRevision.length) {
         if(LMVDiagnosticsEnabled.load()) {
             static NSString *lastGate=nil;

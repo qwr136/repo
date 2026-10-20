@@ -432,7 +432,11 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     // UIWindow as a 411x470 bottom card, and the structural shell fallback used to
     // claim it (pa-panel ... card=_UIVisualEffectContentView). Its own channel owns
     // it now, so this one stands down instead of painting a second video there.
-    if(LMVCopyLogXIsCard(card)) {[self detach];self.updating=NO;return;}
+    // 2.33: only step aside once the CopyLogX channel can actually paint there.
+    // 2.32 skipped the card unconditionally, so with its switch off (or no material
+    // picked yet) NEITHER channel mounted and the panel showed no video at all -
+    // which is exactly the "上个版本电话助手能显示、这个版本没有" report.
+    if(LMVCopyLogXIsCard(card) && LMVCopyLogXClaimed()) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     LMVPhoneAssistApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVPhoneAssistPath] ||

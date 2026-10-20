@@ -39,12 +39,15 @@ assert '![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue]' 
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src
 assert 'static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view)' in src
 assert 'static BOOL LMVCopyLogXHasTable(UIView *root)' in src
-assert '[name isEqualToString:@"UIWindow"]' in src, 'only a plain UIWindow is a candidate'
 assert 'UIVisualEffectContentView' in src, 'the card class the 2.31 capture named'
-assert 'bounds.size.width*.8' in src, 'the 411pt card on a 430pt screen is 95% wide'
-assert 'bounds.size.height*.25' in src and 'bounds.size.height*.75' in src
-assert 'fabs(CGRectGetMaxY(frame)-bounds.size.height)>16' in src, 'bottom-anchored'
-assert 'isKindOfClass:UITableView.class' in src, 'the clipboard list identifies the sheet'
+assert 'bounds.size.width*.75' in src, 'the 411pt card on a 430pt screen is 95% wide'
+assert 'bounds.size.height*.2' in src and 'bounds.size.height*.85' in src
+assert 'fabs(CGRectGetMaxY(frame)-bounds.size.height)>40' in src, 'bottom-anchored'
+assert 'isKindOfClass:UITableView.class' in src, 'the clipboard list breaks ties'
+# 2.33: the window is judged by exclusion (system chrome), not by a root class name
+assert '[name isEqualToString:@"LMVEasterWindow"]' in src
+assert '@"SystemAperture"' in src and '@"SBControlCenter"' in src
+assert 'LMVCopyLogXHasTable(child)) visible*=2' in src
 # 关闭的面板不能被挂载
 assert 'LMVCopyLogXVisibleArea(frame,window.bounds)' in src
 
@@ -55,8 +58,13 @@ assert 'com.minis.lockmessagevideo.copylogx.render' in src
 # 文字颜色可还原
 assert 'LMVCopyLogXApplyTextColor(card)' in src and 'LMVCopyLogXRestoreTextColor()' in src
 
-# ---- 4) PA 通道必须让路 ------------------------------------------------------
-assert 'if(LMVCopyLogXIsCard(card)) {[self detach];self.updating=NO;return;}' in pa
+# ---- 4) PA 通道只在 CopyLogX 真能挂载时让路 --------------------------------
+assert 'static BOOL LMVCopyLogXClaimed(void)' in src
+assert 'return LMVCopyLogXReady && LMVCopyLogXEnabled &&' in src
+assert 'LMVCopyLogXPath.length>0 && LMVCopyLogXRevision.length>0' in src
+assert 'if(LMVCopyLogXIsCard(card) && LMVCopyLogXClaimed()) {[self detach];self.updating=NO;return;}' in pa
+# 2.33: 没有卡片时必须能说出原因
+assert 'clx-nocard windows=%@' in src
 assert '#import "LMVCopyLogXVideo.h"' in tweak
 assert tweak.index('#import "LMVCopyLogXVideo.h"') < tweak.index('#import "LMVPhoneAssistVideo.h"')
 
@@ -102,6 +110,7 @@ assert 'CCBorderVideo' not in clx_section
 assert 'tests/copylogx-panel-video.py' in workflow
 
 print('PASS: CopyLogX clipboard-panel channel - independent switch/material/sound/volume/'
-      'text-colour/debug settings, structural detection (plain UIWindow + bottom-anchored '
-      '411-width card containing a table), index-0 mount inside the card, PA stands down, '
-      'audio plumbing, floating-panel sync without the colour row, CI wired')
+      'text-colour/debug settings, structural detection (non-system window + bottom-anchored '
+      'wide effect-content card, table breaks ties), index-0 mount inside the card, PA stands '
+      'down only when this channel can paint, clx-nocard diagnostics, audio plumbing, '
+      'floating-panel sync without the colour row, CI wired')
