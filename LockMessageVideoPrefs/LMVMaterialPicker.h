@@ -219,7 +219,12 @@ static void LMVMaterialSharedState(void) {
         NSArray *library = [[fm contentsOfDirectoryAtPath:[base stringByAppendingPathComponent:@"library"] error:nil] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
         NSMutableArray *paths = [NSMutableArray new];
         for (NSString *legacy in @[@"message.mov", @"options.mov", @"clear.mov"]) if ([fm fileExistsAtPath:[base stringByAppendingPathComponent:legacy]]) [paths addObject:legacy];
-        for (NSString *file in library) if ([@[@"mov", @"mp4", @"m4v"] containsObject:file.pathExtension.lowercaseString]) [paths addObject:[@"library" stringByAppendingPathComponent:file]];
+        NSMutableOrderedSet *unique = [NSMutableOrderedSet orderedSetWithArray:paths];
+        for (NSString *file in library) if ([@[@"mov", @"mp4", @"m4v"] containsObject:file.pathExtension.lowercaseString])
+            [unique addObject:[@"library" stringByAppendingPathComponent:file]];
+        // 2.44: the same relative path must never be listed twice (legacy aliases and
+        // the library scan can overlap after an import).
+        paths = [unique.array mutableCopy];
         NSMutableDictionary *names = LMVReadMaterialNames();
         BOOL namesChanged = NO;
         NSMutableArray *rows = [NSMutableArray new];

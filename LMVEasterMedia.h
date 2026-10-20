@@ -27,10 +27,6 @@ static void LMVEasterSet(NSString *key, id value) {
 }
 // Geometry only: changing size never changes the bounded image decode key.
 static CGFloat LMVEasterSize(void) {
-    // 2.39: BubbleSize (Tune.Bubble.BubbleSize) wins once the user touches the new
-    // slider; until then the old EasterEggSize key keeps its own default.
-    if (LMVTuneHasValue(@"Bubble", @"BubbleSize"))
-        return LMVEasterBoundedSize(LMVTuneValue(@"Bubble", @"BubbleSize"));
     id value = LMVEasterRead(@"EasterEggSize");
     double size = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 64;
     return LMVEasterBoundedSize(size);

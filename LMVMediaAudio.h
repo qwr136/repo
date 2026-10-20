@@ -84,12 +84,12 @@ static void LMVAudioPauseTarget(NSString *target) {
 // the gap the user hears when an app exits or the Control Center slides back.
 // Seek now happens only on a real drift (>0.25 s); otherwise the paused player
 // simply plays, so the resume costs one play call on both paths.
-// 2.42: the sound follows the channel's playback speed, the same percent the video
-// layer uses. TimeDomain keeps the pitch natural at 0.5x~2x.
+// 2.44: the "播放速度" knob is gone from every channel, so the sound always runs at
+// 1x. Kept as a function because every caller passes a target and this is the single
+// place that decides the rate.
 static CGFloat LMVAudioRate(NSString *target) {
-    NSInteger percent=LMVTuneValue(target,@"RatePercent");
-    if(percent<10 || percent>400)percent=100;
-    return percent/100.0;
+    (void)target;
+    return 1.0;
 }
 static void LMVAudioResumeTarget(NSString *target,CMTime time) {
     if(!LMVAudioChannels)return;

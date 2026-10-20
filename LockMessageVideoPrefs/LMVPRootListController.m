@@ -385,7 +385,14 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if ([materialID hasSuffix:@"Material"]) {
         NSString *key = [materialID stringByReplacingOccurrencesOfString:@"Material" withString:@"Video"];
         id value = LMVEasterRead(key);
-        NSString *name = [value isKindOfClass:NSString.class] ? [value lastPathComponent] : nil;
+        NSString *path = [value isKindOfClass:NSString.class] ? value : nil;
+        // 2.44: the row said which material by showing the FILE NAME, and every
+        // imported file is a UUID on disk - so a renamed material showed
+        // "8A5A5463-A5C9-4847-BFC2-A0913B51..." outside the picker. Ask the catalog
+        // for the display name first; the file name is only the last resort.
+        NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
+        if (![name isKindOfClass:NSString.class] || !name.length)
+            name = path.length ? [path.lastPathComponent stringByDeletingPathExtension] : nil;
         cell.detailTextLabel.text = name.length ? name : @"未选择";
     }
     NSDictionary *row = [self textColorRowForSpecifier:specifier];

@@ -15,10 +15,6 @@ static NSString *const LMVTuneDomain = @"com.minis.lockmessagevideo";
 // The channels, in the same order Settings lists them.
 static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
     return @[
-        @{@"id":@"Lock",          @"name":@"锁屏背景视频"},
-        @{@"id":@"Desktop",       @"name":@"桌面背景视频"},
-        @{@"id":@"ControlCenter", @"name":@"控制中心"},
-        @{@"id":@"HomeMenu",      @"name":@"主屏菜单"},
         @{@"id":@"SquidPanel",    @"name":@"鱿鱼面板"},
         @{@"id":@"AT",            @"name":@"AT 面板"},
         @{@"id":@"CV",            @"name":@"CopyVault 面板"},
@@ -27,7 +23,6 @@ static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
         @{@"id":@"GS",            @"name":@"GlassSuiteX 弹窗"},
         @{@"id":@"CCBorder",      @"name":@"CCBorder 长按菜单"},
         @{@"id":@"CopyLogX",      @"name":@"CopyLogX 面板"},
-        @{@"id":@"Bubble",        @"name":@"悬浮球"},
     ];
 }
 static inline NSString *LMVTuneTargetName(NSString *target) {
@@ -53,23 +48,6 @@ static inline NSDictionary *LMVTuneParam(NSString *key,
     return p;
 }
 
-// Four groups for every video channel. The bubble has no video, so it gets its
-// own (much shorter) list - showing "帧率上限" for a floating ball would be noise.
-// Built once: LMVTuneValue() runs on the SpringBoard main thread several times a
-// second, so rebuilding fourteen dictionaries per read would be silly.
-static inline NSArray<NSDictionary *> *LMVTuneBubbleGroups(void) {
-    static NSArray *groups; static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        groups = @[
-            @{@"title":@"悬浮球", @"params":@[
-                // Only what the overlay actually reads: size and opacity.
-                LMVTuneParam(@"BubbleSize", @"尺寸 (24~128)", 24, 128, 52, nil, nil),
-                LMVTuneParam(@"BubbleAlpha", @"不透明度 (%, 20~100)", 20, 100, 100, nil, nil),
-            ]},
-        ];
-    });
-    return groups;
-}
 // 2.41: only show parameters this channel actually reads. A switch that changes
 // nothing is worse than no switch.
 static inline BOOL LMVTuneHasTimer(NSString *target) {
@@ -86,7 +64,6 @@ static inline BOOL LMVTuneHasHook(NSString *target) {
     return [@[@"GS",@"CopyLogX"] containsObject:target];
 }
 static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) {
-    if ([target isEqualToString:@"Bubble"]) return LMVTuneBubbleGroups();
     NSMutableArray *groups = [NSMutableArray array];
     if (LMVTuneHasTimer(target)) {
         NSMutableArray *probe = [NSMutableArray array];
@@ -102,29 +79,6 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
         }
         [groups addObject:@{@"title":@"探测", @"params":probe}];
     }
-    static NSArray *rest; static dispatch_once_t once;
-    dispatch_once(&once, ^{
-    rest = @[
-        @{@"title":@"播放", @"params":@[
-            // 2.41: free numbers, not preset choices. 0 fps = keep the source rate.
-            LMVTuneParam(@"MaxFPS", @"帧率上限 (0=原始, 1~120)", 0, 120, 0, nil, nil),
-            LMVTuneParam(@"RatePercent", @"播放速度 (%, 10~400)", 10, 400, 100, nil, nil),
-            LMVTuneParam(@"Gravity", @"填充方式", 0, 1, 0, @[@"填充", @"适应"], @[@0, @1]),
-            LMVTuneParam(@"LoopCount", @"循环次数 (0=无限, 1~99)", 0, 99, 0, nil, nil),
-        ]},
-        @{@"title":@"可见性", @"params":@[
-            LMVTuneParam(@"HiddenAction", @"面板不可见", 0, 2, 0, @[@"暂停", @"继续", @"暂停并隐藏"], @[@0, @1, @2]),
-            // 2.42: 被完全遮挡 / 锁屏息屏 / App 前台 三项在 2.39 就摆在这里，但运行时
-            // 从来没读过。宁可先撤掉，也不留调了没反应的开关；遮挡判定各通道要自己算，
-            // 桌面还要先看清搜索界面的窗口类名，接好再放回来。
-        ]},
-        @{@"title":@"性能", @"params":@[
-            LMVTuneParam(@"LowPowerAction", @"低电量模式", 0, 2, 0, @[@"不变", @"降帧", @"暂停"], @[@0, @1, @2]),
-            LMVTuneParam(@"ThermalAction", @"设备过热", 0, 2, 0, @[@"不变", @"降帧", @"暂停"], @[@0, @1, @2]),
-        ]},
-    ];
-    });
-    [groups addObjectsFromArray:rest];
     return groups;
 }
 
@@ -133,9 +87,9 @@ static inline NSDictionary *LMVTuneFindParam(NSString *key) {
     static NSDictionary *index; static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableDictionary *map = [NSMutableDictionary dictionary];
-        // GS carries the probe group, Lock carries playback/visibility/perf,
-        // Bubble carries its own two. Together they cover every key.
-        for (NSString *target in @[@"GS", @"Lock", @"Bubble"])
+        // Only the probe group is left (2.44 removed playback/visibility/perf),
+        // and GS carries every key it defines: frequency, delays and hook throttle.
+        for (NSString *target in @[@"GS"])
             for (NSDictionary *group in LMVTuneGroupsForTarget(target))
                 for (NSDictionary *p in group[@"params"])
                     if (!map[p[@"key"]]) map[p[@"key"]] = p;

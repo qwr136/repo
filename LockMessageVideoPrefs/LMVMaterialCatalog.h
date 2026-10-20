@@ -19,6 +19,30 @@ static NSError *LMVWriteMaterialNames(NSDictionary *names) {
     if (!data || ![data writeToFile:LMVCatalogPath() options:NSDataWritingAtomic error:&error]) return error ?: LMVStorageError(22, @"无法保存素材名称");
     return nil;
 }
+// 2.44: two materials could end up with the same generated name ("12" twice in the
+// reported catalog), which makes the list look like one entry was duplicated. Any
+// generated name is made unique against the names already on record.
+static NSString *LMVUniqueMaterialName(NSString *candidate, NSDictionary *names, NSString *relative) {
+    if (!candidate.length) return candidate;
+    BOOL clash = NO;
+    for (NSString *key in names) {
+        if ([key isEqualToString:relative]) continue;
+        id value = names[key];
+        if ([value isKindOfClass:NSString.class] && [value isEqualToString:candidate]) { clash = YES; break; }
+    }
+    if (!clash) return candidate;
+    for (NSUInteger suffix = 2; suffix < 100; suffix++) {
+        NSString *next = [NSString stringWithFormat:@"%@ (%lu)", candidate, (unsigned long)suffix];
+        BOOL taken = NO;
+        for (NSString *key in names) {
+            if ([key isEqualToString:relative]) continue;
+            id value = names[key];
+            if ([value isKindOfClass:NSString.class] && [value isEqualToString:next]) { taken = YES; break; }
+        }
+        if (!taken) return next;
+    }
+    return candidate;
+}
 static NSString *LMVMaterialDisplayName(NSString *relative, NSDictionary *names, NSDictionary *attributes, NSUInteger index) {
     id saved = names[relative];
     if ([saved isKindOfClass:NSString.class] && [saved length]) return saved;
@@ -26,12 +50,15 @@ static NSString *LMVMaterialDisplayName(NSString *relative, NSDictionary *names,
     if (legacy[relative]) return legacy[relative];
     NSString *stem = relative.lastPathComponent.stringByDeletingPathExtension;
     NSRegularExpression *uuid = [NSRegularExpression regularExpressionWithPattern:@"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" options:0 error:nil];
-    if (stem.length && ![uuid numberOfMatchesInString:stem options:0 range:NSMakeRange(0, stem.length)]) return stem;
+    if (stem.length && ![uuid numberOfMatchesInString:stem options:0 range:NSMakeRange(0, stem.length)])
+        return LMVUniqueMaterialName(stem, names, relative);
     NSDate *date = attributes[NSFileCreationDate] ?: attributes[NSFileModificationDate];
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
     formatter.dateFormat = @"yyyy-MM-dd";
-    return date ? [NSString stringWithFormat:@"导入 %@ · %lu", [formatter stringFromDate:date], (unsigned long)index + 1] : [NSString stringWithFormat:@"视频素材 %lu", (unsigned long)index + 1];
+    NSString *generated = date ? [NSString stringWithFormat:@"导入 %@ · %lu", [formatter stringFromDate:date], (unsigned long)index + 1]
+                               : [NSString stringWithFormat:@"视频素材 %lu", (unsigned long)index + 1];
+    return LMVUniqueMaterialName(generated, names, relative);
 }
 static NSError *LMVRenameMaterial(NSString *relative, NSString *name) {
     NSString *trimmed = [name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];

@@ -422,7 +422,11 @@ class UISectionOrder(unittest.TestCase):
         # 1.34: the shared thumbnail state moves to file scope and gains
         # +prewarmThumbnailCache, and the list now requests every row instead of only
         # the visible ones. Delete routing is still untouched.
-        self.assertEqual(digest(PICKER), '35174e76a3b73ee3eddb1cbb18b1be0232bcc457581fa51cad0b8b418abf99e7')
+        # 2.44: the catalog scan de-duplicates relative paths before building rows (the
+        # reported list showed the same entry twice). Only row assembly changed; the
+        # delete routing below still covers the same handlers, so the frozen digest is
+        # refreshed for that one edit.
+        self.assertEqual(digest(PICKER), '04fa34a767099a80396988e099a5c6a61ce2588676f8ec9e756390914a997afa')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')
