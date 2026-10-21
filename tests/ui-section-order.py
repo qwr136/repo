@@ -447,10 +447,14 @@ class UISectionOrder(unittest.TestCase):
         # 2.52: the chosen name is painted in -willDisplayCell:, which UIKit does not
         # re-run when a modal is dismissed. Picking/renaming/deleting a material left
         # the old name on the row behind the picker ("外面那个素材名字没有跟着变").
-        # Both paths must repaint: the pick itself, and any return to this page.
+        # 2.56: -reloadSpecifier: refreshed the specifier but not the pixels - the
+        # device still showed 13 after 14 was picked, because the row reload does not
+        # re-run -willDisplayCell: on a visible cell. The only reliable path is a table
+        # reload, so that is what the guard now requires.
         self.assertIn('- (void)refreshMaterialRows {', SETTINGS)
-        self.assertIn('if (![identifier hasSuffix:@"Material"]) continue;', SETTINGS)
-        self.assertIn('[self reloadSpecifier:item animated:NO];', SETTINGS)
+        self.assertIn('[self.table reloadData];', SETTINGS)
+        refresh = SETTINGS[SETTINGS.index('- (void)refreshMaterialRows {'):SETTINGS.index('- (void)viewWillAppear:')]
+        self.assertNotIn('reloadSpecifier', refresh)
         self.assertIn('- (void)viewWillAppear:(BOOL)animated {', SETTINGS)
         self.assertEqual(SETTINGS.count('[self refreshMaterialRows];'), 2)
         select = SETTINGS[SETTINGS.index('- (void)selectFile:'):]

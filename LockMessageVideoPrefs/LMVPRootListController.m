@@ -36,6 +36,10 @@ static void LMVNotify(void) {
 // a repaint never has to guess how to reach it (PSListController has `table`,
 // never `tableView`, which is what used to crash Settings).
 @property(nonatomic,weak) UITableView *cvTextColorTable;
+// 2.56: the name painter is shared by -willDisplayCell: and the immediate repaint
+// after a pick, so both paths cannot drift apart.
+- (void)paintMaterialName:(NSString *)materialID inCell:(UITableViewCell *)cell;
+- (void)refreshMaterialRows;
 @end
 
 @implementation LMVPRootListController
@@ -48,14 +52,24 @@ static void LMVNotify(void) {
 // or deleting one all happen inside a modal, so the row behind it kept whatever name
 // it had the first time it was displayed - the preference had changed, the label had
 // not. That is the reported "外面那个素材名字没有跟着变".
-// Reloading only the material rows is enough, and it keeps the scroll position.
+//
+// 2.56: -reloadSpecifier: is NOT enough. It refreshes the specifier, not the pixels:
+// the name lives in an accessory view painted by -willDisplayCell:, and the row reload
+// does not re-run that method on an already-visible cell (the device kept showing 13
+// after 14 was picked). 1.88 hit the same wall with the colour swatches, which is why
+// they are painted directly. Repaint the visible cells first (immediate, no flicker,
+// no dependence on when UIKit decides to ask for the cell again), then reload so a row
+// that is currently off screen picks the new name up when it scrolls in.
 - (void)refreshMaterialRows {
-    for (PSSpecifier *item in [_specifiers copy]) {
-        id identifier = [item propertyForKey:@"id"];
-        if (![identifier isKindOfClass:NSString.class]) continue;
-        if (![identifier hasSuffix:@"Material"]) continue;
-        [self reloadSpecifier:item animated:NO];
+    if (!self.isViewLoaded || !_specifiers.count) return;
+    for (UITableViewCell *cell in self.table.visibleCells) {
+        NSIndexPath *indexPath = [self.table indexPathForCell:cell];
+        PSSpecifier *item = [self specifierAtIndexPath:indexPath];
+        NSString *identifier = [item propertyForKey:@"id"];
+        if (![identifier isKindOfClass:NSString.class] || ![identifier hasSuffix:@"Material"]) continue;
+        [self paintMaterialName:identifier inCell:cell];
     }
+    [self.table reloadData];
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
@@ -405,12 +419,10 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (!key) return nil;
     return @{@"key": key, @"dot": @(LMVTextColorTagFor(key, NO)), @"value": @(LMVTextColorTagFor(key, YES))};
 }
-- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
-    PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
+- (void)paintMaterialName:(NSString *)materialID inCell:(UITableViewCell *)cell {
     // 2.42: the material rows are all called 切换素材 now; the chosen file is shown
     // on the right so the row still says WHICH material is in use.
-    NSString *materialID = [specifier propertyForKey:@"id"];
-    BOOL materialRow = [materialID hasSuffix:@"Material"];
+    BOOL materialRow = [materialID isKindOfClass:NSString.class] && [materialID hasSuffix:@"Material"];
     // 2.45: PSButtonCell is a plain (default-style) cell, so its detailTextLabel is
     // nil and 2.44's assignment went nowhere. 2.46: a hand-placed label in contentView
     // still came out blank on the device (the button cell lays its own content out and
@@ -421,36 +433,40 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     [[cell.contentView viewWithTag:LMVMaterialValueTag] removeFromSuperview];
     if (!materialRow) {
         if (cell.accessoryView.tag == LMVMaterialValueTag) cell.accessoryView = nil;
-    } else {
-        UILabel *materialValue = (UILabel *)cell.accessoryView;
-        if (![materialValue isKindOfClass:UILabel.class] || materialValue.tag != LMVMaterialValueTag) {
-            materialValue = [UILabel new];
-            materialValue.tag = LMVMaterialValueTag;
-            materialValue.font = [UIFont systemFontOfSize:15];
-            materialValue.textColor = [UIColor secondaryLabelColor];
-            materialValue.textAlignment = NSTextAlignmentRight;
-            materialValue.numberOfLines = 1;
-            materialValue.lineBreakMode = NSLineBreakByTruncatingMiddle;
-            materialValue.userInteractionEnabled = NO;
-            materialValue.accessibilityIdentifier = @"LMVMaterialValue";
-            cell.accessoryView = materialValue;
-        }
-        NSString *key = [materialID stringByReplacingOccurrencesOfString:@"Material" withString:@"Video"];
-        id value = LMVEasterRead(key);
-        NSString *path = [value isKindOfClass:NSString.class] ? value : nil;
-        // 2.44: the row said which material by showing the FILE NAME, and every
-        // imported file is a UUID on disk - so a renamed material showed
-        // "8A5A5463-A5C9-4847-BFC2-A0913B51..." outside the picker. Ask the catalog
-        // for the display name first; the file name is only the last resort.
-        NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
-        if (![name isKindOfClass:NSString.class] || !name.length)
-            name = path.length ? [path.lastPathComponent stringByDeletingPathExtension] : nil;
-        materialValue.text = name.length ? name : @"未选择";
-        [materialValue sizeToFit];
-        CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.45);
-        if (materialValue.bounds.size.width > cap)
-            materialValue.frame = CGRectMake(0, 0, cap, materialValue.bounds.size.height);
+        return;
     }
+    UILabel *materialValue = (UILabel *)cell.accessoryView;
+    if (![materialValue isKindOfClass:UILabel.class] || materialValue.tag != LMVMaterialValueTag) {
+        materialValue = [UILabel new];
+        materialValue.tag = LMVMaterialValueTag;
+        materialValue.font = [UIFont systemFontOfSize:15];
+        materialValue.textColor = [UIColor secondaryLabelColor];
+        materialValue.textAlignment = NSTextAlignmentRight;
+        materialValue.numberOfLines = 1;
+        materialValue.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        materialValue.userInteractionEnabled = NO;
+        materialValue.accessibilityIdentifier = @"LMVMaterialValue";
+        cell.accessoryView = materialValue;
+    }
+    NSString *key = [materialID stringByReplacingOccurrencesOfString:@"Material" withString:@"Video"];
+    id value = LMVEasterRead(key);
+    NSString *path = [value isKindOfClass:NSString.class] ? value : nil;
+    // 2.44: the row said which material by showing the FILE NAME, and every
+    // imported file is a UUID on disk - so a renamed material showed
+    // "8A5A5463-A5C9-4847-BFC2-A0913B51..." outside the picker. Ask the catalog
+    // for the display name first; the file name is only the last resort.
+    NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
+    if (![name isKindOfClass:NSString.class] || !name.length)
+        name = path.length ? [path.lastPathComponent stringByDeletingPathExtension] : nil;
+    materialValue.text = name.length ? name : @"未选择";
+    [materialValue sizeToFit];
+    CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.45);
+    if (materialValue.bounds.size.width > cap)
+        materialValue.frame = CGRectMake(0, 0, cap, materialValue.bounds.size.height);
+}
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
+    [self paintMaterialName:[specifier propertyForKey:@"id"] inCell:cell];
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
