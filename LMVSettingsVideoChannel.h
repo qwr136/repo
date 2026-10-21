@@ -39,6 +39,7 @@ static inline BOOL LMVSettingsVideoEnabled(void) {
 + (instancetype)shared;
 - (void)start;
 - (void)refresh;
+- (void)logOccluders:(NSString *)reason;
 - (void)stop;
 @end
 
