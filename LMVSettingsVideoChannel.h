@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#import "LMVPaths.h"
 
 // 2.65: SETTINGS-APP VIDEO BACKGROUND - now actually injected into the Settings
 // process (com.apple.Preferences), not the preference bundle.

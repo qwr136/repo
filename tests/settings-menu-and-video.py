@@ -59,7 +59,12 @@ check('SettingsVideoVolume' in player, 'volume key name')
 check('"library"' not in player and 'library/' not in player, 'no shared library path')
 check('AVQueuePlayer' in player and 'AVPlayerLooper' in player, 'looping player')
 check('AVLayerVideoGravityResizeAspectFill' in player_impl, 'fills the window')
-check('insertSubview:self.host atIndex:0' in player_impl, 'background sits under the UI')
+# 2.75: the host goes directly BELOW the list (the Settings app keeps an opaque
+# UITransitionView between the window and the table, so a window-level host never
+# shows), and the list/cell backgrounds are cleared so the text sits on the video.
+check('insertSubview:self.host atIndex:(NSUInteger)index' in player_impl, 'background sits under the list')
+check('tableIn:' in player_impl and 'clearCellBackgroundsIn:' in player_impl, 'list/cell transparency')
+check('LMV_VERSION_STRING' in player_impl, 'diagnostic line carries the real version')
 check('CMTimeMake(1, 10)' in settings or 'copyCGImageAtTime' in settings, 'picker shows a preview frame')
 
 # 4) build wiring

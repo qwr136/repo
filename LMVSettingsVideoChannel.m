@@ -26,7 +26,7 @@ static void LMVSettingsVideoLog(NSString *event) {
     @try {
         [handle seekToEndOfFile];
         NSString *line = [NSString stringWithFormat:@"%.3f version=%@ session=1 pid=%d %@\n",
-            CACurrentMediaTime(), @"2.67", getpid(), event];
+            CACurrentMediaTime(), LMV_VERSION_STRING, getpid(), event];
         [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
     } @catch (__unused NSException *exception) { }
     @finally { [handle closeFile]; }
@@ -164,11 +164,49 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     [player play];
 }
 
+// 2.75: the video belongs UNDER THE LIST TEXT, not under the whole window: the
+// Settings app keeps an opaque UITransitionView/DropShadowView between the window
+// and the table, so a window-level host is invisible. Find the table the user is
+// looking at and put the host directly BELOW it in its own superview.
+- (UITableView *)tableIn:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget {
+    if (!view || depth > 12 || *budget <= 0) return nil;
+    (*budget)--;
+    if ([view isKindOfClass:UITableView.class]) return (UITableView *)view;
+    for (UIView *child in view.subviews) {
+        UITableView *found = [self tableIn:child depth:depth + 1 budget:budget];
+        if (found) return found;
+    }
+    return nil;
+}
+
+- (void)clearCellBackgroundsIn:(UITableView *)table {
+    for (UITableViewCell *cell in table.visibleCells) {
+        if (cell.backgroundColor && cell.backgroundColor != UIColor.clearColor) {
+            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
+            NSValue *key = [NSValue valueWithNonretainedObject:cell];
+            if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = cell.backgroundColor;
+            cell.backgroundColor = UIColor.clearColor;
+        }
+        UIView *content = cell.contentView;
+        if (content.backgroundColor && content.backgroundColor != UIColor.clearColor) {
+            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
+            NSValue *key = [NSValue valueWithNonretainedObject:content];
+            if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = content.backgroundColor;
+            content.backgroundColor = UIColor.clearColor;
+        }
+        for (UIView *sub in content.subviews)
+            if ([sub isKindOfClass:UIVisualEffectView.class] && sub.backgroundColor && sub.backgroundColor != UIColor.clearColor)
+                sub.backgroundColor = UIColor.clearColor;
+    }
+}
+
 - (void)installIfNeeded {
     UIWindow *window = [self currentWindow];
     if (!window) return;
     UIView *root = window.rootViewController.view;
     if (!root) return;
+    NSInteger budget = 900;
+    UITableView *table = [self tableIn:root depth:0 budget:&budget];
     if (!self.host) {
         self.host = [[UIView alloc] initWithFrame:window.bounds];
         self.host.userInteractionEnabled = NO;
@@ -177,10 +215,16 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
         self.host.tag = LMVSettingsVideoHostTag;
     }
     self.window = window;
-    if (self.host.superview != window) {
-        [window insertSubview:self.host atIndex:0];
+    UIView *container = table.superview ?: window;
+    NSInteger index = table.superview ? (NSInteger)[table.superview.subviews indexOfObjectIdenticalTo:table] : 0;
+    if (index < 0) index = 0;
+    if (self.host.superview != container ||
+        (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host] != index) {
+        [self.host removeFromSuperview];
+        [container insertSubview:self.host atIndex:(NSUInteger)index];
     }
-    if (!CGRectEqualToRect(self.host.frame, window.bounds)) self.host.frame = window.bounds;
+    CGRect target = table ? table.frame : window.bounds;
+    if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
     // The app's own container views are opaque; clear the scroll backgrounds so the
     // video is visible behind the grouped rows.
     if (root.backgroundColor && root.backgroundColor != UIColor.clearColor) {
@@ -211,7 +255,17 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     self.player.muted = !sound;
     self.player.volume = sound ? volume : 0;
     UIWindow *window = self.window;
-    if (window && !CGRectEqualToRect(self.host.frame, window.bounds)) self.host.frame = window.bounds;
+    UITableView *liveTable = nil;
+    if (window) {
+        NSInteger budget = 900;
+        liveTable = [self tableIn:window.rootViewController.view depth:0 budget:&budget];
+    }
+    if (liveTable) {
+        if (self.host.superview != liveTable.superview) [self installIfNeeded];
+        CGRect target = liveTable.frame;
+        if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
+        [self clearCellBackgroundsIn:liveTable];
+    }
     for (CALayer *layer in self.host.layer.sublayers) {
         if ([layer isKindOfClass:AVPlayerLayer.class] && !CGRectEqualToRect(layer.frame, self.host.bounds))
             layer.frame = self.host.bounds;
