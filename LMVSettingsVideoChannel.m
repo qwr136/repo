@@ -135,6 +135,30 @@ static void LMVSettingsSetContentOffsetAnimated(id self, SEL _cmd, CGPoint offse
     LMVSettingsScrollTick();
 }
 
+// 2.91: CLEAR DURING LAYOUT, NOT ON A TIMER. layoutSubviews runs while the frame is
+// being prepared, so clearing here happens BEFORE it is composited - a 0.1 s sweep
+// can never win that race (the diagnostic showed white-frame count=0 at every
+// sample: the white lived for a frame or two between sweeps).
+static void (*LMVSettingsOriginalLayoutSubviews)(id, SEL);
+
+static void LMVSettingsLayoutSubviews(id self, SEL _cmd) {
+    LMVSettingsOriginalLayoutSubviews(self, _cmd);
+    LMVSettingsVideoChannel *channel = [LMVSettingsVideoChannel shared];
+    if (!channel.isActive) return;
+    UIView *view = (UIView *)self;
+    if (view == channel.host) return;
+    if ([view isKindOfClass:UIButton.class]) return;
+    for (UIView *node = view.superview; node; node = node.superview)
+        if (node == channel.host) return;
+    // UIKit internal views often write the layer colour directly, which the
+    // setBackgroundColor: hook cannot see - clear both.
+    CALayer *layer = view.layer;
+    if (layer.backgroundColor && CGColorGetAlpha(layer.backgroundColor) > .001)
+        layer.backgroundColor = UIColor.clearColor.CGColor;
+    if (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor) > .001)
+        view.backgroundColor = UIColor.clearColor;
+}
+
 static void LMVSettingsSetBackgroundColor(id self, SEL _cmd, UIColor *color) {
     if ([LMVSettingsVideoChannel shared].isActive && LMVSettingsIsSurface(self)) color = UIColor.clearColor;
     LMVSettingsOriginalSetBackgroundColor(self, _cmd, color);
@@ -206,6 +230,11 @@ static void LMVSettingsCollectOccluders(UIView *view, UIView *host, CGRect hostF
         if (did) {
             LMVSettingsOriginalViewDidAppear = (void *)method_getImplementation(did);
             method_setImplementation(did, (IMP)LMVSettingsViewDidAppear);
+        }
+        Method layout = class_getInstanceMethod(UIView.class, @selector(layoutSubviews));
+        if (layout) {
+            LMVSettingsOriginalLayoutSubviews = (void *)method_getImplementation(layout);
+            method_setImplementation(layout, (IMP)LMVSettingsLayoutSubviews);
         }
         Method setOffset = class_getInstanceMethod(UIScrollView.class, @selector(setContentOffset:));
         if (setOffset) {
@@ -299,6 +328,8 @@ static NSHashTable<UIView *> *LMVSettingsHiddenViews;   // 2.86   // 2.85: weak 
     if (!view || depth > 16 || *budget <= 0) return;
     (*budget)--;
     if (view == self.host) return;
+    if (view.layer.backgroundColor && CGColorGetAlpha(view.layer.backgroundColor) > .001)
+        view.layer.backgroundColor = UIColor.clearColor.CGColor;
     if (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor) > .001) {
         if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
         if (![LMVSettingsSavedColors objectForKey:view]) [LMVSettingsSavedColors setObject:view.backgroundColor forKey:view];
