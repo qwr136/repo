@@ -110,11 +110,11 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     if (!self.clearTimer) {
         __weak typeof(self) weakClear = self;
-        self.clearTimer = [NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer) {
+        self.clearTimer = [NSTimer timerWithTimeInterval:.1 repeats:YES block:^(NSTimer *timer) {
             LMVSettingsVideoChannel *live = weakClear;
             if (live.isActive) [live clearVisibleBackgrounds];
         }];
-        self.clearTimer.tolerance = .1;
+        self.clearTimer.tolerance = .03;
         [NSRunLoop.mainRunLoop addTimer:self.clearTimer forMode:NSRunLoopCommonModes];
     }
     static BOOL hooked = NO;
@@ -446,8 +446,28 @@ static NSMutableDictionary<NSValue *, NSDictionary *> *LMVSettingsSavedAppearanc
     [LMVSettingsSavedAppearances removeAllObjects];
 }
 
+- (NSArray<UIWindow *> *)allWindows {
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *candidate in ((UIWindowScene *)scene).windows) {
+            if (candidate.hidden || candidate.alpha < .01) continue;
+            [windows addObject:candidate];
+        }
+    }
+    return windows;
+}
+
 - (void)clearVisibleBackgrounds {
     UIWindow *window = self.window;
+    // 2.84: sheets (our colour picker, the material picker) live in their own window
+    // or in another scene's window; clearing only one window left them opaque.
+    for (UIWindow *candidate in [self allWindows]) {
+        if (!candidate.rootViewController.view) continue;
+        NSInteger budget = 2000;
+        [self clearNavigationBarsIn:candidate.rootViewController.view depth:0];
+        [self clearSubtreeBackgrounds:candidate.rootViewController.view depth:0 budget:&budget];
+    }
     if (!window.rootViewController.view) return;
     NSInteger budget = 2000;
     [self clearSubtreeBackgrounds:window.rootViewController.view depth:0 budget:&budget];
