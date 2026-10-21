@@ -244,7 +244,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 - (instancetype)init {
     if(!LMVCCBorderEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVCCBorderVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.ccborder.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -309,7 +309,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCCBorderPath] ||
         ![self.playback.revision isEqualToString:LMVCCBorderRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVCCBorderPath revision:LMVCCBorderRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVCCBorderPath revision:LMVCCBorderRevision];[self.playback selectPath:LMVCCBorderPath revision:LMVCCBorderRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
     BOOL live=self.playback.player && !self.playback.error &&
         (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);

@@ -319,7 +319,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 - (instancetype)init {
     if(!LMVPhoneAssistEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVPhoneAssistVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.phoneassist.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -399,7 +399,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     LMVPhoneAssistApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVPhoneAssistPath] ||
         ![self.playback.revision isEqualToString:LMVPhoneAssistRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];[self.playback selectPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
     BOOL live=self.playback.player && !self.playback.error &&
         (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);

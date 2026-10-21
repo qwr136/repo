@@ -1128,7 +1128,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 - (instancetype)init {
     if(!LMVSquidPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVSquidPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.squid-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];

@@ -189,7 +189,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 - (instancetype)init {
     if(!LMVATPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVATPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.at-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -237,12 +237,12 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVATPanelPath] ||
         ![self.playback.revision isEqualToString:LMVATPanelRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVATPanelPath revision:LMVATPanelRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVATPanelPath revision:LMVATPanelRevision];[self.playback selectPath:LMVATPanelPath revision:LMVATPanelRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    // A still poster is not a panel background: wait for the decoder and leave
-    // the panel alone until then.
-    self.playback.posterLayer.hidden=YES;
-    BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;
+    // 2.59: with the persistent poster enabled the still frame is the panel's
+    // first pixels - mount on it, the player covers it when decoded.
+    BOOL live=self.playback.player && !self.playback.error &&
+        (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     // WHERE in the panel the video belongs: UNDER the icons but ABOVE the
     // material - inside the material's contentView when there is one, otherwise

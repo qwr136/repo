@@ -134,8 +134,12 @@ assert 'if(child.tag==LMVATPanelHostTag || child.hidden || child.alpha<.01)conti
 assert 'self.tag=LMVATPanelHostTag;' in module
 # Never interactive, never a poster substitute for a live panel background.
 assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in module
-assert 'self.playback.posterLayer.hidden=YES;' in module
-assert 'BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;' in module
+# 2.59: the AT panel now mounts on a seeded poster like the other seven panel
+# channels (device report: panel first, video background a beat later). The old
+# forced-hidden poster / decoder-only gate was exactly that delay.
+assert 'self.playback.posterLayer.hidden=YES;' not in module
+assert 'BOOL live=self.playback.player && !self.playback.error &&\n        (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);' in module
+assert 'preparePosterForPath:LMVATPanelPath revision:LMVATPanelRevision' in module
 # Preferences: own switch, own material, master switch respected, default off.
 assert 'CFSTR("ATBackgroundEnabled")' in module
 assert 'LMVATPanelPath=LMVCCSelectedPath(@"ATVideo");' in module

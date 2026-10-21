@@ -50,8 +50,12 @@ info = plistlib.loads((ROOT / 'LockMessageVideoPrefs/Info.plist').read_bytes())
 check(info['CFBundleVersion'] == info['CFBundleShortVersionString'] == source['Version'], 'CFBundle versions')
 check(plistlib.loads((ROOT / 'LockMessageVideo.plist').read_bytes()) == plistlib.loads((ROOT / 'layout/Library/MobileSubstrate/DynamicLibraries/LockMessageVideo.plist').read_bytes()), 'source/staged filter parity')
 paths = (ROOT / 'LMVPaths.h').read_text()
-check('resolved = jbroot(logicalPath);' in paths and 'return @"/var/mobile/LockMessageVideo";' in paths, 'installed resources vs true-root user data')
-check('LMVInstalledPath(@"/Library/PreferenceBundles/LockMessageVideoPrefs.bundle")' in paths, 'native preference resource mapping')
+check('return @"/var/mobile/LockMessageVideo";' in paths, 'true-root user data path')
+# 2.59: the two roothide-era path helpers had zero callers in the whole tree
+# (only this test's text assertion kept them alive), so they are removed; the
+# user-data invariant above is what actually mattered. Lock the removal in so
+# the dead helpers cannot creep back in unnoticed.
+check('LMVInstalledPath' not in paths and 'LMVPreferenceBundlePath' not in paths, 'dead path helpers removed')
 check('/var/jb' not in paths, 'no fixed rootless runtime prefix')
 for name in ('build.yml', 'easter-compile.yml'):
     workflow = (ROOT / '.github/workflows' / name).read_text()

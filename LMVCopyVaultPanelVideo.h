@@ -313,7 +313,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 - (instancetype)init {
     if(!LMVCVPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVCopyVaultPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.cv-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];

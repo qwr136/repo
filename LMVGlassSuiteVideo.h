@@ -319,7 +319,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 - (instancetype)init {
     if(!LMVGlassSuiteEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
         _host=[[LMVGlassSuiteVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.glasssuite.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -373,7 +373,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     LMVGlassSuiteApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVGlassSuitePath] ||
         ![self.playback.revision isEqualToString:LMVGlassSuiteRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];[self.playback selectPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
     BOOL live=self.playback.player && !self.playback.error &&
         (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);
