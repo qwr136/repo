@@ -1008,7 +1008,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // "unknown", not "an app is in front"; while the Home window is up it must not
     // start a new away episode (that is what re-froze the video seconds after exit).
     UIWindow *homeProbe=self.container.window;
-    if (fg==-1 && homeProbe && LMVDesktopHomeWindow(homeProbe)) fg=1;
+    if (fg==-1 && !appCover && homeProbe && LMVDesktopHomeWindow(homeProbe)) fg=1;
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.25: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
@@ -1180,7 +1180,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // again - the "plays a few seconds then hitches" report (device log: frozen
     // 0/1/0/1 while home=1 and cover=0/1 flapped). A confirmed Home surface is direct
     // evidence; -1 must not veto it.
-    if (foreground == -1 && (homeConfirmed || desktopExposed)) foreground = 1;
+    if (foreground == -1 && !appWindowCover && (homeConfirmed || desktopExposed)) foreground = 1;
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
