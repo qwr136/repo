@@ -130,11 +130,9 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h
 # 2.70: the freeze test uses the DEBOUNCED cover (a window-list flicker must not
 # freeze the video); the raw `covered` still drives sheet/lease bookkeeping.
-assert 'BOOL stableCover=covered && (coverNow-self.coverSince>=.12);' in h
-assert 'BOOL coverCounts=(foreground==1) ? stableCover : covered;' in h
-assert '(visible && coverCounts && (sheetFullCover || switcherCover || ccCover || foreground!=1)),' in h
-assert 'play=visible && !coverCounts &&' in h
-assert 'play=visible && !coverCounts && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);' in h
+assert 'BOOL stableClear=!covered && self.coverClearedSince>0 && (coverNow-self.coverClearedSince>=.12);' in h
+assert '(visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),' in h
+assert 'play=visible && !covered && stableClear && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);' in h
 # the sheet hides the layer but must NOT stop the player - a stopped player is
 # what made the release feel slow.
 assert '} else if(!(sheetFullCover && !self.sheetPreexisting) && (self.playback.wantsPlayback || self.playback.frozen || self.playback.posterOnlyVisible))' in h

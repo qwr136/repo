@@ -1169,7 +1169,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     CFTimeInterval coverNow=CACurrentMediaTime();
     if (covered) { self.coverClearedSince=0; if (self.coverSince<=0) self.coverSince=coverNow; }
     else { self.coverSince=0; if (self.coverClearedSince<=0) self.coverClearedSince=coverNow; }
-    BOOL stableCover=covered && (coverNow-self.coverSince>=.12);
+    // 2.70: freeze IMMEDIATELY on a cover (unchanged contract), but only RESUME after
+    // the cover has been gone for 120 ms. The stutter was the resume side: right after
+    // an app exits the app window / switcher shell flickers in the window list, so the
+    // video froze, resumed, froze... Requiring a stable clear removes the churn without
+    // delaying a real freeze.
+    BOOL stableClear=!covered && self.coverClearedSince>0 && (coverNow-self.coverClearedSince>=.12);
     // 0.0.138: SpringBoard's own presentation state, OR-ed with the geometry.
     // It is the authority for the switcher and the Control Center: while either
     // is presented the desktop is not what the user is looking at, so the video
@@ -1436,13 +1441,9 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // screen freezes; the layer is hidden and the wallpaper restored on the
         // same tick. The switcher and the Control Center freeze as soon as they
         // are presented, and any full cover freezes.
-        // 2.70: debounce ONLY while SpringBoard is frontmost. When a real app is in
-        // front (foreground != 1) the cover is unambiguous and must freeze at once -
-        // that is the long-standing contract the native fixture checks.
-        BOOL coverCounts=(foreground==1) ? stableCover : covered;
         BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
-            (visible && coverCounts && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
-            play=visible && !coverCounts && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
+            (visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
+            play=visible && !covered && stableClear && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
