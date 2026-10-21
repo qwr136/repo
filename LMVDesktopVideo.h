@@ -183,9 +183,6 @@ static void LMVDesktopVideoSuspend(void);
 // playing under a translucent sheet at fg==1, but the sound follows the cover,
 // not the player state.
 @property(nonatomic) BOOL coveredNow;
-// 2.72: last usable frontmost value. -1 means "probe unavailable", never "an app
-// came back"; reusing the previous value stops the away machine from restarting.
-@property(nonatomic) NSInteger lastForeground;
 // 0.0.137: the FULL notification pull restored the wallpaper on purpose - the
 // suppress-lease must NOT be re-acquired while the sheet stays fully up, or
 // the same update would undo the restore (the lease block runs right after
@@ -1007,14 +1004,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
     NSInteger fg=LMVDesktopForeground();
+    // 2.69: same hysteresis as the update path - a -1 from the frontmost probe is
+    // "unknown", not "an app is in front"; while the Home window is up it must not
+    // start a new away episode (that is what re-froze the video seconds after exit).
+    UIWindow *homeProbe=self.container.window;
+    if (fg==-1 && !appCover && homeProbe && LMVDesktopHomeWindow(homeProbe)) fg=1;
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.25: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
-    // 2.72: -1 is "no reading" - it must NOT restart the away state machine. Every
-    // flicker used to re-arm appAway, whose release window zeroes `covered`, so the
-    // video resumed and froze again and again (device log: away-release repeating).
-    // The state is simply left as it is; a real app (pid != -1) still arms it.
-    if (fg!=-1 && fg!=1) {self.appAway=YES;self.appLeftAt=0;}
+    if (fg==-1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
@@ -1103,6 +1101,16 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
     CFTimeInterval stageCover=CACurrentMediaTime();
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover):CGRectZero;
+    // 2.72: WHO is covering us, and with which window. State changes only, one line,
+    // diagnostics only - this is the log needed to tell "the app window is still in
+    // the list" apart from "the switcher shell" without another guess.
+    if (LMVDiagnosticsEnabled.load()) {
+        static NSString *lastCoverSrc=nil;
+        NSString *coverSrc=[NSString stringWithFormat:@"desktop-cover-src app=%d sw=%d cc=%d sheet=%d sheetFull=%d rect=%.0fx%.0f unknown=%d",
+            (int)appWindowCover,(int)switcherCover,(int)ccCover,(int)sheetCover,(int)sheetFullCover,
+            cover.size.width,cover.size.height,(int)unknownCover];
+        if (![coverSrc isEqualToString:lastCoverSrc]) { lastCoverSrc=[coverSrc copy]; LMVDiagnostic(coverSrc); }
+    }
     LMVDesktopStage("cover",stageCover);
     // 1.25: ZERO delay on an app exit. The frontmost probe is the earliest true
     // signal - it flips the moment the app stops being frontmost, while its
@@ -1112,9 +1120,14 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
     NSInteger foreground=LMVDesktopForeground();
+    // 2.71: NORMALISE BEFORE THE AWAY STATE MACHINE READS IT. The raw -1 ("frontmost
+    // probe unavailable") used to restart appAway on every flicker, and appAway's
+    // release window zeroes `covered` for a moment - so the video resumed, froze,
+    // resumed... (device log: away-release firing repeatedly, covered 1/0/1). With a
+    // confirmed Home surface and no real app window, -1 is simply "SpringBoard".
+    if (foreground==-1 && !appWindowCover && homeConfirmed) foreground=1;
     BOOL appExitRelease=NO;
-    // 2.72: same rule as the frame path - -1 keeps the current away state.
-    if (foreground!=-1 && foreground!=1) {self.appAway=YES;self.appLeftAt=0;}
+    if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;

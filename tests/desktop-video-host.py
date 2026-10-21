@@ -94,10 +94,7 @@ assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'leav
 assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.53)'
 assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
-# 2.72: -1 must NOT arm the away machine (it re-armed it on every probe flicker and
-# the release window then resumed/froze the video repeatedly).
-assert 'if (foreground!=-1 && foreground!=1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'only a real app arms the release'
-assert 'if (fg!=-1 && fg!=1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'frame path: same rule'
+assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
 assert 'self.shellAtExit' not in h, 'the shell bookkeeping is gone (1.25)'
 # 2.69: bounded, but skipped entirely when there is nothing to cross-fade
@@ -313,10 +310,7 @@ assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'leav
 assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.53)'
 assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
-# 2.72: -1 must NOT arm the away machine (it re-armed it on every probe flicker and
-# the release window then resumed/froze the video repeatedly).
-assert 'if (foreground!=-1 && foreground!=1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'only a real app arms the release'
-assert 'if (fg!=-1 && fg!=1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'frame path: same rule'
+assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
 assert 'self.shellAtExit' not in h, 'the shell bookkeeping is gone (1.25)'
 # 2.69: bounded, but skipped entirely when there is nothing to cross-fade
