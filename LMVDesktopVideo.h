@@ -1006,14 +1006,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover);
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
-    // 2.72: same rule as -update: a -1 keeps the previous reading.
     NSInteger fg=LMVDesktopForeground();
-    if (fg==-1) fg=self.lastForeground ?: 1;
-    else self.lastForeground=fg;
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.25: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
-    if (fg==-1) {self.appAway=YES;self.appLeftAt=0;}
+    // 2.72: -1 is "no reading" - it must NOT restart the away state machine. Every
+    // flicker used to re-arm appAway, whose release window zeroes `covered`, so the
+    // video resumed and froze again and again (device log: away-release repeating).
+    // The state is simply left as it is; a real app (pid != -1) still arms it.
+    if (fg!=-1 && fg!=1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
@@ -1110,14 +1111,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // cover, so the resume lands on the very frame the probe changes. A switcher
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
-    // 2.72: -1 IS "NO READING", NOT "AN APP IS BACK". Reuse the last usable value so
-    // the away state machine cannot restart on a probe flicker; the cover probe below
-    // still decides whether anything actually covers the desktop.
     NSInteger foreground=LMVDesktopForeground();
-    if (foreground==-1) foreground=self.lastForeground ?: 1;
-    else self.lastForeground=foreground;
     BOOL appExitRelease=NO;
-    if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
+    // 2.72: same rule as the frame path - -1 keeps the current away state.
+    if (foreground!=-1 && foreground!=1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
