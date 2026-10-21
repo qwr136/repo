@@ -39,7 +39,7 @@ make = (ROOT / 'Makefile').read_text()
 source = verify.control_fields((ROOT / 'control').read_text())
 check(re.search(r'^ARCHS\s*=\s*arm64 arm64e\s*$', make, re.M), 'dual-slice ARCHS')
 check(re.search(r'^THEOS_PACKAGE_SCHEME\s*=\s*roothide\s*$', make, re.M), 'native scheme')
-check('TARGET := iphone:clang:15.6:15.0' in make, 'pinned target')
+check('TARGET := iphone:clang:16.5:15.0' in make, 'pinned target')
 for target in ('LockMessageVideo', 'LockMessageVideoPrefs'):
     check(target + '_LIBRARIES = roothide' in make, target + ' libroothide linkage')
 # 1.29: control must agree with the Makefile's LMV_VERSION rather than with a
@@ -59,7 +59,7 @@ check('LMVInstalledPath' not in paths and 'LMVPreferenceBundlePath' not in paths
 check('/var/jb' not in paths, 'no fixed rootless runtime prefix')
 for name in ('build.yml', 'easter-compile.yml'):
     workflow = (ROOT / '.github/workflows' / name).read_text()
-    for token in ('macos-15', 'workflow_dispatch:', 'https://github.com/roothide/theos.git', 'cfba89a53a05b4a1b822121158acc3669c20602f', '0222fd5413cf4b9af096f37b4621afa2688572f7', 'iPhoneOS15.6.sdk', 'libexec/gnubin', 'THEOS_PACKAGE_SCHEME=roothide', 'ARCHS="arm64 arm64e"', 'python3 verify-roothide-deb.py packages/*.deb', 'build-receipt.json', 'python3 tests/roothide-package.py'):
+    for token in ('macos-15', 'workflow_dispatch:', 'https://github.com/roothide/theos.git', 'cfba89a53a05b4a1b822121158acc3669c20602f', '0222fd5413cf4b9af096f37b4621afa2688572f7', 'iPhoneOS16.5.sdk', 'libexec/gnubin', 'THEOS_PACKAGE_SCHEME=roothide', 'ARCHS="arm64 arm64e"', 'python3 verify-roothide-deb.py packages/*.deb', 'build-receipt.json', 'python3 tests/roothide-package.py'):
         check(token in workflow, name + ': ' + token)
     check('https://github.com/theos/theos.git' not in workflow and 'macos-14' not in workflow, 'no old toolchain: ' + name)
     if name == 'build.yml':

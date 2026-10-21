@@ -1,8 +1,8 @@
 ARCHS = arm64 arm64e
-TARGET := iphone:clang:15.6:15.0
+TARGET := iphone:clang:16.5:15.0
 INSTALL_TARGET_PROCESSES = SpringBoard
 THEOS_PACKAGE_SCHEME = roothide
-LMV_VERSION = 2.63
+LMV_VERSION = 2.64
 PACKAGE_VERSION = $(LMV_VERSION)
 
 include $(THEOS)/makefiles/common.mk

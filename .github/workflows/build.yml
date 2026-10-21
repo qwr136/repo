@@ -121,7 +121,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ runner.temp }}/rh-theos
-          key: rh-theos-${{ env.THEOS_REV }}-${{ env.SDK_REV }}
+          key: rh-theos-${{ env.THEOS_REV }}-${{ env.SDK_REV }}-sdk165
 
       - name: Setup pinned native RootHide Theos and iOS SDK
         run: |
@@ -141,9 +141,9 @@ jobs:
             git -C "$sdk" fetch --depth=1 origin "$SDK_REV"
             git -C "$sdk" checkout --detach FETCH_HEAD
             test "$(git -C "$sdk" rev-parse HEAD)" = "$SDK_REV"
-            test -d "$sdk/iPhoneOS15.6.sdk"
-            test -f "$sdk/iPhoneOS15.6.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
-            cp -R "$sdk/iPhoneOS15.6.sdk" "$dest/sdks/"
+            test -d "$sdk/iPhoneOS16.5.sdk"
+            test -f "$sdk/iPhoneOS16.5.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
+            cp -R "$sdk/iPhoneOS16.5.sdk" "$dest/sdks/"
           else
             echo "theos+SDK 来自缓存，跳过下载"
           fi
@@ -152,7 +152,7 @@ jobs:
           test -f "$dest/vendor/mod/roothide/package/deb.mk"
           test -f "$dest/vendor/include/roothide.h"
           test -f "$dest/vendor/lib/iphone/roothide/libroothide.tbd"
-          test -d "$dest/sdks/iPhoneOS15.6.sdk"
+          test -d "$dest/sdks/iPhoneOS16.5.sdk"
           echo "THEOS=$dest" >> "$GITHUB_ENV"
           echo "THEOS_MAKE_PATH=$dest/makefiles" >> "$GITHUB_ENV"
 
@@ -170,7 +170,7 @@ jobs:
         run: |
           set -euo pipefail
           make clean
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide ARCHS="arm64 arm64e" TARGET=iphone:clang:15.6:15.0
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide ARCHS="arm64 arm64e" TARGET=iphone:clang:16.5:15.0
 
       - name: Verify actual deb and save receipt
         run: |

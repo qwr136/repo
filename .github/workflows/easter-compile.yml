@@ -42,9 +42,9 @@ jobs:
           git -C "$sdk" fetch --depth=1 origin "$SDK_REV"
           git -C "$sdk" checkout --detach FETCH_HEAD
           test "$(git -C "$sdk" rev-parse HEAD)" = "$SDK_REV"
-          test -d "$sdk/iPhoneOS15.6.sdk"
-          test -f "$sdk/iPhoneOS15.6.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
-          cp -R "$sdk/iPhoneOS15.6.sdk" "$dest/sdks/"
+          test -d "$sdk/iPhoneOS16.5.sdk"
+          test -f "$sdk/iPhoneOS16.5.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
+          cp -R "$sdk/iPhoneOS16.5.sdk" "$dest/sdks/"
           test -f "$dest/vendor/mod/roothide/package/deb.mk"
           test -f "$dest/vendor/include/roothide.h"
           test -f "$dest/vendor/lib/iphone/roothide/libroothide.tbd"
@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           make clean
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide ARCHS="arm64 arm64e" TARGET=iphone:clang:15.6:15.0
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide ARCHS="arm64 arm64e" TARGET=iphone:clang:16.5:15.0
       - name: Verify diagnostic package and receipt
         run: |
           set -euo pipefail
