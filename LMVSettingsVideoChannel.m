@@ -54,11 +54,28 @@
 // Only background colours are touched, and each one is remembered.
 static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
 
-- (void)clearBackgroundsIn:(UIView *)view depth:(NSInteger)depth {
-    if (!view || depth > 12) return;
+- (BOOL)needsClear:(UIView *)view {
     if ([view isKindOfClass:UIScrollView.class] || [view isKindOfClass:UITableView.class] ||
-        [view isKindOfClass:UICollectionView.class] ||
-        [view isKindOfClass:NSClassFromString(@"UINavigationTransitionView")]) {
+        [view isKindOfClass:UICollectionView.class]) return YES;
+    NSString *name = NSStringFromClass(view.class);
+    // 2.66: the Settings app is a UISplitViewController in landscape: its two
+    // column views are opaque (white list pane / black detail pane) and they were
+    // hiding the video, leaving only the divider gap visible. Clear every column
+    // container by CLASS NAME (private, so no header dependency).
+    for (NSString *token in @[@"SplitViewController", @"Column", @"NavigationTransitionView",
+                              @"Platter", @"BackgroundView", @"CollectionView"]) {
+        if ([name rangeOfString:token options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+
+- (void)clearBackgroundsIn:(UIView *)view depth:(NSInteger)depth {
+    if (!view || depth > 14) return;
+    if ([self needsClear:view]) {
+        if ([view isKindOfClass:UITableView.class])
+            ((UITableView *)view).backgroundView = nil;
+        if ([view isKindOfClass:UICollectionView.class])
+            ((UICollectionView *)view).backgroundView = nil;
         if (view.backgroundColor && view.backgroundColor != UIColor.clearColor) {
             if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
             NSValue *key = [NSValue valueWithNonretainedObject:view];
@@ -147,9 +164,26 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     }
     self.player.muted = !sound;
     self.player.volume = sound ? volume : 0;
+    UIWindow *window = self.window;
+    if (window && !CGRectEqualToRect(self.host.frame, window.bounds)) self.host.frame = window.bounds;
     for (CALayer *layer in self.host.layer.sublayers) {
         if ([layer isKindOfClass:AVPlayerLayer.class] && !CGRectEqualToRect(layer.frame, self.host.bounds))
             layer.frame = self.host.bounds;
+    }
+    // 2.66: one line, only when diagnostics are on - the device log then answers
+    // "sound but no picture" (window/host/layer sizes + how many backgrounds we had
+    // to clear) without another build.
+    static CFTimeInterval lastLog;
+    CFTimeInterval now = CACurrentMediaTime();
+    NSNumber *diagnostics = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), LMVSettingsVideoPrefsID);
+    if (diagnostics.boolValue && now - lastLog > 5) {
+        lastLog = now;
+        CALayer *layer = self.host.layer.sublayers.firstObject;
+        NSLog(@"[LockMessageVideo] settings-video win=%.0fx%.0f host=%.0fx%.0f layer=%.0fx%.0f cleared=%lu",
+            window.bounds.size.width, window.bounds.size.height,
+            self.host.bounds.size.width, self.host.bounds.size.height,
+            layer ? layer.frame.size.width : 0, layer ? layer.frame.size.height : 0,
+            (unsigned long)LMVSettingsSavedColors.count);
     }
 }
 
