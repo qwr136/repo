@@ -38,6 +38,8 @@ CHANNELS = [
     ('glasssuite', 'LMVGlassSuiteVideo.h', 'LMVGlassSuiteEnabled', 'LMVGlassSuitePath', 'LMVGlassSuiteRevision'),
     ('ccborder', 'LMVCCBorderVideo.h', 'LMVCCBorderEnabled', 'LMVCCBorderPath', 'LMVCCBorderRevision'),
     ('copylogx', 'LMVCopyLogXVideo.h', 'LMVCopyLogXEnabled', 'LMVCopyLogXPath', 'LMVCopyLogXRevision'),
+    # 2.61: the desktop long-press menu joins the same contract.
+    ('homemenu', 'LMVHomeMenuVideo.h', 'LMVHomeMenuEnabled', 'LMVHomeMenuPath', 'LMVHomeMenuRevision'),
 ]
 
 failures = []
@@ -55,7 +57,8 @@ for name, filename, enabled, path_var, rev_var in CHANNELS:
     check(guard in source, f'{name}: prewarm guard')
     prewarm = f'selectPath:{path_var} revision:{rev_var}]'
     check(prewarm in source, f'{name}: prewarm selects the material')
-    update_start = source.index('- (void)update {')
+    # HomeMenu's entry point is updateList:, the eight panels use update.
+    update_start = source.index('- (void)updateList:' if '- (void)updateList:' in source else '- (void)update {')
     first_select = source.find('selectPath:', update_start)
     update_guard = source.find(guard, update_start)
     check(update_guard != -1 and update_guard < first_select,
@@ -80,7 +83,7 @@ check('UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeKeyNotification, U
       'kick listens to window/scene appearance events')
 for fn in ('LMVSquidPanelVideoRefresh', 'LMVATPanelVideoRefresh', 'LMVPhoneAssistVideoRefresh',
            'LMVGlassSuiteVideoRefresh', 'LMVCCBorderVideoRefresh', 'LMVCopyLogXVideoRefresh',
-           'LMVCopyVaultPanelVideoRefresh', 'LMVMyrtlePanelVideoRefresh'):
+           'LMVCopyVaultPanelVideoRefresh', 'LMVMyrtlePanelVideoRefresh', 'LMVHomeMenuVideoRefresh'):
     check(f'{fn}(NO);' in tweak, f'kick refreshes {fn}')
 # 5. the poll frequency is untouched: still the user's ProbeHz, default 5.
 tuning = (root / 'LMVPanelTuning.h').read_text()

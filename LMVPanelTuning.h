@@ -40,6 +40,10 @@ static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
         @{@"id":@"GS",            @"name":@"GlassSuiteX 弹窗",         @"group":@"panel"},
         @{@"id":@"CCBorder",      @"name":@"CCBorder 长按菜单",        @"group":@"panel"},
         @{@"id":@"CopyLogX",      @"name":@"CopyLogX 面板",            @"group":@"panel"},
+        // 2.61: the desktop long-press menu, by user request. It is the ninth panel
+        // channel: hook-driven like the others, and it now carries a ProbeHz fallback
+        // timer + show/hide delay, so it gets the same three rows here.
+        @{@"id":@"HomeMenu",      @"name":@"桌面长按菜单",              @"group":@"panel"},
         // 2.46: the desktop is the one non-panel channel that runs a display link all
         // the time, so its cadence is worth exposing. It still has no probe/delay rows:
         // what the user can tune here is how often the surface is re-measured.
@@ -75,13 +79,13 @@ static inline NSDictionary *LMVTuneParam(NSString *key,
 // 2.41: only show parameters this channel actually reads. A switch that changes
 // nothing is worse than no switch.
 static inline BOOL LMVTuneHasTimer(NSString *target) {
-    return [@[@"AT",@"CCBorder",@"CV",@"Myrtle",@"PA",@"SquidPanel",@"GS",@"CopyLogX"] containsObject:target];
+    return [@[@"AT",@"CCBorder",@"CV",@"Myrtle",@"PA",@"SquidPanel",@"GS",@"CopyLogX",@"HomeMenu"] containsObject:target];
 }
 // 2.43: all eight panel channels implement show/hide delay (each one carries its own
 // pendingShow/pendingHide in its update path). The settings page only listed two, so
 // six of them had no way to reach the code at all.
 static inline BOOL LMVTuneHasSheetDelay(NSString *target) {
-    return [@[@"PA",@"GS",@"CCBorder",@"CopyLogX",@"SquidPanel",@"AT",@"CV",@"Myrtle"] containsObject:target];
+    return [@[@"PA",@"GS",@"CCBorder",@"CopyLogX",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"HomeMenu"] containsObject:target];
 }
 // Hooks exist only where a system callback was confirmed by a capture.
 static inline BOOL LMVTuneHasHook(NSString *target) {

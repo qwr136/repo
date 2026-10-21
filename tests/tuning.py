@@ -22,7 +22,7 @@ makefile = (root / 'Makefile').read_text()
 workflow = (root / '.github/workflows/build.yml').read_text()
 
 # ---- 1) 目标：只剩 8 个面板通道 ------------------------------------------------
-targets = ['SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
+targets = ['SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX', 'HomeMenu']
 for target in targets:
     assert f'@"{target}"' in tuning, target
 # 2.46: the user asked for the desktop's cadence to be tunable (it is the only
@@ -33,7 +33,9 @@ assert '@"Desktop"' in tuning
 # into two sections (panel / other) so nine+ rows are not one wall of text.
 assert '@"Bubble"' in tuning and '@"Cards"' in tuning
 assert '@"group":@"panel"' in tuning and '@"group":@"other"' in tuning
-for gone in ('Lock', 'ControlCenter', 'HomeMenu'):
+# 2.61: the desktop long-press menu is a panel channel too now (user request), so it
+# is back in the list with the same three rows. Lock and ControlCenter stay out.
+for gone in ('Lock', 'ControlCenter'):
     assert f'@"{gone}"' not in tuning, f'{gone} must be gone from the tuning targets'
 
 # ---- 2) 参数表：只有探测组 ------------------------------------------------------
@@ -145,6 +147,7 @@ assert 'BubbleSize' not in bubble_media and 'BubbleAlpha' not in bubble_overlay
 
 # ---- 7) 探测参数仍被八个通道读取 -----------------------------------------------
 channels = [
+    ('LMVHomeMenuVideo.h', 'HomeMenu'),
     ('LMVATPanelVideo.h', 'AT'),
     ('LMVCCBorderVideo.h', 'CCBorder'),
     ('LMVCopyVaultPanelVideo.h', 'CV'),

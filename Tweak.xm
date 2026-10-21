@@ -1707,6 +1707,7 @@ static void LMVPanelAppearKick(void) {
         LMVCopyLogXVideoRefresh(NO);
         LMVCopyVaultPanelVideoRefresh(NO);
         LMVMyrtlePanelVideoRefresh(NO);
+        LMVHomeMenuVideoRefresh(NO);
     });
 }
 %ctor {

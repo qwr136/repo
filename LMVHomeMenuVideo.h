@@ -12,6 +12,11 @@ static void LMVHomeMenuVideoRefresh(BOOL reload);
 static void LMVHomeMenuVideoSuspend(void);
 static BOOL LMVHomeMenuEnabled,LMVHomeMenuPrefsKnown,LMVHomeMenuPending;
 static NSString *LMVHomeMenuPath,*LMVHomeMenuRevision;
+// 2.61: ProbeHz fallback timer and the two user delays. The channel stays
+// hook-driven; the timer only exists so "检测频率/出现延迟/关闭延迟" mean something
+// here too, exactly like the eight panel channels.
+static NSTimer *LMVHomeMenuTimer;
+static NSTimeInterval LMVHomeMenuPendingHide;
 static BOOL LMVHomeMenuSpringBoard(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
 }
@@ -175,6 +180,7 @@ static BOOL LMVHomeMenuPureBackground(UIView *view) {
 @property(nonatomic,weak) LMVHomeMenuRecord *record;
 @property(nonatomic) BOOL updating;
 @property(nonatomic) CFTimeInterval lastAudit;
+@property(nonatomic) NSTimeInterval pendingShow,pendingHide;
 - (void)detach;
 - (void)updateList:(UIView *)list;
 - (void)syncGeometry;
@@ -269,6 +275,15 @@ static __weak UIView *LMVHomeMenuObservedList;
 }
 - (void)updateList:(UIView *)list {
     if(self.updating)return;self.updating=YES;
+    // 2.61: 出现延迟 - hold the mount for the user's ShowDelayMs after the menu
+    // first shows up. 0 keeps the old immediate behaviour.
+    NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
+    if(!self.list) {
+        NSTimeInterval show=LMVTuneDelay(@"HomeMenu",@"ShowDelayMs");
+        if(self.pendingShow<=0)self.pendingShow=tuneNow;
+        if(show>0 && tuneNow-self.pendingShow<show) {self.updating=NO;return;}
+        self.pendingShow=0;
+    }
     UIView *material=nil,*clip=nil,*collection=nil;
     LMVHomeMenuRecord *record=LMVHomeMenuOwner(list);
     BOOL allowed=LMVHomeMenuEnabled && LMVHomeMenuPath.length && LMVHomeMenuRevision.length &&
@@ -295,10 +310,10 @@ static __weak UIView *LMVHomeMenuObservedList;
         [self.playback selectPath:LMVHomeMenuPath revision:LMVHomeMenuRevision];
     }
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    // Poster is never a substitute for a live menu. Retain original blur until
-    // the independent decoder actually has a video frame; errors restore it.
-    BOOL live=self.playback.player && self.playback.playerLayer.readyForDisplay && !self.playback.error;
-    self.playback.posterLayer.hidden=YES;
+    // 2.61: mount as soon as the prewarmed player exists (same rule as the eight
+    // panel channels). updatePresentation keeps the render layer hidden until the
+    // first decoded frame, so nothing blank is shown; errors restore the blur.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.lease restore];self.lease=nil;[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *parent=material.superview;
     if(self.host.superview!=parent)[parent insertSubview:self.host aboveSubview:material];
@@ -322,13 +337,23 @@ static __weak UIView *LMVHomeMenuObservedList;
             NSStringFromClass(material.class),material.bounds.size.width,material.bounds.size.height,
             self.host.bounds.size.width,self.host.bounds.size.height,
             containerView?NSStringFromClass(containerView.class):@"none",(long)index,
-            (int)(self.playback.player!=nil && self.playback.playerLayer.readyForDisplay && !self.playback.error)];
+            (int)(self.playback.player!=nil && !self.playback.error)];
         static NSString *lastLine=nil;
         if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
     }
     self.updating=NO;
 }
 @end
+// 2.61: the channel's ProbeHz fallback timer. Enabled follows the user's 检测频率;
+// disabled drops to the shared 30 s idle beat so an off switch costs nothing.
+static void LMVHomeMenuRetune(void) {
+    NSTimeInterval want=LMVHomeMenuEnabled?LMVTuneProbeInterval(@"HomeMenu"):LMVTuneIdleInterval;
+    if(LMVHomeMenuTimer && fabs(LMVHomeMenuTimer.timeInterval-want)<.001)return;
+    [LMVHomeMenuTimer invalidate];
+    LMVHomeMenuTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVHomeMenuVideoRefresh(NO);}];
+    LMVHomeMenuTimer.tolerance=want*.3;
+    [NSRunLoop.mainRunLoop addTimer:LMVHomeMenuTimer forMode:NSRunLoopCommonModes];
+}
 static void LMVHomeMenuRequestUpdate(void) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady || LMVHomeMenuPending)return;
     LMVHomeMenuPending=YES;
@@ -346,13 +371,30 @@ static void LMVHomeMenuVideoRefresh(BOOL reload) {
         LMVHomeMenuPath=LMVCCSelectedPath(@"HomeMenuVideo");
         LMVHomeMenuRevision=LMVLockVideoRevision(LMVHomeMenuPath);
     }
+    LMVHomeMenuRetune();
     if(!LMVHomeMenuEnabled || !LMVHomeMenuPath.length || !LMVHomeMenuRevision.length) {
         [LMVHomeMenuVideo detach];if(LMVHomeMenuVideo.playback.path)[LMVHomeMenuVideo.playback clear];return;
     }
+    // 2.61: keep the paused player loaded while the menu is closed, so the first
+    // appearance only has to mount and decode (device report: menu first, video a
+    // beat later). No poster, no playback - one async load per material change.
+    if(!LMVHomeMenuVideo)LMVHomeMenuVideo=[LMVHomeMenuVideoManager new];
+    if(![LMVHomeMenuVideo.playback.path isEqualToString:LMVHomeMenuPath] ||
+       ![LMVHomeMenuVideo.playback.revision isEqualToString:LMVHomeMenuRevision])
+        [LMVHomeMenuVideo.playback selectPath:LMVHomeMenuPath revision:LMVHomeMenuRevision];
     UIView *list=LMVHomeMenuObservedList;
     if(!LMVHomeMenuEnvironment() || !LMVHomeMenuOwner(list) || !LMVHomeMenuSurface(list,NULL,NULL,NULL)) {
+        // 2.61: 关闭延迟 - keep the surface up for HideDelayMs after the menu goes.
+        NSTimeInterval hide=LMVTuneDelay(@"HomeMenu",@"HideDelayMs");
+        if(hide>0 && LMVHomeMenuVideo.host.superview) {
+            NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+            if(LMVHomeMenuPendingHide<=0)LMVHomeMenuPendingHide=now;
+            if(now-LMVHomeMenuPendingHide<hide)return;
+        }
+        LMVHomeMenuPendingHide=0;
         [LMVHomeMenuVideo detach];return;
     }
+    LMVHomeMenuPendingHide=0;
     // Hook install/preferences/launch alone never construct UI or a player.
     if(!LMVHomeMenuVideo)LMVHomeMenuVideo=[LMVHomeMenuVideoManager new];
     [LMVHomeMenuVideo updateList:list];

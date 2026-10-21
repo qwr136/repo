@@ -19,7 +19,12 @@ assert 'sourcePreview' in h and 'SBIconView' in h and 'record.known' in h and 'r
 assert '@encode(bool)' in h and 'method_copyArgumentType' in h
 assert 'material.layer.opacity=0' in h and '[self.lease restore]' in h
 assert 'materialAlpha=lease.applied' in h
-assert 'playerLayer.readyForDisplay' in h and 'self.playback.posterLayer.hidden=YES' in h
+# 2.61: no poster and no readyForDisplay gate - the menu mounts on the prewarmed
+# player and the render layer stays hidden until the first decoded frame.
+assert 'BOOL live=self.playback.player && !self.playback.error;' in h
+assert 'posterLayer.hidden=YES' not in h
+assert 'LMVTuneProbeInterval(@"HomeMenu")' in h, 'ProbeHz row is wired'
+assert 'LMVTuneDelay(@"HomeMenu",@"ShowDelayMs")' in h and 'LMVTuneDelay(@"HomeMenu",@"HideDelayMs")' in h
 assert 'self.host.layer.transform=material.layer.transform' in h
 assert 'if(!CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))' in h
 assert 'now-LMVHomeMenuVideo.lastAudit>=.25' in h
@@ -118,6 +123,12 @@ pre+=r'''
 static NSDictionary *testPrefs;
 static CFPropertyListRef testPreference(CFStringRef key,CFStringRef domain) {assert(domain==kLMVPrefsID);return CFBridgingRetain(testPrefs[(__bridge NSString *)key]);}
 #define CFPreferencesCopyAppValue testPreference
+// 2.61: the channel owns a ProbeHz fallback timer and reads the shared delay
+// helpers; this fixture provides them (production gets the real ones from
+// LMVPanelTuning.h, imported ahead of this header).
+static const NSTimeInterval LMVTuneIdleInterval=30.0;
+static inline NSTimeInterval LMVTuneProbeInterval(NSString *target){(void)target;return .2;}
+static inline NSTimeInterval LMVTuneDelay(NSString *target,NSString *key){(void)target;(void)key;return 0;}
 static NSString *testBundle=@"com.apple.springboard";
 static id bundleGetter(id object,SEL selector) {return testBundle;}
 static void turn(void) {[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];}
@@ -153,11 +164,12 @@ int main(void){@autoreleasepool{
  assert(!LMVHomeMenuHookMatches(WrongABI.class,@selector(layoutSubviews),NO));
  assert(!LMVHomeMenuHookMatches(WrongABI.class,@selector(presentationTransitionDidEnd:),YES));
  // Preferences/launch alone do not create a UI or playback chain.
- LMVHomeMenuVideoRefresh(YES);assert(!LMVHomeMenuVideo);
+ // 2.61: prewarm builds the paused player up front; still no UI and no mount.
+ LMVHomeMenuVideoRefresh(YES);assert(LMVHomeMenuVideo && !LMVHomeMenuVideo.host.superview && LMVHomeMenuVideo.playback.path);
  [presentation presentationTransitionWillBegin];turn();
  assert(presentation.begins==1 && LMVHomeMenuVideo && LMVHomeMenuVideo.host.superview==clip && material.layer.opacity==0);
  assert(!title.hidden && collection.layer.superlayer==clip.layer && material.layer.superlayer==clip.layer);
- assert(LMVHomeMenuVideo.playback.posterLayer.hidden && LMVHomeMenuVideo.playback.wantsPlayback);
+ assert(LMVHomeMenuVideo.playback.wantsPlayback);
  LMVLockVideoPlayback *playback=LMVHomeMenuVideo.playback;UIView *host=LMVHomeMenuVideo.host;
  NSUInteger builds=playback.builds,layouts=playback.layoutCalls,visible=playback.visibleCalls;
  for(int n=0;n<500;n++){[LMVHomeMenuVideo updateList:list];[list layoutSubviews];preserve(clip);preserve(collection);}
