@@ -566,6 +566,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.bubbleArt.transform = want;
         [CATransaction commit];
     }
+}
 - (void)syncRotation {
     // The panel is a sibling, not a rotation/visibility gate for the image leaf.
     // 2.22: judged by the window the BUBBLE is in, not by our own window - on the
