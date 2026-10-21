@@ -183,6 +183,9 @@ static void LMVDesktopVideoSuspend(void);
 // playing under a translucent sheet at fg==1, but the sound follows the cover,
 // not the player state.
 @property(nonatomic) BOOL coveredNow;
+// 2.72: last usable frontmost value. -1 means "probe unavailable", never "an app
+// came back"; reusing the previous value stops the away machine from restarting.
+@property(nonatomic) NSInteger lastForeground;
 // 0.0.137: the FULL notification pull restored the wallpaper on purpose - the
 // suppress-lease must NOT be re-acquired while the sheet stays fully up, or
 // the same update would undo the restore (the lease block runs right after
@@ -1003,12 +1006,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     CGRect cover=LMVDesktopCoverRect(self.container.window,&unknown,&appCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover);
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
+    // 2.72: same rule as -update: a -1 keeps the previous reading.
     NSInteger fg=LMVDesktopForeground();
-    // 2.69: same hysteresis as the update path - a -1 from the frontmost probe is
-    // "unknown", not "an app is in front"; while the Home window is up it must not
-    // start a new away episode (that is what re-froze the video seconds after exit).
-    UIWindow *homeProbe=self.container.window;
-    if (fg==-1 && !appCover && homeProbe && LMVDesktopHomeWindow(homeProbe)) fg=1;
+    if (fg==-1) fg=self.lastForeground ?: 1;
+    else self.lastForeground=fg;
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.25: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
@@ -1109,13 +1110,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // cover, so the resume lands on the very frame the probe changes. A switcher
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
+    // 2.72: -1 IS "NO READING", NOT "AN APP IS BACK". Reuse the last usable value so
+    // the away state machine cannot restart on a probe flicker; the cover probe below
+    // still decides whether anything actually covers the desktop.
     NSInteger foreground=LMVDesktopForeground();
-    // 2.71: NORMALISE BEFORE THE AWAY STATE MACHINE READS IT. The raw -1 ("frontmost
-    // probe unavailable") used to restart appAway on every flicker, and appAway's
-    // release window zeroes `covered` for a moment - so the video resumed, froze,
-    // resumed... (device log: away-release firing repeatedly, covered 1/0/1). With a
-    // confirmed Home surface and no real app window, -1 is simply "SpringBoard".
-    if (foreground==-1 && !appWindowCover && homeConfirmed) foreground=1;
+    if (foreground==-1) foreground=self.lastForeground ?: 1;
+    else self.lastForeground=foreground;
     BOOL appExitRelease=NO;
     if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
