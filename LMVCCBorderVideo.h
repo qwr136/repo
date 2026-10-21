@@ -105,6 +105,14 @@ static NSInteger const LMVCCBorderHostTag=0x5A39;
 static UIView *LMVCCBorderCardIn(UIView *root,UIWindow *window) {
     if(!root || !window)return nil;
     CGRect bounds=window.bounds;
+    // 2.62: LANDSCAPE. The card thresholds below used to be fractions of the
+    // window's WIDTH/HEIGHT, so rotating turned a 430-wide window into 932 and the
+    // 30% width floor went from 129 pt to 279 pt - the same 250 pt module menu that
+    // passed in portrait was rejected in landscape and the channel mounted nothing
+    // ("CCBorder 横屏没有视频"). Fractions of the SHORT SIDE are orientation-neutral:
+    // 30% of 430 is 129 pt in both orientations and keeps rejecting full-screen
+    // layers while every real menu card still clears it.
+    CGFloat ref=MIN(bounds.size.width,bounds.size.height);
     UIView *bestContent=nil;CGFloat bestContentArea=0;
     UIView *bestFallback=nil;CGFloat bestFallbackArea=0;
     NSMutableArray *pending=[NSMutableArray arrayWithObject:root];
@@ -119,7 +127,7 @@ static UIView *LMVCCBorderCardIn(UIView *root,UIWindow *window) {
             if(LMVCCBorderGlassKind(child) || LMVCCBorderShadowKind(child))continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
-            if(frame.size.width<bounds.size.width*.3 || frame.size.height<bounds.size.height*.05)continue;
+            if(frame.size.width<ref*.3 || frame.size.height<ref*.05)continue;
             CGFloat visible=LMVCCBorderVisibleArea(frame,bounds);
             if([child.superview isKindOfClass:UIVisualEffectView.class]) {
                 if(visible>bestContentArea){bestContentArea=visible;bestContent=child;}

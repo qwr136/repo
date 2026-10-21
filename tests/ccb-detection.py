@@ -45,6 +45,17 @@ assert 'ccb-stack card=%@' in src
 assert 'ccb-nocard windows=%lu' in src and 'ccb-notready player=%d' in src
 assert 'sup=%@ z=%ld' in src
 
+# 4b) 2.62: landscape must not change which card qualifies. The width floor used to be
+# a fraction of the window WIDTH, so rotating 430 -> 932 raised it from 129 pt to
+# 279 pt and the same 250 pt module menu stopped qualifying ("CCBorder 横屏没有视频").
+# Lock the orientation-neutral reference and the two floors derived from it.
+assert 'CGFloat ref=MIN(bounds.size.width,bounds.size.height);' in src, 'short-side reference'
+assert 'frame.size.width<ref*.3 || frame.size.height<ref*.05' in src, 'orientation-neutral floors'
+assert 'frame.size.width<bounds.size.width*.3' not in src, 'no width-fraction floor (landscape bug)'
+# The full-screen rejection must still compare against the real window (it is what
+# keeps the platter/background out); only the minimum-size floors became relative.
+assert 'frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1' in src
+
 # 5) 测试本身接入 CI
 assert 'tests/ccb-detection.py' in workflow
 
