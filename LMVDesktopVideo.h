@@ -1482,7 +1482,6 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     if (self.host.superview!=nil) [self startCoverWatch];
     else [self stopCoverWatch];
     if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
-    }
     if (diagnostics) {
         // 1.30: the lines below (visual / surfaces / panel / overlay) each rebuild a
         // 3000+ character serialisation of the WHOLE view tree, and they build it on
