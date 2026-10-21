@@ -541,24 +541,23 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // turning with the screen. The DEVICE orientation is the reliable input here.
     UIWindow *window = self.bubble.window ?: self.window;
     CGFloat angle = 0;
-    NSString *source = @"portrait";
     UIInterfaceOrientation scene = window.windowScene.interfaceOrientation;
     // 2.68: SpringBoard keeps its scenes in portrait and rotates the content, so
     // `interfaceOrientation` answers portrait while the screen is landscape - the
     // first attempt therefore always computed 0 and the ball still turned with the
     // screen. Fall back to the DEVICE orientation, and counter-rotate the ART.
     switch (scene) {
-        case UIInterfaceOrientationLandscapeLeft:  angle = -M_PI_2; source = @"scene"; break;
-        case UIInterfaceOrientationLandscapeRight: angle =  M_PI_2; source = @"scene"; break;
-        case UIInterfaceOrientationPortraitUpsideDown: angle = M_PI; source = @"scene"; break;
+        case UIInterfaceOrientationLandscapeLeft:  angle = -M_PI_2; break;
+        case UIInterfaceOrientationLandscapeRight: angle =  M_PI_2; break;
+        case UIInterfaceOrientationPortraitUpsideDown: angle = M_PI; break;
         default: break;
     }
     if (angle == 0) {
         UIDeviceOrientation device = UIDevice.currentDevice.orientation;
-        if (device == UIDeviceOrientationLandscapeLeft) { angle = -M_PI_2; source = @"device"; }
-        else if (device == UIDeviceOrientationLandscapeRight) { angle = M_PI_2; source = @"device"; }
-        else if (device == UIDeviceOrientationPortraitUpsideDown) { angle = M_PI; source = @"device"; }
-        else if (window.bounds.size.width > window.bounds.size.height + 1) { angle = -M_PI_2; source = @"bounds"; }
+        if (device == UIDeviceOrientationLandscapeLeft) { angle = -M_PI_2; }
+        else if (device == UIDeviceOrientationLandscapeRight) { angle = M_PI_2; }
+        else if (device == UIDeviceOrientationPortraitUpsideDown) { angle = M_PI; }
+        else if (window.bounds.size.width > window.bounds.size.height + 1) { angle = -M_PI_2; }
     }
     CGAffineTransform want = CGAffineTransformMakeRotation(angle);
     if (!CGAffineTransformEqualToTransform(self.bubbleArt.transform, want)) {
