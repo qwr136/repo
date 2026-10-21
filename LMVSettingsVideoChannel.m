@@ -189,6 +189,29 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     return NO;
 }
 
+// 2.82: FORCE THE WHOLE SUBTREE TRANSPARENT. Class-name whitelists kept missing a
+// layer (UILayoutContainerView / UIViewControllerWrapperView / whatever iOS adds
+// next). Clearing EVERY background above the host is deterministic: text, icons and
+// images keep drawing (they are not background colours), only the painted surfaces go.
+- (void)clearSubtreeBackgrounds:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget {
+    if (!view || depth > 16 || *budget <= 0) return;
+    (*budget)--;
+    if (view == self.host) return;
+    if (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor) > .001) {
+        if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
+        NSValue *key = [NSValue valueWithNonretainedObject:view];
+        if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = view.backgroundColor;
+        view.backgroundColor = UIColor.clearColor;
+    }
+    if (view.opaque) view.opaque = NO;
+    if ([view isKindOfClass:UIVisualEffectView.class]) {
+        UIVisualEffectView *effectView = (UIVisualEffectView *)view;
+        if (effectView.effect) { effectView.effect = nil; }
+    }
+    for (UIView *child in view.subviews)
+        [self clearSubtreeBackgrounds:child depth:depth + 1 budget:budget];
+}
+
 - (void)clearBackgroundsIn:(UIView *)view depth:(NSInteger)depth {
     if (!view || depth > 14) return;
     if ([self needsClear:view]) {
@@ -328,18 +351,15 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
         self.host.tag = LMVSettingsVideoHostTag;
     }
     self.window = window;
-    // 2.81: BACK TO THE 2.77 MOUNT POINT. The window-level host (2.78-2.80) never
-    // showed: the Settings app's own window/root chain keeps painting above it, while
-    // a host directly under the table always did. Proven by the user: 2.77 visible,
-    // 2.78+ invisible.
-    UIView *container = table.superview ?: window;
+    // 2.82: the user confirmed mounting at the BOTTOM is fine - the failure was that
+    // the layers above were not really cleared. Everything above the host is now
+    // forced transparent (see clearSubtreeBackgrounds), so the bottom host shows.
+    UIView *container = window;
     // 2.76: the host sits at (table index - 1) BECAUSE IT TAKES THE SLOT IN FRONT OF
     // THE TABLE. Comparing against the table's own index made the check fail on every
     // tick, so the view was removed and re-inserted once a second - the reported
     // "文字一闪一闪".
-    NSInteger tableIndex = table.superview ? (NSInteger)[container.subviews indexOfObjectIdenticalTo:table] : 0;
-    if (tableIndex < 0) tableIndex = 0;
-    NSInteger wantIndex = MAX(0, tableIndex - 1);
+    NSInteger wantIndex = 0;
     NSInteger hostIndex = (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host];
     if (self.host.superview != container || hostIndex != wantIndex) {
         if (self.host.superview == container && hostIndex >= 0 && labs(hostIndex - wantIndex) != 1) {
@@ -350,7 +370,7 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
             [container insertSubview:self.host atIndex:(NSUInteger)wantIndex];
         }
     }
-    CGRect target = table ? table.frame : window.bounds;
+    CGRect target = window.bounds;
     if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
     // The app's own container views are opaque; clear the scroll backgrounds so the
     // video is visible behind the grouped rows.
@@ -393,6 +413,10 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
                    (liveTable && self.host.superview != liveTable.superview)))
         [self installIfNeeded];
     for (UITableView *table in [self allTablesInWindow:window]) [self clearCellBackgroundsIn:table];
+    if (window.rootViewController.view) {
+        NSInteger clearBudget = 2500;
+        [self clearSubtreeBackgrounds:window.rootViewController.view depth:0 budget:&clearBudget];
+    }
     // 2.79: collection-view pages (some Settings pages use them) get the same treatment.
     NSMutableArray<UIScrollView *> *scrolls = [NSMutableArray array];
     NSInteger scrollBudget = 1200;
