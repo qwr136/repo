@@ -259,11 +259,19 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     return *best;
 }
 
-- (void)collectTables:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget into:(NSMutableArray<UITableView *> *)out {
+static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteger *budget, NSMutableArray<UIScrollView *> *out) {
     if (!view || depth > 12 || *budget <= 0) return;
     (*budget)--;
-    if ([view isKindOfClass:UITableView.class]) [out addObject:(UITableView *)view];
-    for (UIView *child in view.subviews) [self collectTables:child depth:depth + 1 budget:budget into:out];
+    // 2.79: Settings uses both UITableView and UICollectionView depending on the page.
+    if ([view isKindOfClass:UITableView.class] || [view isKindOfClass:UICollectionView.class])
+        [out addObject:(UIScrollView *)view];
+    for (UIView *child in view.subviews) LMVSettingsCollectScrollViews(child, depth + 1, budget, out);
+}
+
+- (void)collectTables:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget into:(NSMutableArray<UITableView *> *)out {
+    NSMutableArray<UIScrollView *> *views = [NSMutableArray array];
+    LMVSettingsCollectScrollViews(view, depth, budget, views);
+    for (UIScrollView *scroll in views) if ([scroll isKindOfClass:UITableView.class]) [out addObject:(UITableView *)scroll];
 }
 
 - (NSArray<UITableView *> *)allTablesInWindow:(UIWindow *)window {
@@ -377,6 +385,20 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     if (window && self.host.superview != window) [self installIfNeeded];
     if (window && !CGRectEqualToRect(self.host.frame, window.bounds)) self.host.frame = window.bounds;
     for (UITableView *table in [self allTablesInWindow:window]) [self clearCellBackgroundsIn:table];
+    // 2.79: collection-view pages (some Settings pages use them) get the same treatment.
+    NSMutableArray<UIScrollView *> *scrolls = [NSMutableArray array];
+    NSInteger scrollBudget = 1200;
+    if (window) LMVSettingsCollectScrollViews(window.rootViewController.view, 0, &scrollBudget, scrolls);
+    for (UIScrollView *scroll in scrolls) {
+        if ([scroll isKindOfClass:UICollectionView.class]) {
+            UICollectionView *collection = (UICollectionView *)scroll;
+            if (collection.backgroundView) collection.backgroundView = nil;
+            if (collection.backgroundColor && CGColorGetAlpha(collection.backgroundColor.CGColor) > .001)
+                collection.backgroundColor = UIColor.clearColor;
+        } else if (scroll.backgroundColor && CGColorGetAlpha(scroll.backgroundColor.CGColor) > .001) {
+            scroll.backgroundColor = UIColor.clearColor;
+        }
+    }
     for (CALayer *layer in self.host.layer.sublayers) {
         if ([layer isKindOfClass:AVPlayerLayer.class] && !CGRectEqualToRect(layer.frame, self.host.bounds))
             layer.frame = self.host.bounds;

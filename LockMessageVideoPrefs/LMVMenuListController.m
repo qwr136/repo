@@ -14,7 +14,6 @@
     if (_specifiers) return _specifiers;
     NSMutableArray *rows = [NSMutableArray array];
     PSSpecifier *group = [PSSpecifier groupSpecifierWithName:@"视频背景"];
-    [group setProperty:@"桌面视频背景里是原有的全部设置；设置视频背景是设置 App 自身的视频背景。" forKey:@"footerText"];
     [rows addObject:group];
     PSSpecifier *desktop = [PSSpecifier preferenceSpecifierNamed:@"桌面视频背景"
                                                           target:self set:nil get:nil

@@ -252,8 +252,14 @@ static void LMVSettingsWrite(NSString *key, id value) {
 
 - (void)openMaterialFolder:(PSSpecifier *)specifier {
     [NSFileManager.defaultManager createDirectoryAtPath:LMVSettingsVideoRoot withIntermediateDirectories:YES attributes:nil error:nil];
-    // Preferences has no Files app bridge; the path is shown so it can be opened
-    // from Filza. Copying it out of the alert is the useful part on a device.
+    // 2.79: open the folder directly (Filza / Files registers the folder scheme).
+    NSURL *folder = [NSURL fileURLWithPath:LMVSettingsVideoRoot isDirectory:YES];
+    UIApplication *app = UIApplication.sharedApplication;
+    if ([app canOpenURL:folder]) { [app openURL:folder options:@{} completionHandler:nil]; return; }
+    // Fallback: the file URL with the app's own scheme (Filza accepts this form).
+    NSString *encoded = [LMVSettingsVideoRoot stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
+    NSURL *filza = [NSURL URLWithString:[@"filza://" stringByAppendingString:encoded]];
+    if (filza && [app canOpenURL:filza]) { [app openURL:filza options:@{} completionHandler:nil]; return; }
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"素材路径"
         message:LMVSettingsVideoRoot preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
