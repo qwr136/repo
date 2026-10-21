@@ -45,7 +45,7 @@ static void LMVNotify(void) {
 @implementation LMVPRootListController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"背景视频";
+    self.title = @"桌面视频背景";
 }
 // 2.52: the material name on a row is painted in -willDisplayCell:, which UIKit only
 // calls when a row scrolls into view or is reloaded. Picking a material, renaming one

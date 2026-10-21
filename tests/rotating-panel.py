@@ -81,7 +81,10 @@ priority = overlay[overlay.index('static BOOL LMVEasterBlockingWindow('):overlay
 assert 'LMVEasterVisibleDrawing' in priority and 'LMVEasterBlockingWindow(window,0)' in priority
 assert all(word not in apply for word in ('makeKeyWindow', 'resignKeyWindow'))
 assert apply.index('LMVEasterDisplayPolicy(') < apply.index('self.window.hidden = NO')
-assert 'self.bubbleImage.userInteractionEnabled = NO' in apply and '[self.bubble addSubview:self.bubbleImage]' in apply
+assert 'self.bubbleImage.userInteractionEnabled = NO' in apply
+# 2.63: the art sits in its own child so it can be counter-rotated in landscape
+# while the hit/drag rectangle stays axis-aligned.
+assert '[self.bubbleArt addSubview:self.bubbleImage]' in apply and '[self.bubble addSubview:self.bubbleArt]' in apply
 assert all(word not in overlay for word in ('self.bubble.layer', 'self.window.layer', 'removeAllAnimations'))
 gif = method('- (void)animateFrame', '- (void)openPanel {')
 assert 'manager.bubbleImage.image = manager.decoded.frames[manager.frame]; [manager animateFrame]' in gif

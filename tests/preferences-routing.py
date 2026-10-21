@@ -7,7 +7,13 @@ source = (root/'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 entry = plistlib.loads((root/'layout/Library/PreferenceLoader/Preferences/LockMessageVideoPrefs.plist').read_bytes())['entry']
 info = plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
 assert entry['bundle'] == info['CFBundleExecutable'] == 'LockMessageVideoPrefs'
-assert entry['detail'] == info['NSPrincipalClass'] == 'LMVPRootListController'
+# 2.63: the entry is the two-level menu now; LMVPRootListController is the
+# 桌面视频背景 page it pushes, so both names are asserted where they belong.
+assert entry['detail'] == info['NSPrincipalClass'] == 'LMVMenuListController'
+assert re.search(r'@interface LMVMenuListController : PSListController',
+                 (root/'LockMessageVideoPrefs/LMVMenuListController.h').read_text())
+assert 'openDesktop:' in (root/'LockMessageVideoPrefs/LMVMenuListController.m').read_text()
+assert 'openSettingsVideo:' in (root/'LockMessageVideoPrefs/LMVMenuListController.m').read_text()
 assert entry['cell'] == 'PSLinkCell' and entry['isController'] is True
 assert not {'action', 'buttonAction', 'loadAction', 'controller'} & entry.keys()
 assert re.search(r'@interface LMVPRootListController : PSListController', source)

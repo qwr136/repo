@@ -63,6 +63,7 @@ jobs:
           check python3 tests/myrtle-panel-video.py
           check python3 tests/ccb-detection.py
           check python3 tests/panel-poster-prewarm.py
+          check python3 tests/settings-menu-and-video.py
           check python3 tests/text-color-picker.py
           check python3 tests/media-audio-runtime.py
           check python3 tests/lock-video-native.py

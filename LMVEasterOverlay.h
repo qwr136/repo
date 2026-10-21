@@ -50,6 +50,10 @@
 // The hit/drag rectangle is never transformed; only this child draws/rotates.
 @property(nonatomic, strong) UIView *bubble;
 @property(nonatomic, strong) UIImageView *bubbleImage;
+// 2.63: the bubble art lives in its own child so it can be counter-rotated when the
+// device turns to landscape without touching the hit/drag rectangle (the user asked
+// for the ball to stay upright: "关闭方向锁时悬浮球也跟着横屏转动了").
+@property(nonatomic, strong) UIView *bubbleArt;
 @property(nonatomic) LMVEasterDisplayControls displayControls;
 @property(nonatomic) LMVEasterDisplayScene displayScene;
 @property(nonatomic, strong) UINavigationController *panel;
@@ -513,6 +517,24 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [self reportWindow:@"hide:screen-blank"];
     self.authenticatedSession=NO; [self hide];
 }
+// 2.63: KEEP THE BALL UPRIGHT. When the interface turns to landscape the window
+// rotates its content, so a plain subview appears turned 90° with the screen. The
+// user wants the ball to stay portrait; this applies the inverse rotation to the
+// ART ONLY (the container keeps the drag rectangle axis-aligned).
+- (void)syncUprightRotation {
+    if (!self.bubbleArt) return;
+    UIInterfaceOrientation orientation = self.bubble.window.windowScene.interfaceOrientation;
+    CGFloat angle = 0;
+    if (orientation == UIInterfaceOrientationLandscapeLeft) angle = M_PI_2;
+    else if (orientation == UIInterfaceOrientationLandscapeRight) angle = -M_PI_2;
+    else if (orientation == UIInterfaceOrientationPortraitUpsideDown) angle = M_PI;
+    CGAffineTransform want = CGAffineTransformMakeRotation(angle);
+    if (!CGAffineTransformEqualToTransform(self.bubbleArt.transform, want)) {
+        [CATransaction begin]; [CATransaction setDisableActions:YES];
+        self.bubbleArt.transform = want;
+        [CATransaction commit];
+    }
+}
 - (void)syncRotation {
     // The panel is a sibling, not a rotation/visibility gate for the image leaf.
     // 2.22: judged by the window the BUBBLE is in, not by our own window - on the
@@ -787,16 +809,19 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (self.window && self.window.windowScene != host.windowScene) {
         // A scene change is a real teardown; say so instead of hiding silently.
         [self reportWindow:[NSString stringWithFormat:@"hide:window-scene host=%@",NSStringFromClass(host.class)]];
-        [self hide]; self.window = nil; self.bubble = nil; self.bubbleImage = nil;
+        [self hide]; self.window = nil; self.bubble = nil; self.bubbleImage = nil; self.bubbleArt = nil;
     }
     if (!self.window) {
         self.window = [[LMVEasterWindow alloc] initWithWindowScene:host.windowScene];
         LMVEasterRoot *root = [LMVEasterRoot new]; root.manager = self;
         self.window.rootViewController = root; self.window.backgroundColor = UIColor.clearColor;
         self.bubble = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 64, 64)];
-        self.bubbleImage = [[UIImageView alloc] initWithFrame:self.bubble.bounds];
+        self.bubbleArt = [[UIView alloc] initWithFrame:self.bubble.bounds];
+        self.bubbleArt.userInteractionEnabled = NO; self.bubbleArt.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        self.bubbleImage = [[UIImageView alloc] initWithFrame:self.bubbleArt.bounds];
         self.bubbleImage.contentMode = UIViewContentModeScaleAspectFit; self.bubbleImage.userInteractionEnabled = NO;
-        [self.bubble addSubview:self.bubbleImage]; self.bubble.userInteractionEnabled = YES;
+        self.bubbleImage.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        [self.bubbleArt addSubview:self.bubbleImage]; [self.bubble addSubview:self.bubbleArt]; self.bubble.userInteractionEnabled = YES;
         self.bubble.isAccessibilityElement = YES; self.bubble.accessibilityLabel = @"小彩蛋"; self.bubble.accessibilityTraits = UIAccessibilityTraitButton;
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)];
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openPanel)]; [tap requireGestureRecognizerToFail:pan];
@@ -883,6 +908,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     CGFloat size = LMVEasterSize();CGRect bubbleBounds=CGRectMake(0, 0, size, size);
     if(!CGRectEqualToRect(self.bubble.bounds,bubbleBounds))self.bubble.bounds=bubbleBounds;
     if(!CGRectEqualToRect(self.bubbleImage.frame,bubbleBounds))self.bubbleImage.frame=bubbleBounds;
+    [self syncUprightRotation];
     CGRect area = [self dragArea];
     CGPoint center=CGPointMake(area.origin.x + area.size.width * self.normalized.x, area.origin.y + area.size.height * self.normalized.y);
     if(!CGPointEqualToPoint(self.bubble.center,center))self.bubble.center=center;
