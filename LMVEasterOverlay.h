@@ -566,17 +566,6 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         self.bubbleArt.transform = want;
         [CATransaction commit];
     }
-    // One line per change, only with diagnostics on: angle + where it came from.
-    if (LMVDiagnosticsEnabled.load()) {
-        static CGFloat lastAngle = 999;
-        if (fabs(lastAngle - angle) > .01) {
-            lastAngle = angle;
-            LMVDiagnostic([NSString stringWithFormat:@"easter-upright angle=%.0f src=%@ device=%ld scene=%ld win=%.0fx%.0f",
-                angle * 180.0 / M_PI, source, (long)UIDevice.currentDevice.orientation,
-                (long)scene, window.bounds.size.width, window.bounds.size.height]);
-        }
-    }
-}
 - (void)syncRotation {
     // The panel is a sibling, not a rotation/visibility gate for the image leaf.
     // 2.22: judged by the window the BUBBLE is in, not by our own window - on the
