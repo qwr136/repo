@@ -19,8 +19,8 @@ menu = (root / 'LockMessageVideoPrefs/LMVMenuListController.m').read_text()
 menu_h = (root / 'LockMessageVideoPrefs/LMVMenuListController.h').read_text()
 old = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 settings = (root / 'LockMessageVideoPrefs/LMVSettingsVideoController.m').read_text()
-player = (root / 'LockMessageVideoPrefs/LMVSettingsVideo.h').read_text()
-player_impl = (root / 'LockMessageVideoPrefs/LMVSettingsVideo.m').read_text()
+player = (root / 'LMVSettingsVideoChannel.h').read_text()
+player_impl = (root / 'LMVSettingsVideoChannel.m').read_text()
 makefile = (root / 'Makefile').read_text()
 
 failures = []
@@ -65,7 +65,8 @@ check('CMTimeMake(1, 10)' in settings or 'copyCGImageAtTime' in settings, 'picke
 # 4) build wiring
 check('LMVMenuListController.m' in makefile, 'menu compiles')
 check('LMVSettingsVideoController.m' in makefile, 'page compiles')
-check('LMVSettingsVideo.m' in makefile, 'player compiles')
+check('LMVSettingsVideoChannel.m' in makefile, 'player compiles in the tweak')
+check('com.apple.Preferences' in (root/'LockMessageVideo.plist').read_text(), 'injected into the Settings process')
 
 if failures:
     for failure in failures:

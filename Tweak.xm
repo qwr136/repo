@@ -195,6 +195,7 @@ static void LMVDiagnostic(NSString *event) {
 #include "LMVCopyVaultPanelVideo.h"
 #include "LMVMyrtlePanelVideo.h"
 #import "LMVMediaAudio.h"
+#import "LMVSettingsVideoChannel.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -1712,6 +1713,12 @@ static void LMVPanelAppearKick(void) {
 }
 %ctor {
     @autoreleasepool {
+        // 2.65: the Settings app is a SEPARATE process. Only the settings-video
+        // channel runs there; every SpringBoard path below must stay untouched.
+        if ([[NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.Preferences"]]) {
+            LMVSettingsVideoStart();
+            return;
+        }
         LMVDiagnosticQueue=dispatch_queue_create("com.minis.lockmessagevideo.diagnostics",DISPATCH_QUEUE_SERIAL);
         LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];

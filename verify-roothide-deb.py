@@ -203,7 +203,7 @@ def verify_package(deb, source):
     require(info.get('CFBundleVersion') == info.get('CFBundleShortVersionString') == source['Version'], 'prefs CFBundle versions mismatch')
     require(info.get('CFBundleExecutable') == 'LockMessageVideoPrefs' and info.get('CFBundleIdentifier') == 'com.minis.lockmessagevideo.prefs', 'wrong prefs executable/identifier')
     require(info.get('NSPrincipalClass') == 'LMVMenuListController' and info.get('CFBundlePackageType') == 'BNDL', 'wrong preference bundle structure')
-    require(plist(TWEAK.replace('.dylib', '.plist')) == {'Filter': {'Bundles': ['com.apple.springboard']}}, 'unexpected injection filter')
+    require(plist(TWEAK.replace('.dylib', '.plist')) == {'Filter': {'Bundles': ['com.apple.springboard', 'com.apple.Preferences']}}, 'unexpected injection filter')
     entry = plist(ENTRY).get('entry', {})
     require(entry.get('bundle') == 'LockMessageVideoPrefs' and entry.get('detail') == 'LMVMenuListController' and entry.get('cell') == 'PSLinkCell' and entry.get('isController') is True, 'wrong PreferenceLoader entry')
     binaries = {}

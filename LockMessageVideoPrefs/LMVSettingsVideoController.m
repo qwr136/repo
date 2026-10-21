@@ -1,5 +1,4 @@
 #import "LMVSettingsVideoController.h"
-#import "LMVSettingsVideo.h"
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
 #import <Preferences/PSSpecifier.h>
@@ -52,12 +51,27 @@
 }
 @end
 
+static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
+static NSString *const LMVSettingsVideoRoot = @"/var/mobile/LockMessageVideo/设置视频背景";
+static NSString *const LMVSettingsVideoEnabledKey = @"SettingsVideoBackgroundEnabled";
+static NSString *const LMVSettingsVideoFileKey = @"SettingsVideo";
+static NSString *const LMVSettingsVideoSoundKey = @"SettingsVideoSoundEnabled";
+static NSString *const LMVSettingsVideoVolumeKey = @"SettingsVideoVolume";
+static id LMVSettingsRead(NSString *key) {
+    return (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
+}
+static void LMVSettingsWrite(NSString *key, id value) {
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, kLMVPrefsID);
+    CFPreferencesAppSynchronize(kLMVPrefsID);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+        CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+}
+
 @implementation LMVSettingsVideoController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"设置视频背景";
-    [[LMVSettingsVideoBackground shared] refresh];
 }
 
 - (NSArray *)specifiers {
@@ -119,7 +133,6 @@
 
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     LMVSettingsWrite([specifier propertyForKey:@"key"], @([value boolValue]));
-    [[LMVSettingsVideoBackground shared] refresh];
 }
 
 - (id)volume:(PSSpecifier *)specifier {
@@ -131,7 +144,6 @@
     double volume = [value doubleValue];
     if (volume < 0) volume = 0; if (volume > 1) volume = 1;
     LMVSettingsWrite([specifier propertyForKey:@"key"], @(volume));
-    [[LMVSettingsVideoBackground shared] refresh];
 }
 
 // The material picker shared with the other channels scans the catalog root; for
@@ -175,8 +187,7 @@
     __weak typeof(self) weakSelf = self;
     picker.apply = ^(NSDictionary *row) {
         LMVSettingsWrite(LMVSettingsVideoFileKey, row[@"relative"]);
-        [[LMVSettingsVideoBackground shared] refresh];
-        [weakSelf reloadSpecifiers];
+            [weakSelf reloadSpecifiers];
     };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
@@ -218,8 +229,7 @@
                 return;
             }
             LMVSettingsWrite(LMVSettingsVideoFileKey, name);
-            [[LMVSettingsVideoBackground shared] refresh];
-            [weakSelf reloadSpecifiers];
+                    [weakSelf reloadSpecifiers];
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功"
                 message:[NSString stringWithFormat:@"已保存到 %@/%@", LMVSettingsVideoRoot, name]
                 preferredStyle:UIAlertControllerStyleAlert];
