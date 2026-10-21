@@ -1,4 +1,5 @@
 #import "LMVSettingsVideoChannel.h"
+#import <objc/runtime.h>
 
 // 2.65: the player that runs inside the Settings app.
 //
@@ -49,6 +50,21 @@ static void LMVSettingsVideoDump(UIView *view, NSInteger depth, NSMutableString 
     for (UIView *child in view.subviews) LMVSettingsVideoDump(child, depth + 1, out, budget);
 }
 
+// 2.77: ENTER A PAGE, REFRESH AT ONCE. Waiting for the 1 s tick showed the new
+// table's white background first ("点二级菜单会先白一下"). Swizzling the two
+// appearance callbacks is enough - the Settings app is our own process here.
+static void (*LMVSettingsOriginalViewWillAppear)(id, SEL, BOOL);
+static void (*LMVSettingsOriginalViewDidAppear)(id, SEL, BOOL);
+
+static void LMVSettingsViewWillAppear(id self, SEL _cmd, BOOL animated) {
+    LMVSettingsOriginalViewWillAppear(self, _cmd, animated);
+    [[LMVSettingsVideoChannel shared] refresh];
+}
+static void LMVSettingsViewDidAppear(id self, SEL _cmd, BOOL animated) {
+    LMVSettingsOriginalViewDidAppear(self, _cmd, animated);
+    [[LMVSettingsVideoChannel shared] refresh];
+}
+
 @implementation LMVSettingsVideoChannel
 
 + (instancetype)shared {
@@ -68,6 +84,27 @@ static void LMVSettingsVideoDump(UIView *view, NSInteger depth, NSMutableString 
     }];
     self.timer.tolerance = .3;
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
+    static BOOL hooked = NO;
+    if (!hooked) {
+        hooked = YES;
+        Method will = class_getInstanceMethod(UIViewController.class, @selector(viewWillAppear:));
+        Method did = class_getInstanceMethod(UIViewController.class, @selector(viewDidAppear:));
+        if (will) {
+            LMVSettingsOriginalViewWillAppear = (void *)method_getImplementation(will);
+            method_setImplementation(will, (IMP)LMVSettingsViewWillAppear);
+        }
+        if (did) {
+            LMVSettingsOriginalViewDidAppear = (void *)method_getImplementation(did);
+            method_setImplementation(did, (IMP)LMVSettingsViewDidAppear);
+        }
+    }
+    // 2.77: the app returning from the background must resume playback at once.
+    for (NSString *name in @[UIApplicationDidBecomeActiveNotification, UISceneDidActivateNotification]) {
+        [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue
+                                                    usingBlock:^(NSNotification *note) {
+            [[LMVSettingsVideoChannel shared] refresh];
+        }];
+    }
     [self refresh];
     LMVSettingsVideoLog(@"settings-video start (Settings process)");
 }
@@ -168,15 +205,30 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
 // Settings app keeps an opaque UITransitionView/DropShadowView between the window
 // and the table, so a window-level host is invisible. Find the table the user is
 // looking at and put the host directly BELOW it in its own superview.
-- (UITableView *)tableIn:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget {
+// 2.77: pick the table the USER IS LOOKING AT (largest visible area in the window),
+// not the first one in the tree - after pushing a page the previous table is still
+// in the hierarchy and used to win, so the new page had no video.
+- (UITableView *)tableIn:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget best:(UITableView **)best bestArea:(CGFloat *)bestArea window:(UIWindow *)window {
     if (!view || depth > 12 || *budget <= 0) return nil;
     (*budget)--;
-    if ([view isKindOfClass:UITableView.class]) return (UITableView *)view;
-    for (UIView *child in view.subviews) {
-        UITableView *found = [self tableIn:child depth:depth + 1 budget:budget];
-        if (found) return found;
+    if ([view isKindOfClass:UITableView.class]) {
+        UITableView *table = (UITableView *)view;
+        if (!table.hidden && table.alpha > .01 && table.window == window) {
+            CGRect frame = [table convertRect:table.bounds toView:window];
+            CGRect onScreen = CGRectIntersection(frame, window.bounds);
+            CGFloat area = onScreen.size.width * onScreen.size.height;
+            if (area > *bestArea) { *bestArea = area; *best = table; }
+        }
     }
-    return nil;
+    for (UIView *child in view.subviews)
+        [self tableIn:child depth:depth + 1 budget:budget best:best bestArea:bestArea window:window];
+    return *best;
+}
+
+- (UITableView *)visibleTableInWindow:(UIWindow *)window {
+    if (!window.rootViewController.view) return nil;
+    NSInteger budget = 900; UITableView *best = nil; CGFloat bestArea = 0;
+    return [self tableIn:window.rootViewController.view depth:0 budget:&budget best:&best bestArea:&bestArea window:window];
 }
 
 - (void)clearCellBackgroundsIn:(UITableView *)table {
@@ -205,8 +257,7 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     if (!window) return;
     UIView *root = window.rootViewController.view;
     if (!root) return;
-    NSInteger budget = 900;
-    UITableView *table = [self tableIn:root depth:0 budget:&budget];
+    UITableView *table = [self visibleTableInWindow:window];
     if (!self.host) {
         self.host = [[UIView alloc] initWithFrame:window.bounds];
         self.host.userInteractionEnabled = NO;
@@ -264,12 +315,13 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     }
     self.player.muted = !sound;
     self.player.volume = sound ? volume : 0;
+    // 2.77: iOS pauses an AVPlayer when the app goes to the background; coming back
+    // the player existed so nothing rebuilt it and the video stayed frozen
+    // ("退出 app 再进去视频就暂停了"). Resume whenever we are the active channel.
+    if (self.player.timeControlStatus != AVPlayerTimeControlStatusPlaying) [self.player play];
     UIWindow *window = self.window;
     UITableView *liveTable = nil;
-    if (window) {
-        NSInteger budget = 900;
-        liveTable = [self tableIn:window.rootViewController.view depth:0 budget:&budget];
-    }
+    if (window) liveTable = [self visibleTableInWindow:window];
     if (liveTable) {
         if (self.host.superview != liveTable.superview) [self installIfNeeded];
         CGRect target = liveTable.frame;
