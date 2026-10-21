@@ -179,7 +179,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 - (instancetype)init {
     if(!LMVMyrtlePanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVMyrtlePanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.myrtle-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -202,6 +202,13 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVMyrtlePanelEnabled && LMVMyrtlePanelPath.length && LMVMyrtlePanelRevision.length &&
+       (![self.playback.path isEqualToString:LMVMyrtlePanelPath] || ![self.playback.revision isEqualToString:LMVMyrtlePanelRevision]))
+        [self.playback selectPath:LMVMyrtlePanelPath revision:LMVMyrtlePanelRevision];
     // Two candidate windows (1035 / 1033): whichever one currently carries a card wins.
     UIWindow *window=nil;UIView *card=nil;CGRect cardFrame=CGRectZero;
     for(NSUInteger i=0;i<2;i++) {
@@ -243,14 +250,14 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
     if(changed) {
         [self.host removeFromSuperview];
         // Poster first, so the layer has pixels on the very first frame.
-        [self.playback preparePosterForPath:LMVMyrtlePanelPath revision:LMVMyrtlePanelRevision];
         [self.playback selectPath:LMVMyrtlePanelPath revision:LMVMyrtlePanelRevision];
     }
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
     // Mount as soon as there are real pixels; the player covers them when ready.
-    BOOL hasPoster=self.playback.posterLayer.contents!=nil;
-    BOOL live=self.playback.player && !self.playback.error &&
-        (hasPoster || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVMyrtlePanelMaterial(card,window,cardFrame);
     if(!material)material=LMVMyrtlePanelMaterial(window,window,cardFrame);

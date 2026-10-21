@@ -319,7 +319,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 - (instancetype)init {
     if(!LMVPhoneAssistEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVPhoneAssistVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.phoneassist.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -343,6 +343,13 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVPhoneAssistEnabled && LMVPhoneAssistPath.length && LMVPhoneAssistRevision.length &&
+       (![self.playback.path isEqualToString:LMVPhoneAssistPath] || ![self.playback.revision isEqualToString:LMVPhoneAssistRevision]))
+        [self.playback selectPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];
     UIWindow *window=nil;
     UIView *card=LMVPhoneAssistFindCard(&window);
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
@@ -399,10 +406,12 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     LMVPhoneAssistApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVPhoneAssistPath] ||
         ![self.playback.revision isEqualToString:LMVPhoneAssistRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];[self.playback selectPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVPhoneAssistPath revision:LMVPhoneAssistRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    BOOL live=self.playback.player && !self.playback.error &&
-        (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVPhoneAssistMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";

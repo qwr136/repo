@@ -1681,6 +1681,34 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
         LMVRequestSafeUpdate();
     });
 }
+// 2.60: event-driven detection for the eight panel channels. They used to learn
+// "a panel just appeared" only from their ProbeHz timers, so a mount could wait a
+// whole beat (200 ms at the default 5 Hz) before it even looked at the screen - the
+// "面板先出来、视频后出来" half-beat. This adds no steady-state CPU: the timers are
+// untouched and still do all teardown; only a window/scene appearance event runs
+// one extra pass. Those events arrive in bursts, so the pass is coalesced onto a
+// single main-queue turn (eight Refresh calls per notification would be waste).
+static BOOL LMVPanelKickQueued = NO;
+static void LMVPanelAppearKick(void) {
+    if (!LMVInitialized || !LMVLaunchReady) return;
+    if (LMVPanelKickQueued) return;
+    LMVPanelKickQueued = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LMVPanelKickQueued = NO;
+        // Diagnostic-first: one line per process, so a device log proves the event
+        // path fired at all (versus everything still riding the 5 Hz timer).
+        static BOOL kickLoggedOnce = NO;
+        if (!kickLoggedOnce) { kickLoggedOnce = YES; LMVDiagnostic(@"event-kick: panel-appearance pass dispatched"); }
+        LMVSquidPanelVideoRefresh(NO);
+        LMVATPanelVideoRefresh(NO);
+        LMVPhoneAssistVideoRefresh(NO);
+        LMVGlassSuiteVideoRefresh(NO);
+        LMVCCBorderVideoRefresh(NO);
+        LMVCopyLogXVideoRefresh(NO);
+        LMVCopyVaultPanelVideoRefresh(NO);
+        LMVMyrtlePanelVideoRefresh(NO);
+    });
+}
 %ctor {
     @autoreleasepool {
         LMVDiagnosticQueue=dispatch_queue_create("com.minis.lockmessagevideo.diagnostics",DISPATCH_QUEUE_SERIAL);
@@ -1763,6 +1791,17 @@ static void LMVScreenNotification(CFNotificationCenterRef center, void *observer
             }];
         }
         dispatch_async(dispatch_get_main_queue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ LMVEasterStartIfReady(); }); });
+        // 2.60: panel-appearance events feed the kick. Visible/Key fire when a
+        // panel window (or an alert, or a keyboard) joins the hierarchy; scene
+        // activation covers the transitions where the window list itself did not
+        // change. Teardown stays on the ProbeHz timers on purpose - a hidden
+        // notification burst would only add work, and this costs nothing when no
+        // panel is appearing.
+        for (NSString *name in @[UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeKeyNotification, UISceneDidActivateNotification, UIApplicationDidBecomeActiveNotification]) {
+            [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
+                dispatch_async(dispatch_get_main_queue(), ^{ LMVPanelAppearKick(); });
+            }];
+        }
         for (NSString *name in @[@"com.minis.lockmessagevideo/videoChanged", @"com.minis.lockmessagevideo/preferencesChanged"]) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         }

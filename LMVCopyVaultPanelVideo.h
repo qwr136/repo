@@ -313,7 +313,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 - (instancetype)init {
     if(!LMVCVPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVCopyVaultPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.cv-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -340,6 +340,13 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVCVPanelEnabled && LMVCVPanelPath.length && LMVCVPanelRevision.length &&
+       (![self.playback.path isEqualToString:LMVCVPanelPath] || ![self.playback.revision isEqualToString:LMVCVPanelRevision]))
+        [self.playback selectPath:LMVCVPanelPath revision:LMVCVPanelRevision];
     UIWindow *window=LMVCVPanelWindow();
     UIView *card=window?LMVCVPanelCard(window):nil;
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
@@ -370,7 +377,6 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
         [self.host removeFromSuperview];
         // 1.76.7: seed the poster BEFORE selecting, so the layer has pixels on the
         // very first frame (same ordering the Control Center channel uses).
-        [self.playback preparePosterForPath:LMVCVPanelPath revision:LMVCVPanelRevision];
         [self.playback selectPath:LMVCVPanelPath revision:LMVCVPanelRevision];
     }
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
@@ -382,9 +388,10 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
     // orientation, which is exactly the report. The poster was forced hidden right
     // here too, removing the only pixels available while the decoder warms up.
     // Mount as soon as there are real pixels to show; the player covers them when ready.
-    BOOL hasPoster=self.playback.posterLayer.contents!=nil;
-    BOOL live=self.playback.player && !self.playback.error &&
-        (hasPoster || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     // WHERE in the panel the video belongs: ABOVE the material, BELOW the content.
     // Into the material's contentView when it has room (that is above the blur and,

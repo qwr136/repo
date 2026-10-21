@@ -189,7 +189,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 - (instancetype)init {
     if(!LMVATPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVATPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.at-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -215,6 +215,13 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVATPanelEnabled && LMVATPanelPath.length && LMVATPanelRevision.length &&
+       (![self.playback.path isEqualToString:LMVATPanelPath] || ![self.playback.revision isEqualToString:LMVATPanelRevision]))
+        [self.playback selectPath:LMVATPanelPath revision:LMVATPanelRevision];
     UIWindow *window=LMVATPanelHomeWindow();
     UIView *card=window?LMVATPanelCard(window):nil;
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
@@ -237,12 +244,14 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVATPanelPath] ||
         ![self.playback.revision isEqualToString:LMVATPanelRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVATPanelPath revision:LMVATPanelRevision];[self.playback selectPath:LMVATPanelPath revision:LMVATPanelRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVATPanelPath revision:LMVATPanelRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
     // 2.59: with the persistent poster enabled the still frame is the panel's
     // first pixels - mount on it, the player covers it when decoded.
-    BOOL live=self.playback.player && !self.playback.error &&
-        (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     // WHERE in the panel the video belongs: UNDER the icons but ABOVE the
     // material - inside the material's contentView when there is one, otherwise

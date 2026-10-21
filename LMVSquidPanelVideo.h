@@ -1128,7 +1128,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 - (instancetype)init {
     if(!LMVSquidPanelEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVSquidPanelVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.squid-panel.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -1166,6 +1166,13 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVSquidPanelEnabled && LMVSquidPanelSlotPaths[0].length && LMVSquidPanelSlotRevisions[0].length &&
+       (![self.playback.path isEqualToString:LMVSquidPanelSlotPaths[0]] || ![self.playback.revision isEqualToString:LMVSquidPanelSlotRevisions[0]]))
+        [self.playback selectPath:LMVSquidPanelSlotPaths[0] revision:LMVSquidPanelSlotRevisions[0]];
     UIWindow *window=LMVSquidPanelWindow();
     UIView *card=window?LMVSquidPanelCard(window):nil;
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
@@ -1260,7 +1267,6 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
         [self.host removeFromSuperview];
         // 1.76.7: seed the poster BEFORE selecting, so the layer has real pixels to
         // show from the first frame (same ordering the Control Center channel uses).
-        [self.playback preparePosterForPath:wantPath revision:wantRevision];
         [self.playback selectPath:wantPath revision:wantRevision];
     }
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
@@ -1274,9 +1280,10 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     // surface could have shown while the decoder warmed up.
     // Mounting no longer waits for readiness: a real poster frame is enough to be
     // worth showing, and the player covers it the moment it is ready.
-    BOOL hasPoster=self.playback.posterLayer.contents!=nil;
-    BOOL live=self.playback.player && !self.playback.error &&
-        (hasPoster || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     // 1.25: WHERE in the panel the video belongs. 1.25 put it directly BELOW the
     // panel's blur material, and the material simply hid it (device report: 视频太

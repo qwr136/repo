@@ -348,9 +348,11 @@ assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in modul
 # rule), so requiring it BEFORE mounting meant the host was never mounted; and the
 # poster - the only pixels available while the decoder warmed up - was hidden here.
 assert 'self.playback.posterLayer.hidden=YES;' not in module
-assert 'BOOL hasPoster=self.playback.posterLayer.contents!=nil;' in module
-assert '(hasPoster || self.playback.playerLayer.readyForDisplay);' in module
-assert '[self.playback preparePosterForPath:wantPath revision:wantRevision];' in module
+# 2.60: no poster; the player is prewarmed before the card search and the gate
+# only needs that player.
+assert 'BOOL live=self.playback.player && !self.playback.error;' in module
+assert 'preparePosterForPath' not in module, 'no poster is used'
+assert 'LMVSquidPanelEnabled && LMVSquidPanelSlotPaths[0].length && LMVSquidPanelSlotRevisions[0].length' in module, 'prewarm guard' 
 # Preferences: own switch, four material slots, master switch respected, default off.
 assert 'CFSTR("SquidPanelBackgroundEnabled")' in module
 assert 'LMVSquidPanelSlotPaths[i]=LMVCCSelectedPath(keys[i]);' in module
@@ -378,11 +380,10 @@ assert 'LMVSquidPanelHeightInOrientation(slot<2?1:3,landscapeNow),' in module
 assert '(int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],' in module
 assert 'LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,' in module
 assert 'ptr=%p' in module and '(void *)self.card,' in module
-# 1.76.7: the poster must be seeded BEFORE the path is selected, so the layer has
-# pixels on the very first frame (the Control Center channel orders it the same way).
-assert module.index('[self.playback preparePosterForPath:wantPath revision:wantRevision];') < \
-    module.index('[self.playback selectPath:wantPath revision:wantRevision];'), \
-    'the poster is prepared before the path is selected'
+# 2.60: no poster - the prewarm block above the card search keeps the paused
+# player loaded, and mounting only needs the player. The material is still selected
+# in the changed branch below.
+assert '[self.playback selectPath:wantPath revision:wantRevision];' in module
 assert '[self.host removeFromSuperview];' in module
 # No player/UI while the channel is off (any single slot may be the only one set), and a
 # poll that never runs hot when idle.

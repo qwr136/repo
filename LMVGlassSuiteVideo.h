@@ -319,7 +319,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 - (instancetype)init {
     if(!LMVGlassSuiteEnvironment())return nil;
     if((self=[super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVGlassSuiteVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.glasssuite.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -345,6 +345,13 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVGlassSuiteEnabled && LMVGlassSuitePath.length && LMVGlassSuiteRevision.length &&
+       (![self.playback.path isEqualToString:LMVGlassSuitePath] || ![self.playback.revision isEqualToString:LMVGlassSuiteRevision]))
+        [self.playback selectPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];
     UIWindow *window=nil;
     UIView *card=LMVGlassSuiteFindCard(&window);
     NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
@@ -373,10 +380,12 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     LMVGlassSuiteApplyTextColor(card);
     BOOL changed=![self.playback.path isEqualToString:LMVGlassSuitePath] ||
         ![self.playback.revision isEqualToString:LMVGlassSuiteRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];[self.playback selectPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVGlassSuitePath revision:LMVGlassSuiteRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    BOOL live=self.playback.player && !self.playback.error &&
-        (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVGlassSuiteMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";

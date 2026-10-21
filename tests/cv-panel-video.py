@@ -92,15 +92,12 @@ assert 'if(child.tag==LMVCVPanelHostTag || child.hidden || child.alpha<.01)conti
 assert 'self.tag=LMVCVPanelHostTag;' in module
 # Never interactive, never a poster substitute for a live panel background.
 assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in module
-# 1.76.7: same deadlock the Squid channel had. readyForDisplay only turns true once
-# the layer is on screen, so requiring it BEFORE mounting meant the host was never
-# mounted; and the poster was hidden here, removing the only pixels available.
+# 2.60: no poster. readyForDisplay must never gate the mount (it only turns true
+# once the layer is on screen); a prewarmed player is the only requirement.
 assert 'self.playback.posterLayer.hidden=YES;' not in module
-assert 'BOOL hasPoster=self.playback.posterLayer.contents!=nil;' in module
-assert '(hasPoster || self.playback.playerLayer.readyForDisplay);' in module
-assert module.index('[self.playback preparePosterForPath:LMVCVPanelPath revision:LMVCVPanelRevision];') < \
-    module.index('[self.playback selectPath:LMVCVPanelPath revision:LMVCVPanelRevision];'), \
-    'the poster is prepared before the path is selected'
+assert 'BOOL live=self.playback.player && !self.playback.error;' in module
+assert 'preparePosterForPath' not in module, 'no poster is used'
+assert 'LMVCVPanelEnabled && LMVCVPanelPath.length && LMVCVPanelRevision.length' in module, 'prewarm guard'
 # Preferences: own switch, own material, master switch respected, default off.
 # 1.76.9: the panel lives on the Lock Screen (swipe up over Notification Center) and
 # the device is locked there. Requiring !locked rejected exactly the case the feature

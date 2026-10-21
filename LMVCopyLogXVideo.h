@@ -350,7 +350,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 - (instancetype)init {
     if(!LMVCopyLogXEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVCopyLogXVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.copylogx.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -376,6 +376,13 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVCopyLogXEnabled && LMVCopyLogXPath.length && LMVCopyLogXRevision.length &&
+       (![self.playback.path isEqualToString:LMVCopyLogXPath] || ![self.playback.revision isEqualToString:LMVCopyLogXRevision]))
+        [self.playback selectPath:LMVCopyLogXPath revision:LMVCopyLogXRevision];
     UIWindow *window=nil;
     UIView *card=LMVCopyLogXFindCard(&window);
     LMVCopyLogXCardLive=(card!=nil);
@@ -410,13 +417,13 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
         ![self.playback.revision isEqualToString:LMVCopyLogXRevision];
     if(changed) {
         [self.host removeFromSuperview];
-        [self.playback preparePosterForPath:LMVCopyLogXPath revision:LMVCopyLogXRevision];
         [self.playback selectPath:LMVCopyLogXPath revision:LMVCopyLogXRevision];
     }
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    BOOL hasPoster=self.playback.posterLayer.contents!=nil;
-    BOOL live=self.playback.player && !self.playback.error &&
-        (hasPoster || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     // Index 0 of the card: above the sheet's background, below the clipboard table.
     UIView *container=card;NSUInteger index=0;CGRect target=card.bounds;NSString *mode=@"card";

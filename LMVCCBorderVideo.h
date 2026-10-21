@@ -244,7 +244,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 - (instancetype)init {
     if(!LMVCCBorderEnvironment())return nil;
     if(([super init])) {
-        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=YES;
+        _playback=[LMVLockVideoPlayback new];_playback.persistentPosterEnabled=NO;
         _host=[[LMVCCBorderVideoHost alloc] initWithFrame:CGRectZero];_host.playback=_playback;
         _playback.renderLayer.name=@"com.minis.lockmessagevideo.ccborder.render";
         [_host.layer addSublayer:_playback.renderLayer];
@@ -268,6 +268,13 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 }
 - (void)update {
     if(self.updating)return;self.updating=YES;
+    // 2.60: PREWARM. Load the material and build the paused player while no panel
+    // is on screen, so the panel's first appearance does not pay for the asset
+    // load. The player stays paused (wantsPlayback is never raised here), so this
+    // costs no steady CPU - it is one async load per material change.
+    if(LMVCCBorderEnabled && LMVCCBorderPath.length && LMVCCBorderRevision.length &&
+       (![self.playback.path isEqualToString:LMVCCBorderPath] || ![self.playback.revision isEqualToString:LMVCCBorderRevision]))
+        [self.playback selectPath:LMVCCBorderPath revision:LMVCCBorderRevision];
     UIWindow *window=nil;UIView *menu=nil;
     UIView *card=LMVCCBorderFindCard(&window,&menu);
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
@@ -309,10 +316,12 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCCBorderPath] ||
         ![self.playback.revision isEqualToString:LMVCCBorderRevision];
-    if(changed) {[self.host removeFromSuperview];[self.playback preparePosterForPath:LMVCCBorderPath revision:LMVCCBorderRevision];[self.playback selectPath:LMVCCBorderPath revision:LMVCCBorderRevision];}
+    if(changed) {[self.host removeFromSuperview];[self.playback selectPath:LMVCCBorderPath revision:LMVCCBorderRevision];}
     if(!self.playback.wantsPlayback)[self.playback setVisible:YES];
-    BOOL live=self.playback.player && !self.playback.error &&
-        (self.playback.posterLayer.contents!=nil || self.playback.playerLayer.readyForDisplay);
+    // 2.60: mount as soon as the (prewarmed) player exists. The render layer stays
+    // hidden until the first frame is decoded (updatePresentation), so the panel is
+    // covered the moment that frame arrives - no poster, no readyForDisplay wait.
+    BOOL live=self.playback.player && !self.playback.error;
     if(!live) {
         [self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;
         // 2.31: the decoder/asset side of the contract (recognized but not ready) -

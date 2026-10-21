@@ -56,13 +56,12 @@ assert 'myrtle-panel env init=' in env, 'a failing environment says which condit
 
 mount = module[module.index('- (void)update {', module.index('@implementation LMVMyrtlePanelVideoManager')):]
 mount = mount[:mount.index('\n@end')]
-assert 'BOOL hasPoster=self.playback.posterLayer.contents!=nil;' in mount
-assert '(hasPoster || self.playback.playerLayer.readyForDisplay);' in mount, \
+# 2.60: no poster; a prewarmed player is the only mount requirement.
+assert 'BOOL live=self.playback.player && !self.playback.error;' in mount, \
     'mounting must not wait for readyForDisplay'
 assert 'self.playback.posterLayer.hidden=YES;' not in mount, 'the poster is never hidden by hand'
-assert module.index('[self.playback preparePosterForPath:LMVMyrtlePanelPath revision:LMVMyrtlePanelRevision];') < \
-    module.index('[self.playback selectPath:LMVMyrtlePanelPath revision:LMVMyrtlePanelRevision];'), \
-    'the poster is seeded before the path is selected'
+assert 'preparePosterForPath' not in module, 'no poster is used'
+assert 'LMVMyrtlePanelEnabled && LMVMyrtlePanelPath.length && LMVMyrtlePanelRevision.length' in module, 'prewarm guard'
 
 gate = module[module.index('static void LMVMyrtlePanelVideoRefresh(BOOL reload) {'):]
 gate = gate[:gate.index('\n}\n')]
