@@ -58,11 +58,15 @@ static void (*LMVSettingsOriginalViewDidAppear)(id, SEL, BOOL);
 
 static void LMVSettingsViewWillAppear(id self, SEL _cmd, BOOL animated) {
     LMVSettingsOriginalViewWillAppear(self, _cmd, animated);
-    [[LMVSettingsVideoChannel shared] refresh];
+    LMVSettingsVideoChannel *channel = [LMVSettingsVideoChannel shared];
+    [channel refresh];
+    [channel logOccluders:@"willAppear"];
 }
 static void LMVSettingsViewDidAppear(id self, SEL _cmd, BOOL animated) {
     LMVSettingsOriginalViewDidAppear(self, _cmd, animated);
-    [[LMVSettingsVideoChannel shared] refresh];
+    LMVSettingsVideoChannel *channel = [LMVSettingsVideoChannel shared];
+    [channel refresh];
+    [channel logOccluders:@"didAppear"];
 }
 
 // 2.78: A NEW CELL IS OPAQUE FOR ONE FRAME unless we clear it the moment it lays
@@ -106,9 +110,56 @@ static BOOL LMVSettingsIsSurface(id view) {
     return NO;
 }
 
+// 2.89-diag: scrolling is where the white keeps appearing - log at most every 60 ms.
+static void (*LMVSettingsOriginalSetContentOffset)(id, SEL, CGPoint);
+static void (*LMVSettingsOriginalSetContentOffsetAnimated)(id, SEL, CGPoint, BOOL);
+
+static void LMVSettingsScrollTick(void) {
+    static CFTimeInterval last;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - last < .06) return;
+    last = now;
+    [[LMVSettingsVideoChannel shared] logOccluders:@"scroll"];
+}
+
+static void LMVSettingsSetContentOffset(id self, SEL _cmd, CGPoint offset) {
+    LMVSettingsOriginalSetContentOffset(self, _cmd, offset);
+    LMVSettingsScrollTick();
+}
+static void LMVSettingsSetContentOffsetAnimated(id self, SEL _cmd, CGPoint offset, BOOL animated) {
+    LMVSettingsOriginalSetContentOffsetAnimated(self, _cmd, offset, animated);
+    LMVSettingsScrollTick();
+}
+
 static void LMVSettingsSetBackgroundColor(id self, SEL _cmd, UIColor *color) {
     if ([LMVSettingsVideoChannel shared].isActive && LMVSettingsIsSurface(self)) color = UIColor.clearColor;
     LMVSettingsOriginalSetBackgroundColor(self, _cmd, color);
+}
+
+// 2.89-diag: WHICH VIEW IS WHITE RIGHT NOW? Walks every window view, ignores our own
+// host, and reports the ones that (a) cover at least 30% of the host area and
+// (b) still paint an opaque background. Logged only (no behaviour change).
+static void LMVSettingsCollectOccluders(UIView *view, UIView *host, CGRect hostFrame, NSInteger depth,
+                                        NSInteger *budget, NSMutableArray<NSString *> *out) {
+    if (!view || depth > 14 || *budget <= 0) return;
+    (*budget)--;
+    if (view == host) return;
+    if (!view.hidden && view.alpha > .01) {
+        CGRect frame = [view convertRect:view.bounds toView:view.window];
+        CGRect onScreen = CGRectIntersection(frame, view.window.bounds);
+        CGFloat area = onScreen.size.width * onScreen.size.height;
+        CGFloat hostArea = hostFrame.size.width * hostFrame.size.height;
+        CGFloat bgAlpha = 0;
+        if (view.backgroundColor) { CGFloat r=0,g=0,b=0,a=1; if ([view.backgroundColor getRed:&r green:&g blue:&b alpha:&a]) bgAlpha = a; }
+        BOOL decorative = [NSStringFromClass(view.class) containsString:@"ScrollIndicator"];
+        if (hostArea > 0 && area >= hostArea * .3 && bgAlpha > .5 && !decorative && frame.size.width > 8 && frame.size.height > 8) {
+            [out addObject:[NSString stringWithFormat:@"%@@%.0f,%.0f %.0fx%.0f bg%.2f d%ld",
+                NSStringFromClass(view.class), frame.origin.x, frame.origin.y,
+                frame.size.width, frame.size.height, bgAlpha, (long)depth]];
+        }
+    }
+    for (UIView *child in view.subviews)
+        LMVSettingsCollectOccluders(child, host, hostFrame, depth + 1, budget, out);
 }
 
 @implementation LMVSettingsVideoChannel
@@ -151,6 +202,16 @@ static void LMVSettingsSetBackgroundColor(id self, SEL _cmd, UIColor *color) {
         if (did) {
             LMVSettingsOriginalViewDidAppear = (void *)method_getImplementation(did);
             method_setImplementation(did, (IMP)LMVSettingsViewDidAppear);
+        }
+        Method setOffset = class_getInstanceMethod(UIScrollView.class, @selector(setContentOffset:));
+        if (setOffset) {
+            LMVSettingsOriginalSetContentOffset = (void *)method_getImplementation(setOffset);
+            method_setImplementation(setOffset, (IMP)LMVSettingsSetContentOffset);
+        }
+        Method setOffsetAnimated = class_getInstanceMethod(UIScrollView.class, @selector(setContentOffset:animated:));
+        if (setOffsetAnimated) {
+            LMVSettingsOriginalSetContentOffsetAnimated = (void *)method_getImplementation(setOffsetAnimated);
+            method_setImplementation(setOffsetAnimated, (IMP)LMVSettingsSetContentOffsetAnimated);
         }
         Method setBG = class_getInstanceMethod(UIView.class, @selector(setBackgroundColor:));
         if (setBG) {
@@ -485,6 +546,19 @@ static NSMapTable<UINavigationBar *, NSDictionary *> *LMVSettingsSavedAppearance
         }
     }
     return windows;
+}
+
+- (void)logOccluders:(NSString *)reason {
+    UIWindow *window = self.window;
+    if (!window || !self.host) return;
+    CGRect hostFrame = [self.host convertRect:self.host.bounds toView:window];
+    NSInteger budget = 2600;
+    NSMutableArray<NSString *> *found = [NSMutableArray array];
+    for (UIWindow *candidate in [self allWindows])
+        LMVSettingsCollectOccluders(candidate, self.host, hostFrame, 0, &budget, found);
+    LMVSettingsVideoLog([NSString stringWithFormat:@"white-frame reason=%@ count=%lu hosts=%.0fx%.0f %@",
+        reason, (unsigned long)found.count, hostFrame.size.width, hostFrame.size.height,
+        found.count ? [found componentsJoinedByString:@" | "] : @"none"]);
 }
 
 - (void)clearVisibleBackgrounds {
