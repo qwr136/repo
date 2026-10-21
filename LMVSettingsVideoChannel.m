@@ -216,12 +216,22 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     }
     self.window = window;
     UIView *container = table.superview ?: window;
-    NSInteger index = table.superview ? (NSInteger)[table.superview.subviews indexOfObjectIdenticalTo:table] : 0;
-    if (index < 0) index = 0;
-    if (self.host.superview != container ||
-        (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host] != index) {
-        [self.host removeFromSuperview];
-        [container insertSubview:self.host atIndex:(NSUInteger)index];
+    // 2.76: the host sits at (table index - 1) BECAUSE IT TAKES THE SLOT IN FRONT OF
+    // THE TABLE. Comparing against the table's own index made the check fail on every
+    // tick, so the view was removed and re-inserted once a second - the reported
+    // "文字一闪一闪".
+    NSInteger tableIndex = table.superview ? (NSInteger)[container.subviews indexOfObjectIdenticalTo:table] : 0;
+    if (tableIndex < 0) tableIndex = 0;
+    NSInteger wantIndex = MAX(0, tableIndex - 1);
+    NSInteger hostIndex = (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host];
+    if (self.host.superview != container || hostIndex != wantIndex) {
+        if (self.host.superview == container && hostIndex >= 0 && labs(hostIndex - wantIndex) != 1) {
+            // A one-slot drift needs a move, not a teardown; keep the layer attached.
+            [container exchangeSubviewAtIndex:(NSUInteger)hostIndex withSubviewAtIndex:(NSUInteger)wantIndex];
+        } else {
+            [self.host removeFromSuperview];
+            [container insertSubview:self.host atIndex:(NSUInteger)wantIndex];
+        }
     }
     CGRect target = table ? table.frame : window.bounds;
     if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
