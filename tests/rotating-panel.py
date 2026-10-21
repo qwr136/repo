@@ -22,7 +22,7 @@ def method(signature, following):
 
 sync = method('- (void)syncRotation', '- (void)hide {')
 hide = method('- (void)hide', '- (void)keyboard:')
-blank = method('- (void)recordScreenBlank', '- (void)syncRotation {')
+blank = method('- (void)recordScreenBlank', '- (void)syncUprightRotation {')
 dealloc = method('- (void)dealloc', '- (void)changed:')
 opened = method('- (void)openPanel', '- (void)closePanel {')
 closed = method('- (void)closePanel', '@end')
@@ -137,9 +137,6 @@ fixture = r'''
 @property NSInteger reports;
 @property(strong) NSString *lastReason;
 - (void)syncRotation;
-// 2.63: -layout calls this; the upright compensation is a view-level transform
-// that this QuartzCore double does not model, so it is a no-op here.
-- (void)syncUprightRotation;
 - (void)hide;
 - (void)closePanel;
 - (void)recordScreenBlank;
