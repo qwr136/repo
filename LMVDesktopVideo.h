@@ -1481,21 +1481,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // per frame.
     if (self.host.superview!=nil) [self startCoverWatch];
     else [self stopCoverWatch];
-    // 2.68: KEEP THE DECODER WARM. This used to `clear` whenever the channel was
-    // momentarily "not configured" (app foreground / a tick before the Home surface
-    // is reattached), which destroyed the player - so coming back to Home rebuilt
-    // it from scratch and the first 1-2 s stuttered (device log: two
-    // `lock-video player-built` lines right at the return). A disabled switch or a
-    // missing file still clears; everything else only pauses.
-    if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) {
-        BOOL off = !self.enabled || !self.path.length;
-        if (off) {
-            [self.playback clear];
-            if (LMVDiagnosticsEnabled.load()) LMVDiagnostic(@"desktop-player clear reason=off");
-        } else if (self.playback.wantsPlayback || !self.playback.frozen) {
-            [self.playback holdCurrentFrame:YES];
-            if (LMVDiagnosticsEnabled.load()) LMVDiagnostic(@"desktop-player hold reason=unconfigured");
-        }
+    if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
     }
     if (diagnostics) {
         // 1.30: the lines below (visual / surfaces / panel / overlay) each rebuild a
