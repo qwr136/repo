@@ -177,7 +177,8 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
 
 // The Settings app paints its list on a UIScrollView/UINavigationController view.
 // Only background colours are touched, and each one is remembered.
-static NSMapTable<UIView *, UIColor *> *LMVSettingsSavedColors;   // 2.85: weak keys (dangling restore crashed Settings)
+static NSMapTable<UIView *, UIColor *> *LMVSettingsSavedColors;
+static NSHashTable<UIView *> *LMVSettingsHiddenViews;   // 2.86   // 2.85: weak keys (dangling restore crashed Settings)
 
 - (BOOL)needsClear:(UIView *)view {
     if ([view isKindOfClass:UIScrollView.class] || [view isKindOfClass:UITableView.class] ||
@@ -212,9 +213,16 @@ static NSMapTable<UIView *, UIColor *> *LMVSettingsSavedColors;   // 2.85: weak 
         view.backgroundColor = UIColor.clearColor;
     }
     if (view.opaque) view.opaque = NO;
-    if ([view isKindOfClass:UIVisualEffectView.class]) {
-        UIVisualEffectView *effectView = (UIVisualEffectView *)view;
-        if (effectView.effect) { effectView.effect = nil; }
+    // 2.86: DECORATION LAYERS ARE HIDDEN, not recoloured - a background that the app
+    // repaints on layout cannot flicker back if it is hidden outright. Only pure
+    // decoration matches these names; nothing that draws text or icons does.
+    NSString *cls = NSStringFromClass(view.class);
+    BOOL decoration = [cls containsString:@"BarBackground"] || [cls containsString:@"ShadowView"] ||
+        [cls containsString:@"_UIBarBackground"] || [cls isEqualToString:@"UIVisualEffectView"];
+    if (decoration) {
+        if (!LMVSettingsHiddenViews) LMVSettingsHiddenViews = [NSHashTable weakObjectsHashTable];
+        if (!view.hidden) { [LMVSettingsHiddenViews addObject:view]; view.hidden = YES; }
+        return;
     }
     for (UIView *child in view.subviews)
         [self clearSubtreeBackgrounds:child depth:depth + 1 budget:budget];
@@ -242,6 +250,8 @@ static NSMapTable<UIView *, UIColor *> *LMVSettingsSavedColors;   // 2.85: weak 
         if (view && color) view.backgroundColor = color;   // weak key: nil when deallocated
     }
     [LMVSettingsSavedColors removeAllObjects];
+    for (UIView *view in LMVSettingsHiddenViews) view.hidden = NO;
+    [LMVSettingsHiddenViews removeAllObjects];
 }
 
 - (void)buildPlayerForPath:(NSString *)path sound:(BOOL)sound volume:(float)volume {
@@ -387,7 +397,6 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
     // The app's own container views are opaque; clear the scroll backgrounds so the
     // video is visible behind the grouped rows.
     if (root.backgroundColor && root.backgroundColor != UIColor.clearColor) {
-        if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
         if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
         if (![LMVSettingsSavedColors objectForKey:root]) [LMVSettingsSavedColors setObject:root.backgroundColor forKey:root];
         root.backgroundColor = UIColor.clearColor;
