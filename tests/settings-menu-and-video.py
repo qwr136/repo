@@ -62,7 +62,8 @@ check('AVLayerVideoGravityResizeAspectFill' in player_impl, 'fills the window')
 # 2.75: the host goes directly BELOW the list (the Settings app keeps an opaque
 # UITransitionView between the window and the table, so a window-level host never
 # shows), and the list/cell backgrounds are cleared so the text sits on the video.
-check('insertSubview:self.host atIndex:(NSUInteger)index' in player_impl, 'background sits under the list')
+check('insertSubview:self.host atIndex:(NSUInteger)wantIndex' in player_impl, 'background sits under the list')
+check('exchangeSubviewAtIndex' in player_impl, 'a one-slot drift is an exchange, not a re-insert (no flicker)')
 check('tableIn:' in player_impl and 'clearCellBackgroundsIn:' in player_impl, 'list/cell transparency')
 check('LMV_VERSION_STRING' in player_impl, 'diagnostic line carries the real version')
 check('CMTimeMake(1, 10)' in settings or 'copyCGImageAtTime' in settings, 'picker shows a preview frame')
