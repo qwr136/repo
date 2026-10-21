@@ -34,6 +34,7 @@ static inline BOOL LMVSettingsVideoEnabled(void) {
 @property(nonatomic, strong) AVPlayerLooper *looper;
 @property(nonatomic, copy) NSString *path;
 @property(nonatomic, strong) NSTimer *timer;
+@property(nonatomic, strong) NSTimer *clearTimer;
 @property(nonatomic) BOOL isActive;
 + (instancetype)shared;
 - (void)start;

@@ -108,6 +108,15 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
     }];
     self.timer.tolerance = .3;
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
+    if (!self.clearTimer) {
+        __weak typeof(self) weakClear = self;
+        self.clearTimer = [NSTimer timerWithTimeInterval:.25 repeats:YES block:^(NSTimer *timer) {
+            LMVSettingsVideoChannel *live = weakClear;
+            if (live.isActive) [live clearVisibleBackgrounds];
+        }];
+        self.clearTimer.tolerance = .1;
+        [NSRunLoop.mainRunLoop addTimer:self.clearTimer forMode:NSRunLoopCommonModes];
+    }
     static BOOL hooked = NO;
     if (!hooked) {
         hooked = YES;
@@ -301,6 +310,14 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
     for (UIScrollView *scroll in views) if ([scroll isKindOfClass:UITableView.class]) [out addObject:(UITableView *)scroll];
 }
 
+- (NSArray<UIScrollView *> *)allScrollViewsInWindow:(UIWindow *)window {
+    if (!window.rootViewController.view) return @[];
+    NSInteger budget = 1500;
+    NSMutableArray<UIScrollView *> *out = [NSMutableArray array];
+    LMVSettingsCollectScrollViews(window.rootViewController.view, 0, &budget, out);
+    return out;
+}
+
 - (NSArray<UITableView *> *)allTablesInWindow:(UIWindow *)window {
     if (!window.rootViewController.view) return @[];
     NSInteger budget = 1200;
@@ -383,6 +400,69 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
     [self clearBackgroundsIn:root depth:0];
 }
 
+// 2.83: CLEARING MUST KEEP UP WITH THE UI. Settings re-applies background colours
+// on layout (a new page, a re-used cell, a nav-bar refresh), so a 1 s sweep left
+// opaque patches. This runs 4x a second and touches nothing else.
+// 2.83: THE NAV BAR PAINTS THROUGH ITS APPEARANCE, not only through view backgrounds,
+// so the top strip stayed opaque ("最上面还有些"). Clearing the appearance's colour,
+// effect and shadow is what makes it transparent; the originals are kept for restore.
+static NSMutableDictionary<NSValue *, NSDictionary *> *LMVSettingsSavedAppearances;
+
+- (void)clearNavigationBarsIn:(UIView *)view depth:(NSInteger)depth {
+    if (!view || depth > 14) return;
+    if ([view isKindOfClass:UINavigationBar.class]) {
+        UINavigationBar *bar = (UINavigationBar *)view;
+        NSValue *key = [NSValue valueWithNonretainedObject:bar];
+        if (!LMVSettingsSavedAppearances) LMVSettingsSavedAppearances = [NSMutableDictionary dictionary];
+        if (!LMVSettingsSavedAppearances[key]) {
+            NSMutableDictionary *saved = [NSMutableDictionary dictionary];
+            if (bar.standardAppearance) saved[@"standard"] = bar.standardAppearance;
+            if (bar.scrollEdgeAppearance) saved[@"scroll"] = bar.scrollEdgeAppearance;
+            if (bar.compactAppearance) saved[@"compact"] = bar.compactAppearance;
+            LMVSettingsSavedAppearances[key] = saved;
+        }
+        UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
+        [appearance configureWithTransparentBackground];
+        appearance.backgroundColor = UIColor.clearColor;
+        appearance.backgroundEffect = nil;
+        appearance.shadowColor = UIColor.clearColor;
+        bar.standardAppearance = appearance;
+        bar.scrollEdgeAppearance = appearance;
+        bar.compactAppearance = appearance;
+        bar.translucent = YES;
+    }
+    for (UIView *child in view.subviews) [self clearNavigationBarsIn:child depth:depth + 1];
+}
+
+- (void)restoreNavigationBarAppearances {
+    for (NSValue *key in LMVSettingsSavedAppearances) {
+        UINavigationBar *bar = [key nonretainedObjectValue];
+        NSDictionary *saved = LMVSettingsSavedAppearances[key];
+        if (!bar) continue;
+        if (saved[@"standard"]) bar.standardAppearance = saved[@"standard"];
+        if (saved[@"scroll"]) bar.scrollEdgeAppearance = saved[@"scroll"];
+        if (saved[@"compact"]) bar.compactAppearance = saved[@"compact"];
+    }
+    [LMVSettingsSavedAppearances removeAllObjects];
+}
+
+- (void)clearVisibleBackgrounds {
+    UIWindow *window = self.window;
+    if (!window.rootViewController.view) return;
+    NSInteger budget = 2000;
+    [self clearSubtreeBackgrounds:window.rootViewController.view depth:0 budget:&budget];
+    [self clearNavigationBarsIn:window.rootViewController.view depth:0];
+    for (UITableView *table in [self allTablesInWindow:window]) [self clearCellBackgroundsIn:table];
+    for (UIScrollView *scroll in [self allScrollViewsInWindow:window]) {
+        if ([scroll isKindOfClass:UICollectionView.class]) {
+            UICollectionView *collection = (UICollectionView *)scroll;
+            if (collection.backgroundView) collection.backgroundView = nil;
+            if (collection.backgroundColor && CGColorGetAlpha(collection.backgroundColor.CGColor) > .001)
+                collection.backgroundColor = UIColor.clearColor;
+        }
+    }
+}
+
 - (void)refresh {
     if (!LMVSettingsVideoEnabled()) { [self stop]; return; }
     NSString *path = [self selectedPath];
@@ -412,6 +492,7 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
     if (window && (!self.host.superview || self.host.superview == window ||
                    (liveTable && self.host.superview != liveTable.superview)))
         [self installIfNeeded];
+    [self clearNavigationBarsIn:window.rootViewController.view depth:0];
     for (UITableView *table in [self allTablesInWindow:window]) [self clearCellBackgroundsIn:table];
     if (window.rootViewController.view) {
         NSInteger clearBudget = 2500;
@@ -472,6 +553,7 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
         if ([layer isKindOfClass:AVPlayerLayer.class]) [layer removeFromSuperlayer];
     [self.host removeFromSuperview];
     [self restoreBackgrounds];
+    [self restoreNavigationBarAppearances];
 }
 
 @end
