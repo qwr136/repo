@@ -23,10 +23,10 @@ static NSString *const LMVSettingsVideoFileKey = @"SettingsVideo";
 static NSString *const LMVSettingsVideoSoundKey = @"SettingsVideoSoundEnabled";
 static NSString *const LMVSettingsVideoVolumeKey = @"SettingsVideoVolume";
 
-static id LMVSettingsRead(NSString *key) {
+static inline id LMVSettingsRead(NSString *key) {
     return (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
 }
-static void LMVSettingsWrite(NSString *key, id value) {
+static inline void LMVSettingsWrite(NSString *key, id value) {
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, kLMVPrefsID);
     CFPreferencesAppSynchronize(kLMVPrefsID);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
