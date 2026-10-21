@@ -1110,6 +1110,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
     NSInteger foreground=LMVDesktopForeground();
+    // 2.71: NORMALISE BEFORE THE AWAY STATE MACHINE READS IT. The raw -1 ("frontmost
+    // probe unavailable") used to restart appAway on every flicker, and appAway's
+    // release window zeroes `covered` for a moment - so the video resumed, froze,
+    // resumed... (device log: away-release firing repeatedly, covered 1/0/1). With a
+    // confirmed Home surface and no real app window, -1 is simply "SpringBoard".
+    if (foreground==-1 && !appWindowCover && homeConfirmed) foreground=1;
     BOOL appExitRelease=NO;
     if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
