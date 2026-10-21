@@ -89,6 +89,28 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
     LMVSettingsClearCell(self);
 }
 
+// 2.87: STOP THE WHITE AT ITS SOURCE. Sweeping colours cannot win: the app sets them
+// again on every layout/scroll (cells, table, containers), so a white frame always
+// slips through. This swizzles -setBackgroundColor: and forces the SURFACE classes to
+// clear while the channel is active; decoration layers are still hidden by the sweep.
+static void (*LMVSettingsOriginalSetBackgroundColor)(id, SEL, UIColor *);
+
+static BOOL LMVSettingsIsSurface(id view) {
+    if ([view isKindOfClass:UITableView.class] || [view isKindOfClass:UICollectionView.class] ||
+        [view isKindOfClass:UITableViewCell.class] || [view isKindOfClass:UICollectionViewCell.class] ||
+        [view isKindOfClass:UIVisualEffectView.class]) return YES;
+    NSString *name = NSStringFromClass([view class]);
+    for (NSString *token in @[@"BarBackground", @"ShadowView", @"LayoutContainerView",
+                              @"TransitionView", @"ViewControllerWrapperView", @"SplitViewControllerColumn"])
+        if ([name rangeOfString:token options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    return NO;
+}
+
+static void LMVSettingsSetBackgroundColor(id self, SEL _cmd, UIColor *color) {
+    if ([LMVSettingsVideoChannel shared].isActive && LMVSettingsIsSurface(self)) color = UIColor.clearColor;
+    LMVSettingsOriginalSetBackgroundColor(self, _cmd, color);
+}
+
 @implementation LMVSettingsVideoChannel
 
 + (instancetype)shared {
@@ -129,6 +151,11 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
         if (did) {
             LMVSettingsOriginalViewDidAppear = (void *)method_getImplementation(did);
             method_setImplementation(did, (IMP)LMVSettingsViewDidAppear);
+        }
+        Method setBG = class_getInstanceMethod(UIView.class, @selector(setBackgroundColor:));
+        if (setBG) {
+            LMVSettingsOriginalSetBackgroundColor = (void *)method_getImplementation(setBG);
+            method_setImplementation(setBG, (IMP)LMVSettingsSetBackgroundColor);
         }
         Method cell = class_getInstanceMethod(UITableViewCell.class, @selector(layoutSubviews));
         if (cell) {
