@@ -1007,7 +1007,8 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // 2.69: same hysteresis as the update path - a -1 from the frontmost probe is
     // "unknown", not "an app is in front"; while the Home window is up it must not
     // start a new away episode (that is what re-froze the video seconds after exit).
-    if (fg==-1 && LMVDesktopHomeWindow()) fg=1;
+    UIWindow *homeProbe=self.container.window;
+    if (fg==-1 && homeProbe && LMVDesktopHomeWindow(homeProbe)) fg=1;
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.25: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
