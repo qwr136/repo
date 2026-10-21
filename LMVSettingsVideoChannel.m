@@ -73,9 +73,11 @@ static void (*LMVSettingsOriginalCollectionCellLayout)(id, SEL);
 
 static void LMVSettingsClearCell(id cell) {
     if (![LMVSettingsVideoChannel shared].isActive) return;
-    if ([cell backgroundColor] != UIColor.clearColor) [cell setBackgroundColor:UIColor.clearColor];
-    UIView *content = [cell contentView];
-    if (content && content.backgroundColor != UIColor.clearColor) content.backgroundColor = UIColor.clearColor;
+    UIColor *bg = [(UITableViewCell *)cell backgroundColor];
+    if (bg && CGColorGetAlpha(bg.CGColor) > .001) [(UITableViewCell *)cell setBackgroundColor:UIColor.clearColor];
+    UIView *content = [(UITableViewCell *)cell contentView];
+    if (content && content.backgroundColor && CGColorGetAlpha(content.backgroundColor.CGColor) > .001)
+        content.backgroundColor = UIColor.clearColor;
 }
 
 static void LMVSettingsCellLayout(id self, SEL _cmd) {
@@ -257,6 +259,21 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     return *best;
 }
 
+- (void)collectTables:(UIView *)view depth:(NSInteger)depth budget:(NSInteger *)budget into:(NSMutableArray<UITableView *> *)out {
+    if (!view || depth > 12 || *budget <= 0) return;
+    (*budget)--;
+    if ([view isKindOfClass:UITableView.class]) [out addObject:(UITableView *)view];
+    for (UIView *child in view.subviews) [self collectTables:child depth:depth + 1 budget:budget into:out];
+}
+
+- (NSArray<UITableView *> *)allTablesInWindow:(UIWindow *)window {
+    if (!window.rootViewController.view) return @[];
+    NSInteger budget = 1200;
+    NSMutableArray *out = [NSMutableArray array];
+    [self collectTables:window.rootViewController.view depth:0 budget:&budget into:out];
+    return out;
+}
+
 - (UITableView *)visibleTableInWindow:(UIWindow *)window {
     if (!window.rootViewController.view) return nil;
     NSInteger budget = 900; UITableView *best = nil; CGFloat bestArea = 0;
@@ -290,6 +307,7 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     UIView *root = window.rootViewController.view;
     if (!root) return;
     UITableView *table = [self visibleTableInWindow:window];
+    (void)table;   // kept for the clearing pass below
     if (!self.host) {
         self.host = [[UIView alloc] initWithFrame:window.bounds];
         self.host.userInteractionEnabled = NO;
@@ -354,14 +372,11 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     // ("退出 app 再进去视频就暂停了"). Resume whenever we are the active channel.
     if (self.player.timeControlStatus != AVPlayerTimeControlStatusPlaying) [self.player play];
     UIWindow *window = self.window;
-    UITableView *liveTable = nil;
-    if (window) liveTable = [self visibleTableInWindow:window];
-    if (liveTable) {
-        if (self.host.superview != liveTable.superview) [self installIfNeeded];
-        CGRect target = liveTable.frame;
-        if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
-        [self clearCellBackgroundsIn:liveTable];
-    }
+    // 2.78: the host lives in the WINDOW (both split-view columns see it); only the
+    // tables are re-cleared here, never the host's container.
+    if (window && self.host.superview != window) [self installIfNeeded];
+    if (window && !CGRectEqualToRect(self.host.frame, window.bounds)) self.host.frame = window.bounds;
+    for (UITableView *table in [self allTablesInWindow:window]) [self clearCellBackgroundsIn:table];
     for (CALayer *layer in self.host.layer.sublayers) {
         if ([layer isKindOfClass:AVPlayerLayer.class] && !CGRectEqualToRect(layer.frame, self.host.bounds))
             layer.frame = self.host.bounds;
