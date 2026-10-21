@@ -178,8 +178,12 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     // column views are opaque (white list pane / black detail pane) and they were
     // hiding the video, leaving only the divider gap visible. Clear every column
     // container by CLASS NAME (private, so no header dependency).
+    // 2.80: the device tree showed these still opaque between our host and the list:
+    // UILayoutContainerView (bg1.00), UIViewControllerWrapperView (bg1.00) - neither
+    // matched an earlier token, so the pages that use this chain had no video.
     for (NSString *token in @[@"SplitViewController", @"Column", @"TransitionView",
-                              @"DropShadowView", @"Platter", @"BackgroundView", @"CollectionView"]) {
+                              @"DropShadowView", @"LayoutContainerView", @"ViewControllerWrapperView",
+                              @"Platter", @"BackgroundView", @"CollectionView"]) {
         if ([name rangeOfString:token options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
     }
     return NO;
