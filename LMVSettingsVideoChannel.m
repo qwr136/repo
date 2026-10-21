@@ -5,6 +5,49 @@
 // Layering: window → our host (index 0) → the app's own view tree. The app's
 // scroll/navigation backgrounds are made clear so the video shows through; every
 // original colour is remembered and restored when the channel stands down.
+// 2.67: diagnostics for THIS process. The SpringBoard logger does not exist here,
+// so the channel writes the same file/format itself (only when 诊断日志 is on).
+static NSInteger const LMVSettingsVideoHostTag = 0x5E65;
+
+static void LMVSettingsVideoLog(NSString *event) {
+    if (!event.length) return;
+    NSNumber *on = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), LMVSettingsVideoPrefsID);
+    if (!on.boolValue) return;
+    static NSDateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ formatter = [NSDateFormatter new]; formatter.dateFormat = @"HH:mm:ss.SSS"; });
+    NSString *folder = @"/var/mobile/LockMessageVideo";
+    [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *path = [folder stringByAppendingPathComponent:@"shared-render.log"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:path])
+        [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    @try {
+        [handle seekToEndOfFile];
+        NSString *line = [NSString stringWithFormat:@"%.3f version=%@ session=1 pid=%d %@\n",
+            CACurrentMediaTime(), @"2.67", getpid(), event];
+        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    } @catch (__unused NSException *exception) { }
+    @finally { [handle closeFile]; }
+}
+
+// One line per node, depth-limited: class@x,y WxH h<0/1> a<alpha> bg<a> sub<n>
+// Our own host/layer are tagged so the log can be read without guessing.
+static void LMVSettingsVideoDump(UIView *view, NSInteger depth, NSMutableString *out, NSUInteger *budget) {
+    if (!view || depth > 7 || *budget == 0) return;
+    (*budget)--;
+    CGFloat bgAlpha = 1;
+    UIColor *color = view.backgroundColor;
+    if (color) { CGFloat r=0,g=0,b=0,a=1; [color getRed:&r green:&g blue:&b alpha:&a]; bgAlpha = a; }
+    CGRect frame = view.frame;
+    [out appendFormat:@"%@%@@%.0f,%.0f %.0fx%.0f h%d a%.2f bg%.2f sub%lu \n",
+        [NSString stringWithFormat:@"%*s", (int)(depth * 2), ""],
+        NSStringFromClass(view.class), frame.origin.x, frame.origin.y,
+        frame.size.width, frame.size.height, (int)view.hidden, view.alpha, bgAlpha,
+        (unsigned long)view.subviews.count];
+    for (UIView *child in view.subviews) LMVSettingsVideoDump(child, depth + 1, out, budget);
+}
+
 @implementation LMVSettingsVideoChannel
 
 + (instancetype)shared {
@@ -25,6 +68,7 @@
     self.timer.tolerance = .3;
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     [self refresh];
+    LMVSettingsVideoLog(@"settings-video start (Settings process)");
 }
 
 - (NSString *)selectedPath {
@@ -129,6 +173,7 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
         self.host.userInteractionEnabled = NO;
         self.host.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         self.host.backgroundColor = UIColor.clearColor;
+        self.host.tag = LMVSettingsVideoHostTag;
     }
     self.window = window;
     if (self.host.superview != window) {
@@ -170,20 +215,32 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
         if ([layer isKindOfClass:AVPlayerLayer.class] && !CGRectEqualToRect(layer.frame, self.host.bounds))
             layer.frame = self.host.bounds;
     }
-    // 2.66: one line, only when diagnostics are on - the device log then answers
-    // "sound but no picture" (window/host/layer sizes + how many backgrounds we had
-    // to clear) without another build.
+    // 2.67: diagnostics. One summary line plus a depth-limited hierarchy dump, so
+    // "sound but no picture" can be answered from the log: where the host sits, what
+    // sits above it, and which views are still opaque.
     static CFTimeInterval lastLog;
     CFTimeInterval now = CACurrentMediaTime();
     NSNumber *diagnostics = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), LMVSettingsVideoPrefsID);
-    if (diagnostics.boolValue && now - lastLog > 5) {
+    if (diagnostics.boolValue && now - lastLog > 3) {
         lastLog = now;
-        CALayer *layer = self.host.layer.sublayers.firstObject;
-        NSLog(@"[LockMessageVideo] settings-video win=%.0fx%.0f host=%.0fx%.0f layer=%.0fx%.0f cleared=%lu",
+        NSInteger index = window ? (NSInteger)[window.subviews indexOfObjectIdenticalTo:self.host] : -1;
+        CALayer *layer = nil;
+        for (CALayer *candidate in self.host.layer.sublayers)
+            if ([candidate isKindOfClass:AVPlayerLayer.class]) { layer = candidate; break; }
+        LMVSettingsVideoLog([NSString stringWithFormat:
+            @"settings-video win=%@ %.0fx%.0f host@%ld %.0fx%.0f layer=%.0fx%.0f hidden=%d ready=%d cleared=%lu subs=%lu",
+            window ? NSStringFromClass(window.class) : @"none",
             window.bounds.size.width, window.bounds.size.height,
-            self.host.bounds.size.width, self.host.bounds.size.height,
+            (long)index, self.host.bounds.size.width, self.host.bounds.size.height,
             layer ? layer.frame.size.width : 0, layer ? layer.frame.size.height : 0,
-            (unsigned long)LMVSettingsSavedColors.count);
+            layer ? (int)layer.hidden : -1,
+            layer ? (int)((AVPlayerLayer *)layer).readyForDisplay : -1,
+            (unsigned long)LMVSettingsSavedColors.count,
+            (unsigned long)window.subviews.count]);
+        NSMutableString *tree = [NSMutableString string];
+        NSUInteger budget = 400;
+        LMVSettingsVideoDump(window, 0, tree, &budget);
+        LMVSettingsVideoLog([NSString stringWithFormat:@"settings-video-tree\n%@", tree]);
     }
 }
 
