@@ -291,7 +291,9 @@ class UISectionOrder(unittest.TestCase):
             # single 自定义参数 group and its flat row loop.
             # 2.52: one section again (功能面板参数), still data-driven - the group is
             # now a named local, so the append reads 'tuneGroup' instead of 'group'.
-            'tuneGroup', 'row',
+            # 2.54: the eleven rows moved into LMVTuneListController; the root list
+            # appends exactly one entry (tuneEntry) that pushes the index page.
+            'tuneGroup', 'tuneEntry',
             'group:小彩蛋', 'eggEnabled', 'group:小彩蛋显示设置', 'eggImage', 'group:素材库', 'import',
             'group:消息、选项、清除视频透明度', 'opacityEnabled', 'opacity',
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
@@ -336,7 +338,9 @@ class UISectionOrder(unittest.TestCase):
         # the replacement is [tuneGroup setProperty:...], which the "tuneGroup" filter
         # above excludes. Row order and count are unchanged, so the digest is refreshed
         # for exactly that one deletion.
-        self.assertEqual(digest('\n'.join(props)), '46c5d7177fd204fee03e684739196397939626c077e53ce9d9099749f8523094')
+        # 2.54: the eleven channel rows left the root list, so the set gains exactly
+        # two lines - the entry's id and its buttonAction. Nothing else moved.
+        self.assertEqual(digest('\n'.join(props)), '7abab024b6b5a9223bae483700676053ea958d2cde0e85bc4cd9a8a20d50d6f8')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)

@@ -80,6 +80,15 @@ static NSString *LMVTuneAgoText(NSTimeInterval age) {
         }
         [parts addObject:[NSString stringWithFormat:@"实际 %ld%@", (long)want.integerValue, suffix]];
     }
+    // 2.54: "实际" is the value that was APPLIED to the display link, which cannot
+    // answer "is it really delivering 20 frames?". This one is counted from the
+    // callbacks themselves, so 设定 20 / 实测 19 is a real comparison.
+    NSNumber *measured = LMVTuneRuntime(self.target, @"MeasuredFPS");
+    if (measured) {
+        NSTimeInterval measuredAge = LMVTuneRuntimeKeyAge(self.target, @"MeasuredFPS");
+        [parts addObject:[NSString stringWithFormat:@"实测 %ld（%@）",
+            (long)measured.integerValue, LMVTuneAgoText(measuredAge)]];
+    }
     NSTimeInterval age = LMVTuneRuntimeAge(self.target);
     NSString *freshness = nil;
     if (age < 0) freshness = @"通道未运行";

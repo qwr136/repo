@@ -231,7 +231,11 @@ static inline void LMVTuneTouch(NSString *target, NSString *key) {
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     NSString *identity = [target stringByAppendingFormat:@".%@", key];
     NSNumber *previous = lastTouch[identity];
-    if (previous && now - previous.doubleValue < 1.0) return;
+    // 2 s, not 1: two values (the visible-state rate and the measured rate) are
+    // touched on the same seconds, and every touch is a synchronous domain write from
+    // SpringBoard's main thread. At 2 s the page still says 刚刚 (its threshold is 5 s)
+    // while the write traffic stays around one a second.
+    if (previous && now - previous.doubleValue < 2.0) return;
     lastTouch[identity] = @(now);
     NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.%@.At", target, key];
     CFPreferencesSetAppValue((__bridge CFStringRef)stamp,

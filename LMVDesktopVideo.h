@@ -230,6 +230,12 @@ static void LMVDesktopVideoSuspend(void);
 // While the desktop is covered the watcher runs at a 10 Hz heartbeat; a key change
 // opens a one second 60 Hz burst so the reveal is caught on the frame it happens.
 @property(nonatomic) CFTimeInterval probeBurstUntil;
+// 2.54: what the display link ACTUALLY delivers, counted instead of assumed.
+// preferredFramesPerSecond is a request; the callback rate is the answer. Summed per
+// one-second window and reported as MeasuredFPS, so the page can show 设定 20 / 实测 19
+// and "is it really running at 20?" stops being a matter of opinion.
+@property(nonatomic) NSUInteger measuredTicks;
+@property(nonatomic) CFTimeInterval measuredSince;
 @property(nonatomic) BOOL keyWindowObserver;
 // 1.33: whether the surface is currently on the Home host. It decides whether the
 // geometry stops above the dock strip (see LMVDesktopVideoBoundsFor); -syncGeometry
@@ -885,6 +891,20 @@ static NSInteger LMVDesktopCadence(NSString *key) {
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
     if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
+    // 2.54: count the callbacks, once a second. Only the ticks that actually arrive
+    // are counted, and only while the watcher runs - a stopped watcher freezes the
+    // number, which is exactly what the age stamp next to it is for.
+    self.measuredTicks += 1;
+    CFTimeInterval measuredNow = CACurrentMediaTime();
+    if (self.measuredSince <= 0) self.measuredSince = measuredNow;
+    CFTimeInterval measuredWindow = measuredNow - self.measuredSince;
+    if (measuredWindow >= 1.0) {
+        NSInteger measured = (NSInteger)((double)self.measuredTicks / measuredWindow + 0.5);
+        self.measuredTicks = 0;
+        self.measuredSince = measuredNow;
+        LMVTuneReport(@"Desktop", @"MeasuredFPS", measured);
+        LMVTuneTouch(@"Desktop", @"MeasuredFPS");
+    }
     // 2.07: A COVERED DESKTOP IS A WATCHDOG, NOT A RENDERER.
     // While an app is in front the player is frozen, yet this tick kept running at
     // 60 Hz and - because the frozen branch deliberately skips the cheap gate -

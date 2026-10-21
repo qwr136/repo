@@ -12,6 +12,7 @@
 #import "LMVImport.h"
 #import "LMVMaterialPicker.h"
 #import "LMVTuneController.h"
+#import "LMVTuneListController.h"
 #import "../LMVPanelTuning.h"
 #import "../LMVEasterImageSettings.h"
 #import "../LMVPaths.h"
@@ -272,22 +273,18 @@ static void LMVNotify(void) {
     [clxText setProperty:@"CopyLogXTextColor" forKey:@"id"];
     [_specifiers addObject:clxText];
     // 2.39: per-channel tuning, directly below CopyLogX and above the egg group.
-    // One row per channel; each pushes its own page of parameters.
-    // 2.52: ONE flat section, per the user's request. 2.48 had split the index into
-    // 面板 / 其他, which made the same list look like two unrelated features. Every
-    // target now sits under a single heading; the per-channel pages are untouched.
-    // The order is still LMVTuneTargets' order, so a channel is added in one place.
-    PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"功能面板参数"];
-    [tuneGroup setProperty:@"每个通道单独一套参数（检测频率 / 出现延迟 / 关闭延迟 / 钩子节流 / 刷新率）。点进任意一项，页顶会显示它当前实际生效的值。" forKey:@"footerText"];
+    // 2.52: one flat section of eleven rows.
+    // 2.54: that was still the wrong shape - the user wants a SECOND-LEVEL menu: one
+    // entry here, a page listing the channels, then that channel's parameters. Eleven
+    // rows in the root list made the page look like a channel switcher rather than
+    // settings. The rows moved to LMVTuneListController; this is the only entry left.
+    PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"];
+    [tuneGroup setProperty:@"每个通道单独一套参数（检测频率 / 出现延迟 / 关闭延迟 / 钩子节流 / 刷新率）。" forKey:@"footerText"];
     [_specifiers addObject:tuneGroup];
-    for (NSDictionary *item in LMVTuneTargets()) {
-        PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:item[@"name"]
-                                                          target:self set:nil get:nil
-                                                          detail:nil cell:PSButtonCell edit:nil];
-        row.buttonAction = @selector(openTune:);
-        [row setProperty:item[@"id"] forKey:@"tuneTarget"];
-        [_specifiers addObject:row];
-    }
+    PSSpecifier *tuneEntry = [PSSpecifier preferenceSpecifierNamed:@"功能面板参数" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    tuneEntry.buttonAction = @selector(openTuneList:);
+    [tuneEntry setProperty:@"TuneList" forKey:@"id"];
+    [_specifiers addObject:tuneEntry];
     [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];
     PSSpecifier *eggEnabled = [PSSpecifier preferenceSpecifierNamed:@"启用小彩蛋" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
     [eggEnabled setProperty:@"EasterEggEnabled" forKey:@"key"];
@@ -360,12 +357,9 @@ static void LMVNotify(void) {
     return value ?: [specifier propertyForKey:@"default"] ?: @NO;
 }
 // 2.39: push the per-channel tuning page.
-- (void)openTune:(PSSpecifier *)specifier {
-    NSString *target = [specifier propertyForKey:@"tuneTarget"];
-    if (!target.length) return;
-    LMVTuneController *controller = [[LMVTuneController alloc] initWithTarget:target
-                                                                         name:LMVTuneTargetName(target)];
-    [self.navigationController pushViewController:controller animated:YES];
+// 2.54: the root list now pushes the INDEX page, which pushes the per-channel page.
+- (void)openTuneList:(PSSpecifier *)specifier {
+    [self.navigationController pushViewController:[LMVTuneListController new] animated:YES];
 }
 - (void)openEaster:(PSSpecifier *)specifier {
     if (self.presentedViewController) return;

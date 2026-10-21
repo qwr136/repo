@@ -111,13 +111,16 @@ ccb_section = source[ccb_start:clx_start]
 # so the anchor is the section table rather than a group name.
 # 2.52: the index is ONE section again (功能面板参数) per the user's request, so the
 # anchor is that group's declaration; the rows still come from LMVTuneTargets().
-tune_start = source.index('PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"功能面板参数"]')
+# 2.54: the rows moved to LMVTuneListController (two-level menu); the root list keeps
+# exactly one entry, so the anchor is now that entry's group.
+tune_start = source.index('PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"]')
 clx_section = source[clx_start:tune_start]
 tune_section = source[tune_start:egg_start]
 assert tune_section.count('cell:PSButtonCell') == 1
-assert 'row.buttonAction = @selector(openTune:);' in tune_section
-assert 'for (NSDictionary *item in LMVTuneTargets())' in tune_section
-assert 'initWithTarget:target' in source
+# 2.54: the single entry pushes the index page instead of enumerating targets here.
+assert 'tuneEntry.buttonAction = @selector(openTuneList:);' in tune_section
+assert 'for (NSDictionary *item in LMVTuneTargets())' not in tune_section
+assert 'initWithTarget:value' in (root / 'LockMessageVideoPrefs/LMVTuneListController.m').read_text()
 assert pa_section.count('cell:PSSwitchCell') == 1 and pa_section.count('cell:PSButtonCell') == 2
 assert '[paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"]' in pa_section
 assert 'paMaterial.buttonAction = @selector(switchPA:);' in pa_section

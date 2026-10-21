@@ -16,6 +16,7 @@ root = Path(__file__).resolve().parents[1]
 tuning = (root / 'LMVPanelTuning.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 tune_controller = (root / 'LockMessageVideoPrefs/LMVTuneController.m').read_text()
+tune_list = (root / 'LockMessageVideoPrefs/LMVTuneListController.m').read_text()
 playback = (root / 'LMVLockVideoPlayback.h').read_text()
 makefile = (root / 'Makefile').read_text()
 workflow = (root / '.github/workflows/build.yml').read_text()
@@ -101,13 +102,16 @@ for target in targets:
 
 # ---- 5) 设置页入口与子控制器 ---------------------------------------------------
 # 2.48: one 自定义参数 block became two sections (面板 / 其他).
-# 2.52: back to ONE section, 功能面板参数, as the user asked; the per-channel pages
-# are unchanged, only the index stopped splitting the same list into two headings.
-assert 'groupSpecifierWithName:@"功能面板参数"' in prefs
-assert '自定义参数 · 面板' not in prefs and '自定义参数 · 其他' not in prefs
-assert 'for (NSDictionary *item in LMVTuneTargets())' in prefs
-assert 'row.buttonAction = @selector(openTune:);' in prefs
-assert 'initWithTarget:target' in prefs
+# 2.52: back to ONE section, 功能面板参数, as the user asked.
+# 2.54: two-level menu - the root list keeps ONE entry, the channel rows live in
+# LMVTuneListController, and each of those pushes the per-channel page.
+assert 'preferenceSpecifierNamed:@"功能面板参数"' in prefs
+assert 'buttonAction = @selector(openTuneList:);' in prefs
+assert 'for (NSDictionary *item in LMVTuneTargets())' in tune_list
+assert 'row.buttonAction = @selector(openTune:);' in tune_list
+assert 'initWithTarget:value' in tune_list
+assert 'groupSpecifierWithName:@"功能面板参数"' in tune_list
+assert 'LMVTuneListController.m' in makefile
 assert 'LMVTuneController.m' in makefile
 assert 'cell:PSButtonCell' in tune_controller
 assert 'LMVTuneGroupsForTarget(self.target)' in tune_controller
@@ -123,6 +127,12 @@ assert '回桌面后按 %ld 生效' in tune_controller
 # "the value has not changed for 3 minutes" (the report returns early on no change).
 assert 'LMVTuneTouch(NSString *target, NSString *key)' in tuning
 assert 'LMVTuneTouch(@"Desktop",@"IdleApplied")' in desktop
+# 2.54: the measured rate is COUNTED from the display-link callbacks and reported, so
+# 设定 20 / 实测 19 is a real comparison instead of two names for the same number.
+assert 'LMVTuneReport(@"Desktop", @"MeasuredFPS", measured)' in desktop
+assert 'self.measuredTicks += 1;' in desktop
+assert 'LMVTuneTouch(@"Desktop", @"MeasuredFPS")' in desktop
+assert '实测 %ld（%@）' in tune_controller
 
 # ---- 6) 运行时不再读被删掉的键 -------------------------------------------------
 assert 'LMVTune' not in playback, '播放引擎不应再读任何调参键'
