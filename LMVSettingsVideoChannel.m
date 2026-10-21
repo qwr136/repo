@@ -16,9 +16,10 @@ static void LMVSettingsVideoLog(NSString *event) {
     static NSDateFormatter *formatter;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ formatter = [NSDateFormatter new]; formatter.dateFormat = @"HH:mm:ss.SSS"; });
-    NSString *folder = @"/var/mobile/LockMessageVideo";
+    // 2.68: the user asked for this log INSIDE the material folder.
+    NSString *folder = LMVSettingsVideoRoot;
     [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
-    NSString *path = [folder stringByAppendingPathComponent:@"shared-render.log"];
+    NSString *path = [folder stringByAppendingPathComponent:@"settings-render.log"];
     if (![NSFileManager.defaultManager fileExistsAtPath:path])
         [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
     NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];

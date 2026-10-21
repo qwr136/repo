@@ -803,6 +803,11 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         [self primePoster];
         self.lastRevisionCheck=CACurrentMediaTime();[self.playback selectPath:self.path revision:self.revision];
     }
+    // 2.68: SWITCHING THE CHANNEL OFF MUST SILENCE IT ON THE SAME TICK. This has to
+    // run AFTER primePoster, which is what re-reads the preference - otherwise the
+    // tick that turns the switch off still sees the old value and the audio player
+    // (a separate player) keeps going until the next state change ("漏一下声音").
+    if (!self.enabled && LMVDesktopAudioPauseHook) LMVDesktopAudioPauseHook();
     if (self.enabled && self.path.length && !self.timer) {
         __weak typeof(self) weakSelf=self;
         self.timer=[NSTimer timerWithTimeInterval:.2 repeats:YES block:^(NSTimer *timer){
@@ -1458,7 +1463,22 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // per frame.
     if (self.host.superview!=nil) [self startCoverWatch];
     else [self stopCoverWatch];
-    if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
+    // 2.68: KEEP THE DECODER WARM. This used to `clear` whenever the channel was
+    // momentarily "not configured" (app foreground / a tick before the Home surface
+    // is reattached), which destroyed the player - so coming back to Home rebuilt
+    // it from scratch and the first 1-2 s stuttered (device log: two
+    // `lock-video player-built` lines right at the return). A disabled switch or a
+    // missing file still clears; everything else only pauses.
+    if (!configured && (self.playback.path || self.playback.player || self.playback.loading)) {
+        BOOL off = !self.enabled || !self.path.length;
+        if (off) {
+            [self.playback clear];
+            if (LMVDiagnosticsEnabled.load()) LMVDiagnostic(@"desktop-player clear reason=off");
+        } else if (self.playback.wantsPlayback || !self.playback.frozen) {
+            [self.playback holdCurrentFrame:YES];
+            if (LMVDiagnosticsEnabled.load()) LMVDiagnostic(@"desktop-player hold reason=unconfigured");
+        }
+    }
     if (diagnostics) {
         // 1.30: the lines below (visual / surfaces / panel / overlay) each rebuild a
         // 3000+ character serialisation of the WHOLE view tree, and they build it on

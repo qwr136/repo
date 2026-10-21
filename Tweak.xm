@@ -1778,7 +1778,7 @@ static BOOL LMVSettingsAppProcess(void) {
         // directly instead of waiting for the 10 Hz audio timer to re-read the
         // state; the coveredNow flip (any cover appearing or leaving) pauses or
         // resumes it the same way - no timer beat in either direction.
-        LMVDesktopAudioPauseHook=^{ LMVAudioPauseTarget(@"Desktop"); };
+        LMVDesktopAudioPauseHook=^{ LMVAudioPauseTarget(@"Desktop"); if(LMVDiagnosticsEnabled.load()) LMVDiagnostic(@"desktop-audio pause (cover/off)"); };
         LMVDesktopAudioCoverHook=^(BOOL covered){
             if (covered) LMVAudioPauseTarget(@"Desktop");
             else LMVAudioResumeTarget(@"Desktop",LMVDesktopVideo.playback.player?LMVDesktopVideo.playback.player.currentTime:kCMTimeZero);

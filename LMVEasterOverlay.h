@@ -523,16 +523,45 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 // ART ONLY (the container keeps the drag rectangle axis-aligned).
 - (void)syncUprightRotation {
     if (!self.bubbleArt) return;
-    UIInterfaceOrientation orientation = self.bubble.window.windowScene.interfaceOrientation;
+    // 2.68: SpringBoard answers "portrait" for interfaceOrientation even when the
+    // screen is landscape, so the first attempt always computed 0 and the ball kept
+    // turning with the screen. The DEVICE orientation is the reliable input here.
+    UIWindow *window = self.bubble.window ?: self.window;
     CGFloat angle = 0;
-    if (orientation == UIInterfaceOrientationLandscapeLeft) angle = M_PI_2;
-    else if (orientation == UIInterfaceOrientationLandscapeRight) angle = -M_PI_2;
-    else if (orientation == UIInterfaceOrientationPortraitUpsideDown) angle = M_PI;
+    NSString *source = @"portrait";
+    UIInterfaceOrientation scene = window.windowScene.interfaceOrientation;
+    // 2.68: SpringBoard keeps its scenes in portrait and rotates the content, so
+    // `interfaceOrientation` answers portrait while the screen is landscape - the
+    // first attempt therefore always computed 0 and the ball still turned with the
+    // screen. Fall back to the DEVICE orientation, and counter-rotate the ART.
+    switch (scene) {
+        case UIInterfaceOrientationLandscapeLeft:  angle = -M_PI_2; source = @"scene"; break;
+        case UIInterfaceOrientationLandscapeRight: angle =  M_PI_2; source = @"scene"; break;
+        case UIInterfaceOrientationPortraitUpsideDown: angle = M_PI; source = @"scene"; break;
+        default: break;
+    }
+    if (angle == 0) {
+        UIDeviceOrientation device = UIDevice.currentDevice.orientation;
+        if (device == UIDeviceOrientationLandscapeLeft) { angle = -M_PI_2; source = @"device"; }
+        else if (device == UIDeviceOrientationLandscapeRight) { angle = M_PI_2; source = @"device"; }
+        else if (device == UIDeviceOrientationPortraitUpsideDown) { angle = M_PI; source = @"device"; }
+        else if (window.bounds.size.width > window.bounds.size.height + 1) { angle = -M_PI_2; source = @"bounds"; }
+    }
     CGAffineTransform want = CGAffineTransformMakeRotation(angle);
     if (!CGAffineTransformEqualToTransform(self.bubbleArt.transform, want)) {
         [CATransaction begin]; [CATransaction setDisableActions:YES];
         self.bubbleArt.transform = want;
         [CATransaction commit];
+    }
+    // One line per change, only with diagnostics on: angle + where it came from.
+    if (LMVDiagnosticsEnabled.load()) {
+        static CGFloat lastAngle = 999;
+        if (fabs(lastAngle - angle) > .01) {
+            lastAngle = angle;
+            LMVDiagnostic([NSString stringWithFormat:@"easter-upright angle=%.0f src=%@ device=%ld scene=%ld win=%.0fx%.0f",
+                angle * 180.0 / M_PI, source, (long)UIDevice.currentDevice.orientation,
+                (long)scene, window.bounds.size.width, window.bounds.size.height]);
+        }
     }
 }
 - (void)syncRotation {
@@ -826,6 +855,14 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)];
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openPanel)]; [tap requireGestureRecognizerToFail:pan];
         [self.bubble addGestureRecognizer:pan]; [self.bubble addGestureRecognizer:tap]; [root.view addSubview:self.bubble]; self.window.bubble = self.bubble;
+        // 2.68: the ball must re-aim the moment the device turns, not on the next
+        // image frame (a still image has no frame timer at all).
+        [NSNotificationCenter.defaultCenter addObserverForName:UIDeviceOrientationDidChangeNotification
+                                                        object:nil queue:NSOperationQueue.mainQueue
+                                                    usingBlock:^(NSNotification *note) {
+            LMVEasterManager *manager = self;
+            if (manager) [manager layout];
+        }];
     }
     self.window.windowLevel = level;
     NSString *path = LMVEasterImagePath(LMVEasterRead(@"EasterEggImage"));
