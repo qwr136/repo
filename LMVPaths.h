@@ -3,7 +3,7 @@
 
 // Keep user data on the original iOS root. Only installed jailbreak resources
 // are jbroot-relative; this is not a global replacement of every absolute path.
-#define LMV_VERSION_STRING @"2.52"
+#define LMV_VERSION_STRING @"2.53"
 
 
 #if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE) && THEOS_PACKAGE_SCHEME_ROOTHIDE

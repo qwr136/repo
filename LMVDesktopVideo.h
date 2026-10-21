@@ -988,7 +988,24 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
         BOOL appSurfaceUp=appCover;
         BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);
-        if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;
+        // 2.53: THE EXIT-EVENT ITSELF ENDS "AWAY". The old condition required
+        // appSurfaceUp to be true, i.e. the app's window still sitting in the window
+        // list. On a real exit that window disappears together with the cross-fade, so
+        // the condition could never become true: appAway stayed YES for the rest of the
+        // session, the desktop kept running at CoveredFPS instead of IdleFPS, and the
+        // settings page showed "实际 1，被遮挡" no matter how long the user waited on
+        // the Home screen. fg==1 means SpringBoard is frontmost, which IS the desktop.
+        // The 0.8 s window is kept so the resume never races the exit cross-fade (that
+        // is the play-stop-play stutter 1.25 removed); appSurfaceUp stays as an
+        // additional reason to end it, exactly as before.
+        if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {
+            self.appAway=NO;
+            // One line per release (the flag never comes back to YES without a new
+            // app), so "did leaving the app actually hand the desktop back?" is
+            // answerable from a capture instead of from the frame rate.
+            LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
+                (long)fg,(int)appSurfaceUp,appNow-self.appLeftAt]);
+        }
         if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {
             fullyCovered=NO;
             appCover=NO;
@@ -1074,7 +1091,17 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // release, froze the desktop again 0.44 s after the resume - the video
         // played, stopped, played: the reported "卡一下". Only a real switcher
         // CARD (the app surface coming back) ends the release.
-        if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;
+        // 2.53: ...but "the app is off screen" must not mean "forever". When the app's
+        // window vanished with the exit cross-fade, appSurfaceUp was false and this
+        // branch never ran, so appAway stayed YES for the rest of the session and the
+        // desktop never returned to IdleFPS (settings: 可见 20, 桌面时 30, 实际 1 被遮挡,
+        // minutes after leaving the app). fg==1 (SpringBoard frontmost) IS the desktop,
+        // so it ends the release once the 0.8 s cross-fade window is over.
+        if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {
+            self.appAway=NO;
+            LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
+                (long)foreground,(int)appSurfaceUp,appNow-self.appLeftAt]);
+        }
         // The release only has something to release when the app surface or the
         // remnant switcher shell is actually there - otherwise it must not touch
         // the geometry at all (the notification sheet and the Control Center are
