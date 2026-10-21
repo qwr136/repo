@@ -111,7 +111,20 @@
 // rotation lock off. All-but-upside-down matches the other floating system
 // surfaces; layout follows the root view bounds, so the ball moves with it.
 - (BOOL)shouldAutorotate { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAllButUpsideDown; }
+// 2.68: NEVER DRIVE THE SCENE. This window becomes KEY while the panel is open, and
+// a key window's controller decides the supported orientations for the whole scene.
+// AllButUpsideDown let OUR window rotate SpringBoard ("气球带着四周一起转"), even
+// with the rotation lock on. Answering only the ORIENTATION THAT ALREADY EXISTS
+// accepts the system's decision and can never change it.
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIInterfaceOrientation orientation = self.view.window.windowScene.interfaceOrientation;
+    switch (orientation) {
+        case UIInterfaceOrientationLandscapeLeft: return UIInterfaceOrientationMaskLandscapeLeft;
+        case UIInterfaceOrientationLandscapeRight: return UIInterfaceOrientationMaskLandscapeRight;
+        case UIInterfaceOrientationPortraitUpsideDown: return UIInterfaceOrientationMaskPortraitUpsideDown;
+        default: return UIInterfaceOrientationMaskPortrait;
+    }
+}
 
 @end
 
