@@ -65,6 +65,28 @@ static void LMVSettingsViewDidAppear(id self, SEL _cmd, BOOL animated) {
     [[LMVSettingsVideoChannel shared] refresh];
 }
 
+// 2.78: A NEW CELL IS OPAQUE FOR ONE FRAME unless we clear it the moment it lays
+// out. Polling once a second left a white flash on every scroll step, so the two
+// cell classes are swizzled in this process instead.
+static void (*LMVSettingsOriginalCellLayout)(id, SEL);
+static void (*LMVSettingsOriginalCollectionCellLayout)(id, SEL);
+
+static void LMVSettingsClearCell(id cell) {
+    if (![LMVSettingsVideoChannel shared].isActive) return;
+    if ([cell backgroundColor] != UIColor.clearColor) [cell setBackgroundColor:UIColor.clearColor];
+    UIView *content = [cell contentView];
+    if (content && content.backgroundColor != UIColor.clearColor) content.backgroundColor = UIColor.clearColor;
+}
+
+static void LMVSettingsCellLayout(id self, SEL _cmd) {
+    LMVSettingsOriginalCellLayout(self, _cmd);
+    LMVSettingsClearCell(self);
+}
+static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
+    LMVSettingsOriginalCollectionCellLayout(self, _cmd);
+    LMVSettingsClearCell(self);
+}
+
 @implementation LMVSettingsVideoChannel
 
 + (instancetype)shared {
@@ -96,6 +118,16 @@ static void LMVSettingsViewDidAppear(id self, SEL _cmd, BOOL animated) {
         if (did) {
             LMVSettingsOriginalViewDidAppear = (void *)method_getImplementation(did);
             method_setImplementation(did, (IMP)LMVSettingsViewDidAppear);
+        }
+        Method cell = class_getInstanceMethod(UITableViewCell.class, @selector(layoutSubviews));
+        if (cell) {
+            LMVSettingsOriginalCellLayout = (void *)method_getImplementation(cell);
+            method_setImplementation(cell, (IMP)LMVSettingsCellLayout);
+        }
+        Method collectionCell = class_getInstanceMethod(UICollectionViewCell.class, @selector(layoutSubviews));
+        if (collectionCell) {
+            LMVSettingsOriginalCollectionCellLayout = (void *)method_getImplementation(collectionCell);
+            method_setImplementation(collectionCell, (IMP)LMVSettingsCollectionCellLayout);
         }
     }
     // 2.77: the app returning from the background must resume playback at once.
@@ -266,14 +298,16 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
         self.host.tag = LMVSettingsVideoHostTag;
     }
     self.window = window;
-    UIView *container = table.superview ?: window;
+    // 2.78: ONE HOST FOR THE WHOLE WINDOW. In the split-view (landscape) two columns
+    // exist; a host under one table covered only that column. Every container and
+    // cell background is cleared instead, so the single window-level host shows
+    // through both columns.
+    UIView *container = window;
     // 2.76: the host sits at (table index - 1) BECAUSE IT TAKES THE SLOT IN FRONT OF
     // THE TABLE. Comparing against the table's own index made the check fail on every
     // tick, so the view was removed and re-inserted once a second - the reported
     // "文字一闪一闪".
-    NSInteger tableIndex = table.superview ? (NSInteger)[container.subviews indexOfObjectIdenticalTo:table] : 0;
-    if (tableIndex < 0) tableIndex = 0;
-    NSInteger wantIndex = MAX(0, tableIndex - 1);
+    NSInteger wantIndex = 0;
     NSInteger hostIndex = (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host];
     if (self.host.superview != container || hostIndex != wantIndex) {
         if (self.host.superview == container && hostIndex >= 0 && labs(hostIndex - wantIndex) != 1) {
@@ -284,7 +318,7 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
             [container insertSubview:self.host atIndex:(NSUInteger)wantIndex];
         }
     }
-    CGRect target = table ? table.frame : window.bounds;
+    CGRect target = window.bounds;
     if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
     // The app's own container views are opaque; clear the scroll backgrounds so the
     // video is visible behind the grouped rows.
