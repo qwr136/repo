@@ -491,11 +491,13 @@ static NSMapTable<UINavigationBar *, NSDictionary *> *LMVSettingsSavedAppearance
     UIWindow *window = self.window;
     // 2.84: sheets (our colour picker, the material picker) live in their own window
     // or in another scene's window; clearing only one window left them opaque.
+    // 2.89: OTHER TWEAKS' SHEETS. A third-party picker often adds its views straight
+    // to the WINDOW (or presents in its own window with no root controller), so
+    // walking rootViewController.view missed them. Walk the window itself.
     for (UIWindow *candidate in [self allWindows]) {
-        if (!candidate.rootViewController.view) continue;
-        NSInteger budget = 2000;
-        [self clearNavigationBarsIn:candidate.rootViewController.view depth:0];
-        [self clearSubtreeBackgrounds:candidate.rootViewController.view depth:0 budget:&budget];
+        NSInteger budget = 3000;
+        [self clearNavigationBarsIn:candidate depth:0];
+        [self clearSubtreeBackgrounds:candidate depth:0 budget:&budget];
     }
     if (!window.rootViewController.view) return;
     NSInteger budget = 2000;

@@ -422,7 +422,8 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     [self.view addSubview:dim];
 
     _sheet=[UIView new];
-    _sheet.backgroundColor=[UIColor secondarySystemBackgroundColor];
+    // 2.88: 透明化，让设置 App 的视频背景透出来（文字/控件保持原样）
+    _sheet.backgroundColor=UIColor.clearColor;
     _sheet.layer.cornerRadius=18;
     _sheet.layer.cornerCurve=kCACornerCurveContinuous;
     _sheet.clipsToBounds=YES;

@@ -27,6 +27,9 @@
     [super viewDidLoad];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
     self.tableView.rowHeight = 76;
+    // 2.88: 这一层是我们自己的弹窗，直接透明，视频才能透上来。
+    self.view.backgroundColor = UIColor.clearColor;
+    self.tableView.backgroundColor = UIColor.clearColor;
 }
 - (void)cancel { [self dismissViewControllerAnimated:YES completion:nil]; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)self.materials.count; }
@@ -35,6 +38,8 @@
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:identifier];
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
     NSDictionary *row = self.materials[indexPath.row];
+    cell.backgroundColor = UIColor.clearColor;
+    cell.contentView.backgroundColor = UIColor.clearColor;
     cell.textLabel.text = row[@"name"];
     cell.detailTextLabel.text = [self.selected isEqualToString:row[@"relative"]] ? @"当前使用" : nil;
     cell.accessoryType = [self.selected isEqualToString:row[@"relative"]] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
