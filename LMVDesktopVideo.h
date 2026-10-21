@@ -183,8 +183,6 @@ static void LMVDesktopVideoSuspend(void);
 // playing under a translucent sheet at fg==1, but the sound follows the cover,
 // not the player state.
 @property(nonatomic) BOOL coveredNow;
-// 2.70: cover debounce stamps (see -update).
-@property(nonatomic) CFTimeInterval coverSince, coverClearedSince;
 // 0.0.137: the FULL notification pull restored the wallpaper on purpose - the
 // suppress-lease must NOT be re-acquired while the sheet stays fully up, or
 // the same update would undo the restore (the lease block runs right after
@@ -1160,21 +1158,6 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // for the release (device log: layer=0 on the exit tick, which is the
     // wallpaper showing through before the video comes back).
     BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !appExitRelease;
-    // 2.70: A COVER MUST PERSIST BEFORE IT MAY FREEZE. Right after an app exits the
-    // app window / switcher shell flickers in and out for a few frames; the old test
-    // froze and resumed the video on every flicker, which is the "plays a couple of
-    // seconds, then hitches" report that survived 2.69 (device log: frozen 0/1/0/1
-    // while visible=1 home=1). 120 ms is below a human "pause" and far above a
-    // window-list flicker.
-    CFTimeInterval coverNow=CACurrentMediaTime();
-    if (covered) { self.coverClearedSince=0; if (self.coverSince<=0) self.coverSince=coverNow; }
-    else { self.coverSince=0; if (self.coverClearedSince<=0) self.coverClearedSince=coverNow; }
-    // 2.70: freeze IMMEDIATELY on a cover (unchanged contract), but only RESUME after
-    // the cover has been gone for 120 ms. The stutter was the resume side: right after
-    // an app exits the app window / switcher shell flickers in the window list, so the
-    // video froze, resumed, froze... Requiring a stable clear removes the churn without
-    // delaying a real freeze.
-    BOOL stableClear=!covered && self.coverClearedSince>0 && (coverNow-self.coverClearedSince>=.12);
     // 0.0.138: SpringBoard's own presentation state, OR-ed with the geometry.
     // It is the authority for the switcher and the Control Center: while either
     // is presented the desktop is not what the user is looking at, so the video
@@ -1443,10 +1426,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // are presented, and any full cover freezes.
         BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
             (visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
-            // 2.70: the 120 ms guard applies to a RESUME from freeze only. A surface
-            // that is not frozen yet must play immediately (that is the first-attach
-            // contract the native fixture checks).
-            play=visible && !covered && (!self.playback.frozen || stableClear) && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
+            play=visible && !covered && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
