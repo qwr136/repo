@@ -1395,7 +1395,14 @@ static void LMVSyncAudioVisibility(void) {
     // 0.0.133: the video may keep PLAYING under a translucent cover at fg==1
     // (the instant-reveal feel), but the sound follows the COVER, not the
     // player state - off whenever anything covers the desktop.
-    BOOL desktopVisible=desktop.wantsPlayback && !desktop.frozen && !LMVDesktopVideo.host.hidden &&
+    // 2.74: THE SWITCH IS PART OF VISIBILITY. The player keeps wantsPlayback after a
+    // switch-off (its state is intentionally preserved), so the old test left the
+    // separate audio player running - the reported "关掉开关还漏一下声音".
+    id desktopPref=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
+    id globalPref=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
+    BOOL desktopOn=(![globalPref isKindOfClass:NSNumber.class] || [globalPref boolValue]) &&
+        [desktopPref isKindOfClass:NSNumber.class] && [desktopPref boolValue];
+    BOOL desktopVisible=desktopOn && desktop.wantsPlayback && !desktop.frozen && !LMVDesktopVideo.host.hidden &&
         !LMVDesktopVideo.coveredNow && LMVAudioLayerExposed(desktop.renderLayer,LMVDesktopVideo.host.window);
     LMVAudioConsume(@"Desktop",desktop.path,desktop.revision,desktopVisible,desktop.player.currentTime);
     LMVLockVideoPlayback *cc=LMVControlCenterVideo.playback;

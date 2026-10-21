@@ -107,8 +107,8 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     // column views are opaque (white list pane / black detail pane) and they were
     // hiding the video, leaving only the divider gap visible. Clear every column
     // container by CLASS NAME (private, so no header dependency).
-    for (NSString *token in @[@"SplitViewController", @"Column", @"NavigationTransitionView",
-                              @"Platter", @"BackgroundView", @"CollectionView"]) {
+    for (NSString *token in @[@"SplitViewController", @"Column", @"TransitionView",
+                              @"DropShadowView", @"Platter", @"BackgroundView", @"CollectionView"]) {
         if ([name rangeOfString:token options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
     }
     return NO;
