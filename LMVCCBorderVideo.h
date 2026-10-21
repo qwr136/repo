@@ -189,25 +189,21 @@ static UIView *LMVCCBorderFindCard(UIWindow **windowOut,UIView **menuOut) {
     if(windowOut)*windowOut=nil;
     if(menuOut)*menuOut=nil;
     UIView *best=nil;UIWindow *bestWindow=nil;UIView *bestMenu=nil;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if(!LMVCCBorderSpringBoardWindow(window))continue;
-            NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
-            NSUInteger budget=600;
-            while(pending.count && budget) {
-                --budget;
-                UIView *node=pending.lastObject;[pending removeLastObject];
-                for(UIView *child in node.subviews) {
-                    if(!budget--)break;
-                    if(child.tag==LMVCCBorderHostTag || child.hidden || child.alpha<.01)continue;
-                    [pending addObject:child];
-                    if(!LMVCCBorderMenuKind(child))continue;
-                    UIView *card=LMVCCBorderCardIn(child,window);
-                    if(card){best=card;bestWindow=window;bestMenu=child;break;}
-                }
-                if(best)break;
+    // 2.55: shared snapshot (already filtered to visible windows).
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        if(!LMVCCBorderSpringBoardWindow(window))continue;
+        NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+        NSUInteger budget=600;
+        while(pending.count && budget) {
+            --budget;
+            UIView *node=pending.lastObject;[pending removeLastObject];
+            for(UIView *child in node.subviews) {
+                if(!budget--)break;
+                if(child.tag==LMVCCBorderHostTag || child.hidden || child.alpha<.01)continue;
+                [pending addObject:child];
+                if(!LMVCCBorderMenuKind(child))continue;
+                UIView *card=LMVCCBorderCardIn(child,window);
+                if(card){best=card;bestWindow=window;bestMenu=child;break;}
             }
             if(best)break;
         }
@@ -394,7 +390,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 }
 @end
 static void LMVCCBorderRetune(void) {
-    NSTimeInterval want=LMVCCBorderEnabled?LMVTuneProbeInterval(@"CCBorder"):.5;
+    NSTimeInterval want=LMVCCBorderEnabled?LMVTuneProbeInterval(@"CCBorder"):LMVTuneIdleInterval;
     if(LMVCCBorderTimer && fabs(LMVCCBorderTimer.timeInterval-want)<.001)return;
     [LMVCCBorderTimer invalidate];
     LMVCCBorderTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCCBorderVideoRefresh(NO);}];

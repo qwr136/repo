@@ -11,6 +11,13 @@
 // bundle, so everything here is `static` and depends only on Foundation.
 
 static NSString *const LMVTuneDomain = @"com.minis.lockmessagevideo";
+// 2.55: what a DISABLED channel polls at. It used to be 0.5 s (2 s for GS/CopyLogX) so
+// the channel would notice its switch being turned on - but every switch write posts
+// com.minis.lockmessagevideo/preferencesChanged, and that runs LMVRefresh(YES), which
+// re-creates the timer immediately. Eight idle channels at 2 Hz were 16 wakeups a
+// second that could never find anything; 30 s is a backstop in case that notification
+// is ever lost, and costs 0.27 wakeups a second across all eight.
+static const NSTimeInterval LMVTuneIdleInterval = 30.0;
 // 2.50: the runtime report MUST live in its own domain. Writing Runtime.* into the
 // settings domain and then calling CFPreferencesAppSynchronize from SpringBoard
 // flushed that process's stale snapshot back to disk, overwriting the value the user

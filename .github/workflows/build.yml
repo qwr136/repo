@@ -73,6 +73,7 @@ jobs:
           check python3 tests/lock-attached-motion.py
           check python3 tests/easter-image-replacement.py
           check python3 tests/ui-section-order.py
+          check python3 tests/probe-windows.py
           check python3 tests/rotating-panel.py
           check python3 tests/lock-reachability.py
           check python3 tests/desktop-video-host.py

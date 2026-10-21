@@ -96,13 +96,10 @@ static NSString *LMVCVWindowReport(void) {
     return out.length?out:@"none";
 }
 static UIWindow *LMVCVPanelWindow(void) {
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            NSString *name=NSStringFromClass(window.class);
-            if([name containsString:@"CVPanel"] || [name containsString:@"CopyVault"])return window;
-        }
+    // 2.55: shared snapshot (already filtered to visible windows).
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        NSString *name=NSStringFromClass(window.class);
+        if([name containsString:@"CVPanel"] || [name containsString:@"CopyVault"])return window;
     }
     return nil;
 }
@@ -444,7 +441,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 }
 @end
 static void LMVCVPanelRetune(void) {
-    NSTimeInterval want=LMVCVPanelEnabled?LMVTuneProbeInterval(@"CV"):.5;
+    NSTimeInterval want=LMVCVPanelEnabled?LMVTuneProbeInterval(@"CV"):LMVTuneIdleInterval;
     if(LMVCVPanelTimer && fabs(LMVCVPanelTimer.timeInterval-want)<.001)return;
     [LMVCVPanelTimer invalidate];
     LMVCVPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyVaultPanelVideoRefresh(NO);}];

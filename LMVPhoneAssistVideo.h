@@ -184,18 +184,14 @@ static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
         UIView *card=LMVPhoneAssistCard(LMVPhoneAssistLastWindow);
         if(card) {if(windowOut)*windowOut=LMVPhoneAssistLastWindow;return card;}
     }
-    UIWindow *home=nil;UIView *best=nil;UIWindow *bestWindow=nil;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            UIView *card=LMVPhoneAssistCard(window);
-            if(!card)continue;
-            if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])
-                {home=window;best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";break;}
-            if(!best) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";}
-        }
-        if(home)break;
+    UIView *best=nil;UIWindow *bestWindow=nil;
+    // 2.55: shared snapshot (already filtered to visible windows).
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        UIView *card=LMVPhoneAssistCard(window);
+        if(!card)continue;
+        if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])
+            {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";break;}
+        if(!best) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";}
     }
     // 2.34: NO STRUCTURAL FALLBACK. 2.26 added "any window carrying a Dimming /
     // Backdrop shell" as a rename-proof net, and it did exactly what a net does: the
@@ -467,7 +463,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 }
 @end
 static void LMVPhoneAssistRetune(void) {
-    NSTimeInterval want=LMVPhoneAssistEnabled?LMVTuneProbeInterval(@"PA"):.5;
+    NSTimeInterval want=LMVPhoneAssistEnabled?LMVTuneProbeInterval(@"PA"):LMVTuneIdleInterval;
     if(LMVPhoneAssistTimer && fabs(LMVPhoneAssistTimer.timeInterval-want)<.001)return;
     [LMVPhoneAssistTimer invalidate];
     LMVPhoneAssistTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVPhoneAssistVideoRefresh(NO);}];

@@ -70,14 +70,11 @@ static BOOL LMVMyrtleWindowName(NSString *name) {
 static UIWindow *LMVMyrtlePanelWindow(NSUInteger skip) {
     UIWindow *best=nil;
     NSUInteger seen=0;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if(!LMVMyrtleWindowName(NSStringFromClass(window.class)))continue;
-            if(seen++<skip)continue;
-            if(!best || window.windowLevel>best.windowLevel) best=window;
-        }
+    // 2.55: shared snapshot (already filtered to visible windows).
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        if(!LMVMyrtleWindowName(NSStringFromClass(window.class)))continue;
+        if(seen++<skip)continue;
+        if(!best || window.windowLevel>best.windowLevel) best=window;
     }
     return best;
 }
@@ -303,7 +300,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 }
 @end
 static void LMVMyrtlePanelRetune(void) {
-    NSTimeInterval want=LMVMyrtlePanelEnabled?LMVTuneProbeInterval(@"Myrtle"):.5;
+    NSTimeInterval want=LMVMyrtlePanelEnabled?LMVTuneProbeInterval(@"Myrtle"):LMVTuneIdleInterval;
     if(LMVMyrtlePanelTimer && fabs(LMVMyrtlePanelTimer.timeInterval-want)<.001)return;
     [LMVMyrtlePanelTimer invalidate];
     LMVMyrtlePanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVMyrtlePanelVideoRefresh(NO);}];

@@ -188,21 +188,17 @@ static UIView *LMVGlassSuiteFindCard(UIWindow **windowOut) {
     if(cached)return cached;
     LMVGlassSuiteCardRef=nil;
     UIView *best=nil;UIWindow *bestWindow=nil;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            NSString *name=NSStringFromClass(window.class);
-            BOOL skipWindow=NO;
-            for(NSString *word in @[@"SystemAperture",@"TouchVisualizer",@"TextEffects",@"RecordingIndicator"])
-                if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){skipWindow=YES;break;}
-            if(skipWindow)continue;
-            UIView *card=LMVGlassSuiteShallowCard(window);
-            if(!card)continue;
-            if([name containsString:@"SBHomeScreen"]) {best=card;bestWindow=window;break;}
-            if(!best) {best=card;bestWindow=window;}
-        }
-        if(best && [NSStringFromClass(bestWindow.class) containsString:@"SBHomeScreen"])break;
+    // 2.55: shared snapshot (already filtered to visible windows).
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        NSString *name=NSStringFromClass(window.class);
+        BOOL skipWindow=NO;
+        for(NSString *word in @[@"SystemAperture",@"TouchVisualizer",@"TextEffects",@"RecordingIndicator"])
+            if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){skipWindow=YES;break;}
+        if(skipWindow)continue;
+        UIView *card=LMVGlassSuiteShallowCard(window);
+        if(!card)continue;
+        if([name containsString:@"SBHomeScreen"]) {best=card;bestWindow=window;break;}
+        if(!best) {best=card;bestWindow=window;}
     }
     if(best) {
         LMVGlassSuiteCardRef=best;
@@ -446,7 +442,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
 // so a missed preference notification cannot leave the channel dead). `tolerance`
 // lets the system coalesce the wake-ups.
 static NSTimeInterval LMVGlassSuiteInterval(void) {
-    if(!LMVGlassSuiteEnabled)return 2.0;
+    if(!LMVGlassSuiteEnabled)return LMVTuneIdleInterval;
     // 2.39: the waiting gear is the channel's own ProbeHz (default 5Hz = 0.2s).
     NSTimeInterval base=LMVTuneProbeInterval(@"GS");
     // With the sheet up we only babysit it, so never slower than 4Hz.

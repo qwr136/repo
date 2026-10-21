@@ -144,7 +144,10 @@ assert 'LMVATPanelEnabled=(![globalValue isKindOfClass:NSNumber.class] || [globa
 # No player/UI while the channel is off, and a poll that never runs hot when idle.
 assert 'if(!LMVATPanelEnabled || !LMVATPanelPath.length || !LMVATPanelRevision.length) {' in module
 assert 'if(!LMVATPanelVideo)LMVATPanelVideo=[LMVATPanelVideoManager new];' in module
-assert 'NSTimeInterval want=LMVATPanelEnabled?LMVTuneProbeInterval(@"AT"):.5;' in module
+# 2.55: a disabled channel drops from 0.5 s to LMVTuneIdleInterval (30 s). Every switch
+# write posts preferencesChanged, which re-creates the timer, so the idle poll only has
+# to be a backstop - the behaviour under test (never hot when idle) is stricter now.
+assert 'NSTimeInterval want=LMVATPanelEnabled?LMVTuneProbeInterval(@"AT"):LMVTuneIdleInterval;' in module
 assert 'dispatch_async(dispatch_get_main_queue()' not in module  # main run loop only
 
 # ---- 1.40: the desktop long-press menu is NOT the AppTools panel ------------

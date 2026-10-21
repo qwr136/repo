@@ -47,12 +47,10 @@ static BOOL LMVATPanelEnvironment(void) {
 }
 // AppTools owns no window - this is the window it presents INTO.
 static UIWindow *LMVATPanelHomeWindow(void) {
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])return window;
-        }
+    // 2.55: read the shared snapshot instead of walking every scene and window; the
+    // entries are already filtered to visible, opaque-enough windows.
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])return window;
     }
     return nil;
 }
@@ -294,7 +292,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 }
 @end
 static void LMVATPanelRetune(void) {
-    NSTimeInterval want=LMVATPanelEnabled?LMVTuneProbeInterval(@"AT"):.5;
+    NSTimeInterval want=LMVATPanelEnabled?LMVTuneProbeInterval(@"AT"):LMVTuneIdleInterval;
     if(LMVATPanelTimer && fabs(LMVATPanelTimer.timeInterval-want)<.001)return;
     [LMVATPanelTimer invalidate];
     LMVATPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVATPanelVideoRefresh(NO);}];

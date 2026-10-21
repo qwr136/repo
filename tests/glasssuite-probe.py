@@ -61,7 +61,9 @@ assert 'if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllO
 
 # ---- 5) 三档轮询 + tolerance -------------------------------------------------
 assert 'static NSTimeInterval LMVGlassSuiteInterval(void)' in src
-assert 'if(!LMVGlassSuiteEnabled)return 2.0;' in src
+# 2.55: idle gear is LMVTuneIdleInterval (30 s) instead of 2 s; switching the channel on
+# posts preferencesChanged, so the timer is rebuilt immediately.
+assert 'if(!LMVGlassSuiteEnabled)return LMVTuneIdleInterval;' in src
 assert 'if(LMVGlassSuiteCardRef)return MIN(base,.25);' in src
 # 2.39: the waiting gear is the channel's ProbeHz (default 5Hz = 0.2s).
 assert 'LMVTuneProbeInterval(@"GS")' in src

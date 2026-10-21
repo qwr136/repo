@@ -223,41 +223,39 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
     // 2.37: identity window first. Only that one window is walked, and if it exists
     // but the panel is closed we stop here - other windows cannot be CopyLogX.
     BOOL identityPresent=NO;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(!LMVCopyLogXIdentityWindow(window))continue;
-            identityPresent=YES;
-            if(window.hidden || window.alpha<.01)continue;
-            UIView *card=LMVCopyLogXCardInIdentityWindow(window);
-            if(card) {LMVCopyLogXScan=@"identity";if(windowOut)*windowOut=window;return card;}
-        }
+    // 2.55: the shared list, hiding included - "present but hidden" is the answer that
+    // stops the structural fallback, so filtering hidden windows out here would send
+    // every closed-panel tick into the expensive scan.
+    for(UIWindow *window in LMVProbeAllWindows()) {
+        if(!LMVCopyLogXIdentityWindow(window))continue;
+        identityPresent=YES;
+        if(window.hidden || window.alpha<.01)continue;
+        UIView *card=LMVCopyLogXCardInIdentityWindow(window);
+        if(card) {LMVCopyLogXScan=@"identity";if(windowOut)*windowOut=window;return card;}
     }
     if(identityPresent) {LMVCopyLogXScan=@"identity";return nil;}
     // Structural fallback: kept only for a future build that drops the controller
     // name. It is what 2.36 did, ratios and all.
     LMVCopyLogXScan=@"structural";
     UIView *best=nil;UIWindow *bestWindow=nil;CGFloat bestArea=0;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if(!LMVCopyLogXWindowKind(window))continue;
-            NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
-            NSUInteger budget=600;
-            while(pending.count && budget) {
-                UIView *node=pending.lastObject;[pending removeLastObject];
-                for(UIView *child in node.subviews) {
-                    if(!budget--)break;
-                    if(child.tag==LMVCopyLogXHostTag || child.hidden || child.alpha<.01)continue;
-                    [pending addObject:child];
-                    if(!LMVCopyLogXCardKind(window,child))continue;
-                    CGRect frame=[child convertRect:child.bounds toView:window];
-                    CGFloat visible=LMVCopyLogXVisibleArea(frame,window.bounds);
-                    // A tighter fit to the sheet edges wins when several match.
-                    if(LMVCopyLogXHasList(child)) visible*=2;
-                    if(visible>bestArea){bestArea=visible;best=child;bestWindow=window;}
-                }
+    // 2.55: a hidden window cannot carry a visible card, so the shared visible list is
+    // enough here.
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        if(!LMVCopyLogXWindowKind(window))continue;
+        NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
+        NSUInteger budget=600;
+        while(pending.count && budget) {
+            UIView *node=pending.lastObject;[pending removeLastObject];
+            for(UIView *child in node.subviews) {
+                if(!budget--)break;
+                if(child.tag==LMVCopyLogXHostTag || child.hidden || child.alpha<.01)continue;
+                [pending addObject:child];
+                if(!LMVCopyLogXCardKind(window,child))continue;
+                CGRect frame=[child convertRect:child.bounds toView:window];
+                CGFloat visible=LMVCopyLogXVisibleArea(frame,window.bounds);
+                // A tighter fit to the sheet edges wins when several match.
+                if(LMVCopyLogXHasList(child)) visible*=2;
+                if(visible>bestArea){bestArea=visible;best=child;bestWindow=window;}
             }
         }
     }
@@ -461,7 +459,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
 // 2.37: same three gears as the GS channel. The identity path only ever walks one
 // window, so even the "waiting" gear is cheap.
 static NSTimeInterval LMVCopyLogXInterval(void) {
-    if(!LMVCopyLogXEnabled)return 2.0;
+    if(!LMVCopyLogXEnabled)return LMVTuneIdleInterval;
     NSTimeInterval base=LMVTuneProbeInterval(@"CopyLogX");
     if(LMVCopyLogXCardLive)return MIN(base,.25);
     return base;

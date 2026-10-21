@@ -181,6 +181,8 @@ static void LMVDiagnostic(NSString *event) {
 }
 
 #import "LMVLockVideo.h"
+// 2.55: the shared visible-window snapshot every panel channel probes through.
+#import "LMVProbeWindows.h"
 #import "LMVDesktopVideo.h"
 #import "LMVControlCenterVideo.h"
 #import "LMVHomeMenuVideo.h"

@@ -134,12 +134,9 @@ static void LMVSquidPanelDumpTree(UIView *root,NSInteger depth,NSMutableString *
     }
 }
 static UIWindow *LMVSquidPanelWindow(void) {
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(window.hidden || window.alpha<.01)continue;
-            if([NSStringFromClass(window.class) containsString:@"SGPanel"])return window;
-        }
+    // 2.55: shared snapshot (already filtered to visible windows).
+    for(UIWindow *window in LMVProbeVisibleWindows()) {
+        if([NSStringFromClass(window.class) containsString:@"SGPanel"])return window;
     }
     return nil;
 }
@@ -1470,7 +1467,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 }
 @end
 static void LMVSquidPanelRetune(void) {
-    NSTimeInterval want=LMVSquidPanelEnabled?LMVTuneProbeInterval(@"SquidPanel"):.5;
+    NSTimeInterval want=LMVSquidPanelEnabled?LMVTuneProbeInterval(@"SquidPanel"):LMVTuneIdleInterval;
     if(LMVSquidPanelTimer && fabs(LMVSquidPanelTimer.timeInterval-want)<.001)return;
     [LMVSquidPanelTimer invalidate];
     LMVSquidPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVSquidPanelVideoRefresh(NO);}];
