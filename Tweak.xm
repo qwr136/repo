@@ -1711,14 +1711,15 @@ static void LMVPanelAppearKick(void) {
         LMVHomeMenuVideoRefresh(NO);
     });
 }
+// 2.65: the Settings app is a SEPARATE process. Only the settings-video channel
+// runs there; every SpringBoard path below must stay untouched.
+static BOOL LMVSettingsAppProcess(void) {
+    NSString *identifier = NSBundle.mainBundle.bundleIdentifier;
+    return [identifier isEqualToString:@"com.apple.Preferences"];
+}
 %ctor {
     @autoreleasepool {
-        // 2.65: the Settings app is a SEPARATE process. Only the settings-video
-        // channel runs there; every SpringBoard path below must stay untouched.
-        if ([[NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.Preferences"]]) {
-            LMVSettingsVideoStart();
-            return;
-        }
+        if (LMVSettingsAppProcess()) { LMVSettingsVideoStart(); return; }
         LMVDiagnosticQueue=dispatch_queue_create("com.minis.lockmessagevideo.diagnostics",DISPATCH_QUEUE_SERIAL);
         LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];

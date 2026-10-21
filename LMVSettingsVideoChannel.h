@@ -39,6 +39,6 @@ static inline BOOL LMVSettingsVideoEnabled(void) {
 - (void)stop;
 @end
 
-static void LMVSettingsVideoStart(void) {
+static inline void LMVSettingsVideoStart(void) {
     [[LMVSettingsVideoChannel shared] start];
 }
