@@ -1436,9 +1436,13 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // screen freezes; the layer is hidden and the wallpaper restored on the
         // same tick. The switcher and the Control Center freeze as soon as they
         // are presented, and any full cover freezes.
+        // 2.70: debounce ONLY while SpringBoard is frontmost. When a real app is in
+        // front (foreground != 1) the cover is unambiguous and must freeze at once -
+        // that is the long-standing contract the native fixture checks.
+        BOOL coverCounts=(foreground==1) ? stableCover : covered;
         BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
-            (visible && stableCover && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
-            play=visible && !stableCover && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
+            (visible && coverCounts && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
+            play=visible && !coverCounts && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
