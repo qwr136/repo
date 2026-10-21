@@ -43,6 +43,13 @@ static void LMVSettingsWrite(NSString *key, id value) {
 @property(nonatomic, copy) NSString *path;
 @property(nonatomic) BOOL active;
 + (instancetype)shared;
+- (BOOL)enabled;
+- (NSString *)selectedPath;
+- (UIWindow *)currentWindow;
+- (void)installInWindow:(UIWindow *)window;
+- (void)applyTransparency:(BOOL)transparent;
+- (void)buildPlayerForPath:(NSString *)path;
+- (void)updateAudio;
 - (void)refresh;
 - (void)stop;
 @end

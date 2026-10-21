@@ -128,7 +128,7 @@ fixture = r'''
 - (void)removeFromSuperview { _superview=nil; }
 @end
 @interface RotationOwner : NSObject
-@property(strong) RotationView *window, *bubble, *bubbleImage;
+@property(strong) RotationView *window, *bubble, *bubbleImage, *bubbleArt;
 @property(strong) RotationView *embedHost;
 @property(strong) id panel;
 @property LMVEasterDisplayControls displayControls;
@@ -137,6 +137,9 @@ fixture = r'''
 @property NSInteger reports;
 @property(strong) NSString *lastReason;
 - (void)syncRotation;
+// 2.63: -layout calls this; the upright compensation is a view-level transform
+// that this QuartzCore double does not model, so it is a no-op here.
+- (void)syncUprightRotation;
 - (void)hide;
 - (void)closePanel;
 - (void)recordScreenBlank;
@@ -147,6 +150,7 @@ fixture = r'''
 // checked above. Only inputs/close containment are doubles; sync/hide/blank/
 // dealloc below are the exact production method bodies.
 - (void)closePanel { if (!self.panel) return; self.panel=nil; [self syncRotation]; }
+- (void)syncUprightRotation {}
 - (void)reportWindow:(NSString *)reason { self.reports++; self.lastReason=reason; }
 '''
 fixture += sync + hide + blank + dealloc + '@end\n'

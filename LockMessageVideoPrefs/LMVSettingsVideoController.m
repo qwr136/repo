@@ -147,7 +147,7 @@
         if (![@[@"mov", @"mp4", @"m4v"] containsObject:name.pathExtension.lowercaseString]) continue;
         NSMutableDictionary *row = [@{@"name": name.lastPathComponent, @"relative": name} mutableCopy];
         NSString *full = [folder stringByAppendingPathComponent:name];
-        AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:full] options:nil]];
+        AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:full] options:nil]];
         generator.appliesPreferredTrackTransform = YES;
         generator.maximumSize = CGSizeMake(200, 200);
         CGImageRef image = [generator copyCGImageAtTime:CMTimeMake(1, 10) actualTime:NULL error:nil];
