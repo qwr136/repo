@@ -1443,7 +1443,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // are presented, and any full cover freezes.
         BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
             (visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
-            play=visible && !covered && stableClear && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
+            // 2.70: the 120 ms guard applies to a RESUME from freeze only. A surface
+            // that is not frozen yet must play immediately (that is the first-attach
+            // contract the native fixture checks).
+            play=visible && !covered && (!self.playback.frozen || stableClear) && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
         // Transition-only state changes. Calling setVisible:NO on every frozen
         // tick cleared frozen then re-applied it, hiding/showing layers each pass.
         if(freeze) {
