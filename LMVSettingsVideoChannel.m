@@ -328,16 +328,18 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
         self.host.tag = LMVSettingsVideoHostTag;
     }
     self.window = window;
-    // 2.78: ONE HOST FOR THE WHOLE WINDOW. In the split-view (landscape) two columns
-    // exist; a host under one table covered only that column. Every container and
-    // cell background is cleared instead, so the single window-level host shows
-    // through both columns.
-    UIView *container = window;
+    // 2.81: BACK TO THE 2.77 MOUNT POINT. The window-level host (2.78-2.80) never
+    // showed: the Settings app's own window/root chain keeps painting above it, while
+    // a host directly under the table always did. Proven by the user: 2.77 visible,
+    // 2.78+ invisible.
+    UIView *container = table.superview ?: window;
     // 2.76: the host sits at (table index - 1) BECAUSE IT TAKES THE SLOT IN FRONT OF
     // THE TABLE. Comparing against the table's own index made the check fail on every
     // tick, so the view was removed and re-inserted once a second - the reported
     // "文字一闪一闪".
-    NSInteger wantIndex = 0;
+    NSInteger tableIndex = table.superview ? (NSInteger)[container.subviews indexOfObjectIdenticalTo:table] : 0;
+    if (tableIndex < 0) tableIndex = 0;
+    NSInteger wantIndex = MAX(0, tableIndex - 1);
     NSInteger hostIndex = (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host];
     if (self.host.superview != container || hostIndex != wantIndex) {
         if (self.host.superview == container && hostIndex >= 0 && labs(hostIndex - wantIndex) != 1) {
@@ -348,7 +350,7 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
             [container insertSubview:self.host atIndex:(NSUInteger)wantIndex];
         }
     }
-    CGRect target = window.bounds;
+    CGRect target = table ? table.frame : window.bounds;
     if (!CGRectEqualToRect(self.host.frame, target)) self.host.frame = target;
     // The app's own container views are opaque; clear the scroll backgrounds so the
     // video is visible behind the grouped rows.
@@ -386,8 +388,10 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
     UIWindow *window = self.window;
     // 2.78: the host lives in the WINDOW (both split-view columns see it); only the
     // tables are re-cleared here, never the host's container.
-    if (window && self.host.superview != window) [self installIfNeeded];
-    if (window && !CGRectEqualToRect(self.host.frame, window.bounds)) self.host.frame = window.bounds;
+    UITableView *liveTable = window ? [self visibleTableInWindow:window] : nil;
+    if (window && (!self.host.superview || self.host.superview == window ||
+                   (liveTable && self.host.superview != liveTable.superview)))
+        [self installIfNeeded];
     for (UITableView *table in [self allTablesInWindow:window]) [self clearCellBackgroundsIn:table];
     // 2.79: collection-view pages (some Settings pages use them) get the same treatment.
     NSMutableArray<UIScrollView *> *scrolls = [NSMutableArray array];
