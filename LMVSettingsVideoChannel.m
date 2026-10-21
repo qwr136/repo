@@ -177,7 +177,7 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
 
 // The Settings app paints its list on a UIScrollView/UINavigationController view.
 // Only background colours are touched, and each one is remembered.
-static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
+static NSMapTable<UIView *, UIColor *> *LMVSettingsSavedColors;   // 2.85: weak keys (dangling restore crashed Settings)
 
 - (BOOL)needsClear:(UIView *)view {
     if ([view isKindOfClass:UIScrollView.class] || [view isKindOfClass:UITableView.class] ||
@@ -207,9 +207,8 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
     (*budget)--;
     if (view == self.host) return;
     if (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor) > .001) {
-        if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
-        NSValue *key = [NSValue valueWithNonretainedObject:view];
-        if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = view.backgroundColor;
+        if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
+        if (![LMVSettingsSavedColors objectForKey:view]) [LMVSettingsSavedColors setObject:view.backgroundColor forKey:view];
         view.backgroundColor = UIColor.clearColor;
     }
     if (view.opaque) view.opaque = NO;
@@ -229,9 +228,8 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
         if ([view isKindOfClass:UICollectionView.class])
             ((UICollectionView *)view).backgroundView = nil;
         if (view.backgroundColor && view.backgroundColor != UIColor.clearColor) {
-            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
-            NSValue *key = [NSValue valueWithNonretainedObject:view];
-            if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = view.backgroundColor;
+            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
+            if (![LMVSettingsSavedColors objectForKey:view]) [LMVSettingsSavedColors setObject:view.backgroundColor forKey:view];
             view.backgroundColor = UIColor.clearColor;
         }
     }
@@ -239,10 +237,9 @@ static NSMutableDictionary<NSValue *, UIColor *> *LMVSettingsSavedColors;
 }
 
 - (void)restoreBackgrounds {
-    for (NSValue *key in LMVSettingsSavedColors) {
-        UIView *view = [key nonretainedObjectValue];
-        UIColor *color = LMVSettingsSavedColors[key];
-        if (view && color) view.backgroundColor = color;
+    for (UIView *view in LMVSettingsSavedColors) {
+        UIColor *color = [LMVSettingsSavedColors objectForKey:view];
+        if (view && color) view.backgroundColor = color;   // weak key: nil when deallocated
     }
     [LMVSettingsSavedColors removeAllObjects];
 }
@@ -335,16 +332,14 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
 - (void)clearCellBackgroundsIn:(UITableView *)table {
     for (UITableViewCell *cell in table.visibleCells) {
         if (cell.backgroundColor && cell.backgroundColor != UIColor.clearColor) {
-            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
-            NSValue *key = [NSValue valueWithNonretainedObject:cell];
-            if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = cell.backgroundColor;
+            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
+            if (![LMVSettingsSavedColors objectForKey:cell]) [LMVSettingsSavedColors setObject:cell.backgroundColor forKey:cell];
             cell.backgroundColor = UIColor.clearColor;
         }
         UIView *content = cell.contentView;
         if (content.backgroundColor && content.backgroundColor != UIColor.clearColor) {
-            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
-            NSValue *key = [NSValue valueWithNonretainedObject:content];
-            if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = content.backgroundColor;
+            if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
+            if (![LMVSettingsSavedColors objectForKey:content]) [LMVSettingsSavedColors setObject:content.backgroundColor forKey:content];
             content.backgroundColor = UIColor.clearColor;
         }
         for (UIView *sub in content.subviews)
@@ -393,8 +388,8 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
     // video is visible behind the grouped rows.
     if (root.backgroundColor && root.backgroundColor != UIColor.clearColor) {
         if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMutableDictionary dictionary];
-        NSValue *key = [NSValue valueWithNonretainedObject:root];
-        if (!LMVSettingsSavedColors[key]) LMVSettingsSavedColors[key] = root.backgroundColor;
+        if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
+        if (![LMVSettingsSavedColors objectForKey:root]) [LMVSettingsSavedColors setObject:root.backgroundColor forKey:root];
         root.backgroundColor = UIColor.clearColor;
     }
     [self clearBackgroundsIn:root depth:0];
@@ -406,20 +401,19 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
 // 2.83: THE NAV BAR PAINTS THROUGH ITS APPEARANCE, not only through view backgrounds,
 // so the top strip stayed opaque ("最上面还有些"). Clearing the appearance's colour,
 // effect and shadow is what makes it transparent; the originals are kept for restore.
-static NSMutableDictionary<NSValue *, NSDictionary *> *LMVSettingsSavedAppearances;
+static NSMapTable<UINavigationBar *, NSDictionary *> *LMVSettingsSavedAppearances;
 
 - (void)clearNavigationBarsIn:(UIView *)view depth:(NSInteger)depth {
     if (!view || depth > 14) return;
     if ([view isKindOfClass:UINavigationBar.class]) {
         UINavigationBar *bar = (UINavigationBar *)view;
-        NSValue *key = [NSValue valueWithNonretainedObject:bar];
-        if (!LMVSettingsSavedAppearances) LMVSettingsSavedAppearances = [NSMutableDictionary dictionary];
-        if (!LMVSettingsSavedAppearances[key]) {
+        if (!LMVSettingsSavedAppearances) LMVSettingsSavedAppearances = [NSMapTable weakToStrongObjectsMapTable];
+        if (![LMVSettingsSavedAppearances objectForKey:bar]) {
             NSMutableDictionary *saved = [NSMutableDictionary dictionary];
             if (bar.standardAppearance) saved[@"standard"] = bar.standardAppearance;
             if (bar.scrollEdgeAppearance) saved[@"scroll"] = bar.scrollEdgeAppearance;
             if (bar.compactAppearance) saved[@"compact"] = bar.compactAppearance;
-            LMVSettingsSavedAppearances[key] = saved;
+            [LMVSettingsSavedAppearances setObject:saved forKey:bar];
         }
         UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
         [appearance configureWithTransparentBackground];
@@ -435,10 +429,9 @@ static NSMutableDictionary<NSValue *, NSDictionary *> *LMVSettingsSavedAppearanc
 }
 
 - (void)restoreNavigationBarAppearances {
-    for (NSValue *key in LMVSettingsSavedAppearances) {
-        UINavigationBar *bar = [key nonretainedObjectValue];
-        NSDictionary *saved = LMVSettingsSavedAppearances[key];
-        if (!bar) continue;
+    for (UINavigationBar *bar in LMVSettingsSavedAppearances) {
+        NSDictionary *saved = [LMVSettingsSavedAppearances objectForKey:bar];
+        if (!bar || !saved) continue;
         if (saved[@"standard"]) bar.standardAppearance = saved[@"standard"];
         if (saved[@"scroll"]) bar.scrollEdgeAppearance = saved[@"scroll"];
         if (saved[@"compact"]) bar.compactAppearance = saved[@"compact"];
@@ -556,7 +549,7 @@ static NSMutableDictionary<NSValue *, NSDictionary *> *LMVSettingsSavedAppearanc
             layer ? layer.frame.size.width : 0, layer ? layer.frame.size.height : 0,
             layer ? (int)layer.hidden : -1,
             layer ? (int)((AVPlayerLayer *)layer).readyForDisplay : -1,
-            (unsigned long)LMVSettingsSavedColors.count,
+            (unsigned long)[LMVSettingsSavedColors count],
             (unsigned long)window.subviews.count]);
         NSMutableString *tree = [NSMutableString string];
         NSUInteger budget = 400;
