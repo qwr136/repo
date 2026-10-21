@@ -99,15 +99,19 @@ static void LMVSettingsCollectionCellLayout(id self, SEL _cmd) {
 // clear while the channel is active; decoration layers are still hidden by the sweep.
 static void (*LMVSettingsOriginalSetBackgroundColor)(id, SEL, UIColor *);
 
+// 2.90: NO CLASS LIST AT ALL. The diagnostic proved the white is transient: it is
+// painted between our sweeps (white-frame count=0 at every sample). Filtering by
+// class only narrowed which surfaces flash. While the channel is active EVERY
+// background is forced clear at the moment it is set - labels, icons and images are
+// unaffected because they do not use backgroundColor.
 static BOOL LMVSettingsIsSurface(id view) {
-    if ([view isKindOfClass:UITableView.class] || [view isKindOfClass:UICollectionView.class] ||
-        [view isKindOfClass:UITableViewCell.class] || [view isKindOfClass:UICollectionViewCell.class] ||
-        [view isKindOfClass:UIVisualEffectView.class]) return YES;
-    NSString *name = NSStringFromClass([view class]);
-    for (NSString *token in @[@"BarBackground", @"ShadowView", @"LayoutContainerView",
-                              @"TransitionView", @"ViewControllerWrapperView", @"SplitViewControllerColumn"])
-        if ([name rangeOfString:token options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
-    return NO;
+    LMVSettingsVideoChannel *channel = [LMVSettingsVideoChannel shared];
+    if (view == channel.host) return NO;
+    // Never strip the colour from the text/tint of controls that need it to be seen.
+    if ([view isKindOfClass:UIButton.class]) return NO;
+    for (UIView *node = [(UIView *)view superview]; node; node = node.superview)
+        if (node == channel.host) return NO;
+    return YES;
 }
 
 // 2.89-diag: scrolling is where the white keeps appearing - log at most every 60 ms.
