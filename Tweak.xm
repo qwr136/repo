@@ -1671,6 +1671,20 @@ static void LMVSyncDisplayLink(void) {
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!LMVInitialized) return;
+        // 2.74: SILENCE ON THE SAME RUN-LOOP TURN. The audio channel is a SEPARATE
+        // player and used to stop only on its next sync pass, so flipping either
+        // switch let a moment of sound through ("关闭的一瞬间漏一下"). Reading the two
+        // switches here is two CFPreferences lookups - cheaper than one frame - and
+        // the pause is immediate.
+        id globalPref=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"),kLMVPrefsID);
+        BOOL globalOn=![globalPref isKindOfClass:NSNumber.class] || [globalPref boolValue];
+        if (!globalOn) {
+            LMVAudioPauseAll();
+        } else {
+            id desktopPref=(__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("DesktopBackgroundEnabled"),kLMVPrefsID);
+            BOOL desktopOn=[desktopPref isKindOfClass:NSNumber.class] && [desktopPref boolValue];
+            if (!desktopOn) LMVAudioPauseTarget(@"Desktop");
+        }
         LMVPreferencesDirty = YES;
         LMVRequestSafeUpdate();
     });
