@@ -120,6 +120,17 @@ static void LMVSettingsWrite(NSString *key, id value) {
     open.buttonAction = @selector(openMaterialFolder:);
     [rows addObject:open];
 
+    // 2.69: the user asked for the diagnostics switch ON THIS PAGE. It writes the
+    // same global key the rest of the tweak reads, so one switch covers both logs.
+    PSSpecifier *diagGroup = [PSSpecifier groupSpecifierWithName:@"诊断"];
+    [diagGroup setProperty:[NSString stringWithFormat:@"开启后日志写入 %@/settings-render.log", LMVSettingsVideoRoot] forKey:@"footerText"];
+    [rows addObject:diagGroup];
+    PSSpecifier *diag = [PSSpecifier preferenceSpecifierNamed:@"启用诊断日志" target:self
+        set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+    [diag setProperty:@"DiagnosticsEnabled" forKey:@"key"];
+    [diag setProperty:@NO forKey:@"default"];
+    [rows addObject:diag];
+
     _specifiers = rows;
     return _specifiers;
 }

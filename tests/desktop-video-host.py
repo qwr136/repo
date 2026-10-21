@@ -97,7 +97,10 @@ assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per 
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
 assert 'self.shellAtExit' not in h, 'the shell bookkeeping is gone (1.25)'
-assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);' in h, 'the release window is bounded (1.25)'
+# 2.69: bounded, but skipped entirely when there is nothing to cross-fade
+# (app surface gone + SpringBoard frontmost) - that wait was the exit stutter.
+assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(foreground==1 && !appSurfaceUp);' in h, 'immediate release when nothing to fade'
+assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(fg==1 && !appSurfaceUp);' in h, 'immediate release (frame path)'
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.126: the cover follows the app's ANIMATED frame, not the model frame that
 # stays full-screen for the whole zoom - otherwise the wallpaper flashes on
@@ -310,7 +313,10 @@ assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per 
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
 assert 'self.shellAtExit' not in h, 'the shell bookkeeping is gone (1.25)'
-assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);' in h, 'the release window is bounded (1.25)'
+# 2.69: bounded, but skipped entirely when there is nothing to cross-fade
+# (app surface gone + SpringBoard frontmost) - that wait was the exit stutter.
+assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(foreground==1 && !appSurfaceUp);' in h, 'immediate release when nothing to fade'
+assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(fg==1 && !appSurfaceUp);' in h, 'immediate release (frame path)'
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.129's generalized "any full-screen root is a sheet" probe FROZE the desktop
 # for good on device: SpringBoard permanently carries full-screen windows

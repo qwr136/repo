@@ -1004,6 +1004,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     if (unknown) return;
     BOOL fullyCovered=LMVDesktopFullyCovered(self.container,cover);
     NSInteger fg=LMVDesktopForeground();
+    // 2.69: same hysteresis as the update path - a -1 from the frontmost probe is
+    // "unknown", not "an app is in front"; while the Home window is up it must not
+    // start a new away episode (that is what re-froze the video seconds after exit).
+    if (fg==-1 && LMVDesktopHomeWindow()) fg=1;
     [self classifyPresentationForCoverOnScreen:switcherCover||ccCover||sheetCover||appCover||!CGRectIsEmpty(cover)];
     // 1.25: the same zero-delay app-exit release, evaluated EVERY frame - the
     // 0.2 s update cadence would otherwise be the delay floor.
@@ -1012,7 +1016,8 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
         BOOL appSurfaceUp=appCover;
-        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);
+        // 2.69: see the 0.2 s path - nothing to cross-fade means no wait.
+        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(fg==1 && !appSurfaceUp);
         // 2.53: THE EXIT-EVENT ITSELF ENDS "AWAY". The old condition required
         // appSurfaceUp to be true, i.e. the app's window still sitting in the window
         // list. On a real exit that window disappears together with the cross-fade, so
@@ -1110,7 +1115,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         CFTimeInterval appNow=CACurrentMediaTime();
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
         BOOL appSurfaceUp=appWindowCover;                          // read BEFORE clearing
-        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);
+        // 2.69: NO 0.8 s WAIT WHEN THERE IS NOTHING TO CROSS-FADE. The release window
+        // exists so a switcher shell that lingers after an app exits does not freeze
+        // the desktop again. When the app surface is ALREADY GONE and SpringBoard is
+        // frontmost, there is nothing to wait for - the delay itself was the freeze
+        // the user reports as "退出 App 回桌面卡一下" (log: after=0.80..1.00).
+        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(foreground==1 && !appSurfaceUp);
         // 1.25: the release does NOT expire while the app is off screen. The
         // remnant switcher shell keeps hanging around and, with a time-bounded
         // release, froze the desktop again 0.44 s after the resume - the video
@@ -1163,6 +1173,13 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // "App 退出到桌面后视频和声音太慢". Guarded by geometryCoverSeen, so a device
     // whose probe never sees a cover cannot reach this by accident.
     BOOL desktopExposed=self.geometryCoverSeen && !coverOnScreen && !unknownCover;
+    // 2.69: STOP THE FREEZE FLAPPING. The frontmost probe answers -1 (unknown) for a
+    // frame or two right after an app exits; the freeze test below treats anything
+    // that is not 1 as "an app is in front", so the video froze and resumed again and
+    // again - the "plays a few seconds then hitches" report (device log: frozen
+    // 0/1/0/1 while home=1 and cover=0/1 flapped). A confirmed Home surface is direct
+    // evidence; -1 must not veto it.
+    if (foreground == -1 && (homeConfirmed || desktopExposed)) foreground = 1;
     // 0.0.123: opening an app made the desktop video fall back to the system
     // wallpaper for a moment. `home=1` (the Home view is still on screen) held
     // steady while `foreground` flipped to -1 for the launch, so `env` dropped and
