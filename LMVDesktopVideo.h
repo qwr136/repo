@@ -1018,7 +1018,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         if (self.appLeftAt<=0) self.appLeftAt=appNow;
         BOOL appSurfaceUp=appCover;
         // 2.69: see the 0.2 s path - nothing to cross-fade means no wait.
-        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(fg==1 && !appSurfaceUp);
+        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);
         // 2.53: THE EXIT-EVENT ITSELF ENDS "AWAY". The old condition required
         // appSurfaceUp to be true, i.e. the app's window still sitting in the window
         // list. On a real exit that window disappears together with the cross-fade, so
@@ -1029,7 +1029,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // The 0.8 s window is kept so the resume never races the exit cross-fade (that
         // is the play-stop-play stutter 1.25 removed); appSurfaceUp stays as an
         // additional reason to end it, exactly as before.
-        if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {
+        if (appSurfaceUp && !appReleaseWindow) {
             self.appAway=NO;
             // One line per release (the flag never comes back to YES without a new
             // app), so "did leaving the app actually hand the desktop back?" is
@@ -1101,16 +1101,6 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     BOOL appWindowCover=NO,switcherCover=NO,ccCover=NO,sheetCover=NO,sheetFullCover=NO;
     CFTimeInterval stageCover=CACurrentMediaTime();
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover):CGRectZero;
-    // 2.72: WHO is covering us, and with which window. State changes only, one line,
-    // diagnostics only - this is the log needed to tell "the app window is still in
-    // the list" apart from "the switcher shell" without another guess.
-    if (LMVDiagnosticsEnabled.load()) {
-        static NSString *lastCoverSrc=nil;
-        NSString *coverSrc=[NSString stringWithFormat:@"desktop-cover-src app=%d sw=%d cc=%d sheet=%d sheetFull=%d rect=%.0fx%.0f unknown=%d",
-            (int)appWindowCover,(int)switcherCover,(int)ccCover,(int)sheetCover,(int)sheetFullCover,
-            cover.size.width,cover.size.height,(int)unknownCover];
-        if (![coverSrc isEqualToString:lastCoverSrc]) { lastCoverSrc=[coverSrc copy]; LMVDiagnostic(coverSrc); }
-    }
     LMVDesktopStage("cover",stageCover);
     // 1.25: ZERO delay on an app exit. The frontmost probe is the earliest true
     // signal - it flips the moment the app stops being frontmost, while its
@@ -1120,12 +1110,6 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // opened FROM an app therefore plays for that window and freezes again when
     // its card (the same SBWindow surface) is on screen - accepted trade-off.
     NSInteger foreground=LMVDesktopForeground();
-    // 2.71: NORMALISE BEFORE THE AWAY STATE MACHINE READS IT. The raw -1 ("frontmost
-    // probe unavailable") used to restart appAway on every flicker, and appAway's
-    // release window zeroes `covered` for a moment - so the video resumed, froze,
-    // resumed... (device log: away-release firing repeatedly, covered 1/0/1). With a
-    // confirmed Home surface and no real app window, -1 is simply "SpringBoard".
-    if (foreground==-1 && !appWindowCover && homeConfirmed) foreground=1;
     BOOL appExitRelease=NO;
     if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}
     else if (self.appAway) {
@@ -1137,7 +1121,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // the desktop again. When the app surface is ALREADY GONE and SpringBoard is
         // frontmost, there is nothing to wait for - the delay itself was the freeze
         // the user reports as "退出 App 回桌面卡一下" (log: after=0.80..1.00).
-        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(foreground==1 && !appSurfaceUp);
+        BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);
         // 1.25: the release does NOT expire while the app is off screen. The
         // remnant switcher shell keeps hanging around and, with a time-bounded
         // release, froze the desktop again 0.44 s after the resume - the video
@@ -1149,7 +1133,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // desktop never returned to IdleFPS (settings: 可见 20, 桌面时 30, 实际 1 被遮挡,
         // minutes after leaving the app). fg==1 (SpringBoard frontmost) IS the desktop,
         // so it ends the release once the 0.8 s cross-fade window is over.
-        if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {
+        if (appSurfaceUp && !appReleaseWindow) {
             self.appAway=NO;
             LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
                 (long)foreground,(int)appSurfaceUp,appNow-self.appLeftAt]);

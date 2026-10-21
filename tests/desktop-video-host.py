@@ -90,8 +90,11 @@ assert 'BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !ap
 assert 'Class ccModule=NSClassFromString(@"LMVControlCenterVideoManager");' in h and 'controlCenterWindowIsEmpty' in h, 'the CC module answer is used when it is reachable (1.25)'
 assert 'fullyCovered=NO;' in h, 'the watcher is not silenced by a released cover (1.25)'
 assert 'if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {' in h, 'the release lasts while the app is off screen and has something to release (1.25)'
-assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'leaving the app ends the release (2.53)'
-assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.53)'
+# 2.73: back to 2.10's rule - the release ends only when the app surface is STILL
+# there after the window; ending it on foreground==1 is what made the probe flicker
+# restart the whole freeze/resume cycle.
+assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'release ends only while the app surface is still up (2.10)'
+assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'the watcher applies the same 2.10 release'
 assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
@@ -99,8 +102,8 @@ assert 'switcherCover=NO;                                      // ...nor the rem
 assert 'self.shellAtExit' not in h, 'the shell bookkeeping is gone (1.25)'
 # 2.69: bounded, but skipped entirely when there is nothing to cross-fade
 # (app surface gone + SpringBoard frontmost) - that wait was the exit stutter.
-assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(foreground==1 && !appSurfaceUp);' in h, 'immediate release when nothing to fade'
-assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(fg==1 && !appSurfaceUp);' in h, 'immediate release (frame path)'
+assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);' in h, 'release window is a plain 0.8 s bound (2.10 semantics)'
+
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.126: the cover follows the app's ANIMATED frame, not the model frame that
 # stays full-screen for the whole zoom - otherwise the wallpaper flashes on
@@ -306,8 +309,11 @@ assert 'BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !ap
 assert 'Class ccModule=NSClassFromString(@"LMVControlCenterVideoManager");' in h and 'controlCenterWindowIsEmpty' in h, 'the CC module answer is used when it is reachable (1.25)'
 assert 'fullyCovered=NO;' in h, 'the watcher is not silenced by a released cover (1.25)'
 assert 'if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {' in h, 'the release lasts while the app is off screen and has something to release (1.25)'
-assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'leaving the app ends the release (2.53)'
-assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.53)'
+# 2.73: back to 2.10's rule - the release ends only when the app surface is STILL
+# there after the window; ending it on foreground==1 is what made the probe flicker
+# restart the whole freeze/resume cycle.
+assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'release ends only while the app surface is still up (2.10)'
+assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'the watcher applies the same 2.10 release'
 assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
@@ -315,8 +321,8 @@ assert 'switcherCover=NO;                                      // ...nor the rem
 assert 'self.shellAtExit' not in h, 'the shell bookkeeping is gone (1.25)'
 # 2.69: bounded, but skipped entirely when there is nothing to cross-fade
 # (app surface gone + SpringBoard frontmost) - that wait was the exit stutter.
-assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(foreground==1 && !appSurfaceUp);' in h, 'immediate release when nothing to fade'
-assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8) && !(fg==1 && !appSurfaceUp);' in h, 'immediate release (frame path)'
+assert 'BOOL appReleaseWindow=(appNow-self.appLeftAt<=0.8);' in h, 'release window is a plain 0.8 s bound (2.10 semantics)'
+
 assert 'if (!LMVLockVideoRectValid(converted)) continue;' in h
 # 0.0.129's generalized "any full-screen root is a sheet" probe FROZE the desktop
 # for good on device: SpringBoard permanently carries full-screen windows
