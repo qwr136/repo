@@ -208,6 +208,10 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic) BOOL appAway;
 // The instant the app left, for the short unconditional release window.
 @property(nonatomic) CFTimeInterval appLeftAt;
+// 2.94: when the exit was actually recognised (appAway went YES -> NO). The
+// grace below is measured from this, not from appLeftAt: appLeftAt is the
+// moment the app was ENTERED, so it cannot drive an exit grace.
+@property(nonatomic) CFTimeInterval exitSettledAt;
 @property(nonatomic) BOOL effectiveSwitcherPresented,effectiveControlCenterPresented;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
@@ -1029,8 +1033,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // The 0.8 s window is kept so the resume never races the exit cross-fade (that
         // is the play-stop-play stutter 1.25 removed); appSurfaceUp stays as an
         // additional reason to end it, exactly as before.
-        if (appSurfaceUp && !appReleaseWindow) {
+        // 2.94: 2.73 put this back to the 2.10 form while the exit stutter was
+        // being chased, and the price was that appAway never ends: after one app
+        // the desktop is stuck on CoveredFPS for the rest of the session, so the
+        // "visible refresh rate" the user set is never read. The entry is restored
+        // here AND the leftover surface it exposes is handled below (exitQuiet) -
+        // restoring one without the other is exactly what broke 2.69 and 2.72.
+        if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {
             self.appAway=NO;
+            self.exitSettledAt=appNow;
             // One line per release (the flag never comes back to YES without a new
             // app), so "did leaving the app actually hand the desktop back?" is
             // answerable from a capture instead of from the frame rate.
@@ -1133,8 +1144,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // desktop never returned to IdleFPS (settings: 可见 20, 桌面时 30, 实际 1 被遮挡,
         // minutes after leaving the app). fg==1 (SpringBoard frontmost) IS the desktop,
         // so it ends the release once the 0.8 s cross-fade window is over.
-        if (appSurfaceUp && !appReleaseWindow) {
+        // 2.94: see the per-frame path - the release must exist again or the
+        // visible refresh rate is dead, and the leftover it exposes is handled
+        // by exitQuiet a few lines below.
+        if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {
             self.appAway=NO;
+            self.exitSettledAt=appNow;
             LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
                 (long)foreground,(int)appSurfaceUp,appNow-self.appLeftAt]);
         }
@@ -1157,7 +1172,28 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // FLAGS left `covered` true, so `play` stayed false and the layer was hidden
     // for the release (device log: layer=0 on the exit tick, which is the
     // wallpaper showing through before the video comes back).
+    // 2.94: THE ONE SECOND AFTER AN EXIT IS NOT A COVER. Recognising the exit
+    // (above) is what lets the visible refresh rate come back, but on that same
+    // frame the system's transition containers (UITransitionView, the fading
+    // switcher shell) are still in the window list and still measure as a
+    // full-screen cover - so the video froze ~0.6 s after it had started, which
+    // is the "播一两秒卡一下" report. For one second after the release none of
+    // that counts as a cover.
+    //   Three variables feed freeze/play/audioCovered and all three are cleared
+    // below, because clearing only one of them is what 2.72 got wrong.
+    //   Deliberately NOT cleared: a real app window, the Control Center and a
+    // FULL notification sheet. Those are always opened by the user and can never
+    // be left over from the app that was just exited.
+    //   `foreground!=0` reads the raw probe on purpose: right after an exit it
+    // reports -1 for a few frames, and inside this window that is noise, not an
+    // app. It is not normalised anywhere else, so the away state machine is
+    // untouched.
+    CFTimeInterval exitNow=CACurrentMediaTime();
+    BOOL exitGrace=self.exitSettledAt>0 && (exitNow-self.exitSettledAt)<=1.0;
+    BOOL exitQuiet=exitGrace && foreground!=0 && !appWindowCover &&
+        !ccCover && !self.effectiveControlCenterPresented && !sheetFullCover;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !appExitRelease;
+    if (exitQuiet) covered=NO;
     // 0.0.138: SpringBoard's own presentation state, OR-ed with the geometry.
     // It is the authority for the switcher and the Control Center: while either
     // is presented the desktop is not what the user is looking at, so the video
@@ -1165,8 +1201,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // 1.25: classified against what the pixels show (see the method): the flag
     // keeps a freeze only while its surface is still on screen.
     BOOL coverOnScreen=switcherCover||ccCover||sheetCover||appWindowCover||!CGRectIsEmpty(cover);
+    if (exitQuiet) coverOnScreen=NO;
     [self classifyPresentationForCoverOnScreen:coverOnScreen];
     BOOL switcherPresented=self.effectiveSwitcherPresented;
+    if (exitQuiet) switcherPresented=NO;
     BOOL ccPresented=self.effectiveControlCenterPresented;
     // 1.25: a desktop with NOTHING covering it is proof enough that the desktop
     // is what is on screen - the frontmost probe and the Home lifecycle callbacks

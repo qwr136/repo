@@ -90,12 +90,16 @@ assert 'BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !ap
 assert 'Class ccModule=NSClassFromString(@"LMVControlCenterVideoManager");' in h and 'controlCenterWindowIsEmpty' in h, 'the CC module answer is used when it is reachable (1.25)'
 assert 'fullyCovered=NO;' in h, 'the watcher is not silenced by a released cover (1.25)'
 assert 'if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {' in h, 'the release lasts while the app is off screen and has something to release (1.25)'
-# 2.73: back to 2.10's rule - the release ends only when the app surface is STILL
-# there after the window; ending it on foreground==1 is what made the probe flicker
-# restart the whole freeze/resume cycle.
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'release ends only while the app surface is still up (2.10)'
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'the watcher applies the same 2.10 release'
-assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
+# 2.94: the release comes back (2.73's form left appAway stuck for the rest of
+# the session, so the visible refresh rate the user set was never read), AND
+# the leftover surface that release exposes is cleared for one second.
+# Restoring only the first half is 2.69; only the second half is 2.72.
+assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the release ends on the exit event (2.94)'
+assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.94)'
+assert 'if (appSurfaceUp && !appReleaseWindow) {' not in h, 'the stuck 2.10 form is gone (2.94)'
+assert 'self.exitSettledAt=appNow;' in h, 'the release stamps the grace origin (2.94)'
+assert 'BOOL exitQuiet=exitGrace && foreground!=0 && !appWindowCover &&' in h, 'an app, the CC and a full sheet never enter the grace (2.94)'
+assert 'if (exitQuiet) covered=NO;' in h and 'if (exitQuiet) coverOnScreen=NO;' in h and 'if (exitQuiet) switcherPresented=NO;' in h, 'the grace clears all three cover inputs (2.94)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
@@ -309,12 +313,16 @@ assert 'BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !ap
 assert 'Class ccModule=NSClassFromString(@"LMVControlCenterVideoManager");' in h and 'controlCenterWindowIsEmpty' in h, 'the CC module answer is used when it is reachable (1.25)'
 assert 'fullyCovered=NO;' in h, 'the watcher is not silenced by a released cover (1.25)'
 assert 'if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {' in h, 'the release lasts while the app is off screen and has something to release (1.25)'
-# 2.73: back to 2.10's rule - the release ends only when the app surface is STILL
-# there after the window; ending it on foreground==1 is what made the probe flicker
-# restart the whole freeze/resume cycle.
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'release ends only while the app surface is still up (2.10)'
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'the watcher applies the same 2.10 release'
-assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
+# 2.94: the release comes back (2.73's form left appAway stuck for the rest of
+# the session, so the visible refresh rate the user set was never read), AND
+# the leftover surface that release exposes is cleared for one second.
+# Restoring only the first half is 2.69; only the second half is 2.72.
+assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the release ends on the exit event (2.94)'
+assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.94)'
+assert 'if (appSurfaceUp && !appReleaseWindow) {' not in h, 'the stuck 2.10 form is gone (2.94)'
+assert 'self.exitSettledAt=appNow;' in h, 'the release stamps the grace origin (2.94)'
+assert 'BOOL exitQuiet=exitGrace && foreground!=0 && !appWindowCover &&' in h, 'an app, the CC and a full sheet never enter the grace (2.94)'
+assert 'if (exitQuiet) covered=NO;' in h and 'if (exitQuiet) coverOnScreen=NO;' in h and 'if (exitQuiet) switcherPresented=NO;' in h, 'the grace clears all three cover inputs (2.94)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
@@ -674,7 +682,7 @@ int main(void){@autoreleasepool {
  // (coveredNow) immediately; the layer hides after the grace with the lease
  // kept. Closing the sheet: the watcher fires the moment the cover drops and
  // the resume lands within ~16 ms.
- UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
+ UIApplication.sharedApplication.frontmost=nil;record.visible=YES;m.exitSettledAt=0;[m update];
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && m.coveredNow);
  assert(m.coverWatch!=nil);
  scene.windows=@[homeWindow,wallWindow,nc];
@@ -691,6 +699,7 @@ int main(void){@autoreleasepool {
  watchSwitcherController.viewIfLoaded=watchSwitcherView;
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,watchSwitcher];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  LMVDesktopUpdatePending=NO;
@@ -709,6 +718,7 @@ int main(void){@autoreleasepool {
  // only after the dismiss animation) - the desktop must come back in THIS update.
  [SBControlCenterController sharedInstance].isVisible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow && m.ccSawCover && m.effectiveControlCenterPresented);
  scene.windows=@[homeWindow,wallWindow,nc];
@@ -728,6 +738,7 @@ int main(void){@autoreleasepool {
  contentSwitcherController.viewIfLoaded=contentSwitcherRoot;
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,contentSwitcher];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  contentSwitcherBody.frame=CGRectMake(0,-844,390,844);   // content gone, frame kept
@@ -742,6 +753,7 @@ int main(void){@autoreleasepool {
  UIView *ccContent=[UIView new];ccContent.frame=CGRectMake(0,0,390,844);[ccView addSubview:ccContent];
  [SBControlCenterController sharedInstance].isVisible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  ccContent.frame=CGRectMake(0,-844,390,844);   // the modules slide out, the window stays
@@ -759,6 +771,7 @@ int main(void){@autoreleasepool {
  UIView *switcherView=[UIView new];
  [switcherWindow addSubview:switcherView];switcherWindow.rootViewController=switcherController;switcherController.viewIfLoaded=switcherView;
  scene.windows=@[homeWindow,wallWindow,nc,switcherWindow];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  // 0.0.137: fg==1 under the switcher -> the video AND the audio freeze
  // immediately (coveredNow); the layer hides after the grace with the lease
@@ -780,12 +793,14 @@ int main(void){@autoreleasepool {
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  [SBMainSwitcherControllerCoordinator sharedInstance].isAnySwitcherVisible=YES;
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.host.superview==wall && m.playback.frozen && m.coveredNow && !m.host.hidden);
  [SBMainSwitcherControllerCoordinator sharedInstance].isAnySwitcherVisible=NO;
  [m update];
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  [SBControlCenterController sharedInstance].isVisible=YES;
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.host.superview==wall && m.playback.frozen && m.coveredNow && !m.host.hidden);
  [SBControlCenterController sharedInstance].isVisible=NO;
