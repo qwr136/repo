@@ -202,10 +202,10 @@ def verify_package(deb, source):
     info = plist(PREFS + '/Info.plist')
     require(info.get('CFBundleVersion') == info.get('CFBundleShortVersionString') == source['Version'], 'prefs CFBundle versions mismatch')
     require(info.get('CFBundleExecutable') == 'LockMessageVideoPrefs' and info.get('CFBundleIdentifier') == 'com.minis.lockmessagevideo.prefs', 'wrong prefs executable/identifier')
-    require(info.get('NSPrincipalClass') == 'LMVMenuListController' and info.get('CFBundlePackageType') == 'BNDL', 'wrong preference bundle structure')
+    require(info.get('NSPrincipalClass') == 'LMVPRootListController' and info.get('CFBundlePackageType') == 'BNDL', 'wrong preference bundle structure')
     require(plist(TWEAK.replace('.dylib', '.plist')) == {'Filter': {'Bundles': ['com.apple.springboard', 'com.apple.Preferences']}}, 'unexpected injection filter')
     entry = plist(ENTRY).get('entry', {})
-    require(entry.get('bundle') == 'LockMessageVideoPrefs' and entry.get('detail') == 'LMVMenuListController' and entry.get('cell') == 'PSLinkCell' and entry.get('isController') is True, 'wrong PreferenceLoader entry')
+    require(entry.get('bundle') == 'LockMessageVideoPrefs' and entry.get('detail') == 'LMVPRootListController' and entry.get('cell') == 'PSLinkCell' and entry.get('isController') is True, 'wrong PreferenceLoader entry')
     binaries = {}
     for name in (TWEAK, PREFS + '/LockMessageVideoPrefs'):
         data = file(name)
