@@ -1784,6 +1784,14 @@ static NSInteger LMVPanelPresenceHz(void) {
     NSInteger hz = LMVTuneValue(@"Global", @"PresenceHz");
     if (hz < 5) hz = 5;
     if (hz > 60) hz = 60;
+    // 3.09: report the value that is actually driving the display link, so the row
+    // shows 当前生效 instead of “未上报”; one line per change, like the other cadence
+    // rows.
+    static NSInteger reportedHz = -1;
+    if (reportedHz != hz) {
+        reportedHz = hz;
+        LMVTuneReport(@"Global", @"PresenceHz", hz);
+    }
     return hz;
 }
 
