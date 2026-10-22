@@ -76,7 +76,11 @@ assert 'LMVGlassSuiteEnabled?.1:.5' not in src
 assert src.count('LMVGlassSuiteRetune();') >= 3
 
 # ---- 6) 挂载位置与模式不变 --------------------------------------------------
-assert 'container=card;index=0;target=card.bounds;mode=@"content";' in src
+# 2.95: the host is sized from the CARD, never from the material (full screen).
+assert 'container=card;index=0;target=liveBounds;mode=@"content";' in src
+assert 'index=slot;target=[card convertRect:liveBounds toView:container];mode=@"above-material";' in src
+assert 'target=material.frame' not in src, 'the full-screen material frame must never size the host'
+assert 'CALayer *cardLayer=(CALayer *)card.layer.presentationLayer;' in src
 assert 'if([card.superview isKindOfClass:UIVisualEffectView.class])' in src
 assert '_UIVisualEffectContentView' in src
 

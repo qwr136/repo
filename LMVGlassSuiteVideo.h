@@ -389,13 +389,23 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVGlassSuiteMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
+    // 2.95: ALWAYS THE CARD'S CURRENT SIZE, NEVER THE MATERIAL'S FRAME.
+    // The material is the full-screen UIVisualEffectView; the card is its
+    // _UIVisualEffectContentView child. Sizing the host from material.frame painted
+    // the video across the whole sheet - and, because the sheet shares
+    // SBHomeScreenWindow>UITransitionView with other pop-ups, it showed up under
+    // them too. The presentation layer is used so the host tracks the open/close
+    // animation instead of staying at the previous (bigger) size.
+    CALayer *cardLayer=(CALayer *)card.layer.presentationLayer;
+    CGRect liveBounds=cardLayer?cardLayer.bounds:card.bounds;
+    if(CGRectIsEmpty(liveBounds)) liveBounds=card.bounds;
     // 2.29: THE CARD IS THE CONTENT VIEW, SO THE VIDEO GOES INSIDE IT.
     // Device hierarchy: UIVisualEffectView { _UIDimmingKnockoutBackdropView,
     // _UIVisualEffectContentView { background, scroll, stack(labels) } }. Mounting
     // above the UIVisualEffectView (the old path) put the video over the labels.
     // Index 0 of the content view is above its background and below every label.
     if([card.superview isKindOfClass:UIVisualEffectView.class]) {
-        container=card;index=0;target=card.bounds;mode=@"content";
+        container=card;index=0;target=liveBounds;mode=@"content";
     } else if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
         container=material.superview;
         NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
@@ -409,9 +419,10 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
             if(!LMVGlassSuiteGlassKind(sibling))break;
             slot=i+1;
         }
-        index=slot;target=material.frame;mode=@"above-material";
+        // 2.95: the CARD's rect in the container, not material.frame (full screen).
+        index=slot;target=[card convertRect:liveBounds toView:container];mode=@"above-material";
     }
-    if(!container) {container=card;index=0;target=card.bounds;}
+    if(!container) {container=card;index=0;target=liveBounds;}
     self.mode=mode;
     BOOL placed=self.host.superview==container &&
         (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;

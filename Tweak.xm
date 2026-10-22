@@ -195,7 +195,6 @@ static void LMVDiagnostic(NSString *event) {
 #include "LMVCopyVaultPanelVideo.h"
 #include "LMVMyrtlePanelVideo.h"
 #import "LMVMediaAudio.h"
-#import "LMVSettingsVideoChannel.h"
 
 @interface LMVFrameSnapshot : NSObject
 @property(nonatomic, assign) CGImageRef image;
@@ -1740,7 +1739,8 @@ static BOOL LMVSettingsAppProcess(void) {
 }
 %ctor {
     @autoreleasepool {
-        if (LMVSettingsAppProcess()) { LMVSettingsVideoStart(); return; }
+        // 2.95: the Settings-app video background was removed; nothing runs there.
+        if (LMVSettingsAppProcess()) return;
         LMVDiagnosticQueue=dispatch_queue_create("com.minis.lockmessagevideo.diagnostics",DISPATCH_QUEUE_SERIAL);
         LMVFrameQueue=dispatch_queue_create("com.minis.lockmessagevideo.frames",DISPATCH_QUEUE_SERIAL);
         LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
