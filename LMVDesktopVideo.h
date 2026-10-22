@@ -267,10 +267,31 @@ static void (^LMVDesktopAudioPauseHook)(void);
 // the cover leaves (the wiring seeks to the video player's current time). The
 // 10 Hz audio sync alone added up to one timer beat to both directions.
 static void (^LMVDesktopAudioCoverHook)(BOOL covered);
+// 3.03: THE RATE IS A REAL RATE. Until now 「遮挡检测频率」 only set the cover
+// watcher, while every event (key window change, Control Center closing, a cover
+// flag flipping) dispatched an update immediately - so the number in Settings could
+// be set to 5 and the desktop would still react within a frame. That is what "假的"
+// meant: the value existed, the behaviour never changed.
+// The beat below is the single gate for the covered state: an update requested
+// inside one interval is DELAYED to the next beat instead of being dropped, so no
+// state change is ever lost - it is just applied up to one interval later. At 5 Hz
+// that is the 200 ms the row promises; at 60 Hz it is under a frame.
+static CFTimeInterval LMVDesktopBeatAt;
 static void LMVDesktopRequestUpdate(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVDesktopUpdatePending)return;
+    CFTimeInterval delay=0;
+    LMVDesktopVideoManager *manager=LMVDesktopVideo;
+    if(manager && (manager.playback.frozen || manager.appAway)) {
+        NSInteger hz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+        if(hz<1)hz=1;
+        CFTimeInterval interval=1.0/(CFTimeInterval)hz;
+        CFTimeInterval now=CACurrentMediaTime();
+        CFTimeInterval elapsed=now-LMVDesktopBeatAt;
+        if(elapsed<interval)delay=interval-elapsed;else LMVDesktopBeatAt=now;
+    }
     LMVDesktopUpdatePending=YES;
-    dispatch_async(dispatch_get_main_queue(),^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),
+                   dispatch_get_main_queue(),^{
         LMVDesktopUpdatePending=NO;
         if(!LMVInitialized || !LMVLaunchReady)return;
         // Desktop-only policy; no card/presenter/CC/source refresh cascade.
