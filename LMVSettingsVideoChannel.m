@@ -225,6 +225,14 @@ static void LMVSettingsCollectOccluders(UIView *view, UIView *host, CGRect hostF
     }];
     self.timer.tolerance = .3;
     [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
+    if (!self.frameLink) {
+        __weak typeof(self) weakFrame = self;
+        self.frameLink = [CADisplayLink displayLinkWithTarget:[NSBlockOperation blockOperationWithBlock:^{
+            LMVSettingsVideoChannel *live = weakFrame;
+            if (live.isActive) [live frameSweep];
+        }] selector:@selector(main)];
+        [self.frameLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    }
     if (!self.clearTimer) {
         __weak typeof(self) weakClear = self;
         self.clearTimer = [NSTimer timerWithTimeInterval:.1 repeats:YES block:^(NSTimer *timer) {
@@ -394,6 +402,7 @@ static NSHashTable<UIView *> *LMVSettingsHiddenViews;   // 2.86   // 2.85: weak 
 }
 
 - (void)buildPlayerForPath:(NSString *)path sound:(BOOL)sound volume:(float)volume {
+    [self.frameLink invalidate]; self.frameLink = nil;
     [self.player pause];
     [self.looper disableLooping];
     self.player = nil; self.looper = nil;
@@ -609,6 +618,42 @@ static NSMapTable<UINavigationBar *, NSDictionary *> *LMVSettingsSavedAppearance
     return windows;
 }
 
+// 2.93: FORCE THE TWO LOGGED OFFENDERS EVERY FRAME. The app re-applies them between
+// our sweeps (the log still shows UITableView bg1.00 after 2.92 cleared it). A display
+// link runs right before each frame is composited, so there is no gap left.
+- (void)frameSweep {
+    UIWindow *window = self.window;
+    if (!window) return;
+    NSMutableArray<UIScrollView *> *scrolls = [NSMutableArray array];
+    NSInteger budget = 1500;
+    LMVSettingsCollectScrollViews(window.rootViewController.view, 0, &budget, scrolls);
+    for (UIScrollView *scroll in scrolls) {
+        // 2.93: transparent is not enough - the app re-paints it. Kill the layer's
+        // paint entirely: no background colour on the view OR its layer, and the
+        // dedicated background view is removed from the hierarchy.
+        if (scroll.backgroundColor && CGColorGetAlpha(scroll.backgroundColor.CGColor) > .001)
+            scroll.backgroundColor = UIColor.clearColor;
+        if (scroll.layer.backgroundColor && CGColorGetAlpha(scroll.layer.backgroundColor) > .001)
+            scroll.layer.backgroundColor = UIColor.clearColor.CGColor;
+        if ([scroll isKindOfClass:UITableView.class]) {
+            UITableView *t = (UITableView *)scroll;
+            if (t.backgroundView && !t.backgroundView.hidden) {
+                if (!LMVSettingsHiddenViews) LMVSettingsHiddenViews = [NSHashTable weakObjectsHashTable];
+                [LMVSettingsHiddenViews addObject:t.backgroundView];
+                t.backgroundView.hidden = YES;
+            }
+        }
+        UIView *container = scroll.superview;
+        if ((scroll.bounds.size.width >= window.bounds.size.width - 1) &&
+            (scroll.bounds.size.height >= window.bounds.size.height * .5)) {
+            if (container.backgroundColor && CGColorGetAlpha(container.backgroundColor.CGColor) > .001)
+                container.backgroundColor = UIColor.clearColor;
+            if (container.layer.backgroundColor && CGColorGetAlpha(container.layer.backgroundColor.CGColor) > .001)
+                container.layer.backgroundColor = UIColor.clearColor.CGColor;
+        }
+    }
+}
+
 - (void)logOccluders:(NSString *)reason {
     UIWindow *window = self.window;
     if (!window || !self.host) return;
@@ -732,6 +777,7 @@ static NSMapTable<UINavigationBar *, NSDictionary *> *LMVSettingsSavedAppearance
 }
 
 - (void)stop {
+    [self.frameLink invalidate]; self.frameLink = nil;
     [self.player pause];
     [self.looper disableLooping];
     self.player = nil; self.looper = nil; self.path = nil;
