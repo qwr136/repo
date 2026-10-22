@@ -25,7 +25,7 @@ tuning = (root / 'LMVPanelTuning.h').read_text()
 assert 'static const NSTimeInterval LMVTuneIdleInterval = 30.0;' in tuning
 channels = ['LMVATPanelVideo.h', 'LMVSquidPanelVideo.h', 'LMVCopyVaultPanelVideo.h',
             'LMVMyrtlePanelVideo.h', 'LMVPhoneAssistVideo.h', 'LMVGlassSuiteVideo.h',
-            'LMVCCBorderVideo.h', 'LMVCopyLogXVideo.h']
+            'LMVCCBorderVideo.h']
 for name in channels:
     src = (root / name).read_text()
     assert 'LMVTuneIdleInterval' in src, name
@@ -49,10 +49,16 @@ assert 'for (UIWindow *window in LMVProbeAllWindows())' in probe
 for name in channels:
     src = (root / name).read_text()
     assert 'LMVProbeVisibleWindows()' in src, name
+# 3.04: CopyLogX presents in a NEW window, the only channel where the shared TTL is a
+# visible delay, so it runs its own list and its own row.
+clx_src = (root / 'LMVCopyLogXVideo.h').read_text()
+assert 'LMVProbeVisibleWindowsFast()' in clx_src
+assert 'LMVProbeAllWindowsFast()' in clx_src
+assert 'LMVTuneValue(@"CopyLogX",@"ProbeSnapshotMs")' in probe
 # CopyLogX needs hidden windows too: "identity window present but hidden" is what stops
 # it from running the expensive structural scan.
 clx = (root / 'LMVCopyLogXVideo.h').read_text()
-assert 'for(UIWindow *window in LMVProbeAllWindows())' in clx
+assert 'for(UIWindow *window in LMVProbeAllWindowsFast())' in clx
 assert 'identityPresent=YES;' in clx
 # The header has to be included before the first channel that uses it.
 assert tweak.index('#import "LMVProbeWindows.h"') < tweak.index('#import "LMVDesktopVideo.h"')
@@ -67,5 +73,5 @@ for name, limit in limits.items():
     src = (root / name).read_text()
     assert src.count('connectedScenes') <= limit, (name, src.count('connectedScenes'))
 
-print('PASS: eight panel channels share one window snapshot whose TTL is a parameter (default 80 ms); idle gear is 30 s, '
+print('PASS: seven panel channels share one snapshot (TTL is a parameter), CopyLogX keeps its own; idle gear is 30 s, '
       'not 0.5 s; no probe path walks scenes per tick')

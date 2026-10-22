@@ -76,3 +76,39 @@ static NSArray<UIWindow *> *LMVProbeVisibleWindows(void) {
     cachedAt = now;
     return cache;
 }
+
+// 3.04: CopyLogX gets its OWN snapshot, because it is the only panel channel that
+// presents in a NEW window. A shared list that is 1 s old does not contain that
+// window, so the video lands up to a second late - the one place where the shared
+// TTL is visible. The other seven present inside windows that already exist, so
+// they keep the cheap shared list and can afford a much longer TTL.
+static CFTimeInterval LMVProbeCopyLogXTTL(void) {
+    NSInteger ms=LMVTuneValue(@"CopyLogX",@"ProbeSnapshotMs");
+    LMVTuneReport(@"CopyLogX",@"ProbeSnapshotMs",ms);
+    return ms/1000.0;
+}
+static NSArray<UIWindow *> *LMVProbeAllWindowsFast(void) {
+    static NSArray<UIWindow *> *cache;static CFTimeInterval cachedAt;
+    CFTimeInterval now=CACurrentMediaTime();
+    if(cache && now-cachedAt<LMVProbeCopyLogXTTL())return cache;
+    NSMutableArray<UIWindow *> *list=[NSMutableArray array];
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        [list addObjectsFromArray:((UIWindowScene *)scene).windows];
+    }
+    if(!list.count)return cache?:@[];
+    cache=[list copy];cachedAt=now;
+    return cache;
+}
+static NSArray<UIWindow *> *LMVProbeVisibleWindowsFast(void) {
+    static NSArray<UIWindow *> *cache;static CFTimeInterval cachedAt;
+    CFTimeInterval now=CACurrentMediaTime();
+    if(cache && now-cachedAt<LMVProbeCopyLogXTTL())return cache;
+    NSMutableArray<UIWindow *> *list=[NSMutableArray array];
+    for(UIWindow *window in LMVProbeAllWindowsFast()) {
+        if(window.hidden || window.alpha<.01)continue;
+        [list addObject:window];
+    }
+    cache=[list copy];cachedAt=now;
+    return cache;
+}

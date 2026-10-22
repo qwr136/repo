@@ -33,6 +33,7 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     if ([key isEqualToString:@"HookThrottleMs"]) return @"节流";
     if ([key isEqualToString:@"ProbeIntervalMs"]) return @"节流";
     if ([key isEqualToString:@"SnapshotMs"]) return @"快照";
+    if ([key isEqualToString:@"ProbeSnapshotMs"]) return @"快照";
     if ([key isEqualToString:@"CoverWatchHz"]) return @"遮挡检测";
     return key;
 }

@@ -145,7 +145,7 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     }
     if ([target isEqualToString:@"Global"]) {
         return @[@{@"title":@"检测", @"params":@[
-            LMVTuneParam(@"SnapshotMs", @"快照有效期 (ms, 0~1000)", 0, 1000, 80),
+            LMVTuneParam(@"SnapshotMs", @"快照有效期 (ms, 0~60000)", 0, 60000, 80),
         ]}];
     }
     if ([target isEqualToString:@"Cards"]) {
@@ -165,6 +165,12 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
         // showing it on the other six would be exactly the dead switch we just removed.
         if (LMVTuneHasHook(target)) {
             [probe addObject:LMVTuneParam(@"HookThrottleMs", @"钩子节流 (ms, 0~200)", 0, 200, 50)];
+        }
+        // 3.04: CopyLogX is the only panel that presents in a NEW window, so it is the
+        // only one where the shared snapshot TTL is visible as a delay. It gets its own
+        // list and its own row; the other seven keep the shared one.
+        if ([target isEqualToString:@"CopyLogX"]) {
+            [probe addObject:LMVTuneParam(@"ProbeSnapshotMs", @"快照有效期 (ms, 1~1000)", 1, 1000, 80)];
         }
         [groups addObject:@{@"title":@"探测", @"params":probe}];
     }
