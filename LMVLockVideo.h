@@ -1,12 +1,4 @@
 #pragma once
-#if __has_include("LMVPanelTuning.h")
-#import "LMVPanelTuning.h"
-#else
-// Standalone fixtures compile this header on its own and do not copy the tuning
-// table with it, so the two readers fall back to the shipped defaults (60 Hz).
-static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
-static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
-#endif
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -594,6 +586,14 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     self.extentContainer=nil;self.extentForeground=nil;self.extentAnchor=nil;
     [self.link invalidate];self.link=nil;
 }
+#if __has_include("LMVPanelTuning.h")
+#import "LMVPanelTuning.h"
+#else
+// Standalone fixtures compile this header on its own and do not copy the tuning
+// table with it, so the two readers fall back to the shipped defaults (60 Hz).
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
+#endif
 - (void)tick:(CADisplayLink *)link {
     // 2.97: a settings change must land without waiting for the CoverSheet to close
     // and reopen. The read is a cached CFPreferences lookup and the write inside
