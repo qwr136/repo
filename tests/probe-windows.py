@@ -75,3 +75,14 @@ for name, limit in limits.items():
 
 print('PASS: seven panel channels share one snapshot (TTL is a parameter), CopyLogX keeps its own; idle gear is 30 s, '
       'not 0.5 s; no probe path walks scenes per tick')
+
+# 3.07: the six channels with no hook get an EVENT source that costs only
+# windows x subview-count: a 30 Hz display link compares a signature and runs the
+# existing coalesced pass the moment it changes. Two guards matter:
+#   * no runtime method hooks in those channels (the project forbids them), and
+#   * the probe must never walk the view tree (that is the CPU cost 2.55 removed).
+tweak = (root / 'Tweak.xm').read_text()
+assert 'LMVPanelComputeSignature' in tweak and 'LMVPanelPresenceLink' in tweak, 'presence probe'
+assert 'preferredFramesPerSecond = 30' in tweak, 'presence probe rate'
+assert 'window.subviews.count' in tweak, 'signature is O(windows), not a tree walk'
+assert 'LMVPanelPresenceStart();' in tweak, 'probe started at launch'

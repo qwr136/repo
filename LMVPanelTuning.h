@@ -63,7 +63,7 @@ static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
         // 2.98: the shared window snapshot behind all eight panel channels. One row,
         // not eight: the channels share a single enumeration by design (2.55), so a
         // per-channel value would multiply the walks it removed.
-        @{@"id":@"Global",        @"name":@"全局窗口快照（8 个共用）",   @"group":@"other"},
+        @{@"id":@"Global",        @"name":@"全局窗口快照（7 个共用）",   @"group":@"other"},
     ];
 }
 static inline NSString *LMVTuneTargetName(NSString *target) {

@@ -8,8 +8,8 @@
 static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 80; }
 static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
 #endif
-// 2.98: the TTL is a row now (设置 → 自定义参数 → 全局窗口快照). One value for all
-// eight channels on purpose: the whole point of the snapshot is that they share ONE
+// 2.98: the TTL is a row now (设置 → 自定义参数 → 全局窗口快照). One value for the
+// SEVEN channels that share it on purpose (CopyLogX has its own since 3.04): the whole point of the snapshot is that they share ONE
 // enumeration, so a per-channel TTL would restore the eight walks 2.55 removed.
 static inline CFTimeInterval LMVProbeSnapshotTTL(void) {
     NSInteger ms=LMVTuneValue(@"Global",@"SnapshotMs");
@@ -24,7 +24,8 @@ static inline CFTimeInterval LMVProbeSnapshotTTL(void) {
     return ms/1000.0;
 }
 
-// 2.55: ONE window enumeration per probe beat, shared by every panel channel.
+// 2.55: ONE window enumeration per probe beat, shared by the seven panel channels
+// that do not carry their own snapshot (CopyLogX got a separate one in 3.04).
 //
 // Each of the eight panel channels used to walk all scenes and all windows on every
 // tick: 8 x 5 Hz = 40 walks a second, and each walk happened two or three times per

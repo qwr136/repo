@@ -74,6 +74,7 @@ static int LMVLockToken = -1;
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying;
 static BOOL LMVPreferencesDirty = YES;
 static void LMVDiagnostic(NSString *event);
+static void LMVPanelPresenceStart(void);
 #define LMVEasterWindowDiagnostic(reason) LMVDiagnostic([@"easter-window " stringByAppendingString:(reason)])
 #import "LMVEasterOverlay.h"
 static LMVEasterManager *LMVEaster;
@@ -102,6 +103,7 @@ static void LMVMarkLaunchReady(void) {
     if (!LMVInitialized || !NSThread.isMainThread) return;
     LMVLaunchReady = YES;
     LMVRequestSafeUpdate();
+    LMVPanelPresenceStart();
 }
 static void LMVEasterStartIfReady(void) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
@@ -1768,6 +1770,45 @@ static void LMVPanelAppearKick(void) {
         LMVHomeMenuVideoRefresh(NO);
     });
 }
+// 3.07: CHEAP CHANGE PROBE for the channels that carry no hook. 鱿鱼/AT/CopyVault/
+// Myrtle/电话助手/CCBorder have a hard project rule against runtime method hooks
+// (tests forbid class_getInstanceMethod there - previous attempts destabilised
+// SpringBoard), so instead a 30 Hz display link computes a SIGNATURE of the window
+// layer that only costs "windows x subview count" - no tree walk, no class checks.
+// When the signature changes, the existing coalesced pass runs at once. That is the
+// moment a panel is added, so the video mounts immediately and ProbeHz can stay low.
+static CADisplayLink *LMVPanelPresenceLink;
+static NSUInteger LMVPanelPresenceSignature;
+
+static NSUInteger LMVPanelComputeSignature(void) {
+    NSUInteger signature = 0;
+    // Shared snapshot (80 ms default): the enumeration is amortised across all callers.
+    for (UIWindow *window in LMVProbeAllWindows()) {
+        signature = signature * 31 + (NSUInteger)(uintptr_t)(__bridge void *)window;
+        signature = signature * 31 + window.subviews.count;
+        signature = signature * 31 + (window.hidden ? 1u : 0u);
+    }
+    return signature;
+}
+
+static void LMVPanelPresenceTick(CADisplayLink *link) {
+    if (!LMVInitialized || !LMVLaunchReady) return;
+    NSUInteger signature = LMVPanelComputeSignature();
+    if (signature == LMVPanelPresenceSignature) return;
+    LMVPanelPresenceSignature = signature;
+    LMVPanelAppearKick();
+}
+
+static void LMVPanelPresenceStart(void) {
+    if (LMVPanelPresenceLink || !NSThread.isMainThread) return;
+    LMVPanelPresenceSignature = LMVPanelComputeSignature();
+    LMVPanelPresenceLink = [CADisplayLink displayLinkWithTarget:[NSBlockOperation blockOperationWithBlock:^{
+        LMVPanelPresenceTick(nil);
+    }] selector:@selector(main)];
+    LMVPanelPresenceLink.preferredFramesPerSecond = 30;
+    [LMVPanelPresenceLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
 // 2.65: the Settings app is a SEPARATE process. Only the settings-video channel
 // runs there; every SpringBoard path below must stay untouched.
 static BOOL LMVSettingsAppProcess(void) {
