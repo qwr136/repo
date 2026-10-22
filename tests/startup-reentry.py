@@ -38,6 +38,10 @@ pre=r'''
 #include <assert.h>
 static NSMutableArray *queued;
 static void enqueue(dispatch_queue_t queue,dispatch_block_t block){[queued addObject:[block copy]];}
+// 3.07: LMVMarkLaunchReady starts the panel presence probe; this fixture only compiles
+// that one function, so the probe is a no-op here (its own contracts live in
+// tests/probe-windows.py).
+static void LMVPanelPresenceStart(void) { }
 #define dispatch_async enqueue
 static void mainTurn(void){NSArray *turn=queued.copy;[queued removeAllObjects];for(dispatch_block_t block in turn)block();}
 @interface UIView:NSObject @end

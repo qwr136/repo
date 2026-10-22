@@ -226,7 +226,7 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
     // 2.55: the shared list, hiding included - "present but hidden" is the answer that
     // stops the structural fallback, so filtering hidden windows out here would send
     // every closed-panel tick into the expensive scan.
-    for(UIWindow *window in LMVProbeAllWindows()) {
+    for(UIWindow *window in LMVProbeAllWindowsFast()) {
         if(!LMVCopyLogXIdentityWindow(window))continue;
         identityPresent=YES;
         if(window.hidden || window.alpha<.01)continue;
@@ -240,7 +240,7 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
     UIView *best=nil;UIWindow *bestWindow=nil;CGFloat bestArea=0;
     // 2.55: a hidden window cannot carry a visible card, so the shared visible list is
     // enough here.
-    for(UIWindow *window in LMVProbeVisibleWindows()) {
+    for(UIWindow *window in LMVProbeVisibleWindowsFast()) {
         if(!LMVCopyLogXWindowKind(window))continue;
         NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
         NSUInteger budget=600;

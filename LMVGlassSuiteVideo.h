@@ -45,12 +45,6 @@ static BOOL LMVGlassSuiteEnvironment(void) {
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
 }
-static NSString *LMVGlassSuiteImageName(Class cls) {
-    if(!cls)return nil;
-    Dl_info info;
-    if(dladdr((__bridge const void *)cls,&info)==0 || !info.dli_fname)return nil;
-    return [NSString stringWithUTF8String:info.dli_fname];
-}
 // 2.36: the class chain from the card up to its window, so the line can be matched
 // one-to-one against FLEX instead of guessing which view was picked.
 static NSString *LMVGlassSuiteChain(UIView *view) {
@@ -72,37 +66,23 @@ static CGFloat LMVGlassSuiteVisibleArea(CGRect frame,CGRect bounds) {
     CGFloat visible=onScreen.size.width*onScreen.size.height;
     return visible/total>=.5?visible:0;
 }
-// 2.36: dladdr is the expensive half of every probe (it walks the loaded images),
-// so the answer is cached per class. Only names that could plausibly present a
-// sheet are worth the lookup at all - a plain UIView never is.
-static NSMutableDictionary<NSString *, NSNumber *> *LMVGlassSuiteOwnerCache;
-static BOOL LMVGlassSuiteOwnedByGlassSuiteX(Class cls) {
-    if(!cls)return NO;
-    if(!LMVGlassSuiteOwnerCache)LMVGlassSuiteOwnerCache=[NSMutableDictionary dictionary];
-    NSString *key=NSStringFromClass(cls);
-    NSNumber *hit=LMVGlassSuiteOwnerCache[key];
-    if(hit)return hit.boolValue;
-    if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllObjects];
-    NSString *owner=LMVGlassSuiteImageName(cls);
-    BOOL owned=owner && [owner rangeOfString:@"GlassSuiteX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
-    LMVGlassSuiteOwnerCache[key]=@(owned);
-    return owned;
-}
 // The container GlassSuiteX presents the sheet through. Name first: the 2.26 log
 // names it GAXAlertOverlayView, and the 2.35 capture shows it at depth 2 under
 // SBHomeScreenWindow (SBHomeScreenWindow > UITransitionView > GAXAlertOverlayView).
+// 2.95b: THE GAX NAME IS NOW THE ONLY ACCEPTED CONTAINER.
+// The old fallback accepted any Overlay/Alert/Panel/Sheet class whose image was
+// GlassSuiteX.dylib. That dylib also ships the OTHER sheets (wossiddy and friends),
+// so "belongs to the same dylib" was never the same question as "is the GlassSuiteX
+// pop-up" - the video was mounted into somebody else's card and that is exactly the
+// reported "GlassSuiteX 弹窗把视频挂到别的弹窗上". If GlassSuiteX ever renames the
+// container the channel stops mounting, which is the intended trade: never mount
+// outside our own sheet.
 static BOOL LMVGlassSuiteContainerKind(UIView *view) {
     if(!view)return NO;
     NSString *name=NSStringFromClass(view.class);
-    if([name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
-    BOOL plausible=NO;
-    for(NSString *word in @[@"Overlay",@"Alert",@"Panel",@"Sheet",@"Present",@"Window"])
-        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){plausible=YES;break;}
-    if(!plausible)return NO;
-    return LMVGlassSuiteOwnedByGlassSuiteX(view.class);
+    return [name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
-static BOOL LMVGlassSuiteGlassKind(UIView *view) {
-    if(!view)return NO;
+static BOOL LMVGlassSuiteGlassKind(UIView *view) {    if(!view)return NO;
     if([view isKindOfClass:UIVisualEffectView.class])return YES;
     NSString *name=NSStringFromClass(view.class);
     // 2.29: the CARD itself is _UIVisualEffectContentView - its name contains
@@ -389,13 +369,23 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *material=LMVGlassSuiteMaterial(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
+    // 2.95: ALWAYS THE CARD'S CURRENT SIZE, NEVER THE MATERIAL'S FRAME.
+    // The material is the full-screen UIVisualEffectView; the card is its
+    // _UIVisualEffectContentView child. Sizing the host from material.frame painted
+    // the video across the whole sheet - and, because the sheet shares
+    // SBHomeScreenWindow>UITransitionView with other pop-ups, it showed up under
+    // them too. The presentation layer is used so the host tracks the open/close
+    // animation instead of staying at the previous (bigger) size.
+    CALayer *cardLayer=(CALayer *)card.layer.presentationLayer;
+    CGRect liveBounds=cardLayer?cardLayer.bounds:card.bounds;
+    if(CGRectIsEmpty(liveBounds)) liveBounds=card.bounds;
     // 2.29: THE CARD IS THE CONTENT VIEW, SO THE VIDEO GOES INSIDE IT.
     // Device hierarchy: UIVisualEffectView { _UIDimmingKnockoutBackdropView,
     // _UIVisualEffectContentView { background, scroll, stack(labels) } }. Mounting
     // above the UIVisualEffectView (the old path) put the video over the labels.
     // Index 0 of the content view is above its background and below every label.
     if([card.superview isKindOfClass:UIVisualEffectView.class]) {
-        container=card;index=0;target=card.bounds;mode=@"content";
+        container=card;index=0;target=liveBounds;mode=@"content";
     } else if([material isKindOfClass:UIVisualEffectView.class] && material.superview) {
         container=material.superview;
         NSInteger near=(NSInteger)[container.subviews indexOfObjectIdenticalTo:material];
@@ -409,9 +399,10 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
             if(!LMVGlassSuiteGlassKind(sibling))break;
             slot=i+1;
         }
-        index=slot;target=material.frame;mode=@"above-material";
+        // 2.95: the CARD's rect in the container, not material.frame (full screen).
+        index=slot;target=[card convertRect:liveBounds toView:container];mode=@"above-material";
     }
-    if(!container) {container=card;index=0;target=card.bounds;}
+    if(!container) {container=card;index=0;target=liveBounds;}
     self.mode=mode;
     BOOL placed=self.host.superview==container &&
         (NSInteger)[container.subviews indexOfObjectIdenticalTo:self.host]==(NSInteger)index;

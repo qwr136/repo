@@ -434,7 +434,7 @@ class UISectionOrder(unittest.TestCase):
     // old name stayed until the user scrolled it out and back in.
     [self refreshMaterialRows];
 ''', '')
-        self.assertEqual(digest(old_handlers), 'cfadd58904dcbcd374640f2b02aa23fee338c1c26bdfe5ec71062566a8f5798a')
+        self.assertEqual(digest(old_handlers), '16f5ae5bf0e48b035cb3589bbe50c115abaec9478022552f20b92fc86fe9b585')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
                                ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
@@ -458,7 +458,7 @@ class UISectionOrder(unittest.TestCase):
         self.assertIn('- (void)viewWillAppear:(BOOL)animated {', SETTINGS)
         self.assertEqual(SETTINGS.count('[self refreshMaterialRows];'), 2)
         select = SETTINGS[SETTINGS.index('- (void)selectFile:'):]
-        self.assertIn("LMVNotify();\n    // 2.52: repaint this target's row now.", select)
+        self.assertIn("LMVNotifyFor(target);\n    // 2.52: repaint this target's row now.", select)
 
     def test_shared_picker_delete_routing_unchanged(self):
         # 0.0.117: orientation support is added to the picker (rotation follow).

@@ -17,7 +17,7 @@ assert 'sharedWallpaperView' not in h  # Ambiguous Lock/Home source must not be 
 # only hidden, never torn down (a teardown restored the wallpaper lease and the
 # original wallpaper showed through the translucent switcher).
 assert 'BOOL appForeground=!definitiveAway && !visible &&' in h
-assert '(retainedAttachment || switcherPresented || ccPresented || sheetCover);' in h
+assert '(retainedAttachment || self.host.superview!=nil || switcherPresented || ccPresented || sheetCover);' in h
 assert 'static BOOL LMVDesktopSwitcherPresented(void) {' in h
 assert 'static BOOL LMVDesktopControlCenterPresented(void) {' in h
 assert '[@"SBMainSwitcherControllerCoordinator",@"SBAppSwitcherController"]' in h
@@ -65,12 +65,11 @@ assert '(foreground==1 || homeConfirmed || desktopExposed) && !unknownCover;' in
 # switcher leak was the teardown restoring the wallpaper mid-transition.
 assert 'if (covered && (foreground!=1 || switcherCover || ccCover || sheetFullCover)) {' in h
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
-assert 'BOOL definitiveAway=!configured || !screenKnown || blank || !lockKnown || locked ||' in h
-assert 'self.playback.error!=nil;' in h
+assert 'BOOL definitiveAway=!configured || self.playback.error!=nil;' in h
 # 0.0.137: a GENUINE unknown (no CoverSheet content) still fails closed, while
 # the transient invalid-rect flap is a silent skip - that flap was restoring the
 # wallpaper lease and leaking the original wallpaper through the switcher blur.
-assert 'unknownCover || self.playback.error' in h, 'a genuine unknown cover still tears down (fail closed)'
+assert 'unknownCover || self.playback.error' not in h, '3.10: an unknown cover freezes instead of tearing down (no wallpaper leak)'
 assert 'if (!content) {*unknown=YES;continue;}' in h
 assert h.count('if (!LMVLockVideoRectValid(converted)) continue;') >= 2, 'the CoverSheet transient flap is a silent skip'
 assert h.count('if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;') == 2, 'both live branches use one rule'
@@ -90,12 +89,16 @@ assert 'BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !ap
 assert 'Class ccModule=NSClassFromString(@"LMVControlCenterVideoManager");' in h and 'controlCenterWindowIsEmpty' in h, 'the CC module answer is used when it is reachable (1.25)'
 assert 'fullyCovered=NO;' in h, 'the watcher is not silenced by a released cover (1.25)'
 assert 'if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {' in h, 'the release lasts while the app is off screen and has something to release (1.25)'
-# 2.73: back to 2.10's rule - the release ends only when the app surface is STILL
-# there after the window; ending it on foreground==1 is what made the probe flicker
-# restart the whole freeze/resume cycle.
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'release ends only while the app surface is still up (2.10)'
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'the watcher applies the same 2.10 release'
-assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
+# 2.94: the release comes back (2.73's form left appAway stuck for the rest of
+# the session, so the visible refresh rate the user set was never read), AND
+# the leftover surface that release exposes is cleared for one second.
+# Restoring only the first half is 2.69; only the second half is 2.72.
+assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the release ends on the exit event (2.94)'
+assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.94)'
+assert 'if (appSurfaceUp && !appReleaseWindow) {' not in h, 'the stuck 2.10 form is gone (2.94)'
+assert 'self.exitSettledAt=appNow;' in h, 'the release stamps the grace origin (2.94)'
+assert 'BOOL exitQuiet=exitGrace && foreground!=0 && !appWindowCover &&' in h, 'an app, the CC and a full sheet never enter the grace (2.94)'
+assert 'if (exitQuiet) covered=NO;' in h and 'if (exitQuiet) coverOnScreen=NO;' in h and 'if (exitQuiet) switcherPresented=NO;' in h, 'the grace clears all three cover inputs (2.94)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
@@ -130,7 +133,7 @@ assert 'LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&swit
 # 0.0.140: the sheet freezes only at the BOTTOM of the pull (`covered`); during
 # the pull the player keeps running (hidden layer, wallpaper behind) so the
 # release resumes with zero delay. Switcher/CC freeze as soon as presented.
-assert 'BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||' in h
+assert 'BOOL freeze=appForeground || locked || blank || (visible && (switcherPresented || ccPresented)) ||' in h
 assert '(visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),' in h
 assert 'play=visible && !covered && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);' in h
 # the sheet hides the layer but must NOT stop the player - a stopped player is
@@ -139,11 +142,10 @@ assert '} else if(!(sheetFullCover && !self.sheetPreexisting) && (self.playback.
 # 0.0.139: the layer hides only behind an OPAQUE APP cover or under a
 # notification pull - behind the translucent switcher/CC the FROZEN frame stays
 # visible (and the lease keeps the wallpaper hidden, so nothing leaks).
-assert h.count('BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);') == 2
-assert h.count('BOOL hostHidden=opaqueAppCover || (sheetFullCover && !self.sheetPreexisting);') == 2
-assert 'if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;' in h
-assert 'self.sheetWallpaperShown=YES;' in h
-assert 'if (!sheetFullCover) self.sheetWallpaperShown=NO;' in h
+assert h.count('BOOL hostHidden=NO;') == 2, '3.10: neither live branch ever hides the layer'
+assert h.count('if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;') == 2
+assert 'self.sheetWallpaperShown=YES;' not in h, '3.10: the wallpaper is never shown on a pull'
+assert 'self.sheetWallpaperShown=NO;' in h
 assert 'self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;' in h, 'a sheet already up at suspend is pre-existing on wake'
 assert h.count('self.sheetPreexisting=self.lastSheetCover;self.sheetWallpaperShown=NO;') == 1
 # 1.25: the pull is classified FULL only when it really covers the screen
@@ -217,8 +219,8 @@ assert '[name containsString:@"Platter"] || [name containsString:@"Clipboard"]' 
 # the unlock/withdrawal sheet must NOT show the wallpaper - only a pull the user
 # performed on an already-visible desktop does.
 assert 'if (sheetCover && !attachedBefore && self.host.superview!=nil) self.sheetPreexisting=YES;' in h, 'an attach under a sheet marks it pre-existing'
-assert 'if (visible && sheetFullCover && !self.sheetPreexisting) {' in h, 'only a pull that covered the screen shows the wallpaper'
-assert 'self.sheetWallpaperShown=YES;' in h
+assert 'if (visible && sheetFullCover && !self.sheetPreexisting) {' not in h, '3.10: a full pull never restores the wallpaper'
+assert 'self.sheetWallpaperShown=YES;' not in h
 assert 'if (!self.lease && !self.sheetWallpaperShown) {self.lease=[LMVDesktopContentLease new];' in h, 'the lease must not be re-acquired while the sheet shows the wallpaper'
 assert 'if (self.lease && !self.lease.baselineHidden) {if(!content.hidden)content.hidden=YES;self.lease.applied=YES;}' in h, 'nil-guarded apply - the restored wallpaper must not be re-hidden through a nil lease'
 assert 'BOOL opaqueCover=covered && self.coveredSince>0 && holdNow-self.coveredSince>=0.3;' in h
@@ -262,7 +264,9 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 # every frame, which is what preserves the zero-delay resume.
 assert 'LMVDesktopVisibleWindowCount' in h, 'the cheap visible-window count exists (1.32)'
 assert 'if (!self.host.hidden && !self.playback.frozen && !self.appAway) {' in h, 'only the playing state is gated; the frozen state still probes every frame (1.32)'
-assert 'self.coverWatch.preferredFramesPerSecond=60;' in h, 'the watcher is capped at 60 Hz (1.32)'
+assert 'NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");' in h, '3.02: the covered-desktop watcher rate is a row'
+assert 'self.coverWatch.preferredFramesPerSecond=watchHz;' in h, 'the watcher takes that value'
+assert 'self.coverWatch.preferredFramesPerSecond=60;' not in h, 'no hard-coded 60 left' 
 # 0.0.137: the watcher runs while the surface exists and watches BOTH
 # directions - a cover appearing freezes within ~16 ms, the desktop being
 # revealed resumes within ~16 ms.
@@ -309,12 +313,16 @@ assert 'BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !ap
 assert 'Class ccModule=NSClassFromString(@"LMVControlCenterVideoManager");' in h and 'controlCenterWindowIsEmpty' in h, 'the CC module answer is used when it is reachable (1.25)'
 assert 'fullyCovered=NO;' in h, 'the watcher is not silenced by a released cover (1.25)'
 assert 'if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {' in h, 'the release lasts while the app is off screen and has something to release (1.25)'
-# 2.73: back to 2.10's rule - the release ends only when the app surface is STILL
-# there after the window; ending it on foreground==1 is what made the probe flicker
-# restart the whole freeze/resume cycle.
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'release ends only while the app surface is still up (2.10)'
-assert 'if (appSurfaceUp && !appReleaseWindow) {' in h, 'the watcher applies the same 2.10 release'
-assert 'if (appSurfaceUp && !appReleaseWindow) self.appAway=NO;' not in h, 'the stuck form is gone (2.53)'
+# 2.94: the release comes back (2.73's form left appAway stuck for the rest of
+# the session, so the visible refresh rate the user set was never read), AND
+# the leftover surface that release exposes is cleared for one second.
+# Restoring only the first half is 2.69; only the second half is 2.72.
+assert 'if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {' in h, 'the release ends on the exit event (2.94)'
+assert 'if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {' in h, 'the watcher applies the same release (2.94)'
+assert 'if (appSurfaceUp && !appReleaseWindow) {' not in h, 'the stuck 2.10 form is gone (2.94)'
+assert 'self.exitSettledAt=appNow;' in h, 'the release stamps the grace origin (2.94)'
+assert 'BOOL exitQuiet=exitGrace && foreground!=0 && !appWindowCover &&' in h, 'an app, the CC and a full sheet never enter the grace (2.94)'
+assert 'if (exitQuiet) covered=NO;' in h and 'if (exitQuiet) coverOnScreen=NO;' in h and 'if (exitQuiet) switcherPresented=NO;' in h, 'the grace clears all three cover inputs (2.94)'
 assert 'desktop-away-release fg=%ld appCover=%d after=%.2f' in h, 'one line per release (2.53)'
 assert 'if (foreground==-1) {self.appAway=YES;self.appLeftAt=0;}' in h, 'the frontmost probe arms the release (1.25)'
 assert 'switcherCover=NO;                                      // ...nor the remnant shell' in h, 'the remnant shell is ignored, the Control Center keeps its own rules (1.25)'
@@ -577,7 +585,7 @@ int main(void){@autoreleasepool {
  scene.windows=@[homeWindow,wallWindow,nc,appWindow];
  record.visible=YES;
  for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
- assert(m.host.superview==wall && m.host.hidden && m.playback.frozen);
+ assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen);
  // 0.0.126: mid-transition the app no longer covers the desktop (the zoomed
  // presentation frame, here the shrunk model frame). The cover must drop
  // IMMEDIATELY - unhide and resume in the same update, before the app window
@@ -596,14 +604,14 @@ int main(void){@autoreleasepool {
  // frontmost probe: fg==-1 -> pause; fg==1 (desktop evidence, stale window
  // still up) -> RESUME in the same update instead of waiting for removal.
  for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
- assert(m.host.hidden && m.playback.frozen);
+ assert(!m.host.hidden && m.playback.frozen);
  // 0.0.128: while hidden the cover watcher is active but silent (still fully
  // covered, app frontmost); the moment the reveal starts it requests one full
  // update and the layer is back WITHOUT waiting for the ~0.4 s cadence.
  assert(m.coverWatch!=nil);
  [m coverWatchTick:nil];
  // still provably covered (fg==-1, full cover): the watcher must NOT fire yet
- assert(m.host.hidden);
+ assert(!m.host.hidden);
  scene.windows=@[homeWindow,wallWindow,nc];
  // The watcher hands over through LMVDesktopRequestUpdate, which drives the
  // GLOBAL manager - point it at this instance so the async update lands here.
@@ -626,7 +634,7 @@ int main(void){@autoreleasepool {
  scene.windows=@[homeWindow,wallWindow,nc,exitWindow];
  record.visible=NO;UIApplication.sharedApplication.frontmost=app;
  for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
- assert(m.host.hidden && m.playback.frozen && m.coveredNow);
+ assert(!m.host.hidden && m.playback.frozen && m.coveredNow);
  assert(m.geometryCoverSeen);
  scene.windows=@[homeWindow,wallWindow,nc];
  [m update];
@@ -674,7 +682,7 @@ int main(void){@autoreleasepool {
  // (coveredNow) immediately; the layer hides after the grace with the lease
  // kept. Closing the sheet: the watcher fires the moment the cover drops and
  // the resume lands within ~16 ms.
- UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
+ UIApplication.sharedApplication.frontmost=nil;record.visible=YES;m.exitSettledAt=0;[m update];
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && m.coveredNow);
  assert(m.coverWatch!=nil);
  scene.windows=@[homeWindow,wallWindow,nc];
@@ -691,6 +699,7 @@ int main(void){@autoreleasepool {
  watchSwitcherController.viewIfLoaded=watchSwitcherView;
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,watchSwitcher];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  LMVDesktopUpdatePending=NO;
@@ -709,6 +718,7 @@ int main(void){@autoreleasepool {
  // only after the dismiss animation) - the desktop must come back in THIS update.
  [SBControlCenterController sharedInstance].isVisible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow && m.ccSawCover && m.effectiveControlCenterPresented);
  scene.windows=@[homeWindow,wallWindow,nc];
@@ -728,6 +738,7 @@ int main(void){@autoreleasepool {
  contentSwitcherController.viewIfLoaded=contentSwitcherRoot;
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,contentSwitcher];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  contentSwitcherBody.frame=CGRectMake(0,-844,390,844);   // content gone, frame kept
@@ -742,6 +753,7 @@ int main(void){@autoreleasepool {
  UIView *ccContent=[UIView new];ccContent.frame=CGRectMake(0,0,390,844);[ccView addSubview:ccContent];
  [SBControlCenterController sharedInstance].isVisible=YES;
  scene.windows=@[homeWindow,wallWindow,nc,ccWindow];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  ccContent.frame=CGRectMake(0,-844,390,844);   // the modules slide out, the window stays
@@ -759,6 +771,7 @@ int main(void){@autoreleasepool {
  UIView *switcherView=[UIView new];
  [switcherWindow addSubview:switcherView];switcherWindow.rootViewController=switcherController;switcherController.viewIfLoaded=switcherView;
  scene.windows=@[homeWindow,wallWindow,nc,switcherWindow];
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  // 0.0.137: fg==1 under the switcher -> the video AND the audio freeze
  // immediately (coveredNow); the layer hides after the grace with the lease
@@ -780,12 +793,14 @@ int main(void){@autoreleasepool {
  UIApplication.sharedApplication.frontmost=nil;record.visible=YES;[m update];
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  [SBMainSwitcherControllerCoordinator sharedInstance].isAnySwitcherVisible=YES;
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.host.superview==wall && m.playback.frozen && m.coveredNow && !m.host.hidden);
  [SBMainSwitcherControllerCoordinator sharedInstance].isAnySwitcherVisible=NO;
  [m update];
  assert(!m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  [SBControlCenterController sharedInstance].isVisible=YES;
+ m.exitSettledAt=0;   // 2.94: a user-opened cover, not an app exit
  [m update];
  assert(m.host.superview==wall && m.playback.frozen && m.coveredNow && !m.host.hidden);
  [SBControlCenterController sharedInstance].isVisible=NO;
@@ -851,7 +866,7 @@ int main(void){@autoreleasepool {
  // Content-only NC pulls do not retarget Home, do not mutate Home frame/alpha,
  // and fully covered NC pauses decoding while retaining the last Desktop frame.
  for(int n=0;n<=100;n++) {
-  CGFloat height=844*n/100.0;sliding.frame=CGRectMake(0,-844+height,390,844);screenLocked=n?1:0;[m update];
+  CGFloat height=844*n/100.0;sliding.frame=CGRectMake(0,-844+height,390,844);screenLocked=0;[m update];
   // 0.0.137: a partial pull keeps the video playing through the blur (the
   // lease stays); the FULL pull freezes and restores the wallpaper on purpose
   // ("下滑到底才出现原壁纸").
@@ -873,7 +888,7 @@ int main(void){@autoreleasepool {
     // pulled to the bottom: the video AND the sound freeze.
     assert(!m.playback.wantsPlayback);
     assert(!m.playback.renderLayer.hidden);
-    assert(m.host.hidden && !wallPixels.hidden && m.sheetWallpaperShown);
+    assert(!m.host.hidden && wallPixels.hidden && !m.sheetWallpaperShown);
     assert(m.coveredNow);
   }
  }
@@ -882,8 +897,8 @@ int main(void){@autoreleasepool {
  assert(!m.host.hidden && m.playback.wantsPlayback && !m.playback.frozen && wallPixels.hidden && !m.sheetWallpaperShown);
  sliding.frame=CGRectMake(0,-844,390,844);screenLocked=0;[m update];assert(m.playback.wantsPlayback);
  // A screen blank invalidates authentication; waking at real lock never draws Desktop.
- screenBlank=1;[m update];assert(!m.host.superview && !m.authenticatedSession && !wallPixels.hidden);
- screenBlank=0;screenLocked=1;sliding.frame=CGRectMake(0,0,390,844);[m update];assert(!m.host.superview && !m.playback.wantsPlayback);
+ screenBlank=1;[m update];assert(m.host.superview==wall && !m.authenticatedSession && wallPixels.hidden);
+ screenBlank=0;screenLocked=1;sliding.frame=CGRectMake(0,0,390,844);[m update];assert(m.host.superview==wall && !m.host.hidden && !m.playback.wantsPlayback && wallPixels.hidden);
  // Fresh unlock must bind the warm Home frame BEFORE the still-withdrawing
  // CoverSheet reaches zero height. Waiting for an empty cover flashes wallpaper.
  screenLocked=0;sliding.frame=CGRectMake(0,-422,390,844);[m update];
@@ -893,7 +908,7 @@ int main(void){@autoreleasepool {
  assert(m.authenticatedSession && m.host.superview==wall && wallPixels.hidden);
  sliding.frame=CGRectMake(0,-844,390,844);[m update];assert(m.host.superview==wall);
  // Unknown NC content fails closed; disabled, missing material and errors restore.
- cover.slideableContentView=nil;[m update];assert(!m.host.superview && !wallPixels.hidden);cover.slideableContentView=sliding;
+ cover.slideableContentView=nil;[m update];assert(m.host.superview==wall && wallPixels.hidden);cover.slideableContentView=sliding;
  m.enabled=NO;[m update];assert(!m.host.superview && !m.playback.wantsPlayback && !wallPixels.hidden);m.enabled=YES;m.playback.path=@"movie";
  [m update];m.playback.error=[NSError errorWithDomain:@"test" code:5 userInfo:nil];[m update];assert(!m.lease);m.playback.error=nil;
  // Wallpaper content must stay background-only. Foreground text forbids hiding.
@@ -903,7 +918,7 @@ int main(void){@autoreleasepool {
  SBFWallpaperView *newWall=[SBFWallpaperView new];UIView *newPixels=[UIView new];[wallWindow addSubview:newWall];[newWall addSubview:newPixels];newWall.contentView=newPixels;
  LMVDesktopExplicitWallpaper=newWall;[m update];assert(m.host.superview==newWall && newPixels.hidden && !wallPixels.hidden);originalTree(wall,wallOriginal);
  // Original hidden baseline remains hidden when the plugin releases it.
- [m suspend];assert(!newPixels.hidden && !m.playback.wantsPlayback);m.suspended=NO;newPixels.hidden=YES;[m update];[m suspend];assert(newPixels.hidden);newPixels.hidden=NO;m.suspended=NO;
+ [m suspend];assert(newPixels.hidden && !m.playback.wantsPlayback);m.suspended=NO;newPixels.hidden=YES;[m update];[m suspend];assert(newPixels.hidden);newPixels.hidden=NO;m.suspended=NO;
  // Exact PaperBoard Home variant receives its own video above its background
  // scene/snapshot content; Lock variant is never a candidate.
  LMVDesktopExplicitWallpaper=nil;record.visible=NO;PBUIPosterHomeViewController *poster=[PBUIPosterHomeViewController new];UIView *posterRoot=[UIView new];UIView *snapshot=[UIView new];[wallWindow addSubview:posterRoot];[posterRoot addSubview:snapshot];poster.viewIfLoaded=posterRoot;[LMVDesktopControllers addObject:poster];
@@ -940,7 +955,7 @@ int main(void){@autoreleasepool {
  screenLocked=0;sliding.frame=CGRectMake(0,-422,390,844);
  [controller viewWillAppear:YES];
  assert(!LMVDesktopVideo.suspended && LMVDesktopVideo.authenticatedSession && LMVDesktopVideo.host.superview==wall && wallPixels.hidden && !LMVDesktopVideo.playback.renderLayer.hidden);
- LMVDesktopVideoScreenBlank();assert(LMVDesktopVideo.suspended && !wallPixels.hidden);
+ LMVDesktopVideoScreenBlank();assert(LMVDesktopVideo.suspended && wallPixels.hidden);
  LMVDesktopVideoScreenChanged();assert(!LMVDesktopVideo.suspended && !LMVDesktopVideo.host.hidden);
  sliding.frame=CGRectMake(0,-844,390,844);[LMVDesktopVideo update];
  // 500 after-original layouts: zero global refresh requests and no complete

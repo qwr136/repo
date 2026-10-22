@@ -25,7 +25,7 @@ tuning = (root / 'LMVPanelTuning.h').read_text()
 assert 'static const NSTimeInterval LMVTuneIdleInterval = 30.0;' in tuning
 channels = ['LMVATPanelVideo.h', 'LMVSquidPanelVideo.h', 'LMVCopyVaultPanelVideo.h',
             'LMVMyrtlePanelVideo.h', 'LMVPhoneAssistVideo.h', 'LMVGlassSuiteVideo.h',
-            'LMVCCBorderVideo.h', 'LMVCopyLogXVideo.h']
+            'LMVCCBorderVideo.h']
 for name in channels:
     src = (root / name).read_text()
     assert 'LMVTuneIdleInterval' in src, name
@@ -38,7 +38,9 @@ for name in channels:
 # ---- B) shared snapshot ------------------------------------------------------
 assert 'static NSArray<UIWindow *> *LMVProbeAllWindows(void)' in probe
 assert 'static NSArray<UIWindow *> *LMVProbeVisibleWindows(void)' in probe
-assert 'now - cachedAt < 0.08' in probe
+assert 'CFTimeInterval ttl=LMVProbeSnapshotTTL();' in probe and 'now - cachedAt < ttl' in probe
+assert 'now - cachedAt < 0.08' not in probe, '2.98: the TTL is a parameter now'
+assert 'LMVTuneValue(@"Global",@"SnapshotMs")' in probe
 # An empty list must never be cached: launch and scene reconnection are briefly empty,
 # and a cached empty answer would stand every channel down for the whole TTL.
 assert 'if (!list.count) return cache ?: @[];' in probe
@@ -47,10 +49,16 @@ assert 'for (UIWindow *window in LMVProbeAllWindows())' in probe
 for name in channels:
     src = (root / name).read_text()
     assert 'LMVProbeVisibleWindows()' in src, name
+# 3.04: CopyLogX presents in a NEW window, the only channel where the shared TTL is a
+# visible delay, so it runs its own list and its own row.
+clx_src = (root / 'LMVCopyLogXVideo.h').read_text()
+assert 'LMVProbeVisibleWindowsFast()' in clx_src
+assert 'LMVProbeAllWindowsFast()' in clx_src
+assert 'LMVTuneValue(@"CopyLogX",@"ProbeSnapshotMs")' in probe
 # CopyLogX needs hidden windows too: "identity window present but hidden" is what stops
 # it from running the expensive structural scan.
 clx = (root / 'LMVCopyLogXVideo.h').read_text()
-assert 'for(UIWindow *window in LMVProbeAllWindows())' in clx
+assert 'for(UIWindow *window in LMVProbeAllWindowsFast())' in clx
 assert 'identityPresent=YES;' in clx
 # The header has to be included before the first channel that uses it.
 assert tweak.index('#import "LMVProbeWindows.h"') < tweak.index('#import "LMVDesktopVideo.h"')
@@ -65,5 +73,20 @@ for name, limit in limits.items():
     src = (root / name).read_text()
     assert src.count('connectedScenes') <= limit, (name, src.count('connectedScenes'))
 
-print('PASS: eight panel channels share one 80 ms window snapshot; idle gear is 30 s, '
+print('PASS: seven panel channels share one snapshot (TTL is a parameter), CopyLogX keeps its own; idle gear is 30 s, '
       'not 0.5 s; no probe path walks scenes per tick')
+
+# 3.07: the six channels with no hook get an EVENT source that costs only
+# windows x subview-count: a 30 Hz display link compares a signature and runs the
+# existing coalesced pass the moment it changes. Two guards matter:
+#   * no runtime method hooks in those channels (the project forbids them), and
+#   * the probe must never walk the view tree (that is the CPU cost 2.55 removed).
+tweak = (root / 'Tweak.xm').read_text()
+assert 'LMVPanelComputeSignature' in tweak and 'LMVPanelPresenceLink' in tweak, 'presence probe'
+assert 'preferredFramesPerSecond = LMVPanelPresenceHz()' in tweak, 'probe rate comes from the setting'
+assert 'LMVTuneParam(@"PresenceHz", @"变化探针频率 (Hz, 5~60)", 5, 60, 30)' in (root/'LMVPanelTuning.h').read_text(), 'probe rate row'
+assert 'LMVPanelPresenceLink.preferredFramesPerSecond = wanted' in tweak, 'rate change applies live'
+assert 'LMVTuneReport(@"Global", @"PresenceHz", hz)' in tweak, 'applied rate is reported (row shows 当前生效)'
+assert 'LMVPanelSignatureIn' in tweak and 'depth > 3' in tweak, 'signature looks 3 levels deep (CopyVault card)'
+assert 'budget = 600' in tweak, 'signature has a hard node budget'
+assert 'LMVPanelPresenceStart();' in tweak, 'probe started at launch'

@@ -208,6 +208,10 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic) BOOL appAway;
 // The instant the app left, for the short unconditional release window.
 @property(nonatomic) CFTimeInterval appLeftAt;
+// 2.94: when the exit was actually recognised (appAway went YES -> NO). The
+// grace below is measured from this, not from appLeftAt: appLeftAt is the
+// moment the app was ENTERED, so it cannot drive an exit grace.
+@property(nonatomic) CFTimeInterval exitSettledAt;
 @property(nonatomic) BOOL effectiveSwitcherPresented,effectiveControlCenterPresented;
 @property(nonatomic) NSUInteger teardowns;
 // 0.0.128: while the video layer is hidden behind an opaque app, updates only
@@ -263,10 +267,31 @@ static void (^LMVDesktopAudioPauseHook)(void);
 // the cover leaves (the wiring seeks to the video player's current time). The
 // 10 Hz audio sync alone added up to one timer beat to both directions.
 static void (^LMVDesktopAudioCoverHook)(BOOL covered);
+// 3.03: THE RATE IS A REAL RATE. Until now 「遮挡检测频率」 only set the cover
+// watcher, while every event (key window change, Control Center closing, a cover
+// flag flipping) dispatched an update immediately - so the number in Settings could
+// be set to 5 and the desktop would still react within a frame. That is what "假的"
+// meant: the value existed, the behaviour never changed.
+// The beat below is the single gate for the covered state: an update requested
+// inside one interval is DELAYED to the next beat instead of being dropped, so no
+// state change is ever lost - it is just applied up to one interval later. At 5 Hz
+// that is the 200 ms the row promises; at 60 Hz it is under a frame.
+static CFTimeInterval LMVDesktopBeatAt;
 static void LMVDesktopRequestUpdate(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread || LMVDesktopUpdatePending)return;
+    CFTimeInterval delay=0;
+    LMVDesktopVideoManager *manager=LMVDesktopVideo;
+    if(manager && (manager.playback.frozen || manager.appAway)) {
+        NSInteger hz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+        if(hz<1)hz=1;
+        CFTimeInterval interval=1.0/(CFTimeInterval)hz;
+        CFTimeInterval now=CACurrentMediaTime();
+        CFTimeInterval elapsed=now-LMVDesktopBeatAt;
+        if(elapsed<interval)delay=interval-elapsed;else LMVDesktopBeatAt=now;
+    }
     LMVDesktopUpdatePending=YES;
-    dispatch_async(dispatch_get_main_queue(),^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),
+                   dispatch_get_main_queue(),^{
         LMVDesktopUpdatePending=NO;
         if(!LMVInitialized || !LMVLaunchReady)return;
         // Desktop-only policy; no card/presenter/CC/source refresh cascade.
@@ -828,8 +853,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     [self update];
 }
 - (void)suspend {
-    self.suspended=YES;[self.playback setVisible:NO];self.host.hidden=YES;
-    [self.lease restore];self.lease=nil;[self.timer invalidate];self.timer=nil;
+    // 3.10: screen off / resign-active must FREEZE, never hide and never restore
+    // the wallpaper. Keep the last frame visible and the suppress-lease applied so
+    // the wake/unlock is instant and the original wallpaper never flashes.
+    self.suspended=YES;
+    if(self.playback.wantsPlayback || !self.playback.frozen) [self.playback holdCurrentFrame:YES];
+    [self.timer invalidate];self.timer=nil;
     [self stopCoverWatch];
     // 0.0.138: the suspended updates never reach the sheet classification, so
     // forget it here - the next update after a wake with the CoverSheet still
@@ -864,7 +893,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // 120 Hz - double the probe rate for a signal whose fastest meaningful change
     // (the app-exit cross-fade) is one frame wide at 60 Hz anyway, and two frames
     // of extra latency at worst on the reveal.
-    self.coverWatch.preferredFramesPerSecond=60;
+    // 3.02: the watcher ran at a hard-coded 60 Hz for the whole time the desktop was
+    // covered - that is the ~3% SpringBoard CPU seen while inside an app. It is a row
+    // now (设置 → 自定义参数 → 桌面背景视频 → 遮挡检测频率); the lower it goes, the
+    // cheaper the idle and the later the reveal, at most one interval.
+    NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+    self.coverWatch.preferredFramesPerSecond=watchHz;
+    LMVTuneReport(@"Desktop",@"CoverWatchHz",watchHz);
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-coverwatch setting=%ld link=%ld",
+        (long)watchHz,(long)self.coverWatch.preferredFramesPerSecond]);
     [self.coverWatch addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 - (void)stopCoverWatch {
@@ -909,6 +946,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         self.measuredSince = measuredNow;
         LMVTuneReport(@"Desktop", @"MeasuredFPS", measured);
         LMVTuneTouch(@"Desktop", @"MeasuredFPS");
+    }
+    // 3.02: apply a change to 遮挡检测频率 without waiting for the next cover. Once a
+    // second is enough - the value is a setting, not a signal.
+    static CFTimeInterval lastWatchSync;
+    if (measuredNow-lastWatchSync>=1.0) {
+        lastWatchSync=measuredNow;
+        NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+        if (link.preferredFramesPerSecond!=watchHz) link.preferredFramesPerSecond=watchHz;
+        LMVTuneReport(@"Desktop",@"CoverWatchHz",watchHz);
     }
     // 2.07: A COVERED DESKTOP IS A WATCHDOG, NOT A RENDERER.
     // While an app is in front the player is frozen, yet this tick kept running at
@@ -993,7 +1039,13 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // is under the cross-fade's own duration.
         // 2.46: 10 Hz instead of 20 Hz. The count only decides whether a FULL probe
         // is worth running; the reveal itself is still evaluated on every tick.
-        if (gateNow-self.probeCountAt < .1) return;
+        // 2.97: the 100 ms is now the 「检测节流」row (设置 → 自定义参数 → 桌面背景视频).
+        // It is read through LMVTuneValue, which already clamps to 0~1000 ms, and the
+        // applied value is reported back so the page can show what is really in use
+        // instead of what was typed.
+        NSInteger gateMs=LMVTuneValue(@"Desktop",@"ProbeIntervalMs");
+        LMVTuneReport(@"Desktop",@"ProbeIntervalMs",gateMs);
+        if (gateNow-self.probeCountAt < gateMs/1000.0) return;
         self.probeCountAt=gateNow;
         NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
         if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
@@ -1029,8 +1081,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // The 0.8 s window is kept so the resume never races the exit cross-fade (that
         // is the play-stop-play stutter 1.25 removed); appSurfaceUp stays as an
         // additional reason to end it, exactly as before.
-        if (appSurfaceUp && !appReleaseWindow) {
+        // 2.94: 2.73 put this back to the 2.10 form while the exit stutter was
+        // being chased, and the price was that appAway never ends: after one app
+        // the desktop is stuck on CoveredFPS for the rest of the session, so the
+        // "visible refresh rate" the user set is never read. The entry is restored
+        // here AND the leftover surface it exposes is handled below (exitQuiet) -
+        // restoring one without the other is exactly what broke 2.69 and 2.72.
+        if (!appReleaseWindow && (fg==1 || appSurfaceUp)) {
             self.appAway=NO;
+            self.exitSettledAt=appNow;
             // One line per release (the flag never comes back to YES without a new
             // app), so "did leaving the app actually hand the desktop back?" is
             // answerable from a capture instead of from the frame rate.
@@ -1133,8 +1192,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // desktop never returned to IdleFPS (settings: 可见 20, 桌面时 30, 实际 1 被遮挡,
         // minutes after leaving the app). fg==1 (SpringBoard frontmost) IS the desktop,
         // so it ends the release once the 0.8 s cross-fade window is over.
-        if (appSurfaceUp && !appReleaseWindow) {
+        // 2.94: see the per-frame path - the release must exist again or the
+        // visible refresh rate is dead, and the leftover it exposes is handled
+        // by exitQuiet a few lines below.
+        if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {
             self.appAway=NO;
+            self.exitSettledAt=appNow;
             LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
                 (long)foreground,(int)appSurfaceUp,appNow-self.appLeftAt]);
         }
@@ -1157,7 +1220,28 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // FLAGS left `covered` true, so `play` stayed false and the layer was hidden
     // for the release (device log: layer=0 on the exit tick, which is the
     // wallpaper showing through before the video comes back).
+    // 2.94: THE ONE SECOND AFTER AN EXIT IS NOT A COVER. Recognising the exit
+    // (above) is what lets the visible refresh rate come back, but on that same
+    // frame the system's transition containers (UITransitionView, the fading
+    // switcher shell) are still in the window list and still measure as a
+    // full-screen cover - so the video froze ~0.6 s after it had started, which
+    // is the "播一两秒卡一下" report. For one second after the release none of
+    // that counts as a cover.
+    //   Three variables feed freeze/play/audioCovered and all three are cleared
+    // below, because clearing only one of them is what 2.72 got wrong.
+    //   Deliberately NOT cleared: a real app window, the Control Center and a
+    // FULL notification sheet. Those are always opened by the user and can never
+    // be left over from the app that was just exited.
+    //   `foreground!=0` reads the raw probe on purpose: right after an exit it
+    // reports -1 for a few frames, and inside this window that is noise, not an
+    // app. It is not normalised anywhere else, so the away state machine is
+    // untouched.
+    CFTimeInterval exitNow=CACurrentMediaTime();
+    BOOL exitGrace=self.exitSettledAt>0 && (exitNow-self.exitSettledAt)<=1.0;
+    BOOL exitQuiet=exitGrace && foreground!=0 && !appWindowCover &&
+        !ccCover && !self.effectiveControlCenterPresented && !sheetFullCover;
     BOOL covered=container && LMVDesktopFullyCovered(container,cover) && !appExitRelease;
+    if (exitQuiet) covered=NO;
     // 0.0.138: SpringBoard's own presentation state, OR-ed with the geometry.
     // It is the authority for the switcher and the Control Center: while either
     // is presented the desktop is not what the user is looking at, so the video
@@ -1165,8 +1249,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // 1.25: classified against what the pixels show (see the method): the flag
     // keeps a freeze only while its surface is still on screen.
     BOOL coverOnScreen=switcherCover||ccCover||sheetCover||appWindowCover||!CGRectIsEmpty(cover);
+    if (exitQuiet) coverOnScreen=NO;
     [self classifyPresentationForCoverOnScreen:coverOnScreen];
     BOOL switcherPresented=self.effectiveSwitcherPresented;
+    if (exitQuiet) switcherPresented=NO;
     BOOL ccPresented=self.effectiveControlCenterPresented;
     // 1.25: a desktop with NOTHING covering it is proof enough that the desktop
     // is what is on screen - the frontmost probe and the Home lifecycle callbacks
@@ -1221,8 +1307,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // frame during the in-app swipe-up used to restore the wallpaper lease, and
     // the original wallpaper showed through the translucent switcher - the
     // reported leak. That case is now a silent skip in the probe.
-    BOOL definitiveAway=!configured || !screenKnown || blank || !lockKnown || locked ||
-        unknownCover || self.playback.error!=nil;
+    // 3.10: FREEZE, NEVER HIDE. A surface that is merely not visible - locked,
+    // screen off, an app/switcher/CC/notification cover, an unknown cover or a
+    // momentary probe failure - must NOT be torn down: tearing down restores the
+    // wallpaper lease and flashes the original wallpaper. Only a genuinely
+    // unavailable surface (feature off, decode error) is torn down.
+    BOOL definitiveAway=!configured || self.playback.error!=nil;
     CFTimeInterval holdNow=CACurrentMediaTime();
     if (!visible && self.host.superview!=nil && !definitiveAway) {
         if (self.holdSince<=0) self.holdSince=holdNow;
@@ -1257,8 +1347,11 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // the original wallpaper showed through the translucent switcher (the
     // reported leak). The switcher/CC/NC states are all "the desktop is behind
     // something", not "the desktop is gone".
+    // 3.10: anything attached that is merely not visible must FREEZE, not tear
+    // down - covers, lock, screen off. `self.host.superview!=nil` keeps the
+    // surface alive even when no suppress-lease happens to be held.
     BOOL appForeground=!definitiveAway && !visible &&
-        (retainedAttachment || switcherPresented || ccPresented || sheetCover);
+        (retainedAttachment || self.host.superview!=nil || switcherPresented || ccPresented || sheetCover);
     BOOL attachedBefore= self.host.superview!=nil;
     if (visible) {
         if (self.container!=container || (self.lease && self.lease.content!=content)) {
@@ -1325,15 +1418,12 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         [CATransaction begin];[CATransaction setDisableActions:YES];
         if(geometryChanged)self.host.frame=videoBounds;
         if(self.host.alpha!=1)self.host.alpha=1;
-        // 0.0.124: do not composite a layer that nothing can see. The layer stays
-        // attached to the same superview, so it is back the instant the cover goes
-        // away; this only removes wasted work and cannot hide the desktop.
-        // 0.0.139: hide ONLY behind an opaque APP cover or under a notification
-        // pull. Behind the translucent switcher/Control Center the frozen video
-        // frame must stay VISIBLE (the user asked for exactly that, and the
-        // suppress-lease stays applied so no wallpaper can show through).
-        BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);
-        BOOL hostHidden=opaqueAppCover || (sheetFullCover && !self.sheetPreexisting);
+        // 3.10: FREEZE, NEVER HIDE. Whenever the desktop video is not the thing the
+        // user is looking at - app, app switcher, Control Center, notification pull,
+        // lock screen or screen off - the layer stays VISIBLE holding its last frame
+        // (frozen) and the suppress-lease stays applied, so the original wallpaper
+        // can never show through. The old hide + wallpaper restore is gone.
+        BOOL hostHidden=NO;
         if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
         NSUInteger mask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         if(self.host.autoresizingMask!=mask)self.host.autoresizingMask=mask;
@@ -1349,10 +1439,9 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // (it stays in the same superview, so recovery is instant and the wallpaper
         // can never flash); `covered` is the geometry proof that hiding it cannot
         // be seen. Without that proof the layer stays visible, i.e. unchanged.
-        // 0.0.139: same rule on the held-surface path - a translucent cover
-        // keeps the frozen frame visible.
-        BOOL opaqueAppCover=opaqueCover && !(switcherCover || ccCover);
-        BOOL hostHidden=opaqueAppCover || (sheetFullCover && !self.sheetPreexisting);
+        // 3.10: same rule on the held-surface path - a cover of any kind keeps the
+        // frozen frame visible, never hidden, and never reveals the wallpaper.
+        BOOL hostHidden=NO;
         if(self.host.hidden!=hostHidden)self.host.hidden=hostHidden;
     } else {
         if (self.host.superview!=nil) self.teardowns++;
@@ -1364,7 +1453,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // the video never disagree. The flip syncs the Desktop audio directly (no
     // timer beat in either direction): pausing the instant the desktop becomes
     // invisible, resuming the instant it is back.
-    if (!sheetFullCover) self.sheetWallpaperShown=NO;
+    self.sheetWallpaperShown=NO; // 3.10: a pull never shows the wallpaper again.
     // 1.25: a notification pull no longer silences the desktop - the user asked
     // for sound whenever the video is still playing (下拉/收回通知中心 视频有声).
     // A pull that has COVERED the screen still freezes and silences (below).
@@ -1413,10 +1502,9 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // Only over a LIVE desktop: on the lock screen the sheet is up with no
         // surface, and flagging it there suppressed the lease re-acquisition at
         // the following unlock tick - the wallpaper then stayed exposed.
-        if (visible && sheetFullCover && !self.sheetPreexisting) {
-            if (self.lease) {[self.lease restore];self.lease=nil;}
-            self.sheetWallpaperShown=YES;
-        }
+        // 3.10: a full notification pull NO LONGER shows the original wallpaper.
+        // The video freezes and the layer stays visible with the suppress-lease
+        // applied, so the last frame remains - never the wallpaper.
         // 0.0.140/1.25: the notification sheet is a cover until the pull
         // reaches the bottom. Pulled HALF way it is not a cover at all - the
         // desktop is on display underneath, so the video keeps playing AND stays
@@ -1424,7 +1512,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // screen freezes; the layer is hidden and the wallpaper restored on the
         // same tick. The switcher and the Control Center freeze as soon as they
         // are presented, and any full cover freezes.
-        BOOL freeze=appForeground || (visible && (switcherPresented || ccPresented)) ||
+        BOOL freeze=appForeground || locked || blank || (visible && (switcherPresented || ccPresented)) ||
             (visible && covered && (sheetFullCover || switcherCover || ccCover || foreground!=1)),
             play=visible && !covered && !switcherPresented && !ccPresented && !(sheetFullCover && !self.sheetPreexisting);
         // Transition-only state changes. Calling setVisible:NO on every frozen
@@ -1469,7 +1557,11 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // lease merely because this update has no newly discovered `content`.
         UIView *held=self.lease.content;
         if (held && !self.lease.baselineHidden) {if(!held.hidden)held.hidden=YES;self.lease.applied=YES;}
-    } else if (self.lease) {[self.lease restore];self.lease=nil;}
+    } else if (self.lease && !sheetCover && !switcherPresented && !ccPresented && !appForeground && !locked && !blank) {
+        // 3.10: only a genuinely idle/exposed desktop releases the suppress-lease.
+        // Any cover, lock or screen-off keeps it applied - no wallpaper can appear.
+        [self.lease restore];self.lease=nil;
+    }
     // 0.0.128/0.0.134: watch every frame in BOTH waiting states - the layer
     // hidden behind an opaque app (exit reveal), AND the layer visible but
     // frozen under a sheet (the NC/CC close is caught within ~16 ms instead of

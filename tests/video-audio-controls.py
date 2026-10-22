@@ -111,8 +111,8 @@ for method in (getter, setter):
     assert 'isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5' in method
     assert '[specifier propertyForKey:@"key"]' in method and 'VideoOpacity' not in method
 assert 'return @(volume * 100.0);' in getter and '[value doubleValue] / 100.0' in setter
-assert setter.count('CFPreferencesSetAppValue(') == 1 and 'LMVNotify();' in setter
-print('PASS: actual source nine-target-plus-AT audio mapping, isolated keys/defaults, percent conversion, finite clamp, CC material rows 1/4, disabled sliders and live notification protection')
+assert setter.count('CFPreferencesSetAppValue(') == 1 and 'LMVNotifyFor(LMVTargetForPrefKey(' in setter
+print('PASS: actual source nine-target-plus-AT audio mapping, isolated keys/defaults, percent conversion, finite clamp, CC material rows 1/4, disabled sliders and per-channel notification on write')
 
 if platform.system() == 'Darwin':
     # Use the exact production helpers, row builder and handlers below, not a copied model.
@@ -127,11 +127,17 @@ static NSString *lastKey;
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static id LMVEasterRead(NSString *key) { return store[key]; }
 static void LMVEasterSet(NSString *key, id value) { store[key]=value; lastKey=key; writes++; notifications++; }
-static void LMVNotify(void) { notifications++; }
+// 3.06: the production notifier is the REAL LMVNotifyFor now (its body is compiled
+// in with the helpers below), so the POST itself is what has to be counted - a local
+// LMVNotify stub would never be called by the setter and the count assertion failed.
+static void TestPost(CFNotificationCenterRef center, CFStringRef name, const void *object, CFDictionaryRef userInfo, Boolean deliverImmediately) { notifications++; }
+static void TestSync(CFStringRef domain) { }
 static CFTypeRef TestCopy(CFStringRef key, CFStringRef domain) { id v=store[(__bridge NSString *)key]; return v ? CFRetain((__bridge CFTypeRef)v) : NULL; }
 static void TestSet(CFStringRef key, CFPropertyListRef value, CFStringRef domain) { LMVEasterSet((__bridge NSString *)key, (__bridge id)value); notifications--; }
 #define CFPreferencesCopyAppValue TestCopy
 #define CFPreferencesSetAppValue TestSet
+#define CFNotificationCenterPostNotification TestPost
+#define CFPreferencesAppSynchronize TestSync
 @HELPERS@
 enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @interface PSSpecifier : NSObject
@@ -335,7 +341,11 @@ int main(void) { @autoreleasepool {
 '''
     button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
     button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'openCVTextColor', 'openSquidTextColor', 'openPATextColor', 'openGSTextColor', 'openCopyLogXTextColor'))
+    # 3.05: the setters now notify PER CHANNEL (LMVNotifyFor/LMVTargetForPrefKey), so the
+    # fixture must carry those two production helpers too - without them the native
+    # build fails with "call to undeclared function".
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
+    actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))
     fixture = fixture.replace('@PREFS_METHODS@', '\n'.join((append, specifiers, body(prefs, '- (id)enabled:'), set_enabled, getter, setter)))

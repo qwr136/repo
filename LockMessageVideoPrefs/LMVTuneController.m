@@ -31,6 +31,10 @@ static NSString *LMVTuneShortLabel(NSString *key) {
     if ([key isEqualToString:@"ShowDelayMs"]) return @"出现";
     if ([key isEqualToString:@"HideDelayMs"]) return @"关闭";
     if ([key isEqualToString:@"HookThrottleMs"]) return @"节流";
+    if ([key isEqualToString:@"ProbeIntervalMs"]) return @"节流";
+    if ([key isEqualToString:@"SnapshotMs"]) return @"快照";
+    if ([key isEqualToString:@"ProbeSnapshotMs"]) return @"快照";
+    if ([key isEqualToString:@"CoverWatchHz"]) return @"遮挡检测";
     return key;
 }
 // 2.52: "when was this observed". The shared age answers "is the channel alive";

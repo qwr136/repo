@@ -1,4 +1,12 @@
 #pragma once
+#if __has_include("LMVPanelTuning.h")
+#import "LMVPanelTuning.h"
+#else
+// Standalone fixtures compile this header on its own and do not copy the tuning
+// table with it, so the two readers fall back to the shipped defaults (60 Hz).
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
+#endif
 // Independent from Desktop/Lock/message players; no Control Center module or
 // CCSupport dependency is needed to render the existing panel's background.
 static NSString *LMVCCSelectedPath(NSString *key) {
@@ -491,7 +499,20 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     // Geometry only: the 100 ms maintenance poll cannot follow a 60 Hz move.
     [self layoutMaterial:material inRoot:root];
 }
-- (void)geometryTick:(CADisplayLink *)link {(void)link;[self syncGeometry];}
+- (void)geometryTick:(CADisplayLink *)link {
+    // 2.97: apply a settings change on the next frame instead of at the next open.
+    NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
+    if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
+    LMVTuneReport(@"CC",@"ProbeHz",probeHz);
+    // 2.98: one line per change, same reason as the lock channel.
+    static NSInteger appliedHz=-1;
+    if(appliedHz!=probeHz) {
+        appliedHz=probeHz;
+        LMVDiagnostic([NSString stringWithFormat:@"cc-cadence setting=%ld link=%ld",
+            (long)probeHz,(long)link.preferredFramesPerSecond]);
+    }
+    [self syncGeometry];
+}
 - (void)update {
     if(self.updating || self.suspended)return;self.updating=YES;
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
@@ -570,7 +591,13 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     self.presented=visible;
     if(visible && !self.geometryLink) {
         self.geometryLink=[CADisplayLink displayLinkWithTarget:self selector:@selector(geometryTick:)];
-        self.geometryLink.preferredFramesPerSecond=60;
+        // 2.97: the callback rate is the detection rate for this layer, and it was
+        // nailed to 60. Read the row instead, and report what was actually applied so
+        // 「当前生效」 can answer "is my value in effect".
+        NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
+        self.geometryLink.preferredFramesPerSecond=probeHz;
+        LMVTuneReport(@"CC",@"ProbeHz",probeHz);
+        LMVDiagnostic([NSString stringWithFormat:@"cc-cadence created hz=%ld",(long)probeHz]);
         [self.geometryLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     } else if(!visible) {[self.geometryLink invalidate];self.geometryLink=nil;}
     // 0.0.79 fix: the poll timer used to require a resolved controller AND an open

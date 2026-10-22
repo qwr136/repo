@@ -50,14 +50,13 @@ assert 'static UIView *LMVGlassSuiteCard(UIWindow *window)' not in src
 assert 'LMVGlassSuiteShellKind' not in src
 assert 'budget=600' not in src, 'no deep probe should remain'
 
-# ---- 4) dladdr 按 Class 缓存，且只查可疑类名 --------------------------------
-assert 'static NSMutableDictionary<NSString *, NSNumber *> *LMVGlassSuiteOwnerCache;' in src
-assert 'static BOOL LMVGlassSuiteOwnedByGlassSuiteX(Class cls)' in src
-assert 'NSNumber *hit=LMVGlassSuiteOwnerCache[key];' in src
-assert 'if(hit)return hit.boolValue;' in src
-assert '@[@"Overlay",@"Alert",@"Panel",@"Sheet",@"Present",@"Window"]' in src
-# 缓存放不下时整表清空，避免无限增长
-assert 'if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllObjects];' in src
+# ---- 4) 2.95b: 只认 GAX 容器，dylib 归属退路已删除 --------------------------
+# 退路曾经接受"类属于 GlassSuiteX.dylib"的任何 Overlay/Panel/Sheet，而那个 dylib
+# 里还装着别的弹窗（wossiddy 等），于是视频被挂进了别人的卡片。
+assert 'LMVGlassSuiteOwnedByGlassSuiteX' not in src, 'the dylib-ownership fallback must be gone'
+assert 'LMVGlassSuiteOwnerCache' not in src, 'its cache must be gone with it'
+assert '@[@"Overlay",@"Alert",@"Panel",@"Sheet",@"Present",@"Window"]' not in src, 'no plausible-name list'
+assert 'return [name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound;' in src, 'GAX is the only accepted container'
 
 # ---- 5) 三档轮询 + tolerance -------------------------------------------------
 assert 'static NSTimeInterval LMVGlassSuiteInterval(void)' in src
@@ -76,7 +75,11 @@ assert 'LMVGlassSuiteEnabled?.1:.5' not in src
 assert src.count('LMVGlassSuiteRetune();') >= 3
 
 # ---- 6) 挂载位置与模式不变 --------------------------------------------------
-assert 'container=card;index=0;target=card.bounds;mode=@"content";' in src
+# 2.95: the host is sized from the CARD, never from the material (full screen).
+assert 'container=card;index=0;target=liveBounds;mode=@"content";' in src
+assert 'index=slot;target=[card convertRect:liveBounds toView:container];mode=@"above-material";' in src
+assert 'target=material.frame' not in src, 'the full-screen material frame must never size the host'
+assert 'CALayer *cardLayer=(CALayer *)card.layer.presentationLayer;' in src
 assert 'if([card.superview isKindOfClass:UIVisualEffectView.class])' in src
 assert '_UIVisualEffectContentView' in src
 
@@ -101,6 +104,6 @@ assert src.count('LMVGlassSuiteInstallContainerHook();') >= 2
 assert 'check python3 tests/glasssuite-probe.py' in workflow
 
 print('PASS: GlassSuiteX probe cost - card-level cache (not window), two-level scan '
-      'with icon/folder/wallpaper subtrees pruned, per-class dladdr cache, three-gear '
+      'with icon/folder/wallpaper subtrees pruned, GAX-only container (no dylib-ownership fallback), three-gear '
       'timer with tolerance, 0.2s waiting gear, container didMoveToSuperview hook for '
       'instant mount, mount point unchanged, chain diagnostics, CI wired')

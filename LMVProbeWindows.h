@@ -1,8 +1,31 @@
 #pragma once
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#if __has_include("LMVPanelTuning.h")
+#import "LMVPanelTuning.h"
+#else
+// Standalone fixtures compile this header alone; the snapshot default is 80 ms.
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 80; }
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
+#endif
+// 2.98: the TTL is a row now (设置 → 自定义参数 → 全局窗口快照). One value for the
+// SEVEN channels that share it on purpose (CopyLogX has its own since 3.04): the whole point of the snapshot is that they share ONE
+// enumeration, so a per-channel TTL would restore the eight walks 2.55 removed.
+static inline CFTimeInterval LMVProbeSnapshotTTL(void) {
+    NSInteger ms=LMVTuneValue(@"Global",@"SnapshotMs");
+    // 2.98: one line per change - the same "is it really applied" question as the
+    // other cadence rows, answered without a debugger.
+    static NSInteger appliedMs=-1;
+    if(appliedMs!=ms) {
+        appliedMs=ms;
+        LMVDiagnostic([NSString stringWithFormat:@"probe-snapshot ttl=%ldms",(long)ms]);
+    }
+    LMVTuneReport(@"Global",@"SnapshotMs",ms);
+    return ms/1000.0;
+}
 
-// 2.55: ONE window enumeration per probe beat, shared by every panel channel.
+// 2.55: ONE window enumeration per probe beat, shared by the seven panel channels
+// that do not carry their own snapshot (CopyLogX got a separate one in 3.04).
 //
 // Each of the eight panel channels used to walk all scenes and all windows on every
 // tick: 8 x 5 Hz = 40 walks a second, and each walk happened two or three times per
@@ -22,7 +45,8 @@ static NSArray<UIWindow *> *LMVProbeAllWindows(void) {
     static NSArray<UIWindow *> *cache;
     static CFTimeInterval cachedAt;
     CFTimeInterval now = CACurrentMediaTime();
-    if (cache && now - cachedAt < 0.08) return cache;
+    CFTimeInterval ttl=LMVProbeSnapshotTTL();
+    if (cache && now - cachedAt < ttl) return cache;
     NSMutableArray<UIWindow *> *list = [NSMutableArray array];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -42,7 +66,8 @@ static NSArray<UIWindow *> *LMVProbeVisibleWindows(void) {
     static NSArray<UIWindow *> *cache;
     static CFTimeInterval cachedAt;
     CFTimeInterval now = CACurrentMediaTime();
-    if (cache && now - cachedAt < 0.08) return cache;
+    CFTimeInterval ttl=LMVProbeSnapshotTTL();
+    if (cache && now - cachedAt < ttl) return cache;
     NSMutableArray<UIWindow *> *list = [NSMutableArray array];
     for (UIWindow *window in LMVProbeAllWindows()) {
         if (window.hidden || window.alpha < .01) continue;
@@ -50,5 +75,41 @@ static NSArray<UIWindow *> *LMVProbeVisibleWindows(void) {
     }
     cache = [list copy];
     cachedAt = now;
+    return cache;
+}
+
+// 3.04: CopyLogX gets its OWN snapshot, because it is the only panel channel that
+// presents in a NEW window. A shared list that is 1 s old does not contain that
+// window, so the video lands up to a second late - the one place where the shared
+// TTL is visible. The other seven present inside windows that already exist, so
+// they keep the cheap shared list and can afford a much longer TTL.
+static CFTimeInterval LMVProbeCopyLogXTTL(void) {
+    NSInteger ms=LMVTuneValue(@"CopyLogX",@"ProbeSnapshotMs");
+    LMVTuneReport(@"CopyLogX",@"ProbeSnapshotMs",ms);
+    return ms/1000.0;
+}
+static NSArray<UIWindow *> *LMVProbeAllWindowsFast(void) {
+    static NSArray<UIWindow *> *cache;static CFTimeInterval cachedAt;
+    CFTimeInterval now=CACurrentMediaTime();
+    if(cache && now-cachedAt<LMVProbeCopyLogXTTL())return cache;
+    NSMutableArray<UIWindow *> *list=[NSMutableArray array];
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        [list addObjectsFromArray:((UIWindowScene *)scene).windows];
+    }
+    if(!list.count)return cache?:@[];
+    cache=[list copy];cachedAt=now;
+    return cache;
+}
+static NSArray<UIWindow *> *LMVProbeVisibleWindowsFast(void) {
+    static NSArray<UIWindow *> *cache;static CFTimeInterval cachedAt;
+    CFTimeInterval now=CACurrentMediaTime();
+    if(cache && now-cachedAt<LMVProbeCopyLogXTTL())return cache;
+    NSMutableArray<UIWindow *> *list=[NSMutableArray array];
+    for(UIWindow *window in LMVProbeAllWindowsFast()) {
+        if(window.hidden || window.alpha<.01)continue;
+        [list addObject:window];
+    }
+    cache=[list copy];cachedAt=now;
     return cache;
 }

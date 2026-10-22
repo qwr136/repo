@@ -7,13 +7,17 @@ source = (root/'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 entry = plistlib.loads((root/'layout/Library/PreferenceLoader/Preferences/LockMessageVideoPrefs.plist').read_bytes())['entry']
 info = plistlib.loads((root/'LockMessageVideoPrefs/Info.plist').read_bytes())
 assert entry['bundle'] == info['CFBundleExecutable'] == 'LockMessageVideoPrefs'
-# 2.63: the entry is the two-level menu now; LMVPRootListController is the
-# 桌面视频背景 page it pushes, so both names are asserted where they belong.
-assert entry['detail'] == info['NSPrincipalClass'] == 'LMVMenuListController'
-assert re.search(r'@interface LMVMenuListController : PSListController',
-                 (root/'LockMessageVideoPrefs/LMVMenuListController.h').read_text())
-assert 'openDesktop:' in (root/'LockMessageVideoPrefs/LMVMenuListController.m').read_text()
-assert 'openSettingsVideo:' in (root/'LockMessageVideoPrefs/LMVMenuListController.m').read_text()
+# 2.95: the two-level menu is gone. 「设置视频背景」was removed outright and
+# 「桌面视频背景」no longer has its own level - the entry IS that page, so the
+# detail class and NSPrincipalClass must both point at it, and the old menu plus
+# the settings-video page must not exist at all.
+assert entry['detail'] == info['NSPrincipalClass'] == 'LMVPRootListController'
+assert not (root/'LockMessageVideoPrefs/LMVMenuListController.h').exists()
+assert not (root/'LockMessageVideoPrefs/LMVMenuListController.m').exists()
+assert not (root/'LockMessageVideoPrefs/LMVSettingsVideoController.h').exists()
+assert not (root/'LockMessageVideoPrefs/LMVSettingsVideo.h').exists()
+assert not (root/'LMVSettingsVideoChannel.h').exists()
+assert 'openSettingsVideo:' not in source and 'openDesktop:' not in source
 assert entry['cell'] == 'PSLinkCell' and entry['isController'] is True
 assert not {'action', 'buttonAction', 'loadAction', 'controller'} & entry.keys()
 assert re.search(r'@interface LMVPRootListController : PSListController', source)
@@ -170,7 +174,7 @@ for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
 assert '消息、选项、清除视频透明度' in source
 assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in source
 assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
-allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotify(')]
+allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotifyFor(')]
 assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source

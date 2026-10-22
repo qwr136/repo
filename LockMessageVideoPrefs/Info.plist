@@ -9,15 +9,15 @@
 	<key>CFBundleDisplayName</key>
 	<string>锁屏背景视频</string>
 	<key>NSPrincipalClass</key>
-	<string>LMVMenuListController</string>
+	<string>LMVPRootListController</string>
 	<key>CFBundleExecutable</key>
 	<string>LockMessageVideoPrefs</string>
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.93</string>
+	<string>3.10</string>
 	<key>CFBundleVersion</key>
-	<string>2.93</string>
+	<string>3.10</string>
 	<key>CFBundleIconFile</key>
 	<string>icon</string>
 	<key>LSApplicationQueriesSchemes</key>

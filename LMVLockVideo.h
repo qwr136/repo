@@ -586,7 +586,32 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     self.extentContainer=nil;self.extentForeground=nil;self.extentAnchor=nil;
     [self.link invalidate];self.link=nil;
 }
+#if __has_include("LMVPanelTuning.h")
+#import "LMVPanelTuning.h"
+#else
+// Standalone fixtures compile this header on its own and do not copy the tuning
+// table with it, so the two readers fall back to the shipped defaults (60 Hz).
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
+#endif
 - (void)tick:(CADisplayLink *)link {
+    // 2.97: a settings change must land without waiting for the CoverSheet to close
+    // and reopen. The read is a cached CFPreferences lookup and the write inside
+    // LMVTuneReport only happens when the number changes.
+    NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
+    if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
+    LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
+    // 2.98: one line per change so "did the number I typed reach the display link?"
+    // is answerable from a capture. The steady state stays silent.
+    static NSInteger appliedHz=-1;
+    if(appliedHz!=probeHz) {
+        appliedHz=probeHz;
+        // Assembled first: LMVLockVideoLog() is a one-argument macro in the native
+        // fixture, and a stringWithFormat: call with commas would split its args.
+        NSString *cadenceLine=[NSString stringWithFormat:@"lock-cadence setting=%ld link=%ld",
+            (long)probeHz,(long)link.preferredFramesPerSecond];
+        LMVLockVideoLog(cadenceLine);
+    }
     self.screenAllowed=LMVLockVideoScreenAllowed();
     if (CACurrentMediaTime()-self.lastRevisionCheck>=1) {
         self.lastRevisionCheck=CACurrentMediaTime();NSString *revision=LMVLockVideoRevision(self.path);
@@ -802,7 +827,15 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         if (!self.link) {self.link=[CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
             // 0.0.96: 30fps lagged the panel animation by up to a frame, so the
             // leading edge of the video band exposed wallpaper while dragging.
-            self.link.preferredFramesPerSecond=60;[self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
+            // 2.97: the rate is the 「锁屏/通知中心背景视频」row now. The default stays
+            // 60 for exactly that reason - dropping it re-exposes the band - but the
+            // user can trade that off and see the applied value on the same page.
+            NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
+            self.link.preferredFramesPerSecond=probeHz;
+            LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
+            NSString *created=[NSString stringWithFormat:@"lock-cadence created hz=%ld",(long)probeHz];
+            LMVLockVideoLog(created);
+            [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
     } else {[self.link invalidate];self.link=nil;}
     if (!self.enabled || !self.path.length || !self.revision.length) {
         if (self.playback.path || self.playback.player || self.playback.loading) [self.playback clear];
