@@ -150,13 +150,29 @@ static void LMVSettingsLayoutSubviews(id self, SEL _cmd) {
     if ([view isKindOfClass:UIButton.class]) return;
     for (UIView *node = view.superview; node; node = node.superview)
         if (node == channel.host) return;
+    // 2.92: the logged offenders (UITableView, its container UIView) must always be
+    // forced clear during layout, whatever class list says.
+    if ([view isKindOfClass:UITableView.class] || [view isKindOfClass:UICollectionView.class] ||
+        [view isKindOfClass:UITableViewCell.class] || [view isKindOfClass:UICollectionViewCell.class] ||
+        [view isKindOfClass:UIScrollView.class]) {
+        view.backgroundColor = UIColor.clearColor;
+        view.layer.backgroundColor = UIColor.clearColor.CGColor;
+    }
     // UIKit internal views often write the layer colour directly, which the
     // setBackgroundColor: hook cannot see - clear both.
     CALayer *layer = view.layer;
     if (layer.backgroundColor && CGColorGetAlpha(layer.backgroundColor) > .001)
         layer.backgroundColor = UIColor.clearColor.CGColor;
-    if (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor) > .001)
+    // 2.92: the other logged offender is a plain full-screen UIView container.
+    CGRect inWindow = view.window ? [view convertRect:view.bounds toView:view.window] : CGRectZero;
+    BOOL fullScreen = view.window && inWindow.size.width >= view.window.bounds.size.width - 1 &&
+        inWindow.size.height >= view.window.bounds.size.height * .5;
+    if (fullScreen) {
         view.backgroundColor = UIColor.clearColor;
+        view.layer.backgroundColor = UIColor.clearColor.CGColor;
+    } else if (view.backgroundColor && CGColorGetAlpha(view.backgroundColor.CGColor) > .001) {
+        view.backgroundColor = UIColor.clearColor;
+    }
 }
 
 static void LMVSettingsSetBackgroundColor(id self, SEL _cmd, UIColor *color) {
@@ -463,6 +479,16 @@ static void LMVSettingsCollectScrollViews(UIView *view, NSInteger depth, NSInteg
 }
 
 - (void)clearCellBackgroundsIn:(UITableView *)table {
+    // 2.92: THE TABLE ITSELF PAINTS A FULL-SCREEN BACKGROUND (device log:
+    // UITableView@0,0 430x932 bg1.00 d13). Clearing only cells left the list white.
+    if (table.backgroundColor && CGColorGetAlpha(table.backgroundColor.CGColor) > .001) {
+        if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
+        if (![LMVSettingsSavedColors objectForKey:table]) [LMVSettingsSavedColors setObject:table.backgroundColor forKey:table];
+        table.backgroundColor = UIColor.clearColor;
+    }
+    if (table.layer.backgroundColor && CGColorGetAlpha(table.layer.backgroundColor) > .001)
+        table.layer.backgroundColor = UIColor.clearColor.CGColor;
+    if (table.backgroundView) table.backgroundView = nil;
     for (UITableViewCell *cell in table.visibleCells) {
         if (cell.backgroundColor && cell.backgroundColor != UIColor.clearColor) {
             if (!LMVSettingsSavedColors) LMVSettingsSavedColors = [NSMapTable weakToStrongObjectsMapTable];
