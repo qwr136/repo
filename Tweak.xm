@@ -65,6 +65,7 @@ static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
 static void LMVRefresh(BOOL reload);
+static void LMVRefreshChannel(NSString *target, BOOL reload);
 static BOOL LMVVisible(UIView *view);
 static CADisplayLink *LMVLink;
 static int LMVLockToken = -1;
@@ -1508,6 +1509,28 @@ static void LMVRefresh(BOOL reload) {
     }
     LMVRequestSyncDisplayLink();
 }
+// 3.05: refresh ONE channel. Every branch above is a full sweep; a per-channel
+// notification must not pay for the other twelve. Unknown targets fall back to the
+// full refresh, so a name that is not mapped here can never go stale.
+static void LMVRefreshChannel(NSString *target, BOOL reload) {
+    if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
+    if (reload) { LMVLoadPreferences(); LMVReloadAudioControls(); }
+    if ([target isEqualToString:@"LockNC"] || [target isEqualToString:@"LockScreen"]) LMVLockVideoRefresh(reload);
+    else if ([target isEqualToString:@"Desktop"]) LMVDesktopVideoRefresh(reload);
+    else if ([target isEqualToString:@"CC"] || [target isEqualToString:@"ControlCenterDark"] || [target isEqualToString:@"ControlCenterLight"]) LMVCCRefresh(reload);
+    else if ([target isEqualToString:@"HomeMenu"]) LMVHomeMenuVideoRefresh(reload);
+    else if ([target isEqualToString:@"SquidPanel"]) LMVSquidPanelVideoRefresh(reload);
+    else if ([target isEqualToString:@"AT"]) LMVATPanelVideoRefresh(reload);
+    else if ([target isEqualToString:@"CopyLogX"]) LMVCopyLogXVideoRefresh(reload);
+    else if ([target isEqualToString:@"PA"]) LMVPhoneAssistVideoRefresh(reload);
+    else if ([target isEqualToString:@"GS"]) LMVGlassSuiteVideoRefresh(reload);
+    else if ([target isEqualToString:@"CCBorder"]) LMVCCBorderVideoRefresh(reload);
+    else if ([target isEqualToString:@"CV"]) LMVCopyVaultPanelVideoRefresh(reload);
+    else if ([target isEqualToString:@"Myrtle"]) LMVMyrtlePanelVideoRefresh(reload);
+    else if ([target isEqualToString:@"Bubble"]) { if (LMVEaster) [LMVEaster refresh]; }
+    else { LMVRefresh(reload); return; }
+    LMVRequestSyncDisplayLink();
+}
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
 // Only visibility/readiness/host identity transitions invoke the heavier layout path.
 @interface LMVDisplayLinkTarget : NSObject
@@ -1671,6 +1694,12 @@ static void LMVSyncDisplayLink(void) {
 }
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    // 3.05: a suffixed name means "only this channel changed". The unsuffixed one is a
+    // genuinely global write and still refreshes everything. videoChanged has no
+    // channel in its name (it is the shared import path) and keeps the full refresh.
+    NSString *note=name ? (__bridge NSString *)name : @"";
+    NSString *channelPrefix=@"com.minis.lockmessagevideo/preferencesChanged.";
+    NSString *changedTarget=[note hasPrefix:channelPrefix] ? [note substringFromIndex:channelPrefix.length] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!LMVInitialized) return;
         // 2.74: SILENCE ON THE SAME RUN-LOOP TURN. The audio channel is a SEPARATE
@@ -1687,8 +1716,13 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
             BOOL desktopOn=[desktopPref isKindOfClass:NSNumber.class] && [desktopPref boolValue];
             if (!desktopOn) LMVAudioPauseTarget(@"Desktop");
         }
-        LMVPreferencesDirty = YES;
-        LMVRequestSafeUpdate();
+        if (changedTarget.length) {
+            // One channel: skip the global sweep entirely.
+            LMVRefreshChannel(changedTarget, YES);
+        } else {
+            LMVPreferencesDirty = YES;
+            LMVRequestSafeUpdate();
+        }
     });
 }
 static void LMVScreenNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -1835,7 +1869,16 @@ static BOOL LMVSettingsAppProcess(void) {
                 dispatch_async(dispatch_get_main_queue(), ^{ LMVPanelAppearKick(); });
             }];
         }
-        for (NSString *name in @[@"com.minis.lockmessagevideo/videoChanged", @"com.minis.lockmessagevideo/preferencesChanged"]) {
+        // 3.05: Darwin notifications have no wildcards, so every channel name is
+        // registered explicitly. A name missing here would leave that channel deaf -
+        // the one failure mode this change introduces, hence the full list below.
+        NSMutableArray<NSString *> *notes=[NSMutableArray arrayWithObject:@"com.minis.lockmessagevideo/videoChanged"];
+        [notes addObject:@"com.minis.lockmessagevideo/preferencesChanged"];
+        for (NSString *channel in @[@"LockNC",@"LockScreen",@"Desktop",@"CC",@"ControlCenterDark",@"ControlCenterLight",
+                                    @"HomeMenu",@"SquidPanel",@"AT",@"CopyLogX",@"PA",@"GS",@"CCBorder",@"CV",@"Myrtle",@"Bubble",@"Cards"]) {
+            [notes addObject:[NSString stringWithFormat:@"com.minis.lockmessagevideo/preferencesChanged.%@",channel]];
+        }
+        for (NSString *name in notes) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         }
         for (NSString *name in @[@"com.apple.springboard.hasBlankedScreen", @"com.apple.springboard.lockstate"]) {

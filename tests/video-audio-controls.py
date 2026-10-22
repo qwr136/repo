@@ -111,8 +111,8 @@ for method in (getter, setter):
     assert 'isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5' in method
     assert '[specifier propertyForKey:@"key"]' in method and 'VideoOpacity' not in method
 assert 'return @(volume * 100.0);' in getter and '[value doubleValue] / 100.0' in setter
-assert setter.count('CFPreferencesSetAppValue(') == 1 and 'LMVNotify();' in setter
-print('PASS: actual source nine-target-plus-AT audio mapping, isolated keys/defaults, percent conversion, finite clamp, CC material rows 1/4, disabled sliders and live notification protection')
+assert setter.count('CFPreferencesSetAppValue(') == 1 and 'LMVNotifyFor(LMVTargetForPrefKey(' in setter
+print('PASS: actual source nine-target-plus-AT audio mapping, isolated keys/defaults, percent conversion, finite clamp, CC material rows 1/4, disabled sliders and per-channel notification on write')
 
 if platform.system() == 'Darwin':
     # Use the exact production helpers, row builder and handlers below, not a copied model.

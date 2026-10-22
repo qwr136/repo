@@ -25,9 +25,26 @@ static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
     return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];
 }
-static void LMVNotify(void) {
+// 3.05: one notification per channel. A global one wakes all thirteen channels, and
+// switching the CopyLogX material made the desktop reload its own asset (perf desktop
+// max=1732ms for an unrelated write). nil = a genuinely global write.
+static void LMVNotifyFor(NSString *target) {
     CFPreferencesAppSynchronize(kLMVPrefsID);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+    NSString *name = target.length
+        ? [NSString stringWithFormat:@"com.minis.lockmessagevideo/preferencesChanged.%@", target]
+        : @"com.minis.lockmessagevideo/preferencesChanged";
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)name, NULL, NULL, YES);
+}
+static void LMVNotify(void) { LMVNotifyFor(nil); }
+// A switch/slider row carries a key like "GSBackgroundEnabled"; the channel id is the
+// prefix. Anything that does not match falls back to the global write, which is always
+// safe - it just costs the full sweep.
+static NSString *LMVTargetForPrefKey(NSString *key) {
+    if (![key isKindOfClass:NSString.class] || !key.length) return nil;
+    for (NSString *target in @[@"GS",@"CopyLogX",@"CCBorder",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"Desktop",@"LockScreen"]) {
+        if ([key hasPrefix:target]) return target;
+    }
+    return nil;
 }
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
@@ -591,7 +608,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
-    LMVNotify();
+    LMVNotifyFor(LMVTargetForPrefKey([specifier propertyForKey:@"key"]));
     NSString *key = [specifier propertyForKey:@"key"];
     NSString *sliderKey = [key isEqualToString:@"VideoOpacityEnabled"] ? @"VideoOpacity" : [specifier propertyForKey:@"audioVolumeKey"];
     if (sliderKey) {
@@ -614,7 +631,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] / 100.0 : 0.5;
     double volume = isfinite(raw) ? MAX(0.0, MIN(1.0, raw)) : 0.5;
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@(volume), kLMVPrefsID);
-    LMVNotify();
+    LMVNotifyFor(LMVTargetForPrefKey([specifier propertyForKey:@"key"]));
 }
 - (id)opacity:(PSSpecifier *)specifier {
     NSNumber *value = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacity"), kLMVPrefsID);
@@ -680,7 +697,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (!LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)file, kLMVPrefsID);
-    LMVNotify();
+    LMVNotifyFor(target);
     // 2.52: repaint this target's row now. The picker is an over-full-screen modal,
     // so returning from it does not re-display the row underneath; without this the
     // old name stayed until the user scrolled it out and back in.

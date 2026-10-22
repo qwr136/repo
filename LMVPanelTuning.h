@@ -196,6 +196,15 @@ static inline NSDictionary *LMVTuneFindParam(NSString *key) {
     return key ? index[key] : nil;
 }
 
+// 3.05: ONE NOTIFICATION PER CHANNEL. The old single name woke every channel for any
+// change - switching the CopyLogX material also made the desktop reload its own asset
+// (device log: perf desktop max=1732ms for a change that had nothing to do with it).
+// The unsuffixed name is kept ONLY for genuinely global writes (master switch, shared
+// material deletion); it still means "refresh everything".
+static inline NSString *LMVTunePreferenceNote(NSString *target) {
+    if (!target.length) return @"com.minis.lockmessagevideo/preferencesChanged";
+    return [NSString stringWithFormat:@"com.minis.lockmessagevideo/preferencesChanged.%@", target];
+}
 static inline NSString *LMVTuneFullKey(NSString *target, NSString *key) {
     return [NSString stringWithFormat:@"Tune.%@.%@", target, key];
 }
@@ -237,7 +246,7 @@ static inline void LMVTuneSetValue(NSString *target, NSString *key, NSInteger va
     CFPreferencesSetAppValue(full, (__bridge CFNumberRef)@(value), (__bridge CFStringRef)LMVTuneDomain);
     CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneDomain);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-        CFSTR("com.minis.lockmessagevideo/preferencesChanged"), NULL, NULL, YES);
+        (__bridge CFStringRef)LMVTunePreferenceNote(target), NULL, NULL, YES);
 }
 
 // 2.48: WHAT THE CHANNEL ACTUALLY RUNS AT. Settings and SpringBoard are separate

@@ -174,7 +174,7 @@ for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
 assert '消息、选项、清除视频透明度' in source
 assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in source
 assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
-allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotify(')]
+allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotifyFor(')]
 assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
