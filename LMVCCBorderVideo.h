@@ -1,5 +1,12 @@
 #pragma once
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 #import <dlfcn.h>
 // 2.30: the Control Center context-menu background (CCBorder 视频背景).
 //

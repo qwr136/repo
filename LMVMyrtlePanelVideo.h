@@ -1,4 +1,11 @@
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 // 1.77: the Myrtle panel background video (Myrtle 面板背景视频).
 // The panel is the one that appears under the App Library / search surface: the
 // window list from the device carries two visible Myrtle windows,

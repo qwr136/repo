@@ -1,4 +1,11 @@
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 #pragma once
 // 2.04: the PHONE-ASSIST pop-up background (电话助手弹窗背景视频).
 //

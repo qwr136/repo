@@ -1,5 +1,12 @@
 #pragma once
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 #import <dlfcn.h>
 #import <objc/runtime.h>
 // 2.29: the GlassSuiteX pop-up background (GlassSuiteX 弹窗背景视频).

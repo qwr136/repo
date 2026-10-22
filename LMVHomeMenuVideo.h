@@ -6,7 +6,14 @@
 // _UIContextMenuActionsListView/Controller are NOT present in that UIKitCore
 // tree; never install guessed aliases. SBIconController's local vendor header
 // declares NSObject, not UIViewController: no new SBIconController hooks here.
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 #import <stdbool.h>
 
 static void LMVHomeMenuVideoRefresh(BOOL reload);

@@ -42,7 +42,14 @@
 // (LMVLockVideoPlayback, LMVCCSelectedPath, LMVLockVideoRevision, LMVInitialized,
 // LMVLaunchReady, LMVBlankToken, LMVLockToken, LMVDiagnosticsEnabled,
 // LMVDiagnostic, kLMVPrefsID).
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 #import <stdbool.h>
 
 static void LMVCopyVaultPanelVideoRefresh(BOOL reload);

@@ -11,7 +11,14 @@
 //
 // Poll-based on purpose: no private class of that tweak is hooked or guessed, and
 // when the switch is off nothing is constructed at all.
+#if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
+#else
+// Standalone fixture: compile this header alone, no shared probe available.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
+}
+#endif
 #import <stdbool.h>
 
 static void LMVSquidPanelVideoRefresh(BOOL reload);
