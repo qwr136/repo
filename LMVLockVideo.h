@@ -606,8 +606,11 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     static NSInteger appliedHz=-1;
     if(appliedHz!=probeHz) {
         appliedHz=probeHz;
-        LMVLockVideoLog([NSString stringWithFormat:@"lock-cadence setting=%ld link=%ld",
-            (long)probeHz,(long)link.preferredFramesPerSecond]);
+        // Assembled first: LMVLockVideoLog() is a one-argument macro in the native
+        // fixture, and a stringWithFormat: call with commas would split its args.
+        NSString *cadenceLine=[NSString stringWithFormat:@"lock-cadence setting=%ld link=%ld",
+            (long)probeHz,(long)link.preferredFramesPerSecond];
+        LMVLockVideoLog(cadenceLine);
     }
     self.screenAllowed=LMVLockVideoScreenAllowed();
     if (CACurrentMediaTime()-self.lastRevisionCheck>=1) {
