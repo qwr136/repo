@@ -1779,6 +1779,10 @@ static void LMVPanelAppearKick(void) {
 // moment a panel is added, so the video mounts immediately and ProbeHz can stay low.
 static CADisplayLink *LMVPanelPresenceLink;
 static NSUInteger LMVPanelPresenceSignature;
+// 3.10.1: measurement only. One snapshot line every 2 s while diagnostics are on -
+// nothing here touches playback, visibility or cadence.
+static NSTimer *LMVCPUSnapshotTimer;
+static double LMVPresenceTickMs;
 
 static NSInteger LMVPanelPresenceHz(void) {
     NSInteger hz = LMVTuneValue(@"Global", @"PresenceHz");
@@ -1821,7 +1825,7 @@ static NSUInteger LMVPanelComputeSignature(void) {
     return signature;
 }
 
-static void LMVPanelPresenceTick(CADisplayLink *link) {
+static void LMVPanelPresenceTickBody(void) {
     if (!LMVInitialized || !LMVLaunchReady) return;
     // 3.08: the rate is a setting now - apply it without waiting for a respring.
     static CFTimeInterval lastRateCheck;
@@ -1837,6 +1841,35 @@ static void LMVPanelPresenceTick(CADisplayLink *link) {
     LMVPanelPresenceSignature = signature;
     LMVPanelAppearKick();
 }
+// Timing wrapper: keeps the body's early returns intact while measuring the cost of
+// the window-signature walk (exponential average, ms).
+static void LMVPanelPresenceTick(CADisplayLink *link) {
+    CFTimeInterval started = CACurrentMediaTime();
+    LMVPanelPresenceTickBody();
+    double ms = (CACurrentMediaTime() - started) * 1000.0;
+    LMVPresenceTickMs = LMVPresenceTickMs > 0 ? LMVPresenceTickMs * 0.8 + ms * 0.2 : ms;
+}
+static void LMVCPUSnapshotTick(NSTimer *timer) {
+    if (!LMVDiagnosticsEnabled.load()) return;
+    NSUInteger total = LMVSharedSources.count, playing = 0, players = 0, readers = 0;
+    for (LMVSharedSource *source in LMVSharedSources.allValues) {
+        if (source.playing) playing++;
+        if (source.player) players++;
+        if (source.readerMode) readers++;
+    }
+    LMVDiagnostic([NSString stringWithFormat:@"cpu-snapshot sources=%lu playing=%lu players=%lu reader=%lu presence_ms=%.2f presence_hz=%ld cells=%lu",
+        (unsigned long)total, (unsigned long)playing, (unsigned long)players, (unsigned long)readers,
+        LMVPresenceTickMs, (long)(LMVPanelPresenceLink ? LMVPanelPresenceLink.preferredFramesPerSecond : 0),
+        (unsigned long)LMVCells.count]);
+}
+static void LMVCPUSnapshotStart(void) {
+    if (LMVCPUSnapshotTimer || !NSThread.isMainThread) return;
+    LMVCPUSnapshotTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *timer) {
+        LMVCPUSnapshotTick(timer);
+    }];
+    LMVCPUSnapshotTimer.tolerance = 1.0;
+    [NSRunLoop.mainRunLoop addTimer:LMVCPUSnapshotTimer forMode:NSRunLoopCommonModes];
+}
 
 static void LMVPanelPresenceStart(void) {
     if (LMVPanelPresenceLink || !NSThread.isMainThread) return;
@@ -1846,6 +1879,7 @@ static void LMVPanelPresenceStart(void) {
     }] selector:@selector(main)];
     LMVPanelPresenceLink.preferredFramesPerSecond = LMVPanelPresenceHz();
     [LMVPanelPresenceLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    LMVCPUSnapshotStart();
 }
 
 // 2.65: the Settings app is a SEPARATE process. Only the settings-video channel
