@@ -82,8 +82,7 @@ static BOOL LMVGlassSuiteContainerKind(UIView *view) {
     NSString *name=NSStringFromClass(view.class);
     return [name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
-static BOOL LMVGlassSuiteGlassKind(UIView *view) {
-    if(!view)return NO;
+static BOOL LMVGlassSuiteGlassKind(UIView *view) {    if(!view)return NO;
     if([view isKindOfClass:UIVisualEffectView.class])return YES;
     NSString *name=NSStringFromClass(view.class);
     // 2.29: the CARD itself is _UIVisualEffectContentView - its name contains

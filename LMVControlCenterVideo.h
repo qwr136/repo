@@ -597,6 +597,7 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
         NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
         self.geometryLink.preferredFramesPerSecond=probeHz;
         LMVTuneReport(@"CC",@"ProbeHz",probeHz);
+        LMVDiagnostic([NSString stringWithFormat:@"cc-cadence created hz=%ld",(long)probeHz]);
         [self.geometryLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     } else if(!visible) {[self.geometryLink invalidate];self.geometryLink=nil;}
     // 0.0.79 fix: the poll timer used to require a resolved controller AND an open

@@ -833,6 +833,8 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
             NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
             self.link.preferredFramesPerSecond=probeHz;
             LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
+            NSString *created=[NSString stringWithFormat:@"lock-cadence created hz=%ld",(long)probeHz];
+            LMVLockVideoLog(created);
             [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
     } else {[self.link invalidate];self.link=nil;}
     if (!self.enabled || !self.path.length || !self.revision.length) {

@@ -653,6 +653,10 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     __weak typeof(self) weakSelf=self;
     self.visibilityTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer) { [weakSelf visibilityTick]; }];
     [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
+    // 3.01: logged where the timer is actually (re)built, not only on a value change,
+    // so "the channel never ran" and "the value did not land" are distinguishable.
+    LMVDiagnostic([NSString stringWithFormat:@"bubble-cadence timer interval=%.3fs hz=%ld",
+        want,(long)tickHz]);
 }
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
