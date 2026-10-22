@@ -45,12 +45,6 @@ static BOOL LMVGlassSuiteEnvironment(void) {
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
 }
-static NSString *LMVGlassSuiteImageName(Class cls) {
-    if(!cls)return nil;
-    Dl_info info;
-    if(dladdr((__bridge const void *)cls,&info)==0 || !info.dli_fname)return nil;
-    return [NSString stringWithUTF8String:info.dli_fname];
-}
 // 2.36: the class chain from the card up to its window, so the line can be matched
 // one-to-one against FLEX instead of guessing which view was picked.
 static NSString *LMVGlassSuiteChain(UIView *view) {
@@ -72,34 +66,21 @@ static CGFloat LMVGlassSuiteVisibleArea(CGRect frame,CGRect bounds) {
     CGFloat visible=onScreen.size.width*onScreen.size.height;
     return visible/total>=.5?visible:0;
 }
-// 2.36: dladdr is the expensive half of every probe (it walks the loaded images),
-// so the answer is cached per class. Only names that could plausibly present a
-// sheet are worth the lookup at all - a plain UIView never is.
-static NSMutableDictionary<NSString *, NSNumber *> *LMVGlassSuiteOwnerCache;
-static BOOL LMVGlassSuiteOwnedByGlassSuiteX(Class cls) {
-    if(!cls)return NO;
-    if(!LMVGlassSuiteOwnerCache)LMVGlassSuiteOwnerCache=[NSMutableDictionary dictionary];
-    NSString *key=NSStringFromClass(cls);
-    NSNumber *hit=LMVGlassSuiteOwnerCache[key];
-    if(hit)return hit.boolValue;
-    if(LMVGlassSuiteOwnerCache.count>256)[LMVGlassSuiteOwnerCache removeAllObjects];
-    NSString *owner=LMVGlassSuiteImageName(cls);
-    BOOL owned=owner && [owner rangeOfString:@"GlassSuiteX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
-    LMVGlassSuiteOwnerCache[key]=@(owned);
-    return owned;
-}
 // The container GlassSuiteX presents the sheet through. Name first: the 2.26 log
 // names it GAXAlertOverlayView, and the 2.35 capture shows it at depth 2 under
 // SBHomeScreenWindow (SBHomeScreenWindow > UITransitionView > GAXAlertOverlayView).
+// 2.95b: THE GAX NAME IS NOW THE ONLY ACCEPTED CONTAINER.
+// The old fallback accepted any Overlay/Alert/Panel/Sheet class whose image was
+// GlassSuiteX.dylib. That dylib also ships the OTHER sheets (wossiddy and friends),
+// so "belongs to the same dylib" was never the same question as "is the GlassSuiteX
+// pop-up" - the video was mounted into somebody else's card and that is exactly the
+// reported "GlassSuiteX 弹窗把视频挂到别的弹窗上". If GlassSuiteX ever renames the
+// container the channel stops mounting, which is the intended trade: never mount
+// outside our own sheet.
 static BOOL LMVGlassSuiteContainerKind(UIView *view) {
     if(!view)return NO;
     NSString *name=NSStringFromClass(view.class);
-    if([name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
-    BOOL plausible=NO;
-    for(NSString *word in @[@"Overlay",@"Alert",@"Panel",@"Sheet",@"Present",@"Window"])
-        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){plausible=YES;break;}
-    if(!plausible)return NO;
-    return LMVGlassSuiteOwnedByGlassSuiteX(view.class);
+    return [name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
 static BOOL LMVGlassSuiteGlassKind(UIView *view) {
     if(!view)return NO;
