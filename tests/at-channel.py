@@ -89,10 +89,10 @@ assert '        LMVATPanelVideoInstallHooks();' in tweak
 # Unlike SquidGesturePro the panel owns NO window: the search starts at the window
 # it presents INTO, and only TransitionView subtrees are searched (1.27: AppTools
 # drops its TransitionView one or two levels BELOW the window).
-assert 'if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])return window;' in module
+assert 'if([LMVProbeClassName(window) containsString:@"SBHomeScreen"])return window;' in module
 assert 'static void LMVATPanelTransitionRoots(UIView *view,NSUInteger depth,NSMutableArray<UIView *> *found,NSUInteger *nodes) {' in module
 assert 'if(!view || depth>4 || *nodes>800)return;' in module
-assert 'if([NSStringFromClass(view.class) containsString:@"TransitionView"])[found addObject:view];' in module
+assert 'if([LMVProbeClassName(view) containsString:@"TransitionView"])[found addObject:view];' in module
 assert 'if(!roots.count)return nil;   // no presentation on screen -> no panel' in module
 # No private class of that tweak is hooked or guessed.
 assert 'MSHookMessageEx' not in module and 'class_getInstanceMethod' not in module

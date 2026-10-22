@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVProbeWindows.h"
 #import <dlfcn.h>
 #import <objc/runtime.h>
 // 2.29: the GlassSuiteX pop-up background (GlassSuiteX 弹窗背景视频).
@@ -51,7 +52,7 @@ static NSString *LMVGlassSuiteChain(UIView *view) {
     NSMutableArray *names=[NSMutableArray array];
     UIView *node=view;NSInteger depth=0;
     while(node && depth++<8) {
-        [names insertObject:NSStringFromClass(node.class) atIndex:0];
+        [names insertObject:LMVProbeClassName(node) atIndex:0];
         node=node.superview;
     }
     return [names componentsJoinedByString:@">"];
@@ -79,12 +80,12 @@ static CGFloat LMVGlassSuiteVisibleArea(CGRect frame,CGRect bounds) {
 // outside our own sheet.
 static BOOL LMVGlassSuiteContainerKind(UIView *view) {
     if(!view)return NO;
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     return [name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
 static BOOL LMVGlassSuiteGlassKind(UIView *view) {    if(!view)return NO;
     if([view isKindOfClass:UIVisualEffectView.class])return YES;
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     // 2.29: the CARD itself is _UIVisualEffectContentView - its name contains
     // "Effect" but it is the content container, not a glass layer. Treating it as
     // glass skipped the real card and mounted the video above the whole sheet.
@@ -123,7 +124,7 @@ static UIView *LMVGlassSuiteCardIn(UIView *root,UIWindow *window) {
 // hold the sheet, and walking it was over 90% of every 0.1s probe.
 static BOOL LMVGlassSuiteSkipSubtree(UIView *view) {
     if(!view)return NO;
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     for(NSString *word in @[@"SBIcon",@"SBRecycled",@"SBFolder",@"Backdrop",@"Wallpaper",
                             @"StatusBar",@"Dock",@"Switcher"])
         if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
@@ -170,7 +171,7 @@ static UIView *LMVGlassSuiteFindCard(UIWindow **windowOut) {
     UIView *best=nil;UIWindow *bestWindow=nil;
     // 2.55: shared snapshot (already filtered to visible windows).
     for(UIWindow *window in LMVProbeVisibleWindows()) {
-        NSString *name=NSStringFromClass(window.class);
+        NSString *name=LMVProbeClassName(window);
         BOOL skipWindow=NO;
         for(NSString *word in @[@"SystemAperture",@"TouchVisualizer",@"TextEffects",@"RecordingIndicator"])
             if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound){skipWindow=YES;break;}
@@ -419,7 +420,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
         NSString *status=[NSString stringWithFormat:@"gs-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0fx%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@ size=%.0fx%.0f chain=%@",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,LMVGlassSuiteVisibleArea(frame,bounds),(int)live,
@@ -447,7 +448,7 @@ static NSTimeInterval LMVGlassSuiteInterval(void) {
     NSTimeInterval base=LMVTuneProbeInterval(@"GS");
     // With the sheet up we only babysit it, so never slower than 4Hz.
     if(LMVGlassSuiteCardRef)return MIN(base,.25);
-    return base;
+    return LMVTuneFallbackInterval(base, NO);
 }
 static void LMVGlassSuiteRetune(void) {
     NSTimeInterval want=LMVGlassSuiteInterval();

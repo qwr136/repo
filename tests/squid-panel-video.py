@@ -39,7 +39,7 @@ assert 'if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.si
 # 2.02: panels are found by CLASS first - the size heuristic rejected the small
 # status-bar drop-down, which made the whole channel silent for it.
 assert 'static UIView *LMVSquidPanelSurfaceIn(UIWindow *window)' in module
-assert 'if(![NSStringFromClass(sub.class) isEqualToString:@"SFActivityPanelView"])continue;' in module
+assert 'if(![LMVProbeClassName(sub) isEqualToString:@"SFActivityPanelView"])continue;' in module
 assert 'UIView *panel=LMVSquidPanelSurfaceIn(window);' in module
 assert 'if(panel)return panel;' in module
 # the size heuristic stays as a fallback, with lower floors
@@ -123,7 +123,7 @@ assert '|dots' not in module.split('static NSString *LMVSquidPanelContentSignatu
 # the migration drops every stored signature that still carries it
 assert 'rangeOfString:@"|dots"]' in module
 assert 'LMVDiagnostic(@"squid-panel-migrate slots=4 (signatures now carry no dots, so a rotation keeps the panel)");' in module
-assert 'if([NSStringFromClass(sub.class) containsCaseInsensitiveString:@"PageControlContentView"' if False else 'if([NSStringFromClass(sub.class) containsString:@"PageControlContentView"])' in module
+assert 'if([LMVProbeClassName(sub) containsCaseInsensitiveString:@"PageControlContentView"' if False else 'if([LMVProbeClassName(sub) containsString:@"PageControlContentView"])' in module
 assert 'static NSUInteger LMVSquidPanelSignatureIcons(NSString *sig) {' in module
 assert 'static NSUInteger LMVSquidPanelSignatureDistance(NSUInteger icons,NSString *sig) {' in module
 # (a) a signature seen before settles it outright.

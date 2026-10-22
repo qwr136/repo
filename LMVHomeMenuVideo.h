@@ -6,6 +6,7 @@
 // _UIContextMenuActionsListView/Controller are NOT present in that UIKitCore
 // tree; never install guessed aliases. SBIconController's local vendor header
 // declares NSObject, not UIViewController: no new SBIconController hooks here.
+#import "LMVProbeWindows.h"
 #import <stdbool.h>
 
 static void LMVHomeMenuVideoRefresh(BOOL reload);
@@ -294,7 +295,7 @@ static __weak UIView *LMVHomeMenuObservedList;
         // apart from "switch off" or "no material selected".
         if(LMVDiagnosticsEnabled.load()) {
             NSString *line=[NSString stringWithFormat:@"home-menu-nocard list=%@ enabled=%d path=%d env=%d record=%d surface=%d",
-                NSStringFromClass(list.class),(int)LMVHomeMenuEnabled,(int)(LMVHomeMenuPath.length>0),
+                LMVProbeClassName(list),(int)LMVHomeMenuEnabled,(int)(LMVHomeMenuPath.length>0),
                 (int)LMVHomeMenuEnvironment(),(int)(record!=nil),(int)(material!=nil)];
             static NSString *lastLine=nil;
             if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
@@ -334,9 +335,9 @@ static __weak UIView *LMVHomeMenuObservedList;
         UIView *containerView=self.host.superview;
         NSInteger index=containerView?(NSInteger)[containerView.subviews indexOfObjectIdenticalTo:self.host]:-1;
         NSString *line=[NSString stringWithFormat:@"home-menu material=%@ %.0fx%.0f host=%.0fx%.0f container=%@ idx=%ld live=%d",
-            NSStringFromClass(material.class),material.bounds.size.width,material.bounds.size.height,
+            LMVProbeClassName(material),material.bounds.size.width,material.bounds.size.height,
             self.host.bounds.size.width,self.host.bounds.size.height,
-            containerView?NSStringFromClass(containerView.class):@"none",(long)index,
+            containerView?LMVProbeClassName(containerView):@"none",(long)index,
             (int)(self.playback.player!=nil && !self.playback.error)];
         static NSString *lastLine=nil;
         if(![line isEqualToString:lastLine]) {lastLine=[line copy];LMVDiagnostic(line);}
@@ -348,6 +349,7 @@ static __weak UIView *LMVHomeMenuObservedList;
 // disabled drops to the shared 30 s idle beat so an off switch costs nothing.
 static void LMVHomeMenuRetune(void) {
     NSTimeInterval want=LMVHomeMenuEnabled?LMVTuneProbeInterval(@"HomeMenu"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVHomeMenuVideo.host.superview!=nil);
     if(LMVHomeMenuTimer && fabs(LMVHomeMenuTimer.timeInterval-want)<.001)return;
     [LMVHomeMenuTimer invalidate];
     LMVHomeMenuTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVHomeMenuVideoRefresh(NO);}];

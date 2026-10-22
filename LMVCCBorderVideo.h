@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVProbeWindows.h"
 #import <dlfcn.h>
 // 2.30: the Control Center context-menu background (CCBorder 视频背景).
 //
@@ -58,18 +59,18 @@ static BOOL LMVCCBorderEnvironment(void) {
 }
 static BOOL LMVCCBorderSpringBoardWindow(UIWindow *window) {
     if(!window)return NO;
-    NSString *name=NSStringFromClass(window.class);
+    NSString *name=LMVProbeClassName(window);
     return [name rangeOfString:@"SBControlCenter" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
 static BOOL LMVCCBorderMenuKind(UIView *view) {
     if(!view)return NO;
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     return [name rangeOfString:@"UIContextMenu" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
 static BOOL LMVCCBorderGlassKind(UIView *view) {
     if(!view)return NO;
     if([view isKindOfClass:UIVisualEffectView.class])return YES;
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     if([name containsString:@"ContentView"])return NO;
     for(NSString *word in @[@"Blur",@"Glass",@"Vibrancy",@"Dimming",@"Backdrop",@"Effect"])
         if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
@@ -81,7 +82,7 @@ static BOOL LMVCCBorderGlassKind(UIView *view) {
 // layers are never scored as cards (their children are still scanned).
 static BOOL LMVCCBorderShadowKind(UIView *view) {
     if(!view)return NO;
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     return [name containsString:@"Shadow"] || [name containsString:@"Cutout"];
 }
 static CGFloat LMVCCBorderVisibleArea(CGRect frame,CGRect bounds) {
@@ -173,20 +174,20 @@ static UIView *LMVCCBorderMaterial(UIView *root,UIView *card,UIWindow *window) {
 // ancestors and every sibling drawn ABOVE our host in its container, with
 // hidden/alpha/opaque/background alpha.
 static NSString *LMVCCBorderStackDescription(UIView *card,UIView *host) {
-    NSMutableString *out=[NSMutableString stringWithFormat:@"ccb-stack card=%@",NSStringFromClass(card.class)];
+    NSMutableString *out=[NSMutableString stringWithFormat:@"ccb-stack card=%@",LMVProbeClassName(card)];
     NSInteger depth=0;
     for(UIView *node=card.superview;node && depth++<7;node=node.superview)
-        [out appendFormat:@" < %@",NSStringFromClass(node.class)];
+        [out appendFormat:@" < %@",LMVProbeClassName(node)];
     UIView *container=host.superview;
     if(container) {
         NSInteger index=(NSInteger)[container.subviews indexOfObjectIdenticalTo:host];
-        [out appendFormat:@" container=%@ idx=%ld above=",NSStringFromClass(container.class),(long)index];
+        [out appendFormat:@" container=%@ idx=%ld above=",LMVProbeClassName(container),(long)index];
         if(index>=0) {
             NSUInteger shown=0;
             for(NSUInteger i=(NSUInteger)index+1;i<container.subviews.count && shown<6;i++,shown++) {
                 UIView *sibling=container.subviews[i];
                 CGFloat background=sibling.backgroundColor?CGColorGetAlpha(sibling.backgroundColor.CGColor):0;
-                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",NSStringFromClass(sibling.class),
+                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",LMVProbeClassName(sibling),
                     (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background];
             }
         }
@@ -311,7 +312,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
                 for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
                     if(candidate.hidden || candidate.alpha<.01)continue;
                     if(shown++>=6)break;
-                    [visible appendFormat:@"%@@%.0fx%.0f ",NSStringFromClass(candidate.class),
+                    [visible appendFormat:@"%@@%.0fx%.0f ",LMVProbeClassName(candidate),
                         candidate.bounds.size.width,candidate.bounds.size.height];
                 }
             }
@@ -386,7 +387,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
         NSInteger cardIndex=self.card.superview?(NSInteger)[self.card.superview.subviews indexOfObjectIdenticalTo:self.card]:-1;
         NSString *status=[NSString stringWithFormat:@"ccb-panel win=%@ %.0fx%.0f mode=%@ module=%@ card=%@@%.0f,%.0f,%.0fx%.0f sup=%@ z=%ld r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f size=%.0fx%.0f",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             LMVPhoneAssistModuleIdentifier(window,self.card),
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
@@ -408,6 +409,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
 @end
 static void LMVCCBorderRetune(void) {
     NSTimeInterval want=LMVCCBorderEnabled?LMVTuneProbeInterval(@"CCBorder"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVCCBorderVideo.host.superview!=nil);
     if(LMVCCBorderTimer && fabs(LMVCCBorderTimer.timeInterval-want)<.001)return;
     [LMVCCBorderTimer invalidate];
     LMVCCBorderTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCCBorderVideoRefresh(NO);}];

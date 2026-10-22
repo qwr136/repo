@@ -469,7 +469,7 @@ static NSTimeInterval LMVCopyLogXInterval(void) {
     if(!LMVCopyLogXEnabled)return LMVTuneIdleInterval;
     NSTimeInterval base=LMVTuneProbeInterval(@"CopyLogX");
     if(LMVCopyLogXCardLive)return MIN(base,.25);
-    return base;
+    return LMVTuneFallbackInterval(base, NO);
 }
 static void LMVCopyLogXRetune(void) {
     NSTimeInterval want=LMVCopyLogXInterval();

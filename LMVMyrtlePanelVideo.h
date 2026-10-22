@@ -1,3 +1,4 @@
+#import "LMVProbeWindows.h"
 // 1.77: the Myrtle panel background video (Myrtle 面板背景视频).
 // The panel is the one that appears under the App Library / search surface: the
 // window list from the device carries two visible Myrtle windows,
@@ -54,7 +55,7 @@ static NSString *LMVMyrtleWindowReport(void) {
         for(UIWindow *window in ((UIWindowScene *)scene).windows) {
             if(out.length>900)break;
             [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
-                NSStringFromClass(window.class),(int)window.hidden,window.alpha,
+                LMVProbeClassName(window),(int)window.hidden,window.alpha,
                 window.frame.size.width,window.frame.size.height,window.windowLevel,
                 (unsigned long)window.subviews.count];
         }
@@ -72,7 +73,7 @@ static UIWindow *LMVMyrtlePanelWindow(NSUInteger skip) {
     NSUInteger seen=0;
     // 2.55: shared snapshot (already filtered to visible windows).
     for(UIWindow *window in LMVProbeVisibleWindows()) {
-        if(!LMVMyrtleWindowName(NSStringFromClass(window.class)))continue;
+        if(!LMVMyrtleWindowName(LMVProbeClassName(window)))continue;
         if(seen++<skip)continue;
         if(!best || window.windowLevel>best.windowLevel) best=window;
     }
@@ -116,7 +117,7 @@ static UIView *LMVMyrtlePanelCard(UIWindow *window) {
             // MyrtleSelectorView (320 pt on a 430 pt screen); the list spans the
             // window minus its 12 pt side inset (~406 pt). The selector also owns
             // narrower list children, so both its class and the width are checked.
-            if([NSStringFromClass(child.class) isEqualToString:@"MyrtleSelectorView"])continue;
+            if([LMVProbeClassName(child) isEqualToString:@"MyrtleSelectorView"])continue;
             if(frame.size.width<bounds.size.width*.85)continue;
             CGFloat visible=LMVMyrtlePanelVisibleArea(frame,bounds);
             if(visible<=0)continue;
@@ -294,7 +295,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds;
         NSString *status=[NSString stringWithFormat:@"myrtle-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),cardFrame.origin.x,cardFrame.origin.y,
             cardFrame.size.width,cardFrame.size.height,
@@ -308,6 +309,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
 @end
 static void LMVMyrtlePanelRetune(void) {
     NSTimeInterval want=LMVMyrtlePanelEnabled?LMVTuneProbeInterval(@"Myrtle"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVMyrtlePanelVideo.host.superview!=nil);
     if(LMVMyrtlePanelTimer && fabs(LMVMyrtlePanelTimer.timeInterval-want)<.001)return;
     [LMVMyrtlePanelTimer invalidate];
     LMVMyrtlePanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVMyrtlePanelVideoRefresh(NO);}];

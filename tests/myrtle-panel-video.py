@@ -42,7 +42,7 @@ assert 'LMVMyrtlePanelWindow(NSUInteger skip)' in module
 # The icon grid is a centred MyrtleSelectorView (320 pt); the list spans the
 # window minus its 12 pt inset (~406 pt). Both rules are required: the selector
 # can own list children that would otherwise be picked by size alone.
-assert '[NSStringFromClass(child.class) isEqualToString:@"MyrtleSelectorView"]' in module, \
+assert '[LMVProbeClassName(child) isEqualToString:@"MyrtleSelectorView"]' in module, \
     'the icon grid is excluded by class'
 assert 'if(frame.size.width<bounds.size.width*.85)continue;' in module, \
     'the list page is the only card wide enough to mount'

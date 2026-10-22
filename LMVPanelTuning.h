@@ -150,6 +150,11 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
             // their event entry. 30 Hz by default; raise it if a panel still shows up
             // late, lower it to save power.
             LMVTuneParam(@"PresenceHz", @"变化探针频率 (Hz, 5~60)", 5, 60, 30),
+            // 3.10.2: 9 of the panel channels are kicked by the signature probe the
+            // moment a panel appears (LMVPanelAppearKick). While nothing is mounted
+            // their own timer is only a safety net; 2.5 s is enough for that and
+            // removes nine per-second view-tree walks. 0 disables the cap.
+            LMVTuneParam(@"FallbackProbeMs", @"未挂载兜底间隔 (ms, 0~10000)", 0, 10000, 2500),
         ]}];
     }
     if ([target isEqualToString:@"Cards"]) {
@@ -360,6 +365,17 @@ static inline NSTimeInterval LMVTuneProbeInterval(NSString *target) {
     // once, in one place, instead of in eight files.
     LMVTuneReport(target, @"ProbeHz", hz);
     return 1.0 / (NSTimeInterval)hz;
+}
+// 3.10.2: a channel that is not mounted cannot change anything between two ticks -
+// the shared signature probe already refreshes it on the frame a panel appears. Only
+// the idle timer is slowed down; once something is mounted the user's rate stands,
+// so scrolling and geometry follow-through are untouched.
+static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
+    if (mounted) return want;
+    NSInteger ms = LMVTuneValue(@"Global", @"FallbackProbeMs");
+    if (ms <= 0) return want;
+    NSTimeInterval floorInterval = ms / 1000.0;
+    return want < floorInterval ? floorInterval : want;
 }
 static inline NSTimeInterval LMVTuneDelay(NSString *target, NSString *key) {
     NSInteger ms = LMVTuneValue(target, key);

@@ -1,3 +1,4 @@
+#import "LMVProbeWindows.h"
 #pragma once
 // 2.04: the PHONE-ASSIST pop-up background (电话助手弹窗背景视频).
 //
@@ -61,7 +62,7 @@ static NSString *LMVPhoneAssistModuleIdentifier(UIWindow *window,UIView *card) {
         for(UIView *child in node.subviews) {
             if(!budget--)break;
             [pending addObject:child];
-            NSString *name=NSStringFromClass(child.class);
+            NSString *name=LMVProbeClassName(child);
             if([name rangeOfString:@"ModuleContainer" options:NSCaseInsensitiveSearch].location==NSNotFound &&
                [name rangeOfString:@"CCUIContentModule" options:NSCaseInsensitiveSearch].location==NSNotFound)continue;
             if(child.hidden || child.alpha<.01)continue;
@@ -76,23 +77,23 @@ static NSString *LMVPhoneAssistModuleIdentifier(UIWindow *window,UIView *card) {
         @try { id value=[best valueForKey:key]; if(value)return LMVPhoneAssistTrim(value); }
         @catch(NSException *exception) {}
     }
-    return NSStringFromClass(best.class);
+    return LMVProbeClassName(best);
 }
 static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
-    NSMutableString *out=[NSMutableString stringWithFormat:@"pa-stack card=%@",NSStringFromClass(card.class)];
+    NSMutableString *out=[NSMutableString stringWithFormat:@"pa-stack card=%@",LMVProbeClassName(card)];
     NSInteger depth=0;
     for(UIView *node=card.superview;node && depth++<7;node=node.superview)
-        [out appendFormat:@" < %@",NSStringFromClass(node.class)];
+        [out appendFormat:@" < %@",LMVProbeClassName(node)];
     UIView *container=host.superview;
     if(container) {
         NSInteger index=(NSInteger)[container.subviews indexOfObjectIdenticalTo:host];
-        [out appendFormat:@" container=%@ idx=%ld above=",NSStringFromClass(container.class),(long)index];
+        [out appendFormat:@" container=%@ idx=%ld above=",LMVProbeClassName(container),(long)index];
         if(index>=0) {
             NSUInteger shown=0;
             for(NSUInteger i=(NSUInteger)index+1;i<container.subviews.count && shown<6;i++,shown++) {
                 UIView *sibling=container.subviews[i];
                 CGFloat background=sibling.backgroundColor?CGColorGetAlpha(sibling.backgroundColor.CGColor):0;
-                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",NSStringFromClass(sibling.class),
+                [out appendFormat:@"[%@ h%d a%.2f op%d bg%.2f] ",LMVProbeClassName(sibling),
                     (int)sibling.hidden,sibling.alpha,(int)sibling.opaque,background];
             }
         }
@@ -114,7 +115,7 @@ static CGFloat LMVPhoneAssistVisibleArea(CGRect frame,CGRect bounds) {
 // therefore never a card. Both names are checked so a system rename of either layer
 // does not silently take the channel down.
 static BOOL LMVPhoneAssistSheetKind(UIView *view) {
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     if([name containsString:@"PhoneTVMac"])return YES;
     if([name containsString:@"PhoneContinuity"])return YES;
     if([name containsString:@"CallAssist"])return YES;
@@ -131,14 +132,14 @@ static NSString *LMVPhoneAssistCardMatch=nil;
 // renamed sheet apart from "the popup never appeared".
 static NSString *LMVPhoneAssistTreeDump(UIWindow *window) {
     if(!window)return @"none";
-    NSMutableString *out=[NSMutableString stringWithFormat:@"%@{",NSStringFromClass(window.class)];
+    NSMutableString *out=[NSMutableString stringWithFormat:@"%@{",LMVProbeClassName(window)];
     NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)window];
     NSUInteger budget=40;
     while(pending.count && budget) {
         UIView *node=pending.firstObject;[pending removeObjectAtIndex:0];
         --budget;
         CGRect f=[node convertRect:node.bounds toView:window];
-        [out appendFormat:@"%@@%.0f,%.0f %.0fx%.0f(a%.2f,h%d) ",NSStringFromClass(node.class),
+        [out appendFormat:@"%@@%.0f,%.0f %.0fx%.0f(a%.2f,h%d) ",LMVProbeClassName(node),
             f.origin.x,f.origin.y,f.size.width,f.size.height,node.alpha,(int)node.hidden];
         for(UIView *child in node.subviews) if(budget)[pending addObject:child];
         if(out.length>1100){[out appendString:@"..."];break;}
@@ -189,7 +190,7 @@ static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
     for(UIWindow *window in LMVProbeVisibleWindows()) {
         UIView *card=LMVPhoneAssistCard(window);
         if(!card)continue;
-        if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])
+        if([LMVProbeClassName(window) containsString:@"SBHomeScreen"])
             {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";break;}
         if(!best) {best=card;bestWindow=window;LMVPhoneAssistCardMatch=@"name";}
     }
@@ -379,7 +380,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
                 for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
                     if(candidate.hidden || candidate.alpha<.01)continue;
                     if(shown++>=8)break;
-                    [visible appendFormat:@"%@@%.0fx%.0f ",NSStringFromClass(candidate.class),
+                    [visible appendFormat:@"%@@%.0fx%.0f ",LMVProbeClassName(candidate),
                         candidate.bounds.size.width,candidate.bounds.size.height];
                 }
             }
@@ -388,7 +389,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
                 if(![scene isKindOfClass:UIWindowScene.class])continue;
                 for(UIWindow *candidate in ((UIWindowScene *)scene).windows) {
                     if(candidate.hidden || candidate.alpha<.01)continue;
-                    NSString *name=NSStringFromClass(candidate.class);
+                    NSString *name=LMVProbeClassName(candidate);
                     if([name containsString:@"SBHomeScreen"]||[name containsString:@"Wallpaper"]||
                        [name containsString:@"SystemAperture"]||[name containsString:@"TouchVisualizer"]||
                        [name containsString:@"TextEffects"])continue;
@@ -450,7 +451,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
         NSString *status=[NSString stringWithFormat:@"pa-panel win=%@ %.0fx%.0f match=%@ mode=%@ module=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f ready=%d poster=%d rate=%.1f text=%@",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             LMVPhoneAssistCardMatch?:@"none",
             self.mode?:@"none",
             LMVPhoneAssistModuleIdentifier(window,self.card),
@@ -473,6 +474,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
 @end
 static void LMVPhoneAssistRetune(void) {
     NSTimeInterval want=LMVPhoneAssistEnabled?LMVTuneProbeInterval(@"PA"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVPhoneAssistVideo.host.superview!=nil);
     if(LMVPhoneAssistTimer && fabs(LMVPhoneAssistTimer.timeInterval-want)<.001)return;
     [LMVPhoneAssistTimer invalidate];
     LMVPhoneAssistTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVPhoneAssistVideoRefresh(NO);}];

@@ -42,6 +42,7 @@
 // (LMVLockVideoPlayback, LMVCCSelectedPath, LMVLockVideoRevision, LMVInitialized,
 // LMVLaunchReady, LMVBlankToken, LMVLockToken, LMVDiagnosticsEnabled,
 // LMVDiagnostic, kLMVPrefsID).
+#import "LMVProbeWindows.h"
 #import <stdbool.h>
 
 static void LMVCopyVaultPanelVideoRefresh(BOOL reload);
@@ -88,7 +89,7 @@ static NSString *LMVCVWindowReport(void) {
         for(UIWindow *window in ((UIWindowScene *)scene).windows) {
             if(out.length>900)break;
             [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
-                NSStringFromClass(window.class),(int)window.hidden,window.alpha,
+                LMVProbeClassName(window),(int)window.hidden,window.alpha,
                 window.frame.size.width,window.frame.size.height,window.windowLevel,
                 (unsigned long)window.subviews.count];
         }
@@ -98,7 +99,7 @@ static NSString *LMVCVWindowReport(void) {
 static UIWindow *LMVCVPanelWindow(void) {
     // 2.55: shared snapshot (already filtered to visible windows).
     for(UIWindow *window in LMVProbeVisibleWindows()) {
-        NSString *name=NSStringFromClass(window.class);
+        NSString *name=LMVProbeClassName(window);
         if([name containsString:@"CVPanel"] || [name containsString:@"CopyVault"])return window;
     }
     return nil;
@@ -134,7 +135,7 @@ static CGFloat LMVCVPanelCoverage(CGRect inner,CGRect outer) {
 // One failure, both orientations, so identity instead of size: the card is the
 // view the plugin calls CopyVaultView, whatever else is on screen.
 static BOOL LMVCVPanelVaultClass(UIView *view) {
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     if([name isEqualToString:@"CopyVaultView"])return YES;
     // Any other CopyVault surface, but never the list content inside the card.
     return [name containsString:@"CopyVault"] &&
@@ -436,7 +437,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds;
         NSString *status=[NSString stringWithFormat:@"cv-panel win=%@ %.0fx%.0f mode=%@ why=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             LMVCVPanelVaultClass(self.card)?@"vault":@"generic",
             NSStringFromClass(self.card.class),cardFrame.origin.x,cardFrame.origin.y,cardFrame.size.width,cardFrame.size.height,
@@ -449,6 +450,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
 @end
 static void LMVCVPanelRetune(void) {
     NSTimeInterval want=LMVCVPanelEnabled?LMVTuneProbeInterval(@"CV"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVCopyVaultPanelVideo.host.superview!=nil);
     if(LMVCVPanelTimer && fabs(LMVCVPanelTimer.timeInterval-want)<.001)return;
     [LMVCVPanelTimer invalidate];
     LMVCVPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyVaultPanelVideoRefresh(NO);}];

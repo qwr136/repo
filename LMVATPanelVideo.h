@@ -27,6 +27,7 @@
 // (LMVLockVideoPlayback, LMVCCSelectedPath, LMVLockVideoRevision, LMVInitialized,
 // LMVLaunchReady, LMVBlankToken, LMVLockToken, LMVDiagnosticsEnabled,
 // LMVDiagnostic, kLMVPrefsID).
+#import "LMVProbeWindows.h"
 #import <stdbool.h>
 
 static void LMVATPanelVideoRefresh(BOOL reload);
@@ -50,7 +51,7 @@ static UIWindow *LMVATPanelHomeWindow(void) {
     // 2.55: read the shared snapshot instead of walking every scene and window; the
     // entries are already filtered to visible, opaque-enough windows.
     for(UIWindow *window in LMVProbeVisibleWindows()) {
-        if([NSStringFromClass(window.class) containsString:@"SBHomeScreen"])return window;
+        if([LMVProbeClassName(window) containsString:@"SBHomeScreen"])return window;
     }
     return nil;
 }
@@ -76,7 +77,7 @@ static CGFloat LMVATPanelVisibleArea(CGRect frame,CGRect bounds) {
 // with. A system context menu is never the AppTools panel, so its whole subtree is
 // skipped here AND every *_ContextMenu* candidate is rejected in LMVATPanelCard.
 static BOOL LMVATPanelSystemMenu(UIView *view) {
-    NSString *name=NSStringFromClass(view.class);
+    NSString *name=LMVProbeClassName(view);
     if([name containsString:@"ContextMenu"])return YES;
     // 2.03: A SYSTEM ALERT IS NOT THE APPTOOLS PANEL.
     // Device log (2.02):
@@ -95,7 +96,7 @@ static void LMVATPanelTransitionRoots(UIView *view,NSUInteger depth,NSMutableArr
     if(!view || depth>4 || *nodes>800)return;
     (*nodes)++;
     if(LMVATPanelSystemMenu(view))return;
-    if([NSStringFromClass(view.class) containsString:@"TransitionView"])[found addObject:view];
+    if([LMVProbeClassName(view) containsString:@"TransitionView"])[found addObject:view];
     for(UIView *child in view.subviews)LMVATPanelTransitionRoots(child,depth+1,found,nodes);
 }
 // The card: inside the TransitionView subtrees only, the largest VISIBLE
@@ -289,7 +290,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds,frame=[self.card convertRect:self.card.bounds toView:window];
         NSString *status=[NSString stringWithFormat:@"at-panel win=%@ %.0fx%.0f mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,
@@ -302,6 +303,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
 @end
 static void LMVATPanelRetune(void) {
     NSTimeInterval want=LMVATPanelEnabled?LMVTuneProbeInterval(@"AT"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVATPanelVideo.host.superview!=nil);
     if(LMVATPanelTimer && fabs(LMVATPanelTimer.timeInterval-want)<.001)return;
     [LMVATPanelTimer invalidate];
     LMVATPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVATPanelVideoRefresh(NO);}];

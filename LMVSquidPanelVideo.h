@@ -11,6 +11,7 @@
 //
 // Poll-based on purpose: no private class of that tweak is hooked or guessed, and
 // when the switch is off nothing is constructed at all.
+#import "LMVProbeWindows.h"
 #import <stdbool.h>
 
 static void LMVSquidPanelVideoRefresh(BOOL reload);
@@ -111,7 +112,7 @@ static NSString *LMVSquidWindowReport(void) {
         for(UIWindow *window in ((UIWindowScene *)scene).windows) {
             if(out.length>900)break;
             [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
-                NSStringFromClass(window.class),(int)window.hidden,window.alpha,
+                LMVProbeClassName(window),(int)window.hidden,window.alpha,
                 window.frame.size.width,window.frame.size.height,window.windowLevel,
                 (unsigned long)window.subviews.count];
         }
@@ -127,7 +128,7 @@ static void LMVSquidPanelDumpTree(UIView *root,NSInteger depth,NSMutableString *
         if(*nodes>36)return;
         CGRect f=[sub convertRect:sub.bounds toView:root.window];
         [out appendFormat:@"%@%@@%.0f,%.0f,%.0f,%.0f(h%d,a%.2f) ",
-            depth?@"-":@"",NSStringFromClass(sub.class),
+            depth?@"-":@"",LMVProbeClassName(sub),
             f.origin.x,f.origin.y,f.size.width,f.size.height,(int)sub.hidden,sub.alpha];
         (*nodes)++;
         LMVSquidPanelDumpTree(sub,depth-1,out,nodes);
@@ -136,7 +137,7 @@ static void LMVSquidPanelDumpTree(UIView *root,NSInteger depth,NSMutableString *
 static UIWindow *LMVSquidPanelWindow(void) {
     // 2.55: shared snapshot (already filtered to visible windows).
     for(UIWindow *window in LMVProbeVisibleWindows()) {
-        if([NSStringFromClass(window.class) containsString:@"SGPanel"])return window;
+        if([LMVProbeClassName(window) containsString:@"SGPanel"])return window;
     }
     return nil;
 }
@@ -179,7 +180,7 @@ static UIView *LMVSquidPanelSurfaceIn(UIWindow *window) {
             if(!budget--)break;
             [pending addObject:sub];
             if(sub.hidden || sub.alpha<.01)continue;
-            if(![NSStringFromClass(sub.class) isEqualToString:@"SFActivityPanelView"])continue;
+            if(![LMVProbeClassName(sub) isEqualToString:@"SFActivityPanelView"])continue;
             CGRect frame=[sub convertRect:sub.bounds toView:window];
             CGFloat area=LMVSquidPanelVisibleArea(frame,bounds);
             if(area>bestArea){bestArea=area;best=sub;}
@@ -585,7 +586,7 @@ static void LMVSquidPanelIdentityTree(UIView *view,NSUInteger depth,NSMutableStr
     if(!view || *nodes>160)return;
     (*nodes)++;
     CGRect frame=view.frame;
-    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f",NSStringFromClass(view.class),
+    [out appendFormat:@"%@@%.0f,%.0f,%.0f,%.0f",LMVProbeClassName(view),
         frame.origin.x,frame.origin.y,frame.size.width,frame.size.height];
     if(view.tag)[out appendFormat:@"#%ld",(long)view.tag];
     // accessibilityIdentifier and restorationIdentifier are UIView's own public
@@ -991,7 +992,7 @@ static void LMVSquidPanelDescribeIdentity(UIView *view,NSMutableString *out) {
 static void LMVSquidPanelDescribeSiblings(UIView *card,UIWindow *window,NSMutableString *out) {
     UIView *action=nil;
     for(UIView *node=card;node && node!=window;node=node.superview)
-        if([NSStringFromClass(node.class) isEqualToString:@"SFActivityAction"]){action=node;break;}
+        if([LMVProbeClassName(node) isEqualToString:@"SFActivityAction"]){action=node;break;}
     if(!action || !action.superview)return;
     NSArray *siblings=action.superview.subviews;
     NSUInteger index=[siblings indexOfObjectIdenticalTo:action];
@@ -1000,7 +1001,7 @@ static void LMVSquidPanelDescribeSiblings(UIView *card,UIWindow *window,NSMutabl
     for(UIView *sib in siblings) {
         if(shown++>=8)break;
         CGRect frame=sib.frame;
-        [out appendFormat:@" %@#%ld@%.0f,%.0f,%.0f,%.0f",NSStringFromClass(sib.class),(long)sib.tag,
+        [out appendFormat:@" %@#%ld@%.0f,%.0f,%.0f,%.0f",LMVProbeClassName(sib),(long)sib.tag,
             frame.origin.x,frame.origin.y,frame.size.width,frame.size.height];
     }
 }
@@ -1009,8 +1010,8 @@ static void LMVSquidPanelDescribeSiblings(UIView *card,UIWindow *window,NSMutabl
 static NSString *LMVSquidPanelCardChain(UIView *card,UIWindow *window) {
     NSMutableArray *names=[NSMutableArray array];
     for(UIView *node=card;node && node!=window;node=node.superview)
-        [names addObject:NSStringFromClass(node.class)];
-    [names addObject:NSStringFromClass(window.class)];
+        [names addObject:LMVProbeClassName(node)];
+    [names addObject:LMVProbeClassName(window)];
     return [names componentsJoinedByString:@">"];
 }
 // 1.52: forget everything learned here - the four signatures and their heights.
@@ -1223,7 +1224,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                         if(best) {
                             CGRect f=[best convertRect:best.bounds toView:win];
                             [hunt appendFormat:@"%@>%@@%.0f,%.0f,%.0f,%.0f ",
-                                NSStringFromClass(win.class),NSStringFromClass(best.class),
+                                LMVProbeClassName(win),LMVProbeClassName(best),
                                 f.origin.x,f.origin.y,f.size.width,f.size.height];
                         }
                     }
@@ -1231,7 +1232,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                 NSMutableString *tree=[NSMutableString new];NSUInteger nodes=0;
                 if(window)LMVSquidPanelDumpTree(window,4,tree,&nodes);
                 LMVDiagnostic([NSString stringWithFormat:@"squid-panel-nocard window=%@ hunt=%@ tree=%@ windows=%@",
-                    window?NSStringFromClass(window.class):@"none",hunt.length?hunt:@"none",
+                    window?LMVProbeClassName(window):@"none",hunt.length?hunt:@"none",
                     tree.length?tree:@"none",LMVSquidWindowReport()]);
             }
         }
@@ -1402,7 +1403,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
     if(LMVDiagnosticsEnabled.load()) {
         static NSString *lastMount=nil;
         NSString *mount=[NSString stringWithFormat:@"squid-panel-mount mode=%@ container=%@ idx=%lu host=%.0fx%.0f layers=%lu rl=%.0fx%.0f pl=%.0fx%.0f vl=%.0fx%.0f op=%.2f hidden=%d alpha=%.2f containerHidden=%d renderHidden=%d player=%d rate=%.1f ready=%d poster=%d item=%d err=%@",
-            mode,NSStringFromClass(container.class),(unsigned long)index,
+            mode,LMVProbeClassName(container),(unsigned long)index,
             self.host.bounds.size.width,self.host.bounds.size.height,
             (unsigned long)self.host.layer.sublayers.count,
             self.playback.renderLayer.frame.size.width,self.playback.renderLayer.frame.size.height,
@@ -1423,7 +1424,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
         UIPageControl *pageControl=LMVSquidPanelPageControl(self.card,window);
         CGFloat dots=0;
         for(UIView *sub in pageControl.subviews) {
-            if([NSStringFromClass(sub.class) containsString:@"PageControlContentView"]) {
+            if([LMVProbeClassName(sub) containsString:@"PageControlContentView"]) {
                 dots=MAX(sub.bounds.size.width,sub.bounds.size.height);break;
             }
         }
@@ -1454,7 +1455,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                 (void *)self.card,identity]);
         }
         NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
-            NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
+            LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             (int)slot+1,LMVSquidPanelSlotTitles()[slot],LMVSquidPanelSlotTitles()[wantSlot],
             LMVSquidPanelShapeReason,LMVSquidPanelShapeSig,
             pageControl?(int)pageControl.hidden:-1,dots,
@@ -1475,6 +1476,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
 @end
 static void LMVSquidPanelRetune(void) {
     NSTimeInterval want=LMVSquidPanelEnabled?LMVTuneProbeInterval(@"SquidPanel"):LMVTuneIdleInterval;
+    want=LMVTuneFallbackInterval(want, LMVSquidPanelVideo.host.superview!=nil);
     if(LMVSquidPanelTimer && fabs(LMVSquidPanelTimer.timeInterval-want)<.001)return;
     [LMVSquidPanelTimer invalidate];
     LMVSquidPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVSquidPanelVideoRefresh(NO);}];
