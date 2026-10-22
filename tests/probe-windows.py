@@ -38,7 +38,9 @@ for name in channels:
 # ---- B) shared snapshot ------------------------------------------------------
 assert 'static NSArray<UIWindow *> *LMVProbeAllWindows(void)' in probe
 assert 'static NSArray<UIWindow *> *LMVProbeVisibleWindows(void)' in probe
-assert 'now - cachedAt < 0.08' in probe
+assert 'CFTimeInterval ttl=LMVProbeSnapshotTTL();' in probe and 'now - cachedAt < ttl' in probe
+assert 'now - cachedAt < 0.08' not in probe, '2.98: the TTL is a parameter now'
+assert 'LMVTuneValue(@"Global",@"SnapshotMs")' in probe
 # An empty list must never be cached: launch and scene reconnection are briefly empty,
 # and a cached empty answer would stand every channel down for the whole TTL.
 assert 'if (!list.count) return cache ?: @[];' in probe
@@ -65,5 +67,5 @@ for name, limit in limits.items():
     src = (root / name).read_text()
     assert src.count('connectedScenes') <= limit, (name, src.count('connectedScenes'))
 
-print('PASS: eight panel channels share one 80 ms window snapshot; idle gear is 30 s, '
+print('PASS: eight panel channels share one window snapshot whose TTL is a parameter (default 80 ms); idle gear is 30 s, '
       'not 0.5 s; no probe path walks scenes per tick')

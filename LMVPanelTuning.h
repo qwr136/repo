@@ -60,6 +60,10 @@ static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
         // cards. Both used to be hard-coded.
         @{@"id":@"Bubble",        @"name":@"悬浮球",                   @"group":@"other"},
         @{@"id":@"Cards",         @"name":@"通知卡片（消息/选项/清除）", @"group":@"other"},
+        // 2.98: the shared window snapshot behind all eight panel channels. One row,
+        // not eight: the channels share a single enumeration by design (2.55), so a
+        // per-channel value would multiply the walks it removed.
+        @{@"id":@"Global",        @"name":@"全局窗口快照（8 个共用）",   @"group":@"other"},
     ];
 }
 static inline NSString *LMVTuneTargetName(NSString *target) {
@@ -133,6 +137,11 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     if ([target isEqualToString:@"Bubble"]) {
         return @[@{@"title":@"检测", @"params":@[
             LMVTuneParam(@"TickHz", @"悬浮球检测频率 (Hz, 5~30)", 5, 30, 20),
+        ]}];
+    }
+    if ([target isEqualToString:@"Global"]) {
+        return @[@{@"title":@"检测", @"params":@[
+            LMVTuneParam(@"SnapshotMs", @"快照有效期 (ms, 0~200)", 0, 200, 80),
         ]}];
     }
     if ([target isEqualToString:@"Cards"]) {

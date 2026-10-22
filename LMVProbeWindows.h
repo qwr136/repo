@@ -1,6 +1,21 @@
 #pragma once
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#if __has_include("LMVPanelTuning.h")
+#import "LMVPanelTuning.h"
+#else
+// Standalone fixtures compile this header alone; the snapshot default is 80 ms.
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 80; }
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
+#endif
+// 2.98: the TTL is a row now (设置 → 自定义参数 → 全局窗口快照). One value for all
+// eight channels on purpose: the whole point of the snapshot is that they share ONE
+// enumeration, so a per-channel TTL would restore the eight walks 2.55 removed.
+static inline CFTimeInterval LMVProbeSnapshotTTL(void) {
+    NSInteger ms=LMVTuneValue(@"Global",@"SnapshotMs");
+    LMVTuneReport(@"Global",@"SnapshotMs",ms);
+    return ms/1000.0;
+}
 
 // 2.55: ONE window enumeration per probe beat, shared by every panel channel.
 //
@@ -22,7 +37,8 @@ static NSArray<UIWindow *> *LMVProbeAllWindows(void) {
     static NSArray<UIWindow *> *cache;
     static CFTimeInterval cachedAt;
     CFTimeInterval now = CACurrentMediaTime();
-    if (cache && now - cachedAt < 0.08) return cache;
+    CFTimeInterval ttl=LMVProbeSnapshotTTL();
+    if (cache && now - cachedAt < ttl) return cache;
     NSMutableArray<UIWindow *> *list = [NSMutableArray array];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -42,7 +58,8 @@ static NSArray<UIWindow *> *LMVProbeVisibleWindows(void) {
     static NSArray<UIWindow *> *cache;
     static CFTimeInterval cachedAt;
     CFTimeInterval now = CACurrentMediaTime();
-    if (cache && now - cachedAt < 0.08) return cache;
+    CFTimeInterval ttl=LMVProbeSnapshotTTL();
+    if (cache && now - cachedAt < ttl) return cache;
     NSMutableArray<UIWindow *> *list = [NSMutableArray array];
     for (UIWindow *window in LMVProbeAllWindows()) {
         if (window.hidden || window.alpha < .01) continue;
