@@ -136,17 +136,17 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     // (no show/hide delay, no hook), so they get a single-row group of their own.
     if ([target isEqualToString:@"Bubble"]) {
         return @[@{@"title":@"检测", @"params":@[
-            LMVTuneParam(@"TickHz", @"悬浮球检测频率 (Hz, 5~30)", 5, 30, 20),
+            LMVTuneParam(@"TickHz", @"悬浮球检测频率 (Hz, 1~30)", 1, 30, 20),
         ]}];
     }
     if ([target isEqualToString:@"Global"]) {
         return @[@{@"title":@"检测", @"params":@[
-            LMVTuneParam(@"SnapshotMs", @"快照有效期 (ms, 0~200)", 0, 200, 80),
+            LMVTuneParam(@"SnapshotMs", @"快照有效期 (ms, 0~1000)", 0, 1000, 80),
         ]}];
     }
     if ([target isEqualToString:@"Cards"]) {
         return @[@{@"title":@"刷新", @"params":@[
-            LMVTuneParam(@"FPS", @"通知卡片刷新率 (Hz, 15~60)", 15, 60, 30),
+            LMVTuneParam(@"FPS", @"通知卡片刷新率 (Hz, 1~60)", 1, 60, 30),
         ]}];
     }
     NSMutableArray *groups = [NSMutableArray array];

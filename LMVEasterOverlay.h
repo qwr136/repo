@@ -634,11 +634,20 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // (设置 → 自定义参数 → 悬浮球); the hidden tick stays at 5 Hz because a hidden ball
     // only has one answer to give.
     NSInteger tickHz=LMVTuneValue(@"Bubble",@"TickHz");
-    if (tickHz<5) tickHz=5;
+    // 2.99: the floor is 1 Hz now (was 5). LMVTuneValue already clamps to the table's
+    // 1~30, so this only guards a stale value written by an older build.
+    if (tickHz<1) tickHz=1;
     if (tickHz>30) tickHz=30;
     LMVTuneReport(@"Bubble",@"TickHz",tickHz);
     NSTimeInterval shown=1.0/(NSTimeInterval)tickHz;
     NSTimeInterval want=hidden?0.2:shown;
+    // 2.99: one line per change so the applied interval can be checked from a capture.
+    static NSInteger appliedTickHz=-1;
+    if(appliedTickHz!=tickHz) {
+        appliedTickHz=tickHz;
+        LMVDiagnostic([NSString stringWithFormat:@"bubble-cadence setting=%ld visible=%.3fs%s",
+            (long)tickHz,shown,hidden?" hidden=5Hz":""]);
+    }
     if (fabs(self.visibilityTimer.timeInterval-want)<0.001) return;
     [self.visibilityTimer invalidate];
     __weak typeof(self) weakSelf=self;

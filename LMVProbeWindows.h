@@ -13,6 +13,13 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
 // enumeration, so a per-channel TTL would restore the eight walks 2.55 removed.
 static inline CFTimeInterval LMVProbeSnapshotTTL(void) {
     NSInteger ms=LMVTuneValue(@"Global",@"SnapshotMs");
+    // 2.98: one line per change - the same "is it really applied" question as the
+    // other cadence rows, answered without a debugger.
+    static NSInteger appliedMs=-1;
+    if(appliedMs!=ms) {
+        appliedMs=ms;
+        LMVDiagnostic([NSString stringWithFormat:@"probe-snapshot ttl=%ldms",(long)ms]);
+    }
     LMVTuneReport(@"Global",@"SnapshotMs",ms);
     return ms/1000.0;
 }

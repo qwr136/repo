@@ -601,6 +601,14 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
     if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
     LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
+    // 2.98: one line per change so "did the number I typed reach the display link?"
+    // is answerable from a capture. The steady state stays silent.
+    static NSInteger appliedHz=-1;
+    if(appliedHz!=probeHz) {
+        appliedHz=probeHz;
+        LMVLockVideoLog([NSString stringWithFormat:@"lock-cadence setting=%ld link=%ld",
+            (long)probeHz,(long)link.preferredFramesPerSecond]);
+    }
     self.screenAllowed=LMVLockVideoScreenAllowed();
     if (CACurrentMediaTime()-self.lastRevisionCheck>=1) {
         self.lastRevisionCheck=CACurrentMediaTime();NSString *revision=LMVLockVideoRevision(self.path);

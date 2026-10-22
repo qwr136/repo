@@ -504,6 +504,13 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
     NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
     if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
     LMVTuneReport(@"CC",@"ProbeHz",probeHz);
+    // 2.98: one line per change, same reason as the lock channel.
+    static NSInteger appliedHz=-1;
+    if(appliedHz!=probeHz) {
+        appliedHz=probeHz;
+        LMVDiagnostic([NSString stringWithFormat:@"cc-cadence setting=%ld link=%ld",
+            (long)probeHz,(long)link.preferredFramesPerSecond]);
+    }
     [self syncGeometry];
 }
 - (void)update {

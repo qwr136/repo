@@ -1574,10 +1574,13 @@ static void LMVSyncDisplayLink(void) {
     LMVLink=[CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
     // 2.48: the card link's cadence is a setting now (设置 → 自定义参数 → 通知卡片).
     NSInteger cardFPS=LMVTuneValue(@"Cards",@"FPS");
-    if (cardFPS<15) cardFPS=15;
+    // 2.99: the floor is 1 Hz now (was 15), matching the row's range.
+    if (cardFPS<1) cardFPS=1;
     if (cardFPS>60) cardFPS=60;
     LMVTuneReport(@"Cards",@"FPS",cardFPS);
     LMVLink.preferredFramesPerSecond=cardFPS;
+    LMVDiagnostic([NSString stringWithFormat:@"cards-cadence setting=%ld link=%ld",
+        (long)cardFPS,(long)LMVLink.preferredFramesPerSecond]);
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 #import "LMVCardMaintenance.h"
