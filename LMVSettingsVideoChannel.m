@@ -648,7 +648,7 @@ static NSMapTable<UINavigationBar *, NSDictionary *> *LMVSettingsSavedAppearance
             (scroll.bounds.size.height >= window.bounds.size.height * .5)) {
             if (container.backgroundColor && CGColorGetAlpha(container.backgroundColor.CGColor) > .001)
                 container.backgroundColor = UIColor.clearColor;
-            if (container.layer.backgroundColor && CGColorGetAlpha(container.layer.backgroundColor.CGColor) > .001)
+            if (container.layer.backgroundColor && CGColorGetAlpha(container.layer.backgroundColor) > .001)
                 container.layer.backgroundColor = UIColor.clearColor.CGColor;
         }
     }
