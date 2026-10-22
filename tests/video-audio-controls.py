@@ -127,9 +127,9 @@ static NSString *lastKey;
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static id LMVEasterRead(NSString *key) { return store[key]; }
 static void LMVEasterSet(NSString *key, id value) { store[key]=value; lastKey=key; writes++; notifications++; }
-// 3.06: the production notifier is the REAL LMVNotifyFor now (it is compiled in via
-// @HELPERS@), so the post itself is what has to be counted - a local LMVNotify stub
-// would never be called by the setter and the count assertion would fail.
+// 3.06: the production notifier is the REAL LMVNotifyFor now (its body is compiled
+// in with the helpers below), so the POST itself is what has to be counted - a local
+// LMVNotify stub would never be called by the setter and the count assertion failed.
 static void TestPost(CFNotificationCenterRef center, CFStringRef name, const void *object, CFDictionaryRef userInfo, Boolean deliverImmediately) { notifications++; }
 static void TestSync(CFStringRef domain) { }
 static CFTypeRef TestCopy(CFStringRef key, CFStringRef domain) { id v=store[(__bridge NSString *)key]; return v ? CFRetain((__bridge CFTypeRef)v) : NULL; }
