@@ -868,7 +868,15 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // 120 Hz - double the probe rate for a signal whose fastest meaningful change
     // (the app-exit cross-fade) is one frame wide at 60 Hz anyway, and two frames
     // of extra latency at worst on the reveal.
-    self.coverWatch.preferredFramesPerSecond=60;
+    // 3.02: the watcher ran at a hard-coded 60 Hz for the whole time the desktop was
+    // covered - that is the ~3% SpringBoard CPU seen while inside an app. It is a row
+    // now (设置 → 自定义参数 → 桌面背景视频 → 遮挡检测频率); the lower it goes, the
+    // cheaper the idle and the later the reveal, at most one interval.
+    NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+    self.coverWatch.preferredFramesPerSecond=watchHz;
+    LMVTuneReport(@"Desktop",@"CoverWatchHz",watchHz);
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-coverwatch setting=%ld link=%ld",
+        (long)watchHz,(long)self.coverWatch.preferredFramesPerSecond]);
     [self.coverWatch addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 - (void)stopCoverWatch {
@@ -913,6 +921,15 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         self.measuredSince = measuredNow;
         LMVTuneReport(@"Desktop", @"MeasuredFPS", measured);
         LMVTuneTouch(@"Desktop", @"MeasuredFPS");
+    }
+    // 3.02: apply a change to 遮挡检测频率 without waiting for the next cover. Once a
+    // second is enough - the value is a setting, not a signal.
+    static CFTimeInterval lastWatchSync;
+    if (measuredNow-lastWatchSync>=1.0) {
+        lastWatchSync=measuredNow;
+        NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+        if (link.preferredFramesPerSecond!=watchHz) link.preferredFramesPerSecond=watchHz;
+        LMVTuneReport(@"Desktop",@"CoverWatchHz",watchHz);
     }
     // 2.07: A COVERED DESKTOP IS A WATCHDOG, NOT A RENDERER.
     // While an app is in front the player is frozen, yet this tick kept running at

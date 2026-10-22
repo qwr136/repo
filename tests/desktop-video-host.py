@@ -266,7 +266,9 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 # every frame, which is what preserves the zero-delay resume.
 assert 'LMVDesktopVisibleWindowCount' in h, 'the cheap visible-window count exists (1.32)'
 assert 'if (!self.host.hidden && !self.playback.frozen && !self.appAway) {' in h, 'only the playing state is gated; the frozen state still probes every frame (1.32)'
-assert 'self.coverWatch.preferredFramesPerSecond=60;' in h, 'the watcher is capped at 60 Hz (1.32)'
+assert 'NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");' in h, '3.02: the covered-desktop watcher rate is a row'
+assert 'self.coverWatch.preferredFramesPerSecond=watchHz;' in h, 'the watcher takes that value'
+assert 'self.coverWatch.preferredFramesPerSecond=60;' not in h, 'no hard-coded 60 left' 
 # 0.0.137: the watcher runs while the surface exists and watches BOTH
 # directions - a cover appearing freezes within ~16 ms, the desktop being
 # revealed resumes within ~16 ms.

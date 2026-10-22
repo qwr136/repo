@@ -112,6 +112,10 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
                 // 2.97: the 100 ms gate was a hard-coded constant, so "how often is
                 // the desktop really measured" could not be answered or changed.
                 LMVTuneParam(@"ProbeIntervalMs", @"检测节流 (ms, 0~1000)", 0, 1000, 100),
+                // 3.02: the 60 Hz cover watcher was a constant. It runs only while the
+                // desktop is covered, and it is the 3% CPU seen inside an app; expose it
+                // so the trade (reveal latency vs. idle cost) is the user's call.
+                LMVTuneParam(@"CoverWatchHz", @"遮挡检测频率 (Hz, 5~60)", 5, 60, 60),
             ]},
             @{@"title":@"刷新", @"params":@[
                 LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 10~60)", 10, 60, 30),
