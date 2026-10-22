@@ -61,7 +61,7 @@ assert 'static NSTimeInterval LMVCopyLogXInterval(void)' in src
 assert 'if(LMVCopyLogXCardLive)return MIN(base,.25);' in src
 # 2.39: the waiting gear is the channel's ProbeHz, not a hard-coded 0.15s.
 assert 'LMVTuneProbeInterval(@"CopyLogX")' in src
-assert 'return base;' in src
+assert 'return LMVTuneFallbackInterval(base, NO);' in src
 assert 'return .15;' not in src
 assert 'LMVCopyLogXTimer.tolerance=want*.3;' in src
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src

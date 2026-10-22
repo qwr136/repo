@@ -66,7 +66,7 @@ assert 'if(!LMVGlassSuiteEnabled)return LMVTuneIdleInterval;' in src
 assert 'if(LMVGlassSuiteCardRef)return MIN(base,.25);' in src
 # 2.39: the waiting gear is the channel's ProbeHz (default 5Hz = 0.2s).
 assert 'LMVTuneProbeInterval(@"GS")' in src
-assert 'return base;' in src
+assert 'return LMVTuneFallbackInterval(base, NO);' in src
 assert 'return .75;' not in src
 assert 'LMVGlassSuiteTimer.tolerance=want*.3;' in src
 # 0.1 秒的旧节拍不能再出现
