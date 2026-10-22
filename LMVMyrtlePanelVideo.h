@@ -5,6 +5,9 @@
 static inline NSString *LMVProbeClassName(UIView *view) {
     return view ? (NSStringFromClass(view.class) ?: @"") : @"";
 }
+static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
+    (void)mounted; return want;
+}
 #endif
 // 1.77: the Myrtle panel background video (Myrtle 面板背景视频).
 // The panel is the one that appears under the App Library / search surface: the

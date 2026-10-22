@@ -6,6 +6,9 @@
 static inline NSString *LMVProbeClassName(UIView *view) {
     return view ? (NSStringFromClass(view.class) ?: @"") : @"";
 }
+static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
+    (void)mounted; return want;
+}
 #endif
 #import <dlfcn.h>
 // 2.30: the Control Center context-menu background (CCBorder 视频背景).

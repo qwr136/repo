@@ -13,6 +13,9 @@
 static inline NSString *LMVProbeClassName(UIView *view) {
     return view ? (NSStringFromClass(view.class) ?: @"") : @"";
 }
+static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
+    (void)mounted; return want;
+}
 #endif
 #import <stdbool.h>
 

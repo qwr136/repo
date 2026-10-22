@@ -5,6 +5,9 @@
 static inline NSString *LMVProbeClassName(UIView *view) {
     return view ? (NSStringFromClass(view.class) ?: @"") : @"";
 }
+static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
+    (void)mounted; return want;
+}
 #endif
 #pragma once
 // 2.04: the PHONE-ASSIST pop-up background (电话助手弹窗背景视频).
