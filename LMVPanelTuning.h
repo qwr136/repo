@@ -118,7 +118,7 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
                 LMVTuneParam(@"CoverWatchHz", @"遮挡检测频率 (Hz, 1~60)", 1, 60, 60),
             ]},
             @{@"title":@"刷新", @"params":@[
-                LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 10~60)", 10, 60, 30),
+                LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 1~60)", 1, 60, 10),
                 LMVTuneParam(@"CoveredFPS", @"被遮挡时心跳 (Hz, 1~30)", 1, 30, 5),
             ]}
         ];
@@ -373,6 +373,9 @@ static inline NSTimeInterval LMVTuneProbeInterval(NSString *target) {
 static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
     if (mounted) return want;
     NSInteger ms = LMVTuneValue(@"Global", @"FallbackProbeMs");
+    // 3.10.4: report the value the channels actually use, so the page stops showing
+    // 未上报 next to a knob that is in effect.
+    LMVTuneReport(@"Global", @"FallbackProbeMs", ms);
     if (ms <= 0) return want;
     NSTimeInterval floorInterval = ms / 1000.0;
     return want < floorInterval ? floorInterval : want;

@@ -925,7 +925,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         LMVTuneReport(@"Desktop",@"CoveredFPS",coveredFPS);
     }
     NSInteger value=[key isEqualToString:@"IdleFPS"]?idleFPS:coveredFPS;
-    NSInteger lo=[key isEqualToString:@"IdleFPS"]?10:1;
+    NSInteger lo=[key isEqualToString:@"IdleFPS"]?1:1;   // 3.10.4: was 10 - user could not go lower
     NSInteger hi=[key isEqualToString:@"IdleFPS"]?60:30;
     if (value<lo) value=lo;
     if (value>hi) value=hi;
