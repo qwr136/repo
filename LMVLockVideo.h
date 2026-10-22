@@ -1,5 +1,12 @@
 #pragma once
+#if __has_include("LMVPanelTuning.h")
 #import "LMVPanelTuning.h"
+#else
+// Standalone fixtures compile this header on its own and do not copy the tuning
+// table with it, so the two readers fall back to the shipped defaults (60 Hz).
+static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
+static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
+#endif
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
