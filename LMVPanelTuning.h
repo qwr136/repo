@@ -141,6 +141,7 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     if ([target isEqualToString:@"Bubble"]) {
         return @[@{@"title":@"检测", @"params":@[
             LMVTuneParam(@"TickHz", @"悬浮球检测频率 (Hz, 1~30)", 1, 30, 20),
+            LMVTuneParam(@"AutoHideSec", @"静止自动隐藏 (秒, 0=关)", 0, 60, 0),
         ]}];
     }
     if ([target isEqualToString:@"Global"]) {

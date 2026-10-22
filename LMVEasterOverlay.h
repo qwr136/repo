@@ -640,13 +640,16 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (tickHz>30) tickHz=30;
     LMVTuneReport(@"Bubble",@"TickHz",tickHz);
     NSTimeInterval shown=1.0/(NSTimeInterval)tickHz;
-    NSTimeInterval want=hidden?0.2:shown;
+    // 3.10.5: a hidden ball kept this tick at 5 Hz and the window walk inside it was
+    // measurable even with the bubble switched off ("没开球还占 2%"). The tick only
+    // exists to notice when the ball should come back, so 1 Hz is plenty.
+    NSTimeInterval want=hidden?1.0:shown;
     // 2.99: one line per change so the applied interval can be checked from a capture.
     static NSInteger appliedTickHz=-1;
     if(appliedTickHz!=tickHz) {
         appliedTickHz=tickHz;
         LMVDiagnostic([NSString stringWithFormat:@"bubble-cadence setting=%ld visible=%.3fs%s",
-            (long)tickHz,shown,hidden?" hidden=5Hz":""]);
+            (long)tickHz,shown,hidden?" hidden=1Hz":""]);
     }
     if (fabs(self.visibilityTimer.timeInterval-want)<0.001) return;
     [self.visibilityTimer invalidate];
@@ -661,6 +664,35 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
     [self retuneVisibilityTimer];
+    // 3.10.5: optional auto-hide. A still ball that nobody touches fades out after the
+    // user's timeout; it comes back the next time the scene changes (lock / unlock /
+    // foreground), so leaving and re-entering still shows it. 0 = off (default).
+    NSInteger autoSec = LMVTuneValue(@"Bubble", @"AutoHideSec");
+    LMVTuneReport(@"Bubble", @"AutoHideSec", autoSec);
+    if (autoSec > 0) {
+        static BOOL autoHidden;
+        static NSString *autoKey;
+        static CFTimeInterval autoTouched;
+        static CGPoint autoLastCenter;
+        uint64_t ab=1, al=1;
+        BOOL abk = LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&ab)==NOTIFY_STATUS_OK;
+        BOOL alk = LMVLockToken>=0 && notify_get_state(LMVLockToken,&al)==NOTIFY_STATUS_OK;
+        NSString *key = [NSString stringWithFormat:@"%d.%d.%d", abk?(int)ab:-1, alk?(int)al:-1, (int)LMVEasterForeground()];
+        if (![key isEqualToString:autoKey ?: @""]) { autoKey = key; autoHidden = NO; autoTouched = 0; }
+        if (!autoHidden && !self.panel && self.window && !self.window.hidden) {
+            CGPoint c = self.bubble.center;
+            if (!CGPointEqualToPoint(c, autoLastCenter) || autoTouched <= 0) {
+                autoLastCenter = c; autoTouched = CACurrentMediaTime();
+            }
+            if (CACurrentMediaTime() - autoTouched > (NSTimeInterval)autoSec) {
+                autoHidden = YES;
+                [self hide];
+                LMVDiagnostic([NSString stringWithFormat:@"bubble-autohide sec=%ld",(long)autoSec]);
+                return;
+            }
+        }
+        if (autoHidden) return;
+    }
     // 1.65: live 20 Hz host probe over the retained window objects.
     NSUInteger hostMask = LMVEasterQuickHostMask(self.physicalWindows);
     if (hostMask != self.lastHostSignature) {
