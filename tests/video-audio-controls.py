@@ -127,11 +127,17 @@ static NSString *lastKey;
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static id LMVEasterRead(NSString *key) { return store[key]; }
 static void LMVEasterSet(NSString *key, id value) { store[key]=value; lastKey=key; writes++; notifications++; }
-static void LMVNotify(void) { notifications++; }
+// 3.06: the production notifier is the REAL LMVNotifyFor now (it is compiled in via
+// @HELPERS@), so the post itself is what has to be counted - a local LMVNotify stub
+// would never be called by the setter and the count assertion would fail.
+static void TestPost(CFNotificationCenterRef center, CFStringRef name, const void *object, CFDictionaryRef userInfo, Boolean deliverImmediately) { notifications++; }
+static void TestSync(CFStringRef domain) { }
 static CFTypeRef TestCopy(CFStringRef key, CFStringRef domain) { id v=store[(__bridge NSString *)key]; return v ? CFRetain((__bridge CFTypeRef)v) : NULL; }
 static void TestSet(CFStringRef key, CFPropertyListRef value, CFStringRef domain) { LMVEasterSet((__bridge NSString *)key, (__bridge id)value); notifications--; }
 #define CFPreferencesCopyAppValue TestCopy
 #define CFPreferencesSetAppValue TestSet
+#define CFNotificationCenterPostNotification TestPost
+#define CFPreferencesAppSynchronize TestSync
 @HELPERS@
 enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @interface PSSpecifier : NSObject
