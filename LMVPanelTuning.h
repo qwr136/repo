@@ -48,6 +48,13 @@ static inline NSArray<NSDictionary *> *LMVTuneTargets(void) {
         // the time, so its cadence is worth exposing. It still has no probe/delay rows:
         // what the user can tune here is how often the surface is re-measured.
         @{@"id":@"Desktop",       @"name":@"桌面背景视频",             @"group":@"other"},
+        // 2.97: the two always-on layers. Both ran a CADisplayLink at a hard-coded
+        // 60 Hz with no way to see or change it.
+        //   LockNC is ONE channel on purpose: the notification centre and the lock
+        // screen are the same CoverSheet layer and the same player, so two separate
+        // rows would have been two switches writing the same number.
+        @{@"id":@"LockNC",        @"name":@"锁屏/通知中心背景视频",     @"group":@"other"},
+        @{@"id":@"CC",            @"name":@"控制中心背景视频",         @"group":@"other"},
         // 2.48: the two remaining always-on consumers. The ball's tick notices "the
         // desktop came back"; the card link is the 30 Hz surface under the notification
         // cards. Both used to be hard-coded.
@@ -96,9 +103,29 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     // it is driven by a display link, not by a polling timer, so "出现延迟" and
     // "钩子节流" would mean nothing there.
     if ([target isEqualToString:@"Desktop"]) {
-        return @[@{@"title":@"刷新", @"params":@[
-            LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 10~60)", 10, 60, 30),
-            LMVTuneParam(@"CoveredFPS", @"被遮挡时心跳 (Hz, 1~30)", 1, 30, 5),
+        return @[
+            @{@"title":@"检测", @"params":@[
+                // 2.97: the 100 ms gate was a hard-coded constant, so "how often is
+                // the desktop really measured" could not be answered or changed.
+                LMVTuneParam(@"ProbeIntervalMs", @"检测节流 (ms, 0~1000)", 0, 1000, 100),
+            ]},
+            @{@"title":@"刷新", @"params":@[
+                LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 10~60)", 10, 60, 30),
+                LMVTuneParam(@"CoveredFPS", @"被遮挡时心跳 (Hz, 1~30)", 1, 30, 5),
+            ]}
+        ];
+    }
+    // 2.97: the two always-on layers that had their callback rate nailed to 60.
+    // They get a detection-frequency row of their own plus the shared "当前生效"
+    // line that every channel already reports through.
+    if ([target isEqualToString:@"CC"]) {
+        return @[@{@"title":@"检测", @"params":@[
+            LMVTuneParam(@"ProbeHz", @"检测频率 (Hz, 1~60)", 1, 60, 60),
+        ]}];
+    }
+    if ([target isEqualToString:@"LockNC"]) {
+        return @[@{@"title":@"检测", @"params":@[
+            LMVTuneParam(@"ProbeHz", @"检测频率 (Hz, 1~60)", 1, 60, 60),
         ]}];
     }
     // 2.48: the ball and the card link have one cadence each, and neither is a panel

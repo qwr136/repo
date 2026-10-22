@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelTuning.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -587,6 +588,12 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     [self.link invalidate];self.link=nil;
 }
 - (void)tick:(CADisplayLink *)link {
+    // 2.97: a settings change must land without waiting for the CoverSheet to close
+    // and reopen. The read is a cached CFPreferences lookup and the write inside
+    // LMVTuneReport only happens when the number changes.
+    NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
+    if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
+    LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
     self.screenAllowed=LMVLockVideoScreenAllowed();
     if (CACurrentMediaTime()-self.lastRevisionCheck>=1) {
         self.lastRevisionCheck=CACurrentMediaTime();NSString *revision=LMVLockVideoRevision(self.path);
@@ -802,7 +809,13 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         if (!self.link) {self.link=[CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
             // 0.0.96: 30fps lagged the panel animation by up to a frame, so the
             // leading edge of the video band exposed wallpaper while dragging.
-            self.link.preferredFramesPerSecond=60;[self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
+            // 2.97: the rate is the 「锁屏/通知中心背景视频」row now. The default stays
+            // 60 for exactly that reason - dropping it re-exposes the band - but the
+            // user can trade that off and see the applied value on the same page.
+            NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
+            self.link.preferredFramesPerSecond=probeHz;
+            LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
+            [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
     } else {[self.link invalidate];self.link=nil;}
     if (!self.enabled || !self.path.length || !self.revision.length) {
         if (self.playback.path || self.playback.player || self.playback.loading) [self.playback clear];

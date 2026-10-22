@@ -997,7 +997,13 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // is under the cross-fade's own duration.
         // 2.46: 10 Hz instead of 20 Hz. The count only decides whether a FULL probe
         // is worth running; the reveal itself is still evaluated on every tick.
-        if (gateNow-self.probeCountAt < .1) return;
+        // 2.97: the 100 ms is now the 「检测节流」row (设置 → 自定义参数 → 桌面背景视频).
+        // It is read through LMVTuneValue, which already clamps to 0~1000 ms, and the
+        // applied value is reported back so the page can show what is really in use
+        // instead of what was typed.
+        NSInteger gateMs=LMVTuneValue(@"Desktop",@"ProbeIntervalMs");
+        LMVTuneReport(@"Desktop",@"ProbeIntervalMs",gateMs);
+        if (gateNow-self.probeCountAt < gateMs/1000.0) return;
         self.probeCountAt=gateNow;
         NSUInteger visibleWindows=LMVDesktopVisibleWindowCount();
         if (visibleWindows==self.probeWindowCount && gateNow-self.probeFullAt<1.0) return;
