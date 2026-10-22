@@ -83,6 +83,9 @@ print('PASS: seven panel channels share one snapshot (TTL is a parameter), CopyL
 #   * the probe must never walk the view tree (that is the CPU cost 2.55 removed).
 tweak = (root / 'Tweak.xm').read_text()
 assert 'LMVPanelComputeSignature' in tweak and 'LMVPanelPresenceLink' in tweak, 'presence probe'
-assert 'preferredFramesPerSecond = 30' in tweak, 'presence probe rate'
-assert 'window.subviews.count' in tweak, 'signature is O(windows), not a tree walk'
+assert 'preferredFramesPerSecond = LMVPanelPresenceHz()' in tweak, 'probe rate comes from the setting'
+assert 'LMVTuneParam(@"PresenceHz", @"变化探针频率 (Hz, 5~60)", 5, 60, 30)' in (root/'LMVPanelTuning.h').read_text(), 'probe rate row'
+assert 'LMVPanelPresenceLink.preferredFramesPerSecond = wanted' in tweak, 'rate change applies live'
+assert 'LMVPanelSignatureIn' in tweak and 'depth > 3' in tweak, 'signature looks 3 levels deep (CopyVault card)'
+assert 'budget = 600' in tweak, 'signature has a hard node budget'
 assert 'LMVPanelPresenceStart();' in tweak, 'probe started at launch'

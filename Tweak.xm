@@ -1780,19 +1780,50 @@ static void LMVPanelAppearKick(void) {
 static CADisplayLink *LMVPanelPresenceLink;
 static NSUInteger LMVPanelPresenceSignature;
 
+static NSInteger LMVPanelPresenceHz(void) {
+    NSInteger hz = LMVTuneValue(@"Global", @"PresenceHz");
+    if (hz < 5) hz = 5;
+    if (hz > 60) hz = 60;
+    return hz;
+}
+
+// 3.08: DEPTH MATTERS. CopyVault's panel is a card nested inside CVPanelWindow
+// (window -> transition view -> card), so counting only a window's DIRECT subviews
+// missed it entirely - that channel still looked slow. Depth 3 with a hard budget
+// keeps the cost at roughly "windows x 3" reads.
+static void LMVPanelSignatureIn(UIView *view, NSInteger depth, NSInteger *budget, NSUInteger *signature) {
+    if (!view || depth > 3 || *budget <= 0) return;
+    (*budget)--;
+    *signature = *signature * 31 + (NSUInteger)(uintptr_t)(__bridge void *)view;
+    *signature = *signature * 31 + view.subviews.count;
+    *signature = *signature * 31 + (view.hidden ? 1u : 0u);
+    *signature = *signature * 31 + ((NSUInteger)(view.alpha * 100) & 0xffu);
+    for (UIView *child in view.subviews)
+        LMVPanelSignatureIn(child, depth + 1, budget, signature);
+}
+
 static NSUInteger LMVPanelComputeSignature(void) {
     NSUInteger signature = 0;
+    NSInteger budget = 600;   // hard ceiling: a pathological tree costs at most this
     // Shared snapshot (80 ms default): the enumeration is amortised across all callers.
     for (UIWindow *window in LMVProbeAllWindows()) {
-        signature = signature * 31 + (NSUInteger)(uintptr_t)(__bridge void *)window;
-        signature = signature * 31 + window.subviews.count;
-        signature = signature * 31 + (window.hidden ? 1u : 0u);
+        LMVPanelSignatureIn(window, 0, &budget, &signature);
+        if (budget <= 0) break;
     }
     return signature;
 }
 
 static void LMVPanelPresenceTick(CADisplayLink *link) {
     if (!LMVInitialized || !LMVLaunchReady) return;
+    // 3.08: the rate is a setting now - apply it without waiting for a respring.
+    static CFTimeInterval lastRateCheck;
+    CFTimeInterval rateNow = CACurrentMediaTime();
+    if (rateNow - lastRateCheck >= 1) {
+        lastRateCheck = rateNow;
+        NSInteger wanted = LMVPanelPresenceHz();
+        if (LMVPanelPresenceLink.preferredFramesPerSecond != wanted)
+            LMVPanelPresenceLink.preferredFramesPerSecond = wanted;
+    }
     NSUInteger signature = LMVPanelComputeSignature();
     if (signature == LMVPanelPresenceSignature) return;
     LMVPanelPresenceSignature = signature;
@@ -1805,7 +1836,7 @@ static void LMVPanelPresenceStart(void) {
     LMVPanelPresenceLink = [CADisplayLink displayLinkWithTarget:[NSBlockOperation blockOperationWithBlock:^{
         LMVPanelPresenceTick(nil);
     }] selector:@selector(main)];
-    LMVPanelPresenceLink.preferredFramesPerSecond = 30;
+    LMVPanelPresenceLink.preferredFramesPerSecond = LMVPanelPresenceHz();
     [LMVPanelPresenceLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 

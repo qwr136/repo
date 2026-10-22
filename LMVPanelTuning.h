@@ -146,6 +146,10 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     if ([target isEqualToString:@"Global"]) {
         return @[@{@"title":@"检测", @"params":@[
             LMVTuneParam(@"SnapshotMs", @"快照有效期 (ms, 0~60000)", 0, 60000, 80),
+            // 3.08: the window-signature probe that gives the six hook-less channels
+            // their event entry. 30 Hz by default; raise it if a panel still shows up
+            // late, lower it to save power.
+            LMVTuneParam(@"PresenceHz", @"变化探针频率 (Hz, 5~60)", 5, 60, 30),
         ]}];
     }
     if ([target isEqualToString:@"Cards"]) {
