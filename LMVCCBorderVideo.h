@@ -65,7 +65,12 @@ static BOOL LMVCCBorderEnvironment(void) {
     return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVCCBorderSpringBoard() &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
-        notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
+        notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank;
+    // 3.10.6: the lock screen used to disable this channel outright (`!locked`), so
+    // pulling Control Center down ON the lock screen mounted nothing at all. The
+    // surface search below already requires a real SBControlCenter window, which is
+    // the only thing that should decide whether this channel draws. `locked` is still
+    // read (a failed token means we do not know the state and stand down).
 }
 static BOOL LMVCCBorderSpringBoardWindow(UIWindow *window) {
     if(!window)return NO;
