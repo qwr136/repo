@@ -30,7 +30,10 @@ TOOL_NAME = lmvthumb
 lmvthumb_FILES = helper/helper.m
 lmvthumb_INSTALL_PATH = /usr/libexec
 lmvthumb_FRAMEWORKS = UIKit Foundation AVFoundation ImageIO QuartzCore CoreMedia CoreVideo CoreGraphics
-lmvthumb_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+# The tool includes the shared thumbnail header, so a few static helpers that only
+# the host uses are present but unreferenced here. -Wunused-function is the only
+# warning relaxed; everything else stays at the project default.
+lmvthumb_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk
