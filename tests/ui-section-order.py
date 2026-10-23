@@ -481,7 +481,7 @@ class UISectionOrder(unittest.TestCase):
         # 3.10.7: the picker hands every decode to lmvthumb and drops the per-row
         # spinner/film glyph, so the digest moves once more. Delete routing is still
         # untouched - the assertions below cover it directly.
-        self.assertEqual(digest(PICKER), '04367abbe8bffaf86c1f41be0027a0b059533ae42c1a92cf295c78dabd60c8b5')
+        self.assertEqual(digest(PICKER), '0bcc6f41fa8beee19a07641d496496b57c9f61b8e85904ee2dc9dae44b6ac302')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')

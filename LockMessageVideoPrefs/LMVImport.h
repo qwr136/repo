@@ -66,7 +66,7 @@ static int LMVImportPublish(int root, const char *pending, int library, const ch
 #import "LMVThumbnailDiagnosticLog.h"
 #import "LMVMaterialThumbnail.h"
 #import "LMVMaterialCatalog.h"
-#import "../LMVThumbnailHelper.h"
+#import "LMVThumbnailHelper.h"
 static NSError *LMVImportError(NSInteger code, NSString *message, NSError *underlying) {
     NSMutableDictionary *info=[NSMutableDictionary dictionaryWithObject:message forKey:NSLocalizedDescriptionKey];
     if (underlying) {

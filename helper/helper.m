@@ -48,14 +48,14 @@ int main(int argc, char *argv[]) {
         NSString *relative = [NSString stringWithUTF8String:argv[1]];
         if (!relative.length) { LMVHelperAppend(@"exit empty-arg"); return 2; }
 
-        CFTimeInterval started = CACurrentMediaTime();
+        CFTimeInterval started = CFAbsoluteTimeGetCurrent();
         NSString *revision = LMVThumbnailRevision(relative);
         if (!revision.length) { LMVHelperAppend(@"exit bad-revision"); return 3; }
 
         // A poster that already exists is left alone: two importers racing for the
         // same material must not rewrite the file the other one is serving.
         if (LMVReadThumbnail(relative, revision)) {
-            LMVHelperAppend([NSString stringWithFormat:@"exit already %.0fms", (CACurrentMediaTime() - started) * 1000.0]);
+            LMVHelperAppend([NSString stringWithFormat:@"exit already %.0fms", (CFAbsoluteTimeGetCurrent() - started) * 1000.0]);
             return 0;
         }
 
@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
             LMVHelperAppend([NSString stringWithFormat:@"exit write-failed code=%ld", (long)error.code]);
             return 5;
         }
-        LMVHelperAppend([NSString stringWithFormat:@"exit done %.0fms", (CACurrentMediaTime() - started) * 1000.0]);
+        LMVHelperAppend([NSString stringWithFormat:@"exit done %.0fms", (CFAbsoluteTimeGetCurrent() - started) * 1000.0]);
         // Tell the host a poster appeared; without this the list would keep its
         // placeholder until the next reopen. Resolved dynamically so the tool does
         // not need an extra link dependency for one call.

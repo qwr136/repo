@@ -94,7 +94,7 @@ static const NSTimeInterval LMVHelperDispatchWindow = 10.0;
 static inline NSInteger LMVSpawnThumbnailHelper(NSString *relative) {
     if (![relative isKindOfClass:NSString.class] || !relative.length) return 0;
     LMVHelperDispatchLedgerInit();
-    CFTimeInterval now = CACurrentMediaTime();
+    CFTimeInterval now = CFAbsoluteTimeGetCurrent();
     for (NSString *key in LMVHelperDispatched.allKeys) {
         if (now - LMVHelperDispatched[key].doubleValue >= LMVHelperDispatchWindow)
             [LMVHelperDispatched removeObjectForKey:key];

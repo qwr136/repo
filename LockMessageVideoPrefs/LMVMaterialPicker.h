@@ -6,7 +6,7 @@
 #import "LMVMaterialThumbnail.h"
 #import "LMVMaterialDeletion.h"
 #import "LMVMaterialPrompt.h"
-#import "../LMVThumbnailHelper.h"
+#import "LMVThumbnailHelper.h"
 #import <notify.h>
 
 // 0.0.124: bounded retry for a poster that is not on disk yet. A freshly imported
