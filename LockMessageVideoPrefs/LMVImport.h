@@ -66,6 +66,7 @@ static int LMVImportPublish(int root, const char *pending, int library, const ch
 #import "LMVThumbnailDiagnosticLog.h"
 #import "LMVMaterialThumbnail.h"
 #import "LMVMaterialCatalog.h"
+#import "../LMVThumbnailHelper.h"
 static NSError *LMVImportError(NSInteger code, NSString *message, NSError *underlying) {
     NSMutableDictionary *info=[NSMutableDictionary dictionaryWithObject:message forKey:NSLocalizedDescriptionKey];
     if (underlying) {
@@ -218,12 +219,22 @@ static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError
     }
     NSString *revision = LMVThumbnailRevision(relative);
     if (revision) {
-        UIImage *poster = LMVDecodeThumbnail(relative);
-        if (poster) {
-            NSError *thumbnailError = LMVWriteThumbnail(relative, revision, poster);
-            if (thumbnailError) LMVThumbnailLog(@"import-sidecar-write", relative, thumbnailError);
-        } else {
-            LMVThumbnailLog(@"import-sidecar-decode", relative, nil);
+        // 3.10.7: hand the decode to lmvthumb instead of doing it in this process.
+        // SpringBoard pays nothing for it, and the caller stops blocking on a
+        // frame grab that used to run for up to 12 s before giving up.
+        // 0 = unusable tool: decode here. 1/2 = the tool has it (or is saturated):
+        // the poster will arrive on its own, so this process stays out of it.
+        if (LMVSpawnThumbnailHelper(relative) == 0) {
+            // Tool missing or spawn denied: exactly the previous behaviour, so a
+            // failed outsource can never leave the material without a poster.
+            LMVThumbnailLog(@"import-sidecar-outsource-missed", relative, nil);
+            UIImage *poster = LMVDecodeThumbnail(relative);
+            if (poster) {
+                NSError *thumbnailError = LMVWriteThumbnail(relative, revision, poster);
+                if (thumbnailError) LMVThumbnailLog(@"import-sidecar-write", relative, thumbnailError);
+            } else {
+                LMVThumbnailLog(@"import-sidecar-decode", relative, nil);
+            }
         }
     }
     return relative;

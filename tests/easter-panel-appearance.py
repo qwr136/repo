@@ -92,8 +92,11 @@ assert 'if (!key.length || [self.retryScheduled containsObject:key]) return;' in
 # 0.0.125: a retry re-requests by ROW from the whole catalog, so a round is never
 # consumed by a row that merely scrolled off screen.
 assert 'for (NSDictionary *material in picker.materials)' in _picker
-assert '@"生成中…"' in _picker
-assert 'poster ?: [UIImage systemImageNamed:pending ? @"arrow.triangle.2.circlepath" : @"film"]' in _picker
+# 3.10.7: the shared picker no longer advertises a per-row spinner or a film glyph -
+# the poster is produced by lmvthumb and the row simply waits on a neutral block.
+assert '@"生成中…"' not in _picker
+assert 'arrow.triangle.2.circlepath' not in _picker
+assert 'systemImageNamed:@"film"' not in _picker
 assert 'showsThumbnails = NO' not in panel
 
 # ---- (4)(5) corner radius + width/height on the page both entries share --------

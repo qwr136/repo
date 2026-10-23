@@ -478,7 +478,10 @@ class UISectionOrder(unittest.TestCase):
         # saying 生成中 until it was scrolled into view. Deferred keys now wait in a
         # backlog that is drained as workers finish. Delete routing is still untouched,
         # so the digest is refreshed for that queue change only.
-        self.assertEqual(digest(PICKER), '4e534f92e086ea7ec113f49497c26f1b5563a01317a5d5113b2634f13901e7c5')
+        # 3.10.7: the picker hands every decode to lmvthumb and drops the per-row
+        # spinner/film glyph, so the digest moves once more. Delete routing is still
+        # untouched - the assertions below cover it directly.
+        self.assertEqual(digest(PICKER), '04367abbe8bffaf86c1f41be0027a0b059533ae42c1a92cf295c78dabd60c8b5')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')

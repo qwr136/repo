@@ -6,6 +6,8 @@
 #import "LMVMaterialThumbnail.h"
 #import "LMVMaterialDeletion.h"
 #import "LMVMaterialPrompt.h"
+#import "../LMVThumbnailHelper.h"
+#import <notify.h>
 
 // 0.0.124: bounded retry for a poster that is not on disk yet. A freshly imported
 // movie is still being finalised when the list opens, so decoding its first frame
@@ -16,6 +18,10 @@
 static const NSInteger LMVMaterialThumbnailMaxFailures = 2;
 static const NSInteger LMVMaterialThumbnailRetryLimit = 6;
 static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
+// 3.10.7: how many times one material may be handed to lmvthumb before the row is
+// left on its placeholder. The tool is the only thing that decodes now, so the
+// budget also bounds how long a genuinely broken file can keep starting processes.
+static const NSInteger LMVMaterialOutsourceLimit = 3;
 
 @interface LMVMaterialCell : UITableViewCell
 @property(nonatomic) BOOL showsThumbnail;
@@ -60,6 +66,7 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 // because +prewarmThumbnailCache has to reach the same cache and the same queue.
 // The names are deliberately left unchanged, so the host contracts describing this
 // shared state still hold.
+static int LMVThumbReadyToken = -1;
 static NSCache<NSString *, UIImage *> *sharedThumbnails;
 static NSMutableDictionary<NSString *, NSNumber *> *sharedFailures, *sharedRetries;
 static NSMutableSet<NSString *> *sharedScheduled, *sharedPending;
@@ -104,6 +111,15 @@ static void LMVMaterialSharedState(void) {
         // stays bounded by the pending ceiling inside -requestThumbnail:.
         sharedQueue.maxConcurrentOperationCount = 4;
         sharedQueue.qualityOfService = NSQualityOfServiceUtility;
+        // 3.10.7: lmvthumb posts this when a poster lands on disk. Whatever is on
+        // screen reads it back and repaints, so the row does not wait for the next
+        // reopen. Registered once per process, on the main queue.
+        notify_register_dispatch("com.minis.lockmessagevideo/thumbReady", &LMVThumbReadyToken,
+            dispatch_get_main_queue(), ^(int token) {
+                (void)token;
+                LMVHelperForgetDispatched();
+                [NSNotificationCenter.defaultCenter postNotificationName:@"LMVMaterialThumbReady" object:nil];
+            });
     });
 }
 
@@ -140,6 +156,10 @@ static void LMVMaterialSharedState(void) {
     self.title = @"选择素材";
     self.tableView.rowHeight = self.showsThumbnails?76:60;
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
+    // 3.10.7: lmvthumb runs in another process and cannot touch this cache. When it
+    // reports a finished poster, read the sidecar back and repaint - otherwise the
+    // row would stay on its placeholder until the list was reopened.
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(thumbnailProduced:) name:@"LMVMaterialThumbReady" object:nil];
     [self reloadLibrary];
 }
 - (void)viewWillAppear:(BOOL)animated {
@@ -149,6 +169,31 @@ static void LMVMaterialSharedState(void) {
     [self.previewStages removeAllObjects];
     LMVThumbnailLog(@"picker-appear", @"", nil);
     [self requestVisibleThumbnails];
+}
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+- (void)thumbnailProduced:(NSNotification *)note {
+    [self.thumbnailFailures removeAllObjects];
+    NSCache<NSString *, UIImage *> *cache = self.thumbnails;
+    for (NSDictionary *row in self.materials) {
+        NSString *key = row[@"revision"];
+        if (!key.length || [cache objectForKey:key]) continue;
+        NSString *relative = row[@"path"];
+        if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
+        __weak typeof(self) weakSelf = self;
+        // A disk hit is ~1 ms; this only ever runs for rows that still have no poster.
+        [self.thumbnailQueue addOperationWithBlock:^{
+            @autoreleasepool {
+                UIImage *poster = LMVReadThumbnail(relative, key);
+                if (!poster) return;
+                NSUInteger cost = poster.CGImage ? CGImageGetBytesPerRow(poster.CGImage) * CGImageGetHeight(poster.CGImage) : 0;
+                [cache setObject:poster forKey:key cost:cost];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    LMVMaterialPicker *picker = weakSelf;
+                    if (picker) [picker.tableView reloadData];
+                });
+            }
+        }];
+    }
 }
 - (void)cancel {
     if (self.pushed) [self.navigationController popViewControllerAnimated:YES];
@@ -341,6 +386,31 @@ static void LMVMaterialSharedState(void) {
     if (!key.length) { [self tracePreview:@"request-invalid" row:row]; return; }
     [self tracePreview:@"request" row:row];
     if ([self.thumbnails objectForKey:key]) { [self tracePreview:@"memory-hit" row:row]; return; }
+    NSString *relative = row[@"path"];
+    // 3.10.7: the decode belongs to lmvthumb now. A row that has been handed out is
+    // done from this process's point of view - no worker, no pending entry, no
+    // placeholder spinner. Only when the tool cannot be reached at all does the old
+    // in-process path run, so an installation without the tool behaves as before.
+    if ([relative isKindOfClass:NSString.class] && relative.length) {
+        NSInteger outsourced = self.thumbnailRetries[key].integerValue;
+        if (outsourced >= LMVMaterialOutsourceLimit) {
+            [self tracePreview:@"outsource-exhausted" row:row];
+            return;
+        }
+        NSInteger dispatch = LMVSpawnThumbnailHelper(relative);
+        if (dispatch == 1) {
+            self.thumbnailRetries[key] = @(outsourced + 1);
+            [self tracePreview:@"outsource" row:row];
+            return;
+        }
+        if (dispatch == 2) {
+            // Saturated: leave the row alone. The completion notification repaints
+            // and re-asks, so nothing is lost and no retry budget is spent.
+            [self tracePreview:@"outsource-deferred" row:row];
+            return;
+        }
+        [self tracePreview:@"outsource-unavailable" row:row];
+    }
     // 0.0.123: a single transient failure (a file still being finalised, a slow
     // first frame) used to park this row on the placeholder for the whole
     // session. Retry a bounded number of times instead of latching.
@@ -354,7 +424,6 @@ static void LMVMaterialSharedState(void) {
     }
     [self tracePreview:@"enqueue" row:row];
     [self.pending addObject:key];
-    NSString *relative = row[@"path"];
     NSTimeInterval queuedAt = NSDate.date.timeIntervalSince1970;
     // 0.0.125: hold the SHARED cache and SHARED pending set strongly - the work
     // must complete its bookkeeping even if this picker is deallocated first
@@ -427,16 +496,15 @@ static void LMVMaterialSharedState(void) {
     BOOL current = [self.selected isEqualToString:relative];
     cell.textLabel.text = none ? @"无素材" : row[@"name"];
     cell.textLabel.numberOfLines = 2;
-    BOOL pending = !none && ![self.thumbnails objectForKey:row[@"revision"]] && [self thumbnailIsPending:row];
-    cell.detailTextLabel.text = current ? @"使用中" : (pending ? @"生成中…" : nil);
+    cell.detailTextLabel.text = current ? @"使用中" : nil;
     cell.accessoryType = current ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     ((LMVMaterialCell *)cell).showsThumbnail=self.showsThumbnails;
-    // 0.0.124: three states, not two. Film means "this really failed"; a poster
-    // that is merely not ready yet (typical right after an import) shows a
-    // progress glyph so it is not mistaken for a broken entry.
     UIImage *poster = none ? nil : [self.thumbnails objectForKey:row[@"revision"]];
-    cell.imageView.image = self.showsThumbnails ? (none ? [UIImage systemImageNamed:@"nosign"] :
-        poster ?: [UIImage systemImageNamed:pending ? @"arrow.triangle.2.circlepath" : @"film"]) : nil;
+    // 3.10.7: two states, not three. A poster, or a neutral block while one is being
+    // produced elsewhere. The spinner and the film glyph are gone: on a row that is
+    // merely not ready yet both of them read as "this is broken".
+    cell.imageView.image = self.showsThumbnails ? (none ? [UIImage systemImageNamed:@"nosign"] : poster) : nil;
+    cell.imageView.backgroundColor = (self.showsThumbnails && !none && !poster) ? UIColor.tertiarySystemFillColor : nil;
     cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
     cell.imageView.clipsToBounds = YES;
     cell.imageView.layer.cornerRadius = 6;
