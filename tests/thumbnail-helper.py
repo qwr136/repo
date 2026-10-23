@@ -28,6 +28,18 @@ assert 'UIKit' in helper and 'AVFoundation' in helper, 'the helper decodes with 
 for forbidden in ('UIWindow', 'AVPlayerLayer', 'UIApplication', 'presentViewController'):
     assert forbidden not in helper, 'the helper must not take part in UI: ' + forbidden
 
+# --- privileges & diagnostics (3.10.8) -------------------------------------------
+ents = (root / 'helper' / 'lmvthumb.entitlements').read_text()
+assert 'platform-application' in ents, 'a tool spawned from SpringBoard needs platform-application'
+assert 'com.apple.private.security.no-container' in ents
+assert 'lmvthumb_ENTITLEMENTS = helper/lmvthumb.entitlements' in makefile, \
+    'the entitlements have to be attached to the tool target'
+# Distinguish "never started" from "cannot write /var/mobile".
+assert '/tmp/lmvthumb.log' in helper, 'a second log location is required to diagnose a silent exit'
+assert 'geteuid()' in helper, 'the tool must record which identity it runs as'
+assert 'posix_spawn_file_actions_addopen' in facade, \
+    'the tool stdout/stderr is captured so a dyld failure is visible'
+
 # --- packaging -------------------------------------------------------------------
 assert 'TOOL_NAME = lmvthumb' in makefile and 'lmvthumb_FILES = helper/helper.m' in makefile
 assert 'lmvthumb_INSTALL_PATH = /usr/libexec' in makefile, 'the tool lives beside the system helpers'

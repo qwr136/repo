@@ -21,18 +21,25 @@
 #include <dlfcn.h>
 
 static NSString *const kLMVHelperLogPath = @"/var/mobile/LockMessageVideo/helper.log";
+// 3.10.8: the first attempt left NOTHING in helper.log even though the host logged
+// spawn rc=0, which means either the process died before main or it could not open
+// the file. Write to a second location that needs no directory of ours, so the next
+// run distinguishes "cannot write /var/mobile" from "never started".
+static NSString *const kLMVHelperFallbackLog = @"/tmp/lmvthumb.log";
 
 // Plain append under O_APPEND: one line per event, never buffered, never renamed.
 // The host's shared-render.log has a 1200-record budget that would swallow these.
 static void LMVHelperAppend(NSString *line) {
     if (!line.length) return;
-    NSString *full = [NSString stringWithFormat:@"%.3f [helper] %@\n", NSDate.date.timeIntervalSince1970, line];
+    NSString *full = [NSString stringWithFormat:@"%.3f [helper uid=%d] %@\n", NSDate.date.timeIntervalSince1970, (int)geteuid(), line];
     NSData *data = [full dataUsingEncoding:NSUTF8StringEncoding];
-    int fd = open(kLMVHelperLogPath.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
-    if (fd < 0) return;
-    ssize_t ignored = write(fd, data.bytes, data.length);
-    (void)ignored;
-    close(fd);
+    for (NSString *path in @[kLMVHelperLogPath, kLMVHelperFallbackLog]) {
+        int fd = open(path.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        if (fd < 0) continue;
+        ssize_t ignored = write(fd, data.bytes, data.length);
+        (void)ignored;
+        close(fd);
+    }
 }
 
 // The thumbnail header routes its own trace through this macro; point it at the

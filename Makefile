@@ -2,7 +2,7 @@ ARCHS = arm64 arm64e
 TARGET := iphone:clang:16.5:15.0
 INSTALL_TARGET_PROCESSES = SpringBoard
 THEOS_PACKAGE_SCHEME = roothide
-LMV_VERSION = 3.10.7
+LMV_VERSION = 3.10.8
 PACKAGE_VERSION = $(LMV_VERSION)
 
 include $(THEOS)/makefiles/common.mk
@@ -23,7 +23,7 @@ LockMessageVideoPrefs_CFLAGS = -fobjc-arc
 LockMessageVideoPrefs_LIBRARIES = roothide
 LockMessageVideoPrefs_PRIVATE_FRAMEWORKS = Preferences
 
-# 3.10.7: thumbnail decoding is outsourced to a headless one-shot tool. It lives
+# 3.10.8: thumbnail decoding is outsourced to a headless one-shot tool. It lives
 # under <jbroot>/usr/libexec so no App owns it and SpringBoard never decodes a
 # thumbnail in-process. Same RootHide scheme as the rest of the package.
 TOOL_NAME = lmvthumb
@@ -34,6 +34,9 @@ lmvthumb_FRAMEWORKS = UIKit Foundation AVFoundation ImageIO QuartzCore CoreMedia
 # the host uses are present but unreferenced here. -Wunused-function is the only
 # warning relaxed; everything else stays at the project default.
 lmvthumb_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function
+# 3.10.8: spawned from SpringBoard the tool starts unprivileged; without these it is
+# exec'd but cannot open /var/mobile, so it produced no poster and left no log.
+lmvthumb_ENTITLEMENTS = helper/lmvthumb.entitlements
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk

@@ -105,7 +105,17 @@ static inline NSInteger LMVSpawnThumbnailHelper(NSString *relative) {
     if (LMVHelperDispatched.count >= LMVHelperMaxInFlight) return 2;
     const char *argv[] = {tool.fileSystemRepresentation, relative.UTF8String, NULL};
     pid_t pid = 0;
-    int rc = posix_spawn(&pid, tool.fileSystemRepresentation, NULL, NULL, (char *const *)argv, environ);
+    // 3.10.8: the tool's stdout/stderr go to a file. A dyld failure or a crash before
+    // main() prints there and nowhere else, which is exactly the case that produced
+    // "spawn rc=0 but no helper line at all".
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/tmp/lmvthumb.out",
+                                     O_WRONLY | O_CREAT | O_APPEND, 0644);
+    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/tmp/lmvthumb.out",
+                                     O_WRONLY | O_CREAT | O_APPEND, 0644);
+    int rc = posix_spawn(&pid, tool.fileSystemRepresentation, &actions, NULL, (char *const *)argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
     LMVHelperTrace([NSString stringWithFormat:@"spawn rc=%d pid=%d inFlight=%lu item=%@",
         rc, (int)pid, (unsigned long)LMVHelperDispatched.count, relative.lastPathComponent]);
     if (rc != 0) return 0;
