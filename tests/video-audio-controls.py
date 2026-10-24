@@ -342,8 +342,11 @@ int main(void) { @autoreleasepool {
  puts("PASS: exact production specifiers (76), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
-    button_methods = '\n'.join(re.findall(r'- \(void\)switch\w+:\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', prefs))
-    button_methods += '\n' + '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in ('chooseVideo', 'openEaster', 'openMaterialPath', 'openCVTextColor', 'openSquidTextColor', 'openPATextColor', 'openGSTextColor', 'openCopyLogXTextColor'))
+    # 4.2.0: one shared switch action and one shared colour action replace the
+    # sixteen per-channel ones.
+    button_methods = '\n'.join(f'- (void){name}:(PSSpecifier *)s {{}}' for name in
+                                ('switchTargetFromRow', 'chooseVideo', 'openEaster',
+                                 'openMaterialPath', 'openTuneList', 'openTextColorFromRow'))
     # 3.05: the setters now notify PER CHANNEL (LMVNotifyFor/LMVTargetForPrefKey), so the
     # fixture must carry those two production helpers too - without them the native
     # build fails with "call to undeclared function".
@@ -352,6 +355,9 @@ int main(void) { @autoreleasepool {
                          if not line.startswith('#import') and not line.startswith('#pragma'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
+    # 4.2.0: the generated sections call two shared row builders that live outside
+    # -specifiers, so the native build needs them too.
+    actual_helpers += '\n' + body(prefs, '- (PSSpecifier *)materialRowForTarget:') + '\n' + body(prefs, '- (PSSpecifier *)textColorRowWithID:')
     # The table must precede every fixture function that reads it, but after the
     # system imports (otherwise NSArray is not defined yet).
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
