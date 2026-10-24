@@ -86,7 +86,15 @@ assert 'if (index.row != 1) return;\n        key = @"ATVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
 append = body(prefs, '- (void)appendAudioForTarget:')
-specifiers = body(prefs, '- (NSArray *)specifiers')
+specifiers_source = body(prefs, '- (NSArray *)specifiers')
+# 4.2.0: the generated sections call two row builders that live outside -specifiers,
+# and this fixture compiles that method on its own. Build the same rows inline so the
+# native build sees a real specifier instead of an undeclared selector.
+specifiers = (specifiers_source
+    .replace('[_specifiers addObject:[self materialRowForTarget:target]];',
+             '[_specifiers addObject:[PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:Nil cell:PSButtonCell edit:Nil]];')
+    .replace('[_specifiers addObject:[self textColorRowWithID:colourID]];',
+             '[_specifiers addObject:[PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:Nil cell:PSButtonCell edit:Nil]];'))
 assert append.count('cell:PSSwitchCell') == append.count('cell:PSSliderCell') == 1
 for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:@0.5 forKey:@"default"]',
               '[volume setProperty:@0.0 forKey:@"min"]', '[volume setProperty:@100.0 forKey:@"max"]',
@@ -99,8 +107,8 @@ assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVS
 for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV'), ('myrtleMaterial', 'Myrtle')):
     # 4.2.0: the material row and the audio pair are emitted by the generated loop,
     # so they no longer sit next to a literal channel name.
-    assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in specifiers
-    assert '[self materialRowForTarget:target]' in specifiers and '[self appendAudioForTarget:target title:@"播放"]' in specifiers
+    assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in specifiers_source
+    assert '[self materialRowForTarget:target]' in specifiers_source and '[self appendAudioForTarget:target title:@"播放"]' in specifiers_source
 assert specifiers.count('appendAudioForTarget:') == 4  # five-section loop + two control-centre halves + generated loop
 # 2.05: the audio module derives its keys from the CHANNEL name, so the channel must
 # be called PA - calling it PhoneAssist read PhoneAssistSoundEnabled while the rows
@@ -355,9 +363,6 @@ int main(void) { @autoreleasepool {
                          if not line.startswith('#import') and not line.startswith('#pragma'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
-    # 4.2.0: the generated sections call two shared row builders that live outside
-    # -specifiers, so the native build needs them too.
-    actual_helpers += '\n' + body(prefs, '- (PSSpecifier *)materialRowForTarget:') + '\n' + body(prefs, '- (PSSpecifier *)textColorRowWithID:')
     # The table must precede every fixture function that reads it, but after the
     # system imports (otherwise NSArray is not defined yet).
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
