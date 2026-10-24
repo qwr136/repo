@@ -278,15 +278,10 @@ class UISectionOrder(unittest.TestCase):
         self.assertEqual(sequence, ['globalGroup', 'global',
             'targets-group', 'enabled', 'choose',
             'controlCenter', 'controlCenterEnabled', 'controlCenterDark', 'controlCenterLight',
-            'group:桌面长按菜单视频背景', 'homeMenuEnabled', 'homeMenuMaterial',
-            'group:鱿鱼面板背景视频', 'squidPanelEnabled', 'squidPanelMaterial', 'squidText',
-            'group:AT 背景视频', 'atEnabled', 'atMaterial',
-            'group:CopyVault 面板背景视频', 'cvEnabled', 'cvMaterial', 'cvText',
-            'group:Myrtle 面板背景视频', 'myrtleEnabled', 'myrtleMaterial',
-            'group:电话助手弹窗背景视频', 'paEnabled', 'paMaterial', 'paText',
-            'gsGroup', 'gsEnabled', 'gsMaterial', 'gsText',
-            'ccbGroup', 'ccbEnabled', 'ccbMaterial',
-            'clxGroup', 'clxEnabled', 'clxMaterial', 'clxText',
+            # 4.2.0: the nine panel sections collapsed into ONE generated loop. The
+            # sections themselves are still nine - their order and contents are now
+            # the channel table's columns, asserted in tests/preferences-routing.py.
+            'group', 'enabled', '[self materialRowForTarget:target]', '[self textColorRowWithID:colourID]',
             # 2.48: two data-driven sections (group + row inside one loop) replace the
             # single 自定义参数 group and its flat row loop.
             # 2.52: one section again (功能面板参数), still data-driven - the group is
@@ -300,15 +295,22 @@ class UISectionOrder(unittest.TestCase):
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
         self.assertIn('for (NSUInteger i = 0; i < LMVSectionTargets().count; i++)', SPECIFIERS)
-        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 69)
+        # 4.2.0: the nine hand-written panel blocks became one loop, so the root
+        # list appends fewer literal rows while producing the same page.
+        self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 41)
         self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVSectionTargets()[i]', SPECIFIERS)
-        for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
+        for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
-        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 12)
+        # 4.2.0: the nine generated sections get their audio pair from the loop instead
+        # of a literal row per channel.
+        self.assertIn('[self materialRowForTarget:target]];\n        if ([row[@"audio"] boolValue]) [self appendAudioForTarget:target title:@"播放"];', SPECIFIERS)
+        self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 4)  # five-section loop + two control-centre halves + generated loop
         self.assertEqual(68 + (len(TARGETS) + 10) * 2, 98)  # 68 non-audio rows + 15 audio channels x 2
         # 2.48: the tuning block adds its two section groups from ONE statement inside a
 # loop, so the static count drops by one (runtime still has both sections).
-        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'gsGroup', 'ccbGroup', 'clxGroup') for x in sequence) + 4, 22)
+        # 4.2.0: the nine panel sections are one 'group' item in the source now; the
+        # page still shows nine sections. The count below counts source groups.
+        self.assertEqual(sum(x.startswith('group:') or x in ('targets-group', 'controlCenter', 'group') for x in sequence) + 4, 14)
         self.assertIn('preferenceSpecifierNamed:@"显示场景与图片旋转"', SPECIFIERS)
         props = sorted(x.strip() for x in SPECIFIERS.splitlines()
                        if ('setProperty:' in x or '.buttonAction =' in x)
@@ -340,23 +342,21 @@ class UISectionOrder(unittest.TestCase):
         # for exactly that one deletion.
         # 2.54: the eleven channel rows left the root list, so the set gains exactly
         # two lines - the entry's id and its buttonAction. Nothing else moved.
-        self.assertEqual(digest('\n'.join(props)), '762a43da2b2f8e0d43f212b37e94419e5d4091bed4a5694e62e4a09c31a844fb')
+        self.assertEqual(digest('\n'.join(props)), '952b58549f53e6308a00c9ea42b0907208fd554bbf0b339f8405644fbf917351')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)
         old_handlers = handlers[:volume_start] + handlers[volume_end:]
         old_handlers = old_handlers.replace(': [specifier propertyForKey:@"audioVolumeKey"];', ': nil;')
-        old_handlers = old_handlers.replace('- (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }\n', '')
-        old_handlers = old_handlers.replace('- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }\n', '')
         # ...and the AT / CV entries added to the titles and legacy maps.
         old_handlers = old_handlers.replace(', @"AT": @"AT 背景视频"', '').replace(', @"AT": @""', '')
         old_handlers = old_handlers.replace(', @"CV": @"CopyVault 面板背景视频"', '').replace(', @"CV": @""', '')
         # 1.44: the second Squid material slot, and the one existing Squid title that
         # was renamed when that slot appeared. 1.50: the left-hand pair, the claim row
         # and their handlers.
-        for line in ('- (void)switchSquidPanel2:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel2"]; }',
-                     '- (void)switchSquidPanel3:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel3"]; }',
-                     '- (void)switchSquidPanel4:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel4"]; }'):
+        for line in ('- (void)switchTargetFromRow:(PSSpecifier *)specifier {',
+                     '- (void)switchTargetFromRow:(PSSpecifier *)specifier {',
+                     '- (void)switchTargetFromRow:(PSSpecifier *)specifier {'):
             old_handlers = old_handlers.replace(line + '\n', '')
         claim_start = old_handlers.index('// 1.50: "认领刚用过的面板" - the panel\'s content says nothing')
         claim_end = old_handlers.index('- (void)chooseVideo:(PSSpecifier *)specifier {', claim_start)
@@ -370,25 +370,19 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = old_handlers.replace('@"SquidPanel": @"右一·右上滑面板背景视频"', '@"SquidPanel": @"鱿鱼面板背景视频"')
         # 1.77: the Myrtle channel is new - strip it so this digest keeps guarding the
         # pre-Myrtle handlers rather than drifting with every added channel.
-        old_handlers = old_handlers.replace('- (void)switchMyrtle:(PSSpecifier *)specifier { [self switchTarget:@"Myrtle"]; }\n', '')
         # 2.04: the phone-assist channel is new - strip it the same way, so this
         # digest keeps guarding the rows that predate it.
-        old_handlers = old_handlers.replace('- (void)switchPA:(PSSpecifier *)specifier { [self switchTarget:@"PA"]; }\n', '')
         old_handlers = old_handlers.replace(', @"PA": @"电话助手弹窗背景视频"', '')
         old_handlers = old_handlers.replace(', @"PA": @""', '')
         old_handlers = old_handlers.replace(', @"Myrtle": @"Myrtle 面板背景视频"', '')
         old_handlers = old_handlers.replace(', @"Myrtle": @""', '')
         # 1.83: the CopyVault swatch cell hook and the picker handler - drop both
         # before the frozen digest.
-        swatch_start = old_handlers.index('// 1.83: PSButtonCell keeps the tap routing')
-        swatch_end = old_handlers.index('- (void)openCVTextColor:', swatch_start)
-        old_handlers = old_handlers[:swatch_start] + old_handlers[swatch_end:]
-        picker_start = old_handlers.index('- (void)openCVTextColor:')
-        picker_end = old_handlers.index('- (void)setEnabled:', picker_start)
-        old_handlers = old_handlers[:picker_start] + old_handlers[picker_end:]
+        # 4.2.0: the five per-channel colour handlers are one shared method now, so
+        # there is no per-channel block to strip any more. The digest keeps guarding
+        # everything that survives the shared-action move.
         # 2.29: the GlassSuiteX channel is new - strip its handler, its colour key
         # and its tag pair before the frozen digest, exactly like AT/CV/Myrtle/PA.
-        old_handlers = old_handlers.replace('- (void)switchGS:(PSSpecifier *)specifier { [self switchTarget:@"GS"]; }\n', '')
         old_handlers = old_handlers.replace('    else if ([key isEqualToString:LMVGlassSuiteTextColorKey]) base = 0x5D2C;\n', '')
         old_handlers = old_handlers.replace('    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C), @(0x5D2C)]) {',
                                             '    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C)]) {')
@@ -403,11 +397,9 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = old_handlers.replace(', @"GS": @"GlassSuiteX 弹窗背景视频"', '').replace(', @"GS": @""', '')
         # 2.30: the CCBorder channel is new as well - strip its handler and its two
         # map entries before the frozen digest, exactly like AT/CV/Myrtle/PA/GS.
-        old_handlers = old_handlers.replace('- (void)switchCCBorder:(PSSpecifier *)specifier { [self switchTarget:@"CCBorder"]; }\n', '')
         old_handlers = old_handlers.replace(', @"CCBorder": @"CCBorder 视频背景"', '').replace(', @"CCBorder": @""', '')
         # 2.32: the CopyLogX channel is new too - strip its handler, its colour row
         # and its two map entries before the frozen digest.
-        old_handlers = old_handlers.replace('- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }\n', '')
         old_handlers = old_handlers.replace('''// 2.32: the CopyLogX clipboard panel's own colour row.
 - (void)openCopyLogXTextColor:(PSSpecifier *)specifier {
     [self openTextColorForKey:LMVCopyLogXTextColorKey];
@@ -437,11 +429,11 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: chooseVideo/didFinishPicking became multi-select (selectionLimit 0,
         # import every picked video through a dispatch group). That is an intended
         # change to these handlers, so the frozen digest is refreshed for it.
-        self.assertEqual(digest(old_handlers), 'd92c74379405bd1ed5cba4e09ac1df33987c1afbd5841890bcb4fbbe9e700954')
-        for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
-                               ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
-                               ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
-            self.assertIn(f'- (void){action}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}', handlers)
+        self.assertEqual(digest(old_handlers), 'ea639d9914bc504df635d94d4b2a9a50fd85c4c9ac7d88b3e75b949028661b53')
+        # 4.2.0: the six per-channel wrappers are one shared method that reads the
+        # target from the row id, so there is no per-channel handler to assert any more.
+        self.assertIn('- (void)switchTargetFromRow:(PSSpecifier *)specifier {', SETTINGS)
+        self.assertNotIn('switchTarget:@"HomeMenu"', SETTINGS)
         self.assertIn('PSSpecifier *row = [self specifierAtIndexPath:indexPath];', handlers)
         self.assertIn('invoke(self, action, row);', handlers)
         self.assertIn('eggImage.buttonAction = @selector(openEaster:);', SPECIFIERS)

@@ -405,16 +405,20 @@ assert 'LMVAudioConsume(@"SquidPanel",panel.path,panel.revision,panelVisible,pan
 assert 'return LMVChannelIDs();' in audio
 
 # ---- the two settings surfaces -------------------------------------------
-assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];' in prefs
-assert '[squidPanelEnabled setProperty:@NO forKey:@"default"];' in prefs
-assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in prefs
-assert '- (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }' in prefs
+# 4.2.0: generated from the table.
+CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"standalone": @YES', CHANNELS)
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"title": @"鱿鱼面板背景视频"', CHANNELS)
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"audio": @YES', CHANNELS)
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"textColor": @"SquidTextColor"', CHANNELS)
+assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs
+assert '@selector(switchTargetFromRow:)' in prefs
 # 1.63: all four SquidGesturePro panels share ONE material (SquidPanelVideo), so there is
 # a single "切换视频" button routed to SquidPanel and no per-shape slots.
 assert 'NSDictionary *defaults=LMVChannelLegacyDefaults();' in delete and 'for (NSString *target in LMVChannelIDs())' in delete
 assert 'for (NSString *target in LMVChannelIDs())' in delete
 assert '@"id": @"SquidPanel"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text() and 'LMVChannelTitles()' in prefs
-assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];' in prefs
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"title": @"鱿鱼面板背景视频"', CHANNELS)
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.53: nine rows - switch, four materials, the reset row, the swap row, sound, volume.
 # The sound pair sits at 7/8, which is also what stops the volume row from rendering as

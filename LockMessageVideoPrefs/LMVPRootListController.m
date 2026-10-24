@@ -125,6 +125,36 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     // been deleted, until a scroll re-ran willDisplayCell.
     [self refreshMaterialRows];
 }
+- (PSSpecifier *)materialRowForTarget:(NSString *)target {
+    PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    choose.buttonAction = @selector(switchTargetFromRow:);
+    // 4.2.0: the id is the target plus "Material", which is what -willDisplayCell:
+    // turns back into the stored <target>Video key.
+    [choose setProperty:[target stringByAppendingString:@"Material"] forKey:@"id"];
+    return choose;
+}
+- (PSSpecifier *)textColorRowWithID:(NSString *)identifier {
+    PSSpecifier *row = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+    row.buttonAction = @selector(openTextColorFromRow:);
+    [row setProperty:identifier forKey:@"id"];
+    return row;
+}
+// 4.2.0: one action instead of sixteen. The channel comes from the row's id, so a
+// new channel needs no method of its own.
+- (void)switchTargetFromRow:(PSSpecifier *)specifier {
+    NSString *identifier = [specifier propertyForKey:@"id"];
+    if (![identifier isKindOfClass:NSString.class] || ![identifier hasSuffix:@"Material"]) return;
+    [self switchTarget:[identifier substringToIndex:identifier.length - @"Material".length]];
+}
+// 4.2.0: one action instead of five; the preference key comes from the shared table.
+- (void)openTextColorFromRow:(PSSpecifier *)specifier {
+    NSString *identifier = [specifier propertyForKey:@"id"];
+    for (NSDictionary *row in LMVTextColorRows()) {
+        if (![row[@"id"] isEqual:identifier]) continue;
+        [self openTextColorForKey:row[@"key"]];
+        return;
+    }
+}
 - (void)appendAudioForTarget:(NSString *)target title:(NSString *)title {
     NSString *volumeKey = [target stringByAppendingString:@"Volume"];
     PSSpecifier *sound = [PSSpecifier preferenceSpecifierNamed:[title stringByAppendingString:@"声音"] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -158,7 +188,6 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     [global setProperty:@YES forKey:@"default"];
     [_specifiers addObject:global];
     NSArray *titles = @[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"];
-    SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:), @selector(switchLockScreen:), @selector(switchDesktop:)};
     for (NSUInteger i = 0; i < LMVSectionTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
         PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -166,7 +195,7 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
         [enabled setProperty:@NO forKey:@"default"];
         [_specifiers addObject:enabled];
         PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:titles[i] target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-        choose.buttonAction = actions[i];
+        choose.buttonAction = @selector(switchTargetFromRow:);
         // 2.47: these five rows and the two control-centre rows never carried an id, so
         // the "which material is in use" label had nothing to key off and only the
         // channels below (HomeMenu onwards) showed a name. The id is the target plus
@@ -184,157 +213,37 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     [controlCenterEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:controlCenterEnabled];
     PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    controlCenterDark.buttonAction = @selector(switchControlCenterDark:);
+    controlCenterDark.buttonAction = @selector(switchTargetFromRow:);
     [controlCenterDark setProperty:@"ControlCenterDarkMaterial" forKey:@"id"];
     [_specifiers addObject:controlCenterDark];
     [self appendAudioForTarget:@"ControlCenterDark" title:@"深色模式"];
     PSSpecifier *controlCenterLight = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    controlCenterLight.buttonAction = @selector(switchControlCenterLight:);
+    controlCenterLight.buttonAction = @selector(switchTargetFromRow:);
     [controlCenterLight setProperty:@"ControlCenterLightMaterial" forKey:@"id"];
     [_specifiers addObject:controlCenterLight];
     [self appendAudioForTarget:@"ControlCenterLight" title:@"浅色模式"];
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];
-    PSSpecifier *homeMenuEnabled = [PSSpecifier preferenceSpecifierNamed:@"桌面长按菜单视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"];
-    [homeMenuEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:homeMenuEnabled];
-    PSSpecifier *homeMenuMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);
-    [homeMenuMaterial setProperty:@"HomeMenuMaterial" forKey:@"id"];
-    [_specifiers addObject:homeMenuMaterial];
-    [self appendAudioForTarget:@"HomeMenu" title:@"播放"];
-    // 1.22: the SquidGesturePro panel background, right below the long-press menu
-    // channel (same switch / material / sound / volume layout).
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];
-    PSSpecifier *squidPanelEnabled = [PSSpecifier preferenceSpecifierNamed:@"鱿鱼面板背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];
-    [squidPanelEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:squidPanelEnabled];
-    PSSpecifier *squidPanelMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);
-    [squidPanelMaterial setProperty:@"SquidPanelMaterial" forKey:@"id"];
-    [_specifiers addObject:squidPanelMaterial];
-    [self appendAudioForTarget:@"SquidPanel" title:@"播放"];
-    // 1.90: the Squid panel gets the same text-colour row as CopyVault, with its
-    // own key. Settings only - the Easter panel does not carry it.
-    PSSpecifier *squidText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    squidText.buttonAction = @selector(openSquidTextColor:);
-    [squidText setProperty:@"SquidTextColor" forKey:@"id"];
-    [_specifiers addObject:squidText];
-    // 1.26: the AppTools (AT) pop-up background, right below the Squid panel
-    // channel (same switch / material / sound / volume layout). This release
-    // stores the settings and diagnoses the pop-up; the video mount follows.
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];
-    PSSpecifier *atEnabled = [PSSpecifier preferenceSpecifierNamed:@"AT 背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [atEnabled setProperty:@"ATBackgroundEnabled" forKey:@"key"];
-    [atEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:atEnabled];
-    PSSpecifier *atMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    atMaterial.buttonAction = @selector(switchAT:);
-    [atMaterial setProperty:@"ATMaterial" forKey:@"id"];
-    [_specifiers addObject:atMaterial];
-    [self appendAudioForTarget:@"AT" title:@"播放"];
-    // 1.43: the CopyVault clipboard panel background, right below the AT channel
-    // (same switch / material / sound / volume layout).
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];
-    PSSpecifier *cvEnabled = [PSSpecifier preferenceSpecifierNamed:@"CopyVault 面板背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];
-    [cvEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:cvEnabled];
-    PSSpecifier *cvMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    cvMaterial.buttonAction = @selector(switchCV:);
-    [cvMaterial setProperty:@"CVMaterial" forKey:@"id"];
-    [_specifiers addObject:cvMaterial];
-    [self appendAudioForTarget:@"CV" title:@"播放"];
-    // 1.83: CopyVault text colour - one row with a round swatch on the right;
-    // tapping it opens the shared picker (the Easter panel uses the same one).
-    PSSpecifier *cvText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    cvText.buttonAction = @selector(openCVTextColor:);
-    [cvText setProperty:@"CVTextColor" forKey:@"id"];
-    [_specifiers addObject:cvText];
-    // 1.77: the Myrtle panel background (the App Library / search surface that the
-    // Myrtle windows carry). Same switch / material / sound / volume layout as CV.
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Myrtle 面板背景视频"]];
-    PSSpecifier *myrtleEnabled = [PSSpecifier preferenceSpecifierNamed:@"Myrtle 面板背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"];
-    [myrtleEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:myrtleEnabled];
-    PSSpecifier *myrtleMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    myrtleMaterial.buttonAction = @selector(switchMyrtle:);
-    [myrtleMaterial setProperty:@"MyrtleMaterial" forKey:@"id"];
-    [_specifiers addObject:myrtleMaterial];
-    [self appendAudioForTarget:@"Myrtle" title:@"播放"];
-    // 2.04: the PHONE-ASSIST pop-up (电话助手弹窗). Same layout as the channels
-    // above: switch, material, sound + volume, text colour. The sheet is built on
-    // UIAlertController internals, which is why it needs a channel of its own
-    // instead of riding on the AppTools one - a real system alert must never get a
-    // background, but this sheet must.
-    [_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"电话助手弹窗背景视频"]];
-    PSSpecifier *paEnabled = [PSSpecifier preferenceSpecifierNamed:@"电话助手弹窗背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"];
-    [paEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:paEnabled];
-    PSSpecifier *paMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    paMaterial.buttonAction = @selector(switchPA:);
-    [paMaterial setProperty:@"PAMaterial" forKey:@"id"];
-    [_specifiers addObject:paMaterial];
-    [self appendAudioForTarget:@"PA" title:@"播放"];
-    PSSpecifier *paText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    paText.buttonAction = @selector(openPATextColor:);
-    [paText setProperty:@"PATextColor" forKey:@"id"];
-    [_specifiers addObject:paText];
-    // 2.29: the GlassSuiteX sheet (GAXAlertOverlayView in the 2.26 log). Its own
-    // switch / material / sound / volume, its own text colour, and a debug switch
-    // that writes the detected card size to the diagnostic log.
-    PSSpecifier *gsGroup = [PSSpecifier groupSpecifierWithName:@"GlassSuiteX 弹窗背景视频"];
-    [gsGroup setProperty:@"开启诊断日志后，挂载状态会写入 shared-render.log（gs-panel 行）。" forKey:@"footerText"];
-    [_specifiers addObject:gsGroup];
-    PSSpecifier *gsEnabled = [PSSpecifier preferenceSpecifierNamed:@"GlassSuiteX 弹窗背景视频" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"];
-    [gsEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:gsEnabled];
-    PSSpecifier *gsMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    gsMaterial.buttonAction = @selector(switchGS:);
-    [gsMaterial setProperty:@"GSMaterial" forKey:@"id"];
-    [_specifiers addObject:gsMaterial];
-    [self appendAudioForTarget:@"GS" title:@"播放"];
-    PSSpecifier *gsText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    gsText.buttonAction = @selector(openGSTextColor:);
-    [gsText setProperty:@"GSTextColor" forKey:@"id"];
-    [_specifiers addObject:gsText];
-    // 2.30: the Control Center long-press menu (a real surface the 2.29 capture
-    // found). Same layout as the other panel channels; the module that owns the
-    // menu is written to the diagnostic line as module=...
-    PSSpecifier *ccbGroup = [PSSpecifier groupSpecifierWithName:@"CCBorder 视频背景"];
-    [ccbGroup setProperty:@"控制中心长按菜单的背景视频；诊断日志会带 module= 标识。" forKey:@"footerText"];
-    [_specifiers addObject:ccbGroup];
-    PSSpecifier *ccbEnabled = [PSSpecifier preferenceSpecifierNamed:@"CCBorder 视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"];
-    [ccbEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:ccbEnabled];
-    PSSpecifier *ccbMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    ccbMaterial.buttonAction = @selector(switchCCBorder:);
-    [ccbMaterial setProperty:@"CCBorderMaterial" forKey:@"id"];
-    [_specifiers addObject:ccbMaterial];
-    [self appendAudioForTarget:@"CCBorder" title:@"播放"];
-    // 2.32: the CopyLogX clipboard panel - the 411x470 bottom sheet the 2.31 capture
-    // caught the phone-assist channel mounting on by mistake.
-    PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];
-    [clxGroup setProperty:@"剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel。" forKey:@"footerText"];
-    [_specifiers addObject:clxGroup];
-    PSSpecifier *clxEnabled = [PSSpecifier preferenceSpecifierNamed:@"CopyLogX 视频背景" target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-    [clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"];
-    [clxEnabled setProperty:@NO forKey:@"default"];
-    [_specifiers addObject:clxEnabled];
-    PSSpecifier *clxMaterial = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    clxMaterial.buttonAction = @selector(switchCopyLogX:);
-    [clxMaterial setProperty:@"CopyLogXMaterial" forKey:@"id"];
-    [_specifiers addObject:clxMaterial];
-    [self appendAudioForTarget:@"CopyLogX" title:@"播放"];
-    PSSpecifier *clxText = [PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-    clxText.buttonAction = @selector(openCopyLogXTextColor:);
-    [clxText setProperty:@"CopyLogXTextColor" forKey:@"id"];
-    [_specifiers addObject:clxText];
+    // 4.2.0: every channel below the control-centre block is generated from the
+    // table. It used to be nine hand-written blocks of eight lines each; the only
+    // differences were the title, whether the channel carries a text-colour row and
+    // the section footer. Adding a channel was nine edits, and missing one left the
+    // new panel short of a row.
+    for (NSDictionary *row in LMVStandaloneChannelRows()) {
+        NSString *target = row[@"id"], *title = row[@"title"];
+        PSSpecifier *group = [PSSpecifier groupSpecifierWithName:title];
+        NSString *footer = row[@"footer"];
+        if ([footer isKindOfClass:NSString.class] && footer.length)
+            [group setProperty:footer forKey:@"footerText"];
+        [_specifiers addObject:group];
+        PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:title target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
+        [enabled setProperty:[target stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
+        [enabled setProperty:@NO forKey:@"default"];
+        [_specifiers addObject:enabled];
+        [_specifiers addObject:[self materialRowForTarget:target]];
+        if ([row[@"audio"] boolValue]) [self appendAudioForTarget:target title:@"播放"];
+        NSString *colourID = row[@"textColor"];
+        if ([colourID isKindOfClass:NSString.class] && colourID.length)
+            [_specifiers addObject:[self textColorRowWithID:colourID]];
+    }
     // 2.39: per-channel tuning, directly below CopyLogX and above the egg group.
     // 2.52: one flat section of eleven rows.
     // 2.54: that was still the wrong shape - the user wants a SECOND-LEVEL menu: one
@@ -672,24 +581,6 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     };
     [self presentViewController:picker animated:YES completion:nil];
 }
-- (void)openCVTextColor:(PSSpecifier *)specifier {
-    [self openTextColorForKey:LMVTextColorKey];
-}
-- (void)openSquidTextColor:(PSSpecifier *)specifier {
-    [self openTextColorForKey:LMVSquidTextColorKey];
-}
-// 2.04: the phone-assist sheet's own colour row.
-- (void)openPATextColor:(PSSpecifier *)specifier {
-    [self openTextColorForKey:LMVPhoneAssistTextColorKey];
-}
-// 2.29: the GlassSuiteX sheet's own colour row.
-- (void)openGSTextColor:(PSSpecifier *)specifier {
-    [self openTextColorForKey:LMVGlassSuiteTextColorKey];
-}
-// 2.32: the CopyLogX clipboard panel's own colour row.
-- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {
-    [self openTextColorForKey:LMVCopyLogXTextColorKey];
-}
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotifyFor(LMVTargetForPrefKey([specifier propertyForKey:@"key"]));
@@ -808,27 +699,11 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     picker.libraryChanged = ^{ [weakSelf refreshMaterialRows]; };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
-- (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }
-- (void)switchOptions:(PSSpecifier *)specifier { [self switchTarget:@"Options"]; }
-- (void)switchClear:(PSSpecifier *)specifier { [self switchTarget:@"Clear"]; }
-- (void)switchLockScreen:(PSSpecifier *)specifier { [self switchTarget:@"LockScreen"]; }
-- (void)switchDesktop:(PSSpecifier *)specifier { [self switchTarget:@"Desktop"]; }
-- (void)switchControlCenterDark:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterDark"]; }
-- (void)switchControlCenterLight:(PSSpecifier *)specifier { [self switchTarget:@"ControlCenterLight"]; }
-- (void)switchHomeMenu:(PSSpecifier *)specifier { [self switchTarget:@"HomeMenu"]; }
-- (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }
 // 1.50: "认领刚用过的面板" - the panel's content says nothing about which gesture opened
 // it, so this is the user's word on it: the panel they were just looking at is bound
 // to the gesture they pick (the kernel reads the slot + token on its next refresh).
 
-- (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }
-- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }
-- (void)switchMyrtle:(PSSpecifier *)specifier { [self switchTarget:@"Myrtle"]; }
-- (void)switchPA:(PSSpecifier *)specifier { [self switchTarget:@"PA"]; }
-- (void)switchGS:(PSSpecifier *)specifier { [self switchTarget:@"GS"]; }
-- (void)switchCCBorder:(PSSpecifier *)specifier { [self switchTarget:@"CCBorder"]; }
 // 2.32: the CopyLogX clipboard panel.
-- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }
 - (void)chooseVideo:(PSSpecifier *)specifier {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];

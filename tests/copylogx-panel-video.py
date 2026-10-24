@@ -14,6 +14,7 @@
 3. PA 通道遇到同一张卡必须让路，不能两边各挂一份视频。
 """
 from pathlib import Path
+import re
 
 root = Path(__file__).resolve().parents[1]
 src = (root / 'LMVCopyLogXVideo.h').read_text()
@@ -113,15 +114,16 @@ assert 'LMVAudioConsume(@"CopyLogX"' in tweak
 assert 'return LMVChannelIDs();' in audio and '@"CopyLogX"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 
 # ---- 6) 设置页：开关 / 素材 / 声音 / 音量 / 文字颜色 / 调试 ------------------
-assert 'PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];' in prefs
-assert '[clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"]' in prefs
-assert '[clxEnabled setProperty:@NO forKey:@"default"]' in prefs
-assert 'clxMaterial.buttonAction = @selector(switchCopyLogX:);' in prefs
-assert '[self appendAudioForTarget:@"CopyLogX" title:@"播放"]' in prefs
-assert 'clxText.buttonAction = @selector(openCopyLogXTextColor:);' in prefs
+# 4.2.0: generated from the table; the footer and the colour row are table columns.
+CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
+assert re.search(r'@"id": @"CopyLogX"[^}]*@"standalone": @YES', CHANNELS)
+assert re.search(r'@"id": @"CopyLogX"[^}]*@"title": @"CopyLogX 视频背景"', CHANNELS)
+assert re.search(r'@"id": @"CopyLogX"[^}]*@"audio": @YES', CHANNELS)
+assert re.search(r'@"id": @"CopyLogX"[^}]*@"textColor": @"CopyLogXTextColor"', CHANNELS)
+assert '剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel。' in CHANNELS
+assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs
+assert '@selector(switchTargetFromRow:)' in prefs and '@selector(openTextColorFromRow:)' in prefs
 assert 'CopyLogXDebugSize' not in prefs and 'clxDebug' not in prefs
-assert '- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }' in prefs
-assert '- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {' in prefs
 assert 'LMVCopyLogXTextColorKey' in prefs
 assert '@"id": @"CopyLogX"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 assert 'LMVChannelLegacyDefaults()' in prefs

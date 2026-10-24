@@ -78,9 +78,12 @@ assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in modul
 CHANNELS=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 assert '@"id": @"Myrtle"' in CHANNELS and '@"title": @"Myrtle 面板背景视频"' in CHANNELS, 'it is a selectable material target'
 assert 'return [LMVChannelIDs() containsObject:target];' in prefs
-assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in prefs
-assert 'myrtleMaterial.buttonAction = @selector(switchMyrtle:);' in prefs
-assert '[self appendAudioForTarget:@"Myrtle" title:@"播放"]' in prefs, 'sound switch + volume slider'
+# 4.2.0: generated from the table.
+assert re.search(r'@"id": @"Myrtle"[^}]*@"standalone": @YES', CHANNELS)
+assert re.search(r'@"id": @"Myrtle"[^}]*@"audio": @YES', CHANNELS), 'sound switch + volume slider'
+assert re.search(r'@"id": @"Myrtle"[^}]*@"textColor": @""', CHANNELS), 'Myrtle carries no colour row'
+assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs
+assert '@selector(switchTargetFromRow:)' in prefs
 
 # --- 1.82: the sound chain must actually carry Myrtle ---------------------
 # The UI was wired in 1.77 but `LMVAudioTargets()` still stopped at CV, so

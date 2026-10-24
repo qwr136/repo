@@ -26,22 +26,28 @@ assert 'Resources/Root.plist' not in (root/'Makefile').read_text()
 assert not (root/'Resources/Root.plist').exists()  # Theos also copies Resources automatically.
 control = dict(line.split(': ',1) for line in (root/'control').read_text().splitlines() if ': ' in line)
 assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control['Version']
-actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster):)\)', source))
-assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'switchMyrtle:', 'switchPA:', 'switchGS:', 'switchCCBorder:', 'switchCopyLogX:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
-assert len(actions) == 19
+# 4.2.0: the sixteen per-channel switch actions collapsed into one that reads the
+# channel from the row id, and the five colour actions into one that reads the key
+# from LMVTextColorRows(). The page still owns every button.
+actions = set(re.findall(r'@selector\((switch\w+:|open\w+:|chooseVideo:|openMaterialPath:|openEaster:|openTuneList:)\)', source))
+assert actions == {'switchTargetFromRow:', 'openTextColorFromRow:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:', 'openTuneList:'}, actions
+assert len(actions) == 6, actions
 assert 'static NSArray<NSString *> *LMVSectionTargets(void) { return LMVSectionChannelIDs(); }' in source
 assert 'LMVChannelTitles()[target]' in source and 'hasSuffix:@"背景"' in source
 assert '@[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"]' in source
 CHANNELS = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
 for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '鱿鱼面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
     assert f'@"id": @"{target}"' in CHANNELS and f'@"title": @"{title}"' in CHANNELS
-    assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
+    # 4.2.0: one action serves every channel; it reads the target from the row id.
+    assert '- (void)switchTargetFromRow:(PSSpecifier *)specifier {' in source
     assert 'LMVChannelLegacyDefaults()' in source
     assert target + 'Opacity' not in source
 assert '[enabled setProperty:@NO forKey:@"default"]' in source
 assert '[LMVSectionTargets()[i] stringByAppendingString:@"BackgroundEnabled"]' in source
 cc_start = source.index('PSSpecifier *controlCenter = [PSSpecifier groupSpecifierWithName:@"控制中心背景"];')
-cc_end = source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];', cc_start)
+# 4.2.0: the panel sections that follow are generated, so the block ends where the
+# generated loop begins.
+cc_end = source.index('for (NSDictionary *row in LMVStandaloneChannelRows()) {', cc_start)
 cc_section = source[cc_start:cc_end]
 assert cc_start > source.index('for (NSUInteger i = 0; i < LMVSectionTargets().count; i++)')
 assert cc_section.count('cell:PSSwitchCell') == 1 and cc_section.count('cell:PSButtonCell') == 2
@@ -51,118 +57,54 @@ assert '按系统深浅色模式自动选择素材；未选择对应模式素材
 assert 'forKey:@"footerText"' in cc_section
 for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
     assert "@\"切换素材\"" in cc_section
-    assert f'controlCenter{mode}.buttonAction = @selector(switchControlCenter{mode}:);' in cc_section
+    assert f'controlCenter{mode}.buttonAction = @selector(switchTargetFromRow:);' in cc_section
 for forbidden in ('Opacity', 'Blur', 'PSSliderCell', 'ControlCenterDarkBackgroundEnabled', 'ControlCenterLightBackgroundEnabled'):
     assert forbidden not in cc_section
 for mode in ('Dark', 'Light'):
     assert f'[self appendAudioForTarget:@"ControlCenter{mode}"' in cc_section
-assert '[self appendAudioForTarget:@"HomeMenu"' in source
 import_callback = source[source.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
 import_targets = re.findall(r'@"([^"]+)"', re.search(r'for \(NSString \*target in @\[(.*?)\]\)', import_callback).group(1))
 assert import_targets == ['Message', 'Options', 'Clear']
 assert 'ControlCenter' not in import_callback and 'LockScreen' not in import_callback and 'Desktop' not in import_callback and 'HomeMenu' not in import_callback
-home_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];')
-display_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋显示设置"]];')
-egg_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];')
-# 1.22: the SquidGesturePro panel group sits between the menu group and the egg.
-squid_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];')
-# 1.26: the AppTools (AT) pop-up group sits directly below the Squid panel one.
-at_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];')
-# 1.43: the CopyVault clipboard panel group sits directly below the AT one.
-cv_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];')
-myrtle_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Myrtle 面板背景视频"]];')
-# 2.04: the phone-assist sheet sits right below Myrtle, the way the user asked.
-pa_start=source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"电话助手弹窗背景视频"]];')
-# 2.29: the GlassSuiteX group is created as a variable (it carries a footer).
-gs_start=source.index('PSSpecifier *gsGroup = [PSSpecifier groupSpecifierWithName:@"GlassSuiteX 弹窗背景视频"];')
-# 2.30: the CCBorder group sits between GlassSuiteX and the egg group.
-ccb_start=source.index('PSSpecifier *ccbGroup = [PSSpecifier groupSpecifierWithName:@"CCBorder 视频背景"];')
-# 2.32: the CopyLogX clipboard panel group sits between CCBorder and the egg group.
-clx_start=source.index('PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];')
-assert home_start < squid_start < at_start < cv_start < myrtle_start < pa_start < gs_start < ccb_start < clx_start < egg_start < display_start
-home_section = source[home_start:squid_start]
-assert cc_start < home_start < display_start
-assert home_section.count('cell:PSSwitchCell') == 1 and home_section.count('cell:PSButtonCell') == 1
-assert '[homeMenuEnabled setProperty:@"HomeMenuBackgroundEnabled" forKey:@"key"]' in home_section
-assert '[homeMenuEnabled setProperty:@NO forKey:@"default"]' in home_section
-assert 'homeMenuMaterial.buttonAction = @selector(switchHomeMenu:);' in home_section
-assert '桌面长按菜单视频背景' in home_section and '切换素材' in home_section
-squid_section = source[squid_start:at_start]
-assert squid_section.count('cell:PSSwitchCell') == 1 and squid_section.count('cell:PSButtonCell') == 2
-assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"]' in squid_section
-assert '[squidPanelEnabled setProperty:@NO forKey:@"default"]' in squid_section
-assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in squid_section
-assert '鱿鱼面板背景视频' in squid_section and '切换素材' in squid_section
-# 1.90: the Squid panel carries its own text-colour row (Settings only).
-assert 'preferenceSpecifierNamed:@"文字颜色"' in squid_section and 'openSquidTextColor:' in squid_section
-assert '[squidText setProperty:@"SquidTextColor" forKey:@"id"]' in squid_section
-# 1.26: the AT (AppTools pop-up) group - same switch/material/sound layout.
-at_section = source[at_start:cv_start]
-assert at_section.count('cell:PSSwitchCell') == 1 and at_section.count('cell:PSButtonCell') == 1
-assert '[atEnabled setProperty:@"ATBackgroundEnabled" forKey:@"key"]' in at_section
-assert '[atEnabled setProperty:@NO forKey:@"default"]' in at_section
-assert 'atMaterial.buttonAction = @selector(switchAT:);' in at_section
-assert 'AT 背景视频' in at_section and '切换素材' in at_section
-assert '[self appendAudioForTarget:@"AT" title:@"播放"]' in at_section
-# 1.43: the CopyVault (clipboard panel) group - same switch/material/sound layout.
-cv_section = source[cv_start:myrtle_start]
-assert cv_section.count('cell:PSSwitchCell') == 1 and cv_section.count('cell:PSButtonCell') == 2
-assert 'preferenceSpecifierNamed:@"文字颜色"' in cv_section and 'openCVTextColor:' in cv_section
-assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"]' in cv_section
-assert '[cvEnabled setProperty:@NO forKey:@"default"]' in cv_section
-assert 'cvMaterial.buttonAction = @selector(switchCV:);' in cv_section
-assert 'CopyVault 面板背景视频' in cv_section and '切换素材' in cv_section
-# 1.77: the Myrtle (App Library panel) group - same layout again.
-myrtle_section = source[myrtle_start:pa_start]
-pa_section = source[pa_start:gs_start]
-gs_section = source[gs_start:ccb_start]
-ccb_section = source[ccb_start:clx_start]
-# 2.39: the tuning group sits between CopyLogX and the egg group.
-# 2.48: the tuning block is now data-driven instead of one group with a flat list,
-# so the anchor is the section table rather than a group name.
-# 2.52: the index is ONE section again (功能面板参数) per the user's request, so the
-# anchor is that group's declaration; the rows still come from LMVTuneTargets().
-# 2.54: the rows moved to LMVTuneListController (two-level menu); the root list keeps
-# exactly one entry, so the anchor is now that entry's group.
-tune_start = source.index('PSSpecifier *tuneGroup = [PSSpecifier groupSpecifierWithName:@"自定义参数"]')
-clx_section = source[clx_start:tune_start]
-tune_section = source[tune_start:egg_start]
-assert tune_section.count('cell:PSButtonCell') == 1
-# 2.54: the single entry pushes the index page instead of enumerating targets here.
-assert 'tuneEntry.buttonAction = @selector(openTuneList:);' in tune_section
-assert 'for (NSDictionary *item in LMVTuneTargets())' not in tune_section
-assert 'initWithTarget:value' in (root / 'LockMessageVideoPrefs/LMVTuneListController.m').read_text()
-assert pa_section.count('cell:PSSwitchCell') == 1 and pa_section.count('cell:PSButtonCell') == 2
-assert '[paEnabled setProperty:@"PABackgroundEnabled" forKey:@"key"]' in pa_section
-assert 'paMaterial.buttonAction = @selector(switchPA:);' in pa_section
-assert 'paText.buttonAction = @selector(openPATextColor:);' in pa_section
-assert '[self appendAudioForTarget:@"PA" title:@"播放"]' in pa_section
-assert gs_section.count('cell:PSSwitchCell') == 1 and gs_section.count('cell:PSButtonCell') == 2
-assert '[gsEnabled setProperty:@"GSBackgroundEnabled" forKey:@"key"]' in gs_section
-assert 'gsMaterial.buttonAction = @selector(switchGS:);' in gs_section
-assert 'gsText.buttonAction = @selector(openGSTextColor:);' in gs_section
-assert 'GSDebugSize' not in gs_section and '调试：记录弹窗尺寸' not in gs_section
-assert '[self appendAudioForTarget:@"GS" title:@"播放"]' in gs_section
-assert ccb_section.count('cell:PSSwitchCell') == 1 and ccb_section.count('cell:PSButtonCell') == 1
-assert '[ccbEnabled setProperty:@"CCBorderBackgroundEnabled" forKey:@"key"]' in ccb_section
-assert '[ccbEnabled setProperty:@NO forKey:@"default"]' in ccb_section
-assert 'ccbMaterial.buttonAction = @selector(switchCCBorder:);' in ccb_section
-assert 'CCBorderDebugSize' not in ccb_section and '调试：记录弹窗尺寸' not in ccb_section
-assert '[self appendAudioForTarget:@"CCBorder" title:@"播放"]' in ccb_section
-assert '文字颜色' not in ccb_section
-assert clx_section.count('cell:PSSwitchCell') == 1 and clx_section.count('cell:PSButtonCell') == 2
-assert '[clxEnabled setProperty:@"CopyLogXBackgroundEnabled" forKey:@"key"]' in clx_section
-assert '[clxEnabled setProperty:@NO forKey:@"default"]' in clx_section
-assert 'clxMaterial.buttonAction = @selector(switchCopyLogX:);' in clx_section
-assert 'clxText.buttonAction = @selector(openCopyLogXTextColor:);' in clx_section
-assert 'CopyLogXDebugSize' not in clx_section and '调试：记录弹窗尺寸' not in clx_section
-assert '[self appendAudioForTarget:@"CopyLogX" title:@"播放"]' in clx_section
-assert myrtle_section.count('cell:PSSwitchCell') == 1 and myrtle_section.count('cell:PSButtonCell') == 1
-assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in myrtle_section
-assert '[myrtleEnabled setProperty:@NO forKey:@"default"]' in myrtle_section
-assert 'myrtleMaterial.buttonAction = @selector(switchMyrtle:);' in myrtle_section
-assert 'Myrtle 面板背景视频' in myrtle_section and '切换素材' in myrtle_section
-assert '[self appendAudioForTarget:@"CV" title:@"播放"]' in cv_section
+# 4.2.0: the nine panel sections below the control-centre block are generated from
+# the channel table, so a section exists if and only if its row says so. The contract
+# is now the table columns plus the one generated block, instead of nine hand-written
+# blocks that had to agree with each other.
+loop_start = source.index('for (NSDictionary *row in LMVStandaloneChannelRows()) {')
+loop_end = source.index('PSSpecifier *tuneGroup', loop_start)
+generated = source[loop_start:loop_end]
+assert 'groupSpecifierWithName:title' in generated
+assert '[enabled setProperty:[target stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"]' in generated
+assert '[enabled setProperty:@NO forKey:@"default"]' in generated
+assert '[self materialRowForTarget:target]' in generated
+assert '[self appendAudioForTarget:target title:@"播放"]' in generated
+assert '[self textColorRowWithID:colourID]' in generated
+assert 'setProperty:footer forKey:@"footerText"' in generated
+panel_rows = [('HomeMenu',   '桌面长按菜单视频背景',       ''),
+              ('SquidPanel', '鱿鱼面板背景视频',           'SquidTextColor'),
+              ('AT',         'AT 背景视频',                ''),
+              ('CV',         'CopyVault 面板背景视频',      'CVTextColor'),
+              ('Myrtle',     'Myrtle 面板背景视频',         ''),
+              ('PA',         '电话助手弹窗背景视频',        'PATextColor'),
+              ('GS',         'GlassSuiteX 弹窗背景视频',    'GSTextColor'),
+              ('CCBorder',   'CCBorder 视频背景',           ''),
+              ('CopyLogX',   'CopyLogX 视频背景',           'CopyLogXTextColor')]
+standalone = re.findall(r'@"id": @"(\w+)"[^}]*@"standalone": @YES', CHANNELS)
+assert standalone == [row[0] for row in panel_rows], standalone
+for ident, title, colour in panel_rows:
+    row = re.search(r'@"id": @"' + ident + r'".*', CHANNELS).group(0)
+    assert f'@"title": @"{title}"' in row, ident
+    assert '@"audio": @YES' in row, ident
+    assert (f'@"textColor": @"{colour}"' if colour else '@"textColor": @""') in row, ident
+# the debug size switches the 2.29 / 2.30 builds carried are gone
+assert 'GSDebugSize' not in source and 'CCBorderDebugSize' not in source
+assert '调试：记录弹窗尺寸' not in source
+for footer in ('开启诊断日志后，挂载状态会写入 shared-render.log（gs-panel 行）。',
+               '控制中心长按菜单的背景视频；诊断日志会带 module= 标识。',
+               '剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel。'):
+    assert footer in CHANNELS, footer
+display_start = source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋显示设置"]];')
+egg_start = source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];')
 display_section=source[display_start:source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"素材库"]];')]
 assert '显示场景与图片旋转' in display_section and 'openEaster:' in display_section
 assert 'EasterEggImageSettings' in display_section
@@ -179,7 +121,7 @@ allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):so
 assert 'return [LMVChannelIDs() containsObject:target];' in allowed_target
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
-selection = source[source.index('- (void)selectFile:'):source.index('- (void)switchMessage:')]
+selection = source[source.index('- (void)selectFile:'):source.index('- (void)chooseVideo:')]
 assert selection.count('CFPreferencesSetAppValue(') == 1
 assert 'NSString *key = [target stringByAppendingString:@"Video"];' in selection
 assert 'if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";' in selection

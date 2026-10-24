@@ -73,8 +73,9 @@ assert 'preferenceSpecifierNamed:@"文字颜色"' in prefs
 assert 'willDisplayCell:' in prefs and 'dot.tag = dotTag;' in prefs and '@(0x5A2C)' in prefs
 assert 'dot.layer.cornerRadius = size / 2;' in prefs
 assert 'LMVTextColorForKey(row[@"key"])' in prefs, 'each row reads its own key'
-assert 'openSquidTextColor:' in prefs, 'the Squid row opens the same picker'
-assert 'openCVTextColor:' in prefs
+assert 'openTextColorFromRow:' in prefs, 'every colour row opens the same picker (4.2.0)'
+assert 'openTextColorForKey:row[@"key"]' in prefs
+assert '@"id": @"SquidTextColor"' in (Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 assert 'picker.modalPresentationStyle = UIModalPresentationOverFullScreen;' in prefs, 'no sheet dismissal pan'
 
 # --- Easter panel: the row is GONE (1.84) --------------------------------

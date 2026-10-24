@@ -13,27 +13,37 @@
 //  card     presented on a notification card (Tweak.xm card pipeline)
 //  section  belongs to the five fixed sections of the settings page
 //  legacy   pre-1.x file name used when the key is absent ("" = none)
+//
+// 4.2.0: four columns describe how the settings page lays a channel out. They used
+// to be encoded in the page itself - nine hand-written blocks plus sixteen action
+// methods - so adding a channel meant touching all of them and forgetting one left
+// the new panel with a missing row. The page is now generated from these columns.
+//  audio      the channel has a "play sound" switch and a volume slider
+//  textColor  id of the text-colour row ("" = the channel has none)
+//  footer     section footer text ("" = none)
+//  standalone the channel gets its own section below the control-centre one
+//             (the five fixed sections and the two control-centre halves do not)
 static inline NSArray<NSDictionary *> *LMVChannelTable(void) {
     static NSArray<NSDictionary *> *rows;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         rows = @[
-            @{@"id": @"Message",            @"title": @"消息背景",             @"card": @YES, @"section": @YES, @"legacy": @"message.mov", @"legacyTitle": @"原消息视频"},
-            @{@"id": @"Options",            @"title": @"选项背景",             @"card": @YES, @"section": @YES, @"legacy": @"options.mov", @"legacyTitle": @"原选项视频"},
-            @{@"id": @"Clear",              @"title": @"清除背景",             @"card": @YES, @"section": @YES, @"legacy": @"clear.mov", @"legacyTitle": @"原清除视频"},
-            @{@"id": @"LockScreen",         @"title": @"锁屏背景",             @"card": @NO,  @"section": @YES, @"legacy": @""},
-            @{@"id": @"Desktop",            @"title": @"桌面背景",             @"card": @NO,  @"section": @YES, @"legacy": @""},
-            @{@"id": @"ControlCenterDark",  @"title": @"控制中心深色背景",      @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"ControlCenterLight", @"title": @"控制中心浅色背景",      @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"HomeMenu",           @"title": @"桌面长按菜单视频背景",  @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"SquidPanel",         @"title": @"鱿鱼面板背景视频",      @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"AT",                 @"title": @"AT 背景视频",          @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"CV",                 @"title": @"CopyVault 面板背景视频", @"card": @NO, @"section": @NO,  @"legacy": @""},
-            @{@"id": @"Myrtle",             @"title": @"Myrtle 面板背景视频",   @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"PA",                 @"title": @"电话助手弹窗背景视频",  @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"GS",                 @"title": @"GlassSuiteX 弹窗背景视频", @"card": @NO, @"section": @NO, @"legacy": @""},
-            @{@"id": @"CCBorder",           @"title": @"CCBorder 视频背景",     @"card": @NO,  @"section": @NO,  @"legacy": @""},
-            @{@"id": @"CopyLogX",           @"title": @"CopyLogX 视频背景",     @"card": @NO,  @"section": @NO,  @"legacy": @""},
+            @{@"id": @"Message",            @"title": @"消息背景",             @"card": @YES, @"section": @YES, @"legacy": @"message.mov", @"legacyTitle": @"原消息视频", @"audio": @NO, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"Options",            @"title": @"选项背景",             @"card": @YES, @"section": @YES, @"legacy": @"options.mov", @"legacyTitle": @"原选项视频", @"audio": @NO, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"Clear",              @"title": @"清除背景",             @"card": @YES, @"section": @YES, @"legacy": @"clear.mov", @"legacyTitle": @"原清除视频", @"audio": @NO, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"LockScreen",         @"title": @"锁屏背景",             @"card": @NO,  @"section": @YES, @"legacy": @"", @"audio": @NO, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"Desktop",            @"title": @"桌面背景",             @"card": @NO,  @"section": @YES, @"legacy": @"", @"audio": @NO, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"ControlCenterDark",  @"title": @"控制中心深色背景",      @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"ControlCenterLight", @"title": @"控制中心浅色背景",      @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"", @"footer": @"", @"standalone": @NO},
+            @{@"id": @"HomeMenu",           @"title": @"桌面长按菜单视频背景",  @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"", @"footer": @"", @"standalone": @YES},
+            @{@"id": @"SquidPanel",         @"title": @"鱿鱼面板背景视频",      @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"SquidTextColor", @"footer": @"", @"standalone": @YES},
+            @{@"id": @"AT",                 @"title": @"AT 背景视频",          @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"", @"footer": @"", @"standalone": @YES},
+            @{@"id": @"CV",                 @"title": @"CopyVault 面板背景视频", @"card": @NO, @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"CVTextColor", @"footer": @"", @"standalone": @YES},
+            @{@"id": @"Myrtle",             @"title": @"Myrtle 面板背景视频",   @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"", @"footer": @"", @"standalone": @YES},
+            @{@"id": @"PA",                 @"title": @"电话助手弹窗背景视频",  @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"PATextColor", @"footer": @"", @"standalone": @YES},
+            @{@"id": @"GS",                 @"title": @"GlassSuiteX 弹窗背景视频", @"card": @NO, @"section": @NO, @"legacy": @"", @"audio": @YES, @"textColor": @"GSTextColor", @"footer": @"开启诊断日志后，挂载状态会写入 shared-render.log（gs-panel 行）。", @"standalone": @YES},
+            @{@"id": @"CCBorder",           @"title": @"CCBorder 视频背景",     @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"", @"footer": @"控制中心长按菜单的背景视频；诊断日志会带 module= 标识。", @"standalone": @YES},
+            @{@"id": @"CopyLogX",           @"title": @"CopyLogX 视频背景",     @"card": @NO,  @"section": @NO,  @"legacy": @"", @"audio": @YES, @"textColor": @"CopyLogXTextColor", @"footer": @"剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel。", @"standalone": @YES},
         ];
     });
     return rows;
@@ -51,6 +61,18 @@ static inline NSArray<NSString *> *LMVChannelIDs(void) {
     static NSArray<NSString *> *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ value = LMVChannelIDsMatching(nil); });
+    return value;
+}
+// 4.2.0: the channels whose settings section is generated rather than hand-written.
+static inline NSArray<NSDictionary *> *LMVStandaloneChannelRows(void) {
+    static NSArray<NSDictionary *> *value;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableArray *rows = [NSMutableArray new];
+        for (NSDictionary *row in LMVChannelTable())
+            if ([row[@"standalone"] boolValue]) [rows addObject:row];
+        value = [rows copy];
+    });
     return value;
 }
 static inline NSArray<NSString *> *LMVCardChannelIDs(void) {

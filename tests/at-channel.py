@@ -31,22 +31,16 @@ def body(source, anchor):
 
 
 # ---- Settings app -----------------------------------------------------------
-at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'
-assert at_group in prefs, 'the AT group exists in Settings'
-squid_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];'
-egg_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];'
-assert prefs.index(squid_group) < prefs.index(at_group) < prefs.index(egg_group), \
-    'the AT group sits directly below the Squid panel group'
-cv_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];'
-assert prefs.index(at_group) < prefs.index(cv_group) < prefs.index(egg_group), \
-    'the CV group sits directly below the AT group'
-at_section = prefs[prefs.index(at_group):prefs.index(cv_group)]
-assert at_section.count('cell:PSSwitchCell') == 1 and at_section.count('cell:PSButtonCell') == 1
-assert '[atEnabled setProperty:@"ATBackgroundEnabled" forKey:@"key"]' in at_section
-assert '[atEnabled setProperty:@NO forKey:@"default"]' in at_section
-assert 'atMaterial.buttonAction = @selector(switchAT:);' in at_section
-assert '[self appendAudioForTarget:@"AT" title:@"播放"]' in at_section, 'sound switch + volume slider'
-assert '- (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }' in prefs
+# 4.2.0: the panel sections are generated from the channel table, so the order and
+# the contents are the table's columns rather than hand-written blocks below.
+CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
+standalone = re.findall(r'@"id": @"(\w+)"[^}]*@"standalone": @YES', CHANNELS)
+assert 'SquidPanel' in standalone and 'AT' in standalone and 'CV' in standalone
+assert standalone.index('SquidPanel') < standalone.index('AT') < standalone.index('CV')
+assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs, 'the AT group is generated'
+assert re.search(r'@"id": @"AT"[^}]*@"title": @"AT 背景视频"', CHANNELS), 'the AT group keeps its title'
+assert re.search(r'@"id": @"AT"[^}]*@"audio": @YES', CHANNELS), 'sound switch + volume slider'
+assert '@selector(switchTargetFromRow:)' in prefs, 'one shared action serves every channel'
 CHANNELS=(Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 assert '@"id": @"AT"' in CHANNELS and '@"title": @"AT 背景视频"' in CHANNELS, 'the applied-material alert names the AT channel'
 assert 'LMVChannelLegacyDefaults()' in prefs and re.search(r'@"id": @"AT".*?@"legacy": @""', CHANNELS), 'the AT material fallback is empty (nothing selected by default)'

@@ -12,6 +12,7 @@ onto an unrelated presentation; like the Squid channel it is poll-based and
 private-class-free.
 """
 from pathlib import Path
+import re
 
 root = Path(__file__).resolve().parents[1]
 module = (root / 'LMVCopyVaultPanelVideo.h').read_text()
@@ -124,19 +125,22 @@ assert 'LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPan
 assert 'return LMVChannelIDs();' in audio
 
 # ---- the two settings surfaces -------------------------------------------
-assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];' in prefs
-assert '[cvEnabled setProperty:@NO forKey:@"default"];' in prefs
-assert 'cvMaterial.buttonAction = @selector(switchCV:);' in prefs
-assert '- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }' in prefs
-assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];' in prefs
+# 4.2.0: generated from the table.
+CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
+assert re.search(r'@"id": @"CV"[^}]*@"standalone": @YES', CHANNELS)
+assert re.search(r'@"id": @"CV"[^}]*@"title": @"CopyVault 面板背景视频"', CHANNELS)
+assert re.search(r'@"id": @"CV"[^}]*@"audio": @YES', CHANNELS)
+assert re.search(r'@"id": @"CV"[^}]*@"textColor": @"CVTextColor"', CHANNELS)
+assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs
+assert '@selector(switchTargetFromRow:)' in prefs
 assert 'return [LMVChannelIDs() containsObject:target];' in prefs, 'CV is a selectable material target'
-assert '[self appendAudioForTarget:@"CV" title:@"播放"];' in prefs
-import re
-at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'
-cv_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];'
-egg_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];'
-assert prefs.index(at_group) < prefs.index(cv_group) < prefs.index(egg_group), \
-    'the CV group sits directly below the AT group'
+assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs and '[self appendAudioForTarget:target title:@"播放"]' in prefs
+# 4.2.0: the panel sections are generated in table order, so the order is the
+# table's - AT comes right before CV, and both come before the egg group.
+standalone = re.findall(r'@"id": @"(\w+)"[^}]*@"standalone": @YES', CHANNELS)
+assert standalone.index('AT') + 1 == standalone.index('CV'), standalone
+assert 'SquidPanel' in standalone and standalone.index('SquidPanel') < standalone.index('AT')
+assert prefs.index('for (NSDictionary *row in LMVStandaloneChannelRows()) {') < prefs.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];')
 assert '@"id": @"CV"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text() and 'LMVChannelTitles()' in prefs, 'the applied-material alert names the CV channel'
 assert 'LMVChannelLegacyDefaults()' in prefs, 'the CV material fallback is empty (nothing selected by default)'
 

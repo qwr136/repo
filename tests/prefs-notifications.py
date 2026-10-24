@@ -26,15 +26,19 @@ def check(ok, message):
         failures.append(message)
 
 
-# Channels the page can switch: every switchX: method's target.
-targets = set(re.findall(r'\[self switchTarget:@"([A-Za-z]+)"\]', page))
-check(targets, 'no switchTarget calls found in the settings page')
-for required in ('Message', 'Options', 'Clear'):
-    check(required in targets, 'settings page lost its %s switch' % required)
+# 4.2.0: the page has one shared action instead of one per channel, so the channels
+# it can switch are exactly the table's - the five fixed sections, the two
+# control-centre halves and the nine generated panel sections.
+table_src = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
+targets = set(re.findall(r'@"id": @"([A-Za-z]+)"', table_src))
+check(len(targets) == 16, 'expected 16 channels, found %d' % len(targets))
+for required in ('Message', 'Options', 'Clear', 'CopyLogX'):
+    check(required in targets, 'channel table lost %s' % required)
+check('switchTargetFromRow:' in page, 'the settings page still switches materials')
 
 # 4.0.7: the observer list derives from the channel table; only the four alias
 # names that are not channels stay literal.
-table = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
+table = table_src
 check('NSMutableArray<NSString *> *channels=[NSMutableArray arrayWithArray:LMVChannelIDs()];' in tweak,
       'per-target notification registration must derive from the channel table')
 check('addObjectsFromArray:@[@"LockNC",@"CC",@"Bubble",@"Cards"]' in tweak,

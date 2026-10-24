@@ -97,12 +97,15 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
     assert exact in append, exact
 assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVSectionTargets()[i]' in specifiers
 for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV'), ('myrtleMaterial', 'Myrtle')):
-    assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
-assert specifiers.count('appendAudioForTarget:') == 12
+    # 4.2.0: the material row and the audio pair are emitted by the generated loop,
+    # so they no longer sit next to a literal channel name.
+    assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in specifiers
+    assert '[self materialRowForTarget:target]' in specifiers and '[self appendAudioForTarget:target title:@"播放"]' in specifiers
+assert specifiers.count('appendAudioForTarget:') == 4  # five-section loop + two control-centre halves + generated loop
 # 2.05: the audio module derives its keys from the CHANNEL name, so the channel must
 # be called PA - calling it PhoneAssist read PhoneAssistSoundEnabled while the rows
 # wrote PASoundEnabled, and the switch did nothing.
-assert 'appendAudioForTarget:@"PA"' in specifiers  # One five-target loop, plus five explicit targets (CC dark/light, HomeMenu, SquidPanel, AT, CV).
+assert 'appendAudioForTarget:target' in specifiers  # 4.2.0: one five-target loop, two control-centre halves and one generated loop.
 set_enabled = body(prefs, '- (void)setEnabled:')
 getter = body(prefs, '- (id)volume:')
 setter = body(prefs, '- (void)setVolume:')

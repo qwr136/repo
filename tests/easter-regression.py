@@ -36,9 +36,10 @@ assert 'SoundEnabled' in prefs + panel and 'volumeChanged:' in panel
 assert 'SoundEnabled' not in image and 'setVolume:' not in image
 for target in ('LockScreen', 'Desktop'):
     assert 'LMVChannelLegacyDefaults()' in panel and 'LMVChannelLegacyDefaults()' in prefs
-    assert f'@selector(switch{target}:)' in prefs
+    # 4.2.0: one shared action reads the channel from the row id.
+    assert '@selector(switchTargetFromRow:)' in prefs
 for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
-    assert f'@selector(switchControlCenter{mode}:)' in prefs
+    assert '@selector(switchTargetFromRow:)' in prefs
     assert 'LMVChannelLegacyDefaults()' in prefs
     assert f'@"ControlCenter{mode}Video"' in panel
     assert '切换素材' in prefs and '切换素材' in panel
