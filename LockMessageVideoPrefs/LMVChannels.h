@@ -13,7 +13,7 @@
 //  card     presented on a notification card (Tweak.xm card pipeline)
 //  section  belongs to the five fixed sections of the settings page
 //  legacy   pre-1.x file name used when the key is absent ("" = none)
-static NSArray<NSDictionary *> *LMVChannelTable(void) {
+static inline NSArray<NSDictionary *> *LMVChannelTable(void) {
     static NSArray<NSDictionary *> *rows;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -41,31 +41,31 @@ static NSArray<NSDictionary *> *LMVChannelTable(void) {
 
 // Cached projections: LMVCardTargets() runs in refresh loops, so these must not
 // allocate a new array on every call.
-static NSArray<NSString *> *LMVChannelIDsMatching(NSString *flag) {
+static inline NSArray<NSString *> *LMVChannelIDsMatching(NSString *flag) {
     NSMutableArray *ids = [NSMutableArray new];
     for (NSDictionary *row in LMVChannelTable())
         if (!flag || [row[flag] boolValue]) [ids addObject:row[@"id"]];
     return [ids copy];
 }
-static NSArray<NSString *> *LMVChannelIDs(void) {
+static inline NSArray<NSString *> *LMVChannelIDs(void) {
     static NSArray<NSString *> *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ value = LMVChannelIDsMatching(nil); });
     return value;
 }
-static NSArray<NSString *> *LMVCardChannelIDs(void) {
+static inline NSArray<NSString *> *LMVCardChannelIDs(void) {
     static NSArray<NSString *> *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ value = LMVChannelIDsMatching(@"card"); });
     return value;
 }
-static NSArray<NSString *> *LMVSectionChannelIDs(void) {
+static inline NSArray<NSString *> *LMVSectionChannelIDs(void) {
     static NSArray<NSString *> *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ value = LMVChannelIDsMatching(@"section"); });
     return value;
 }
-static NSDictionary<NSString *, NSString *> *LMVChannelTitles(void) {
+static inline NSDictionary<NSString *, NSString *> *LMVChannelTitles(void) {
     static NSDictionary *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -76,7 +76,7 @@ static NSDictionary<NSString *, NSString *> *LMVChannelTitles(void) {
     return value;
 }
 // Only the card channels have ever had a legacy source name; the rest map to "".
-static NSDictionary<NSString *, NSString *> *LMVChannelLegacyDefaults(void) {
+static inline NSDictionary<NSString *, NSString *> *LMVChannelLegacyDefaults(void) {
     static NSDictionary *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -86,7 +86,7 @@ static NSDictionary<NSString *, NSString *> *LMVChannelLegacyDefaults(void) {
     });
     return value;
 }
-static NSDictionary<NSString *, NSString *> *LMVCardLegacyDefaults(void) {
+static inline NSDictionary<NSString *, NSString *> *LMVCardLegacyDefaults(void) {
     static NSDictionary *value;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
