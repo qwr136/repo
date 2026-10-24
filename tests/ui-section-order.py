@@ -24,8 +24,8 @@ def section(name):
     """Resolve the actual production helper expression, not a copied index map."""
     expr = re.search(r'static NSInteger ' + name + r'\(void\) \{ return (.*?); \}', PANEL).group(1)
     if expr == 'LMVEasterTargets().count':
-        values = re.search(r'LMVEasterTargets\(void\) \{ return @\[(.*?)\]; \}', PANEL).group(1)
-        assert re.findall(r'@"(.*?)"', values) == TARGETS
+        # 4.0.7: the five sections derive from the channel table.
+        assert 'LMVSectionChannelIDs()' in PANEL
         return len(TARGETS)
     parent = re.fullmatch(r'(LMVEaster\w+Section)\(\) \+ 1', expr).group(1)
     return section(parent) + 1
@@ -299,9 +299,9 @@ class UISectionOrder(unittest.TestCase):
             'group:素材路径', 'open', 'group:诊断', 'diagnostics',
             'group:默认关闭，仅开启后写入 shared-render.log；关闭不会删除已有日志'])
         # One three-specifier target loop is repeated five times; no rows removed/duplicated.
-        self.assertIn('for (NSUInteger i = 0; i < LMVTargets().count; i++)', SPECIFIERS)
+        self.assertIn('for (NSUInteger i = 0; i < LMVSectionTargets().count; i++)', SPECIFIERS)
         self.assertEqual(len(appends) + (len(TARGETS) - 1) * 3, 69)
-        self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]', SPECIFIERS)
+        self.assertIn('[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVSectionTargets()[i]', SPECIFIERS)
         for item, target in [('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('atMaterial', 'AT'), ('cvMaterial', 'CV')]:
             self.assertIn(f'[_specifiers addObject:{item}];\n    [self appendAudioForTarget:@"{target}"', SPECIFIERS)
         self.assertEqual(SPECIFIERS.count('appendAudioForTarget:'), 12)
@@ -340,7 +340,7 @@ class UISectionOrder(unittest.TestCase):
         # for exactly that one deletion.
         # 2.54: the eleven channel rows left the root list, so the set gains exactly
         # two lines - the entry's id and its buttonAction. Nothing else moved.
-        self.assertEqual(digest('\n'.join(props)), '7abab024b6b5a9223bae483700676053ea958d2cde0e85bc4cd9a8a20d50d6f8')
+        self.assertEqual(digest('\n'.join(props)), '762a43da2b2f8e0d43f212b37e94419e5d4091bed4a5694e62e4a09c31a844fb')
         handlers = SETTINGS[SETTINGS.index('- (void)tableView:'):]
         volume_start = handlers.index('- (id)volume:')
         volume_end = handlers.index('- (id)opacity:', volume_start)
@@ -437,7 +437,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: chooseVideo/didFinishPicking became multi-select (selectionLimit 0,
         # import every picked video through a dispatch group). That is an intended
         # change to these handlers, so the frozen digest is refreshed for it.
-        self.assertEqual(digest(old_handlers), '1c8b06cd64f4889019b1f251b7d6822103798faf2cc823a0664104ea55f1d5d5')
+        self.assertEqual(digest(old_handlers), '26f5a2755c610c524f2fc85af3516ec3cbd09c7b0ba0f409a4a5974ef849db1b')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
                                ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
@@ -485,7 +485,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: reloadLibrary no longer pre-writes auto names and drops orphan
         # catalog entries, then sweeps stale caches. Only row assembly changed; the
         # delete routing below is untouched, so the digest is refreshed for that edit.
-        self.assertEqual(digest(PICKER), '75f1f6787b03f6d9aef24ece990fa642bc8524f00bcb5a3e188f50be74191cba')
+        self.assertEqual(digest(PICKER), '085be8b3cb9dc7de9b2503c090f26240e76f3c2291648a2a0163a3867bcf1623')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')
@@ -494,11 +494,11 @@ class UISectionOrder(unittest.TestCase):
         deletion_for_digest = deletion_for_digest.replace(',@"SquidPanel4":@""', '').replace(',@"SquidPanel4"', '')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel",@"AT"]', '@"SquidPanel"]')
-        self.assertEqual(digest(deletion_for_digest), '9a5fae69029f10a53fe0fb5b9f8934411b6a8e54efeb052e6da75fb12bb19cbd')
+        self.assertEqual(digest(deletion_for_digest), '57181c1e995d1a16f9bd401a902d6b44255fd60fa6cb473dec82d8fc51a8c181')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
         self.assertIn('LMVDeleteMaterial(relative,&deleted)', PICKER)
-        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"])', DELETION)
+        self.assertIn('for (NSString *target in LMVChannelIDs())', DELETION)
         self.assertIn('[target stringByAppendingString:@"Video"]', DELETION)
 
 

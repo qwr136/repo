@@ -29,20 +29,21 @@ assert info['CFBundleVersion'] == info['CFBundleShortVersionString'] == control[
 actions = set(re.findall(r'@selector\(((?:switch\w+|chooseVideo|openMaterialPath|openEaster):)\)', source))
 assert actions == {'switchMessage:', 'switchOptions:', 'switchClear:', 'switchLockScreen:', 'switchDesktop:', 'switchControlCenterDark:', 'switchControlCenterLight:', 'switchHomeMenu:', 'switchSquidPanel:', 'switchAT:', 'switchCV:', 'switchMyrtle:', 'switchPA:', 'switchGS:', 'switchCCBorder:', 'switchCopyLogX:', 'chooseVideo:', 'openMaterialPath:', 'openEaster:'}
 assert len(actions) == 19
-assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
-assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
+assert 'static NSArray<NSString *> *LMVSectionTargets(void) { return LMVSectionChannelIDs(); }' in source
+assert 'LMVChannelTitles()[target]' in source and 'hasSuffix:@"背景"' in source
 assert '@[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"]' in source
+CHANNELS = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
 for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '鱿鱼面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
-    assert f'@"{target}": @"{title}"' in source
+    assert f'@"id": @"{target}"' in CHANNELS and f'@"title": @"{title}"' in CHANNELS
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
     assert f'@"{target}": @""' in source
     assert target + 'Opacity' not in source
 assert '[enabled setProperty:@NO forKey:@"default"]' in source
-assert '[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"]' in source
+assert '[LMVSectionTargets()[i] stringByAppendingString:@"BackgroundEnabled"]' in source
 cc_start = source.index('PSSpecifier *controlCenter = [PSSpecifier groupSpecifierWithName:@"控制中心背景"];')
 cc_end = source.index('[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"桌面长按菜单视频背景"]];', cc_start)
 cc_section = source[cc_start:cc_end]
-assert cc_start > source.index('for (NSUInteger i = 0; i < LMVTargets().count; i++)')
+assert cc_start > source.index('for (NSUInteger i = 0; i < LMVSectionTargets().count; i++)')
 assert cc_section.count('cell:PSSwitchCell') == 1 and cc_section.count('cell:PSButtonCell') == 2
 assert '[controlCenterEnabled setProperty:@"ControlCenterBackgroundEnabled" forKey:@"key"]' in cc_section
 assert '[controlCenterEnabled setProperty:@NO forKey:@"default"]' in cc_section
@@ -172,10 +173,10 @@ for controller in ['LMVPRootListController.m']:
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
     assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation
 assert '消息、选项、清除视频透明度' in source
-assert 'return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in source
+assert 'return [LMVChannelIDs() containsObject:target];' in source
 assert 'if (![target isKindOfClass:NSString.class] || !target.length) return NO;' in source
 allowed_target = source[source.index('static BOOL LMVMaterialTargetAllowed('):source.index('static void LMVNotifyFor(')]
-assert re.findall(r'@"([^\"]+)"', allowed_target) == ['ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX']
+assert 'return [LMVChannelIDs() containsObject:target];' in allowed_target
 assert 'if (!LMVMaterialTargetAllowed(target)) return;' in source
 assert 'if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;' in source
 selection = source[source.index('- (void)selectFile:'):source.index('- (void)switchMessage:')]

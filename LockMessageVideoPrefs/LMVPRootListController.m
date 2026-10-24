@@ -19,11 +19,22 @@
 #import "../LMVTextColorPicker.h"
 #define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
-static NSArray<NSString *> *LMVNames(void) { return @[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]; }
+// 4.0.7: the five fixed sections are a projection of the channel table; the
+// previous LMVTargets() name meant "three cards" in the tweak and "five sections"
+// here, which invited the wrong list being edited.
+static NSArray<NSString *> *LMVSectionTargets(void) { return LMVSectionChannelIDs(); }
+static NSArray<NSString *> *LMVNames(void) {
+    NSMutableArray *names = [NSMutableArray new];
+    for (NSString *target in LMVSectionTargets()) {
+        NSString *title = LMVChannelTitles()[target] ?: target;
+        [names addObject:[title hasSuffix:@"背景"] ? [title substringToIndex:title.length - 2] : title];
+    }
+    return names;
+}
 static BOOL LMVMaterialTargetAllowed(NSString *target) {
     if (![target isKindOfClass:NSString.class] || !target.length) return NO;
-    return [LMVTargets() containsObject:target] || [@[@"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];
+    // 4.0.7: one table, one answer.
+    return [LMVChannelIDs() containsObject:target];
 }
 // 3.05: one notification per channel. A global one wakes all thirteen channels, and
 // switching the CopyLogX material made the desktop reload its own asset (perf desktop
@@ -130,10 +141,10 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     [_specifiers addObject:global];
     NSArray *titles = @[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"];
     SEL actions[] = {@selector(switchMessage:), @selector(switchOptions:), @selector(switchClear:), @selector(switchLockScreen:), @selector(switchDesktop:)};
-    for (NSUInteger i = 0; i < LMVTargets().count; i++) {
+    for (NSUInteger i = 0; i < LMVSectionTargets().count; i++) {
         [_specifiers addObject:[PSSpecifier groupSpecifierWithName:[LMVNames()[i] stringByAppendingString:@"背景"]]];
         PSSpecifier *enabled = [PSSpecifier preferenceSpecifierNamed:[@"启用" stringByAppendingFormat:@"%@背景", LMVNames()[i]] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
-        [enabled setProperty:[LMVTargets()[i] stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
+        [enabled setProperty:[LMVSectionTargets()[i] stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
         [enabled setProperty:@NO forKey:@"default"];
         [_specifiers addObject:enabled];
         PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:titles[i] target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
@@ -143,9 +154,9 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
         // channels below (HomeMenu onwards) showed a name. The id is the target plus
         // "Material", which is exactly what -willDisplayCell: turns back into the
         // stored <target>Video key.
-        [choose setProperty:[LMVTargets()[i] stringByAppendingString:@"Material"] forKey:@"id"];
+        [choose setProperty:[LMVSectionTargets()[i] stringByAppendingString:@"Material"] forKey:@"id"];
         [_specifiers addObject:choose];
-        [self appendAudioForTarget:LMVTargets()[i] title:@"播放"];
+        [self appendAudioForTarget:LMVSectionTargets()[i] title:@"播放"];
     }
     PSSpecifier *controlCenter = [PSSpecifier groupSpecifierWithName:@"控制中心背景"];
     [controlCenter setProperty:@"按系统深浅色模式自动选择素材；未选择对应模式素材时保留系统背景。" forKey:@"footerText"];
@@ -736,7 +747,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     // so returning from it does not re-display the row underneath; without this the
     // old name stayed until the user scrolled it out and back in.
     [self refreshMaterialRows];
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"鱿鱼面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频", @"GS": @"GlassSuiteX 弹窗背景视频", @"CCBorder": @"CCBorder 视频背景", @"CopyLogX": @"CopyLogX 视频背景"};
+    NSDictionary *titles = LMVChannelTitles();
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];

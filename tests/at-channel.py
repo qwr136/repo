@@ -47,7 +47,8 @@ assert '[atEnabled setProperty:@NO forKey:@"default"]' in at_section
 assert 'atMaterial.buttonAction = @selector(switchAT:);' in at_section
 assert '[self appendAudioForTarget:@"AT" title:@"播放"]' in at_section, 'sound switch + volume slider'
 assert '- (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }' in prefs
-assert re.search(r'@"AT": @"AT 背景视频"', prefs), 'the applied-material alert names the AT channel'
+CHANNELS=(Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
+assert '@"id": @"AT"' in CHANNELS and '@"title": @"AT 背景视频"' in CHANNELS, 'the applied-material alert names the AT channel'
 assert re.search(r'@"AT": @""', prefs), 'the AT material fallback is empty (nothing selected by default)'
 
 # ---- floating panel ---------------------------------------------------------
@@ -72,10 +73,10 @@ targets = re.findall(r'@"(.*?)"', body(panel, 'static NSArray *LMVEasterAudioTar
 assert targets[-6:] == ['CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX'], 'AT, CopyVault, Myrtle, GlassSuiteX, CCBorder and CopyLogX close the list'
 
 # ---- shared material plumbing ----------------------------------------------
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"])' in delete
-assert re.search(r'@"AT":@"",@"CV":@', delete), 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
-assert '"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
+assert 'return [LMVChannelIDs() containsObject:target];' in prefs and '@"id": @"AT"' in CHANNELS, 'AT (and the 1.43 CopyVault one) are selectable material targets'
+assert 'for (NSString *target in LMVChannelIDs())' in delete and 'LMVChannelLegacyDefaults()' in delete
+assert 'LMVChannelIDs()' in delete and '@"id": @"AT"' in CHANNELS, 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
+assert 'return LMVChannelIDs();' in audio and '@"id": @"AT"' in CHANNELS, 'the audio chain list carries AT and the 1.43 CopyVault channel'
 
 # ---- 1.28: the mount is wired now ------------------------------------------
 assert '#import "LMVATPanelVideo.h"' in tweak, 'the AT panel player is wired'

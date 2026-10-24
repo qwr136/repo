@@ -74,7 +74,7 @@ static CFTimeInterval LMVFrameBusySince;   // 1.76.4 gate deadline + eviction to
 static NSUInteger LMVFrameBusyToken;
 static CIContext *LMVCIContext;
 static BOOL LMVInitialized=YES,LMVLaunchReady=YES;
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message",@"Options",@"Clear"]; }
+static NSArray<NSString *> *LMVCardTargets(void) { return @[@"Message",@"Options",@"Clear"]; }
 static BOOL LMVPlaybackAllowed(void) { return YES; }
 static NSMutableDictionary<NSString *, LMVSharedSource *> *LMVSharedSources;
 static NSMutableDictionary<NSString *, AVAsset *> *LMVAssets;
@@ -181,7 +181,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     LMVDiskPending=[NSMutableSet new];LMVCells=[NSHashTable weakObjectsHashTable];
     LMVPaths=[NSMutableDictionary new];LMVEnabled=[NSMutableDictionary new];
     LMVCIContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@YES}];
-    for(NSString *target in LMVTargets()){LMVPaths[target]=path;LMVEnabled[target]=@YES;}
+    for(NSString *target in LMVCardTargets()){LMVPaths[target]=path;LMVEnabled[target]=@YES;}
     AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
     assert([asset tracksWithMediaType:AVMediaTypeVideo].count==1);
     LMVRevisions[path]=@"rev1";
@@ -201,7 +201,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     // still share that channel's chain.
     [LMVDiskPending removeAllObjects];LMVWarmSourcesForPath(path);assert(LMVSharedSources.count==3);
     LMVSharedSource *sharedSource=LMVSourceForTarget(path,@"Message");
-    for(NSString *target in LMVTargets()){
+    for(NSString *target in LMVCardTargets()){
         assert([LMVSourceRegistryKey(path,target) hasSuffix:target]);
         // 1.76.1: each channel owns one chain; cards in the same channel reuse it.
         LMVSharedSource *own=LMVSourceForTarget(path,target);
@@ -239,7 +239,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
         source.playing=NO;source.restoringTime=NO;
     }
     for(NSUInteger i=0;i<sources.count;i++) {
-        LMVSharedSource *source=sources[i];NSString *target=LMVTargets()[i];
+        LMVSharedSource *source=sources[i];NSString *target=LMVCardTargets()[i];
         // 0.0.117: the key IS the selected file (no target prefix).
         assert([source.registryKey hasSuffix:target] && [source.ownerTarget isEqual:target] && [source.path isEqual:LMVPaths[target]]);
         // 0.0.117: each file keeps its own asset; the key is the file itself.

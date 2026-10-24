@@ -1,4 +1,5 @@
 #pragma once
+#import "LockMessageVideoPrefs/LMVChannels.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 #import <math.h>
@@ -12,7 +13,8 @@
 static NSArray<NSString *> *LMVAudioTargets(void) {
     // 1.82: Myrtle was missing here, so its channel was never created: the sound
     // switch and the volume slider wrote preferences that nothing ever read.
-    return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"];
+    // 4.0.7: same table as every other consumer.
+    return LMVChannelIDs();
 }
 static double LMVAudioVolumeValue(id value) {
     double v=[value isKindOfClass:NSNumber.class]?[value doubleValue]:.5;

@@ -95,7 +95,7 @@ for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:
               'set:@selector(setVolume:specifier:) get:@selector(volume:)',
               '[sound setProperty:volumeKey forKey:@"audioVolumeKey"]'):
     assert exact in append, exact
-assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVTargets()[i]' in specifiers
+assert '[_specifiers addObject:choose];\n        [self appendAudioForTarget:LMVSectionTargets()[i]' in specifiers
 for chosen, target in (('controlCenterDark', 'ControlCenterDark'), ('controlCenterLight', 'ControlCenterLight'), ('homeMenuMaterial', 'HomeMenu'), ('squidPanelMaterial', 'SquidPanel'), ('cvMaterial', 'CV'), ('myrtleMaterial', 'Myrtle')):
     assert f'[_specifiers addObject:{chosen}];\n    [self appendAudioForTarget:@"{target}"' in specifiers
 assert specifiers.count('appendAudioForTarget:') == 12

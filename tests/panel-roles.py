@@ -31,9 +31,10 @@ assert 'if (self.close) self.close();' in image
 assert 'self.navigationController.viewControllers.count > 1' in image and 'popViewControllerAnimated:YES' in image
 assert 'else [self dismissViewControllerAnimated:YES completion:nil];' in image
 assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
-targets = re.findall(r'@"([^"]+)"', re.search(r'LMVEasterTargets\(void\) \{ return @\[(.*?)\]; \}', video).group(1))
+channels = (Path(__file__).resolve().parents[1] / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
+targets = re.findall(r'@"id": @"([^"]+)".*?@"section": @YES', channels)
 assert targets == ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop']
-assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]' in video
+assert 'LMVChannelTitles()' in video and 'LMVEasterTitles(void)' in video
 for target in ('LockScreen', 'Desktop'):
     assert video.count(f'@"{target}":@""') == 2  # Label and picker both start unselected.
     assert target + 'Opacity' not in video
@@ -114,7 +115,7 @@ assert 'LMVEasterNCPolicy' in overlay and 'recordScreenBlank' in overlay
 # action is back to just opening the panel.
 assert 'Haptic' not in overlay and '悬浮球震动' not in overlay
 assert 'UIImpactFeedbackGenerator' not in overlay
-assert '@[@"Message", @"Options", @"Clear"]' in original  # Main renderer remains limited to the original three roles.
+assert 'LMVCardChannelIDs()' in original  # Main renderer remains limited to the original three roles.
 assert 'LMVLayoutLockOverlay' not in original
 assert not (r/'LMVLockBackground.h').exists()
 print('PASS: image/video roles, live sliders, bounded contained navigation/Photos lifecycle, main modal compatibility, original-video import, prompts, geometry, security and observed-wallpaper contracts (not UIKit execution)')

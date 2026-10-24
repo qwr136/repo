@@ -50,7 +50,8 @@ check('void (^libraryChanged)(void)' in picker, 'the picker needs a library-chan
 check(picker.count('live.libraryChanged()') >= 3, 'delete (both flows) and rename must fire the hook')
 check('picker.libraryChanged = ^{ [weakSelf refreshMaterialRows]; };' in row,
       'the settings page must repaint when the library changes')
-check('@"CopyLogX"' in deletion and '@"Myrtle"' in deletion,
+channels = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
+check('@"CopyLogX"' in channels and '@"Myrtle"' in channels and 'LMVChannelIDs()' in deletion,
       'deleting a material must clear every channel, not just the 1.x ones')
 
 # 3) the tweak must not trust a persisted path whose file is gone

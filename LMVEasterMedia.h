@@ -7,12 +7,18 @@
 #import "LMVPanelTuning.h"
 #import "LockMessageVideoPrefs/LMVMaterialStorage.h"
 #import "LockMessageVideoPrefs/LMVMaterialCatalog.h"
+#import "LockMessageVideoPrefs/LMVStoragePaths.h"
 
 #ifndef LMVEasterWindowDiagnostic
 #define LMVEasterWindowDiagnostic(reason) ((void)0)
 #endif
-static NSString * const LMVEasterFolder = @"/var/mobile/LockMessageVideo/\u5c0f\u5f69\u86cb";
-static NSString * const LMVEasterImagesFolder = @"/var/mobile/LockMessageVideo/images";
+// 4.0.7: derived from the single storage root instead of a second literal.
+static inline NSString *LMVEasterFolder(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:@"\u5c0f\u5f69\u86cb"];
+}
+static inline NSString *LMVEasterImagesFolder(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:@"images"];
+}
 static CFStringRef const LMVEasterPrefs = CFSTR("com.minis.lockmessagevideo");
 static void LMVEasterNotify(void) {
     CFPreferencesAppSynchronize(LMVEasterPrefs);
@@ -48,10 +54,10 @@ static __attribute__((unused)) NSString *LMVEasterImagePath(id relative) {
     if (![relative isKindOfClass:NSString.class]) return nil;
     NSArray *parts = [relative pathComponents];
     if (parts.count != 2 || ![@[@"images", @"\u5c0f\u5f69\u86cb"] containsObject:parts[0]] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
-    NSString *path = [@"/var/mobile/LockMessageVideo" stringByAppendingPathComponent:relative];
+    NSString *path = [LMVStorageRootPath stringByAppendingPathComponent:relative];
     struct stat status;
     struct stat rootStatus, folderStatus;
-    NSString *root = @"/var/mobile/LockMessageVideo";
+    NSString *root = LMVStorageRootPath;
     NSString *folder = [root stringByAppendingPathComponent:parts[0]];
     if (lstat(root.fileSystemRepresentation, &rootStatus) || !S_ISDIR(rootStatus.st_mode) || lstat(folder.fileSystemRepresentation, &folderStatus) || !S_ISDIR(folderStatus.st_mode)) return nil;
     NSString *expected = [[[root stringByDeletingLastPathComponent] stringByResolvingSymlinksInPath] stringByAppendingPathComponent:@"LockMessageVideo"];
@@ -118,7 +124,7 @@ static void LMVEasterDeleteReplacedImage(id oldRelative, NSString *newRelative) 
         [parts containsObject:@".."] || [parts containsObject:@"."] ||
         ![oldRelative isEqualToString:[parts[0] stringByAppendingPathComponent:parts[1]]] ||
         ![@[@"gif",@"png",@"jpg",@"jpeg",@"heic",@"heif"] containsObject:[parts[1] pathExtension].lowercaseString]) return;
-    int root = open("/var/mobile/LockMessageVideo", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    int root = open(LMVStorageRootPath.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
     if (root < 0) return;
     int folder = openat(root, [parts[0] fileSystemRepresentation], O_RDONLY | O_DIRECTORY | O_NOFOLLOW); close(root);
     if (folder < 0) return;
@@ -169,8 +175,8 @@ static NSString *LMVEasterImportWithPublication(NSURL *source, BOOL movie, id ex
     __block NSString *result = nil; __block NSError *error = nil;
     dispatch_sync(LMVMaterialQueue(), ^{
         @autoreleasepool {
-            NSString *root = @"/var/mobile/LockMessageVideo";
-            NSString *folder = movie ? [root stringByAppendingPathComponent:@"library"] : LMVEasterImagesFolder;
+            NSString *root = LMVStorageRootPath;
+            NSString *folder = movie ? [root stringByAppendingPathComponent:@"library"] : LMVEasterImagesFolder();
             NSFileManager *fm = NSFileManager.defaultManager;
             if (!LMVEasterSafeDirectory(root, &error) || !LMVEasterSafeDirectory(folder, &error)) return;
             NSString *ext = source.pathExtension.lowercaseString;

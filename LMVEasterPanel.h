@@ -4,6 +4,7 @@
 #import "LMVEasterPhotoFlow.h"
 #import "LMVEasterImageSettings.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
+#import "LockMessageVideoPrefs/LMVChannels.h"
 #import "LMVTextColorPicker.h"
 
 // Image import and display controls stay on their own settings page.
@@ -23,8 +24,12 @@
 // Import callbacks may finish after the overlay has closed its panel.
 static NSMutableArray<LMVMaterialPrompt *> *LMVEasterPendingImportPrompts;
 static NSString * const LMVEasterImportResultReady = @"LMVEasterImportResultReady";
-static NSArray *LMVEasterTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }
-static NSArray *LMVEasterTitles(void) { return @[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]; }
+static NSArray *LMVEasterTargets(void) { return LMVSectionChannelIDs(); }
+static NSArray *LMVEasterTitles(void) {
+    NSMutableArray *titles = [NSMutableArray new];
+    for (NSString *target in LMVEasterTargets()) [titles addObject:LMVChannelTitles()[target] ?: target];
+    return titles;
+}
 // Keep the five original targets first; HomeMenu/display follow both CC modes.
 static NSInteger LMVEasterControlCenterSection(void) { return LMVEasterTargets().count; }
 static NSInteger LMVEasterHomeMenuSection(void) { return LMVEasterControlCenterSection() + 1; }

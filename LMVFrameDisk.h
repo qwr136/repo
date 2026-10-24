@@ -5,8 +5,12 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <sys/stat.h>
 #import <math.h>
+#import "LMVStoragePaths.h"
+static inline NSString *LMVFrameDiskRootPath(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:@".last-frames"];
+}
 #ifndef LMV_FRAME_DISK_ROOT
-#define LMV_FRAME_DISK_ROOT @"/var/mobile/LockMessageVideo/.last-frames"
+#define LMV_FRAME_DISK_ROOT LMVFrameDiskRootPath()
 #endif
 // Serial background queue only. A single atomic record contains image + exact PTS.
 // Filenames are hashes of normalized paths; no material names or original media copy.

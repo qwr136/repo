@@ -32,14 +32,16 @@ check(targets, 'no switchTarget calls found in the settings page')
 for required in ('Message', 'Options', 'Clear'):
     check(required in targets, 'settings page lost its %s switch' % required)
 
-# The registration block: the channel array in the observer setup.
-m = re.search(r'for \(NSString \*channel in @\[(.*?)\]\)', tweak, re.S)
-check(m is not None, 'per-target notification registration block not found')
-block = m.group(1) if m else ''
-
+# 4.0.7: the observer list derives from the channel table; only the four alias
+# names that are not channels stay literal.
+table = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
+check('NSMutableArray<NSString *> *channels=[NSMutableArray arrayWithArray:LMVChannelIDs()];' in tweak,
+      'per-target notification registration must derive from the channel table')
+check('addObjectsFromArray:@[@"LockNC",@"CC",@"Bubble",@"Cards"]' in tweak,
+      'the alias names (LockNC/CC/Bubble/Cards) must still be registered')
 for target in sorted(targets):
-    check('@"%s"' % target in block,
-          'channel %s posts preferencesChanged.%s but nothing observes it' % (target, target))
+    check('@"id": @"%s"' % target in table,
+          'channel %s posts preferencesChanged.%s but is missing from the channel table' % (target, target))
 
 # Unknown names must not be dropped on the floor.
 check('else { LMVRefresh(NO); return; }' in tweak,

@@ -401,7 +401,7 @@ assert '    LMVSquidPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVSquidPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVSquidPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"SquidPanel",panel.path,panel.revision,panelVisible,panel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"];' in audio
+assert 'return LMVChannelIDs();' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[squidPanelEnabled setProperty:@"SquidPanelBackgroundEnabled" forKey:@"key"];' in prefs
@@ -410,9 +410,9 @@ assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in pref
 assert '- (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }' in prefs
 # 1.63: all four SquidGesturePro panels share ONE material (SquidPanelVideo), so there is
 # a single "切换视频" button routed to SquidPanel and no per-shape slots.
-assert '@"SquidPanel":@"",@"AT":@"",@"CV":@"",' in delete
-assert '@"SquidPanel",@"AT",@"CV",@"Myrtle"' in delete
-assert '@"SquidPanel": @"鱿鱼面板背景视频"' in prefs
+assert 'NSDictionary *defaults=LMVChannelLegacyDefaults();' in delete and 'for (NSString *target in LMVChannelIDs())' in delete
+assert 'for (NSString *target in LMVChannelIDs())' in delete
+assert '@"id": @"SquidPanel"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text() and 'LMVChannelTitles()' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.53: nine rows - switch, four materials, the reset row, the swap row, sound, volume.

@@ -9,6 +9,7 @@ panel = (root / 'LMVEasterPanel.h').read_text()
 overlay = (root / 'LMVEasterOverlay.h').read_text()
 prefs = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 tweak = (root / 'Tweak.xm').read_text()
+CHANNELS = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
 
 image = (root / 'LMVEasterImageSettings.h').read_text()
 assert 'EasterEggEnabled' in prefs and 'EasterEggImage' in media + image + overlay
@@ -17,7 +18,7 @@ assert '@selector(openEaster:)' in prefs and '- (void)openEaster:' in prefs
 assert 'LMVMaterialPicker *picker = [LMVMaterialPicker new]' in panel
 assert '@["Message"' not in panel
 for ui in (prefs, panel):
-    assert '@[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]' in ui
+    assert 'LMVSectionChannelIDs()' in ui
     assert '消息、选项、清除视频透明度' in ui
     for target in ('LockScreen', 'Desktop', 'ControlCenter'):
         for option in ('Opacity', 'Blur', 'Audio'):
@@ -26,7 +27,7 @@ for ui in (prefs, panel):
     assert '按系统深浅色模式自动选择素材；未选择对应模式素材时保留系统背景。' in ui
     assert 'ControlCenterBackgroundEnabled' in ui
     assert 'ControlCenterDarkBackgroundEnabled' not in ui and 'ControlCenterLightBackgroundEnabled' not in ui
-assert '@[@"消息背景", @"选项背景", @"清除背景", @"锁屏背景", @"桌面背景"]' in panel
+assert 'LMVChannelTitles()' in panel and 'LMVEasterTitles(void)' in panel
 # Audio is inserted inside existing video sections, never in image/rotation controls.
 assert 'LMVEasterAudioTarget(index.section, index.row)' in panel
 assert '[sound setProperty:@NO forKey:@"default"]' in prefs
@@ -56,11 +57,11 @@ assert 'static NSInteger LMVEasterCCBorderSection(void) { return LMVEasterGlassS
 assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLogXSection() + 1; }' in panel
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', panel) is not None
-assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }' in tweak  # Only the message-family backend retains three targets.
+assert 'static NSArray<NSString *> *LMVCardTargets(void) { return LMVCardChannelIDs(); }' in tweak  # Only the message-family backend retains three targets.
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
-assert '@[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"]' in delete
+assert 'LMVChannelIDs()' in delete and 'LMVChannelLegacyDefaults()' in delete
 for target in ('LockScreen', 'Desktop', 'ControlCenterDark', 'ControlCenterLight', 'HomeMenu', 'SquidPanel', 'AT', 'CV'):
-    assert f'@"{target}":@""' in delete
+    assert f'@"id": @"{target}"' in CHANNELS
 assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key,CFSTR(""),LMV_DELETE_PREFS_ID)' in delete
 assert 'removeItemAtPath' not in delete and delete.count('unlinkat(') == 1
 assert 'stringByAppendingString:@"BackgroundEnabled"' in panel

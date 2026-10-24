@@ -1,6 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #import "LMVMaterialCatalog.h"
+#import "LMVChannels.h"
 #import <fcntl.h>
 #import <sys/stat.h>
 #import <unistd.h>
@@ -36,10 +37,10 @@ static NSError *LMVDeleteMaterial(NSString *relative, BOOL *deleted) {
     if (deleted) *deleted=YES;
 
     CFPreferencesAppSynchronize(LMV_DELETE_PREFS_ID);
-    // 4.0.4: every switchable channel, not just the ones that existed in 1.x. A
-    // deleted material used by Myrtle/PA/GS/CCBorder/CopyLogX used to keep its key.
-    NSDictionary *defaults=@{@"Message":@"message.mov",@"Options":@"options.mov",@"Clear":@"clear.mov",@"LockScreen":@"",@"Desktop":@"",@"ControlCenterDark":@"",@"ControlCenterLight":@"",@"HomeMenu":@"",@"SquidPanel":@"",@"AT":@"",@"CV":@"",@"Myrtle":@"",@"PA":@"",@"GS":@"",@"CCBorder":@"",@"CopyLogX":@""};
-    for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"]) {
+    // 4.0.7: derived from the channel table. 4.0.4 shipped this list by hand and
+    // missed five channels; a table cannot miss a row it does not list.
+    NSDictionary *defaults=LMVChannelLegacyDefaults();
+    for (NSString *target in LMVChannelIDs()) {
         NSString *key=[target stringByAppendingString:@"Video"];
         id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key,LMV_DELETE_PREFS_ID);
         NSString *selected=[value isKindOfClass:NSString.class] ? value : defaults[target];

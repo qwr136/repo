@@ -1,5 +1,6 @@
 #pragma once
 #import <UIKit/UIKit.h>
+#import "LMVStoragePaths.h"
 #import <AVFoundation/AVFoundation.h>
 #import "LMVMaterialCatalog.h"
 #import "LMVThumbnailDiagnosticLog.h"
@@ -197,7 +198,7 @@ static void LMVMaterialSharedState(void) {
     dispatch_async(LMVMaterialQueue(), ^{
         @autoreleasepool {
             NSFileManager *fm = NSFileManager.defaultManager;
-            NSString *base = @"/var/mobile/LockMessageVideo";
+            NSString *base = LMVStorageRootPath;
             NSArray *library = [[fm contentsOfDirectoryAtPath:[base stringByAppendingPathComponent:@"library"] error:nil]
                 sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
             NSMutableArray<NSString *> *paths = [NSMutableArray new];
@@ -230,7 +231,7 @@ static void LMVMaterialSharedState(void) {
     __weak typeof(self) weakSelf = self;
     dispatch_async(LMVMaterialQueue(), ^{
         NSFileManager *fm = NSFileManager.defaultManager;
-        NSString *base = @"/var/mobile/LockMessageVideo";
+        NSString *base = LMVStorageRootPath;
         NSArray *library = [[fm contentsOfDirectoryAtPath:[base stringByAppendingPathComponent:@"library"] error:nil] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
         NSMutableArray *paths = [NSMutableArray new];
         for (NSString *legacy in @[@"message.mov", @"options.mov", @"clear.mov"]) if ([fm fileExistsAtPath:[base stringByAppendingPathComponent:legacy]]) [paths addObject:legacy];

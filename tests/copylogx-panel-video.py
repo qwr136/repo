@@ -110,7 +110,7 @@ assert 'LMVCopyLogXVideoRefresh(reload);' in tweak
 assert 'LMVCopyLogXVideoSuspend();' in tweak
 assert 'LMVCopyLogXVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"CopyLogX"' in tweak
-assert '@"CCBorder",@"CopyLogX"];' in audio
+assert 'return LMVChannelIDs();' in audio and '@"CopyLogX"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 
 # ---- 6) 设置页：开关 / 素材 / 声音 / 音量 / 文字颜色 / 调试 ------------------
 assert 'PSSpecifier *clxGroup = [PSSpecifier groupSpecifierWithName:@"CopyLogX 视频背景"];' in prefs
@@ -123,9 +123,9 @@ assert 'CopyLogXDebugSize' not in prefs and 'clxDebug' not in prefs
 assert '- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"CopyLogX"]; }' in prefs
 assert '- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {' in prefs
 assert 'LMVCopyLogXTextColorKey' in prefs
-assert '@"CopyLogX": @"CopyLogX 视频背景"' in prefs
+assert '@"id": @"CopyLogX"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 assert '@"CopyLogX": @""' in prefs
-assert '"CCBorder", @"CopyLogX"] containsObject:target];' in prefs
+assert 'return [LMVChannelIDs() containsObject:target];' in prefs
 
 # ---- 7) 小彩蛋面板同步：开关 / 素材 / 声音 / 音量，不含文字颜色 -------------
 assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel

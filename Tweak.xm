@@ -12,6 +12,7 @@
 #import <atomic>
 #import "LMVOriginalBackground.h"
 #import "LMVPaths.h"
+#import "LockMessageVideoPrefs/LMVChannels.h"
 
 #define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
@@ -60,7 +61,8 @@ static CGFloat LMVCardOpacity(void) {
 }
 static int LMVBlankToken = -1;
 static char LMVStatesKey, LMVHostsKey, LMVDiscoveryKey, LMVRetryKey, LMVOwnershipKey, LMVMaintenanceKey;
-static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear"]; }
+// 4.0.7: the card channels are a projection of the one channel table.
+static NSArray<NSString *> *LMVCardTargets(void) { return LMVCardChannelIDs(); }
 static void LMVUpdate(UIView *cell);
 static void LMVSyncDisplayLink(void);
 static void LMVReleaseAllPlayers(void);
@@ -486,7 +488,7 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
 }
 static void LMVWarmSourcesForPath(NSString *path) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
-    for(NSString *target in LMVTargets())
+    for(NSString *target in LMVCardTargets())
         if(LMVEnabled[target].boolValue && [LMVPaths[target] isEqualToString:path])
             LMVSourceForTarget(path,target);
 }
@@ -760,7 +762,7 @@ static void LMVPrepareAssets(void) {
         // selects this exact file; retirement follows real demand, not the
         // category that happened to create it first.
         BOOL wanted=NO;
-        for(NSString *candidate in LMVTargets()) {
+        for(NSString *candidate in LMVCardTargets()) {
             if(!LMVEnabled[candidate].boolValue) continue;
             if(![LMVPaths[candidate] isEqualToString:source.path]) continue;
             // 1.76.1: the key carries the channel now, so a source is wanted only
@@ -848,11 +850,7 @@ static void LMVLoadPreferences(void) {
     }
     LMVPaths = [NSMutableDictionary new];
     // These are semantic source names, kept independent from UIKit private class names.
-    LMVMaterialSources = @{
-        @"Message": @"message.mov",
-        @"Options": @"options.mov",
-        @"Clear": @"clear.mov"
-    };
+    LMVMaterialSources = LMVCardLegacyDefaults();
     LMVEnabled = [NSMutableDictionary new];
     // 0.0.123: master switch for the whole tweak, read inline so sliced test
     // fixtures need no extra symbol. Absent or non-number means ENABLED, so an
@@ -860,7 +858,7 @@ static void LMVLoadPreferences(void) {
     // stops every channel.
     id globalValue = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"), kLMVPrefsID);
     BOOL globalOn = ![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue];
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in LMVCardTargets()) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @(globalOn && [enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
@@ -1002,7 +1000,7 @@ static void LMVPause(LMVVideoState *state) {
 
 static BOOL LMVCardHostsReady(UIView *cell) {
     NSMapTable *hosts=objc_getAssociatedObject(cell,&LMVHostsKey);
-    for(NSString *target in LMVTargets()) {
+    for(NSString *target in LMVCardTargets()) {
         if(!LMVEnabled[target].boolValue || !LMVPaths[target])continue;
         if([target isEqualToString:@"Message"] && !LMVMessageCell(cell))continue;
         UIView *anchor=[hosts objectForKey:target];
@@ -1078,7 +1076,7 @@ static void LMVUpdate(UIView *cell) {
         [states removeObjectForKey:@"Message"];
     }
     BOOL missing = NO;
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in LMVCardTargets()) {
         UIView *host = [hosts objectForKey:target];
         if ([target isEqualToString:@"Message"] && !messageEligible) host = nil;
         if (host && (!host.superview || !([host isDescendantOfView:cell] || host == cell))) {
@@ -1125,11 +1123,11 @@ static void LMVUpdate(UIView *cell) {
     if (LMVDiagnosticsEnabled.load()) {
     static char discoveryDiagnosticKey;
     NSMutableString *discovery=[NSMutableString stringWithFormat:@"discovery visible=%d scope=%d ownerClass=%@ windowClass=%@",visible,LMVNotificationCenterSurface(cell),NSStringFromClass(cell.class),cell.window?NSStringFromClass(cell.window.class):@"none"];
-    for (NSString *target in LMVTargets()) [discovery appendFormat:@" %@ enabled=%d selected=%d assetready=%d host=%d",target,LMVEnabled[target].boolValue,LMVPaths[target]!=nil,LMVReadyAssets && [LMVReadyAssets containsObject:LMVPaths[target] ?: @""],[hosts objectForKey:target]!=nil];
+    for (NSString *target in LMVCardTargets()) [discovery appendFormat:@" %@ enabled=%d selected=%d assetready=%d host=%d",target,LMVEnabled[target].boolValue,LMVPaths[target]!=nil,LMVReadyAssets && [LMVReadyAssets containsObject:LMVPaths[target] ?: @""],[hosts objectForKey:target]!=nil];
     NSString *previous=objc_getAssociatedObject(cell,&discoveryDiagnosticKey);
     if (![previous isEqualToString:discovery]) { objc_setAssociatedObject(cell,&discoveryDiagnosticKey,[discovery copy],OBJC_ASSOCIATION_RETAIN_NONATOMIC); LMVDiagnostic(discovery); }
     }
-    for (NSString *target in LMVTargets()) {
+    for (NSString *target in LMVCardTargets()) {
         UIView *anchor = [hosts objectForKey:target];
         BOOL reportGeometry=NO;
         NSString *path = LMVPaths[target];
@@ -1396,7 +1394,7 @@ static BOOL LMVAudioLayerExposed(CALayer *layer,UIWindow *window) {
 static void LMVSyncAudioVisibility(void) {
     if(!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread)return;
     if(!LMVPlaybackAllowed()){LMVAudioPauseAll();return;}
-    for(NSString *target in LMVTargets()) {
+    for(NSString *target in LMVCardTargets()) {
         LMVSharedSource *source=nil;BOOL exposed=NO;
         for(UIView *cell in LMVCells.allObjects) {
             LMVVideoState *state=((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[target];
@@ -1607,7 +1605,7 @@ static void LMVSyncDisplayLink(void) {
             for(NSString *target in states) if(LMVCardStateVisible(cell,states[target],target)){exposed=YES;break;}
             if (!exposed && !LMVCardColdProbe(cell,states)) continue;
             // Observe readiness even before a source/overlay/frame exists.
-            for (NSString *target in LMVTargets()) {
+            for (NSString *target in LMVCardTargets()) {
                 if (LMVEnabled[target].boolValue && LMVPaths[target]) { needed=YES; break; }
             }
             if (needed) break;
@@ -2026,9 +2024,11 @@ static BOOL LMVSettingsAppProcess(void) {
         // playing and nothing rebind until a respring.
         NSMutableArray<NSString *> *notes=[NSMutableArray arrayWithObject:@"com.minis.lockmessagevideo/videoChanged"];
         [notes addObject:@"com.minis.lockmessagevideo/preferencesChanged"];
-        for (NSString *channel in @[@"Message",@"Options",@"Clear",
-                                    @"LockNC",@"LockScreen",@"Desktop",@"CC",@"ControlCenterDark",@"ControlCenterLight",
-                                    @"HomeMenu",@"SquidPanel",@"AT",@"CopyLogX",@"PA",@"GS",@"CCBorder",@"CV",@"Myrtle",@"Bubble",@"Cards"]) {
+        // 4.0.7: user channels come from the table; only the four alias names that
+        // are not channels (LockNC, CC, Bubble, Cards) stay explicit.
+        NSMutableArray<NSString *> *channels=[NSMutableArray arrayWithArray:LMVChannelIDs()];
+        [channels addObjectsFromArray:@[@"LockNC",@"CC",@"Bubble",@"Cards"]];
+        for (NSString *channel in channels) {
             [notes addObject:[NSString stringWithFormat:@"com.minis.lockmessagevideo/preferencesChanged.%@",channel]];
         }
         for (NSString *name in notes) {

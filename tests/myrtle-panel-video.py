@@ -75,8 +75,9 @@ assert '@try {[container insertSubview:self.host atIndex:index];}' in module
 assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in module, 'the host is inert'
 
 # --- settings: same switch / material / sound / volume layout as CV --------
-assert '@"Myrtle": @"Myrtle 面板背景视频"' in prefs, 'it is a selectable material target'
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in prefs
+CHANNELS=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
+assert '@"id": @"Myrtle"' in CHANNELS and '@"title": @"Myrtle 面板背景视频"' in CHANNELS, 'it is a selectable material target'
+assert 'return [LMVChannelIDs() containsObject:target];' in prefs
 assert '[myrtleEnabled setProperty:@"MyrtleBackgroundEnabled" forKey:@"key"]' in prefs
 assert 'myrtleMaterial.buttonAction = @selector(switchMyrtle:);' in prefs
 assert '[self appendAudioForTarget:@"Myrtle" title:@"播放"]' in prefs, 'sound switch + volume slider'
@@ -86,7 +87,7 @@ assert '[self appendAudioForTarget:@"Myrtle" title:@"播放"]' in prefs, 'sound 
 # `LMVAudioConsume(@"Myrtle", ...)` returned on a nil channel: the switch and
 # the slider wrote preferences no one read.
 audio = (root / 'LMVMediaAudio.h').read_text()
-assert '@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"]' in audio, 'the audio channel list includes Myrtle'
+assert 'return LMVChannelIDs();' in audio and '@"id": @"Myrtle"' in CHANNELS, 'the audio channel list includes Myrtle'
 assert 'NSString *key=[target stringByAppendingString:@"SoundEnabled"];' in audio
 
 # --- the easter panel mirrors Settings ------------------------------------

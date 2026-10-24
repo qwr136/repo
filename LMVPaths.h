@@ -1,9 +1,10 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#import "LockMessageVideoPrefs/LMVStoragePaths.h"
 
 // Keep user data on the original iOS root. Only installed jailbreak resources
 // are jbroot-relative; this is not a global replacement of every absolute path.
-#define LMV_VERSION_STRING @"4.0.6"
+#define LMV_VERSION_STRING @"4.0.7"
 
 
 #if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE) && THEOS_PACKAGE_SCHEME_ROOTHIDE
@@ -20,5 +21,5 @@
 
 // Existing media, caches, catalog and diagnostics never move into jbroot.
 static inline NSString *LMVUserStorageRoot(void) {
-    return @"/var/mobile/LockMessageVideo";
+    return LMVStorageRootPath;
 }

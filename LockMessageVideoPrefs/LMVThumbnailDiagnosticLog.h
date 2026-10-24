@@ -1,5 +1,6 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#import "LMVStoragePaths.h"
 #import <unistd.h>
 // Dedicated serial writer in BOTH hosts. Playback and wallpaper quotas cannot
 // swallow preview events; SpringBoard and Preferences never rotate the same file.
@@ -24,7 +25,7 @@ static void LMVThumbnailDiagnosticWrite(NSString *event) {
             // Windowed budget, not lifetime starvation. Report the dropped window.
             if (++records > 1000) return;
             NSFileManager *fm = NSFileManager.defaultManager;
-            NSString *root = @"/var/mobile/LockMessageVideo";
+            NSString *root = LMVStorageRootPath;
             [fm createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
             BOOL springboard = [NSProcessInfo.processInfo.processName isEqualToString:@"SpringBoard"];
             NSString *path = [root stringByAppendingPathComponent:springboard ? @"thumbnail-preview-springboard.log" : @"thumbnail-preview-settings.log"];
@@ -36,7 +37,7 @@ static void LMVThumbnailDiagnosticWrite(NSString *event) {
             NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
             @try {
                 [handle seekToEndOfFile];
-                NSString *line = [NSString stringWithFormat:@"%.3f version=4.0.6 pid=%d host=%@ %@\n", now, getpid(), springboard ? @"SpringBoard" : @"Settings", records == 1000 ? @"thumbnail budget-reached retry-after-window" : event];
+                NSString *line = [NSString stringWithFormat:@"%.3f version=4.0.7 pid=%d host=%@ %@\n", now, getpid(), springboard ? @"SpringBoard" : @"Settings", records == 1000 ? @"thumbnail budget-reached retry-after-window" : event];
                 [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) {} @finally { [handle closeFile]; }
         }

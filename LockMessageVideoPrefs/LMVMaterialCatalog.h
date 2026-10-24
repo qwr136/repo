@@ -1,9 +1,10 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonCrypto.h>
+#import "LMVStoragePaths.h"
 
 #ifndef LMV_CATALOG_ROOT
-#define LMV_CATALOG_ROOT @"/var/mobile/LockMessageVideo"
+#define LMV_CATALOG_ROOT LMVStorageRootPath
 #endif
 
 // 4.0.0: best-effort purge of orphaned per-material caches. A material's file

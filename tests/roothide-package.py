@@ -50,7 +50,7 @@ info = plistlib.loads((ROOT / 'LockMessageVideoPrefs/Info.plist').read_bytes())
 check(info['CFBundleVersion'] == info['CFBundleShortVersionString'] == source['Version'], 'CFBundle versions')
 check(plistlib.loads((ROOT / 'LockMessageVideo.plist').read_bytes()) == plistlib.loads((ROOT / 'layout/Library/MobileSubstrate/DynamicLibraries/LockMessageVideo.plist').read_bytes()), 'source/staged filter parity')
 paths = (ROOT / 'LMVPaths.h').read_text()
-check('return @"/var/mobile/LockMessageVideo";' in paths, 'true-root user data path')
+check('LMVStorageRootPath = @"/var/mobile/LockMessageVideo";' in (ROOT / 'LockMessageVideoPrefs/LMVStoragePaths.h').read_text() and 'return LMVStorageRootPath;' in paths, 'true-root user data path')
 # 2.59: the two roothide-era path helpers had zero callers in the whole tree
 # (only this test's text assertion kept them alive), so they are removed; the
 # user-data invariant above is what actually mattered. Lock the removal in so

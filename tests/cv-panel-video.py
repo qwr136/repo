@@ -120,7 +120,7 @@ assert '    LMVCopyVaultPanelVideoRefresh(reload);' in tweak
 assert tweak.count('LMVCopyVaultPanelVideoSuspend();') == 2          # suspend + resign-active
 assert '        LMVCopyVaultPanelVideoInstallHooks();' in tweak
 assert 'LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPanel.player.currentTime);' in tweak
-assert 'return @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"];' in audio
+assert 'return LMVChannelIDs();' in audio
 
 # ---- the two settings surfaces -------------------------------------------
 assert '[cvEnabled setProperty:@"CVBackgroundEnabled" forKey:@"key"];' in prefs
@@ -128,7 +128,7 @@ assert '[cvEnabled setProperty:@NO forKey:@"default"];' in prefs
 assert 'cvMaterial.buttonAction = @selector(switchCV:);' in prefs
 assert '- (void)switchCV:(PSSpecifier *)specifier { [self switchTarget:@"CV"]; }' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVault 面板背景视频"]];' in prefs
-assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in prefs, 'CV is a selectable material target'
+assert 'return [LMVChannelIDs() containsObject:target];' in prefs, 'CV is a selectable material target'
 assert '[self appendAudioForTarget:@"CV" title:@"播放"];' in prefs
 import re
 at_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"AT 背景视频"]];'
@@ -136,7 +136,7 @@ cv_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"CopyVau
 egg_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩蛋"]];'
 assert prefs.index(at_group) < prefs.index(cv_group) < prefs.index(egg_group), \
     'the CV group sits directly below the AT group'
-assert re.search(r'@"CV": @"CopyVault 面板背景视频"', prefs), 'the applied-material alert names the CV channel'
+assert '@"id": @"CV"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text() and 'LMVChannelTitles()' in prefs, 'the applied-material alert names the CV channel'
 assert re.search(r'@"CV": @""', prefs), 'the CV material fallback is empty (nothing selected by default)'
 
 # ---- floating panel -------------------------------------------------------
@@ -160,8 +160,8 @@ assert re.findall(r'@"(.*?)"', audio_list)[-6:] == ['CV', 'Myrtle', 'PA', 'GS', 
     'the CV sound channel is followed by the newer panel channels'
 
 # ---- shared material plumbing ----------------------------------------------
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"])' in delete
-assert re.search(r'@"AT":@"",@"CV":@', delete), 'the CV selection is cleared when its material is deleted'
+assert 'for (NSString *target in LMVChannelIDs())' in delete
+assert 'LMVChannelIDs()' in delete, 'the CV selection is cleared when its material is deleted'
 
 print('PASS: CopyVault clipboard-panel channel - settings (Settings + floating panel), '
       'material/audio plumbing, and the mount (named-card identity so a taller surface '

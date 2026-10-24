@@ -192,7 +192,7 @@ static LMVFrameSnapshot *snapshot;
 static BOOL playback=YES;
 static CFTimeInterval clockNow=10;
 #define CACurrentMediaTime() clockNow
-static NSArray *LMVTargets(void) { return @[@"Message",@"Options",@"Clear"]; }
+static NSArray *LMVCardTargets(void) { return @[@"Message",@"Options",@"Clear"]; }
 static void LMVDiagnostic(NSString *event) {}
 static void LMVPerfProbe(const char *label, CFTimeInterval started) {}
 static void LMVCardPipelineAudit(UIView *owner, LMVVideoState *state, NSString *target, UIView *anchor, NSString *stage) {}
@@ -232,7 +232,7 @@ static void configure(void) {
     // 1.76.1: one chain per CHANNEL. Seed one per channel per file, so a channel
     // that never opened a card still has the chain its cards will reuse.
     for (NSString *path in @[@"movie",@"movie2"]) {
-        for (NSString *target in LMVTargets()) {
+        for (NSString *target in LMVCardTargets()) {
             LMVSharedSource *source=[LMVSharedSource new];source.identifier=LMVSharedSources.count+1;
             source.path=path;source.ownerTarget=target;source.registryKey=LMVSourceRegistryKey(path,target);
             assert(source.registryKey);LMVSharedSources[source.registryKey]=source;
@@ -510,7 +510,7 @@ static void testAllTargetReplacementPolicy(void) {
     }
 }
 static void testLeaseUpgradeRestore(void) {
-    for (NSString *target in LMVTargets()) for (NSNumber *method in @[@(LMVOriginalSuppressDrawing),@(LMVOriginalDetach)]) {
+    for (NSString *target in LMVCardTargets()) for (NSNumber *method in @[@(LMVOriginalSuppressDrawing),@(LMVOriginalDetach)]) {
         configure(); UIWindow *window=[UIWindow new]; UIView *wrapper; MTMaterialView *m;
         NCNotificationListCell *cell=card(window,&wrapper,&m); assert(LMVPrimeMessageCard(cell));
         LMVVideoState *s=state(cell); UIView *overlay=s.overlay; CALayer *video=s.layer;
@@ -529,9 +529,9 @@ static void testLeaseUpgradeRestore(void) {
     }
 }
 static void testIndependentVisibleConsumers(void) {
- configure();for(NSString *t in LMVTargets()){LMVEnabled[t]=@YES;LMVPaths[t]=@"movie";}
+ configure();for(NSString *t in LMVCardTargets()){LMVEnabled[t]=@YES;LMVPaths[t]=@"movie";}
  UIWindow *window=[UIWindow new];NSMutableDictionary *owners=[NSMutableDictionary new];
- for(NSString *target in LMVTargets()) {
+ for(NSString *target in LMVCardTargets()) {
   NSMutableArray *cards=[NSMutableArray new];owners[target]=cards;
   for(int n=0;n<2;n++) {
    UIView *wrapper;MTMaterialView *material;NCNotificationListCell *cell=card(window,&wrapper,&material);
@@ -554,7 +554,7 @@ static void testIndependentVisibleConsumers(void) {
  LMVSharedSource *clear=LMVSharedSources[LMVSourceRegistryKey(@"movie",@"Clear")];
  assert(message && options && clear && message!=options && options!=clear && message!=clear);
  assert(LMVSharedSources.count==6);
- for(NSString *t in LMVTargets())for(UIView *cell in owners[t])
+ for(NSString *t in LMVCardTargets())for(UIView *cell in owners[t])
    assert(((LMVVideoState *)((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[t]).source
           ==LMVSharedSources[LMVSourceRegistryKey(@"movie",t)]);
  UIView *first=owners[@"Message"][0],*second=owners[@"Message"][1];
@@ -562,9 +562,9 @@ static void testIndependentVisibleConsumers(void) {
  second.hidden=YES;LMVReconcileCardSources(second);
  assert(!message.playing);                  // the last Message consumer is gone
  assert(options.playing && clear.playing);  // neighbours are untouched
- for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
+ for(NSString *t in LMVCardTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
  assert(!message.playing && !options.playing && !clear.playing);
- for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
+ for(NSString *t in LMVCardTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
  assert(message.playing && options.playing && clear.playing);
  first.hidden=NO;LMVReconcileCardSources(first);
  LMVVideoState *v=((NSDictionary *)objc_getAssociatedObject(first,&LMVStatesKey))[@"Message"];
@@ -572,10 +572,10 @@ static void testIndependentVisibleConsumers(void) {
  v.overlay.hidden=YES;LMVReconcileCardSources(first);assert(message.playing);
  for(UIView *cell in owners[@"Message"]){v=((NSDictionary *)objc_getAssociatedObject(cell,&LMVStatesKey))[@"Message"];if(v)v.overlay.hidden=YES;}
  for(NSString *t in @[@"Options",@"Clear"])for(UIView *cell in owners[t])cell.hidden=YES;
- for(NSString *t in LMVTargets())for(UIView *cell in owners[t])LMVReconcileCardSources(cell);
+ for(NSString *t in LMVCardTargets())for(UIView *cell in owners[t])LMVReconcileCardSources(cell);
  assert(!message.playing);
  v.overlay.hidden=NO;
- for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
+ for(NSString *t in LMVCardTargets())for(UIView *cell in owners[t]){cell.hidden=NO;LMVReconcileCardSources(cell);}
  // One cell carrying all three targets binds each channel to its own chain.
  UIView *wrapper; MTMaterialView *m; NCNotificationListCell *mixed=card(window,&wrapper,&m);
  PLActionButtonsPresentingView *presenter=[PLActionButtonsPresentingView new];[wrapper addSubview:presenter];
@@ -616,7 +616,7 @@ static void testIndependentVisibleConsumers(void) {
  assert(other && other!=message && LMVSourceForTarget(@"movie2",@"Options")==other &&
         LMVSourceForTarget(@"movie",@"Message")==message);
  mixed.hidden=YES;LMVReconcileCardSources(mixed);
- for(NSString *t in LMVTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
+ for(NSString *t in LMVCardTargets())for(UIView *cell in owners[t]){cell.hidden=YES;LMVReconcileCardSources(cell);}
  assert(!message.playing);
  [CATransaction commit];
 }

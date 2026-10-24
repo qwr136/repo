@@ -4,7 +4,7 @@ static BOOL LMVCardNeedsUpdate(UIView *cell,CFTimeInterval now) {
     NSNumber *maintenance=objc_getAssociatedObject(cell,&LMVMaintenanceKey);
     BOOL due=!maintenance || now-maintenance.doubleValue>=1.0;
     if(due)return YES;
-    for(NSString *target in LMVTargets()) {
+    for(NSString *target in LMVCardTargets()) {
         BOOL selected=LMVEnabled[target].boolValue && LMVPaths[target];
         LMVVideoState *state=states[target];
         if(!selected){if(state)return YES;continue;}

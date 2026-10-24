@@ -7,8 +7,12 @@
 #import <unistd.h>
 #import <sys/stat.h>
 #import <errno.h>
+#import "LMVStoragePaths.h"
+static inline NSString *LMVVideoPosterRootPath(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:@".background-posters"];
+}
 #ifndef LMV_VIDEO_POSTER_ROOT
-#define LMV_VIDEO_POSTER_ROOT @"/var/mobile/LockMessageVideo/.background-posters"
+#define LMV_VIDEO_POSTER_ROOT LMVVideoPosterRootPath()
 #endif
 static dispatch_queue_t LMVVideoPosterQueue(void) {
     static dispatch_queue_t queue;static dispatch_once_t once;
