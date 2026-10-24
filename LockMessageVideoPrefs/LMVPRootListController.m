@@ -464,8 +464,12 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         // keeps the beginning readable, and the label may shrink a little before
         // it ever shows an ellipsis.
         materialValue.lineBreakMode = NSLineBreakByTruncatingTail;
-        materialValue.adjustsFontSizeToFitWidth = YES;
-        materialValue.minimumScaleFactor = 0.85;
+        // 4.0.3: no auto-shrink. 4.0.1 let the label scale down to 0.85 before it
+        // truncated, and only the rows whose width fell short did so - two rows
+        // holding the same name ended up at different font sizes. Every row now
+        // keeps 15pt and ellipsises at the tail instead.
+        materialValue.adjustsFontSizeToFitWidth = NO;
+        materialValue.minimumScaleFactor = 1.0;
         materialValue.userInteractionEnabled = NO;
         materialValue.accessibilityIdentifier = @"LMVMaterialValue";
         cell.accessoryView = materialValue;
@@ -500,7 +504,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     }
     materialValue.text = name.length ? name : @"未选择";
     [materialValue sizeToFit];
-    CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.55);
+    CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.60);
     if (materialValue.bounds.size.width > cap)
         materialValue.frame = CGRectMake(0, 0, cap, materialValue.bounds.size.height);
 }

@@ -32,7 +32,10 @@ def check(ok, message):
 # 1) tail truncation, never middle truncation
 check('NSLineBreakByTruncatingTail' in row, 'the material label must truncate at the tail')
 check('NSLineBreakByTruncatingMiddle' not in row, 'middle truncation cut words in half')
-check('adjustsFontSizeToFitWidth = YES' in row, 'the label should shrink before it truncates')
+check('adjustsFontSizeToFitWidth = NO' in row,
+      'the label must keep one font size on every row (4.0.3: autoshrink made equal names differ)')
+check('adjustsFontSizeToFitWidth = YES' not in row, 'auto-shrink is forbidden')
+check('minimumScaleFactor = 1.0' in row, 'no scaling below 1.0')
 
 # 2) a missing file is 未选择, never a generated "视频素材 N"
 check('fileExistsAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:path]' in row,
@@ -58,4 +61,4 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.0.1 - tail truncation, 未选择 on empty library, missing-file selection rejected, version chain consistent')
+print('PASS: 4.0.3 - one font size, tail truncation, 未选择 on empty library, missing-file selection rejected, version chain consistent')
