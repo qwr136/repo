@@ -1,5 +1,6 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#import <CommonCrypto/CommonDigest.h>
 
 // 4.0.7: the ONE storage root. It used to be typed out 13 times across seven
 // files (media cache, poster store, frame disk, catalog, picker, diagnostics),
@@ -53,6 +54,29 @@ static inline NSString *LMVImagesPath(void) {
 }
 static inline NSString *LMVEasterPath(void) {
     return [LMVStorageRootPath stringByAppendingPathComponent:LMVEasterSubfolder];
+}
+
+// 4.1.0: the record-file name was built by the same five lines in five places (frame
+// disk, poster store, catalog sweep, thumbnail record, thumbnail log id) with only
+// the input differing. The input still differs - one caller normalizes symlinks,
+// another only standardizes - so the input handling stays at each call site and only
+// the digest itself lives here.
+static inline NSString *LMVStorageHashName(NSString *string) {
+    NSData *bytes = [string dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
+    NSMutableString *name = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (NSUInteger i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [name appendFormat:@"%02x", digest[i]];
+    return name;
+}
+// Record files are plists named after the digest of what they describe.
+static inline NSString *LMVStorageHashFileName(NSString *string) {
+    return [LMVStorageHashName(string) stringByAppendingPathExtension:@"plist"];
+}
+// Log ids only need to be unique within one run; six bytes keeps the line readable.
+static inline NSString *LMVStorageHashPrefix(NSString *string, NSUInteger bytes) {
+    NSString *hex = LMVStorageHashName(string);
+    return [hex substringToIndex:MIN(bytes * 2, hex.length)];
 }
 
 // Full paths for the two stores that hang off the storage root. The catalog and the

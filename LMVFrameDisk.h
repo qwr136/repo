@@ -26,11 +26,7 @@ static NSString *LMVDiskRevision(NSString *path) {
         info.st_mtimespec.tv_nsec, (long long)info.st_ctimespec.tv_sec, info.st_ctimespec.tv_nsec];
 }
 static NSString *LMVDiskRecordPath(NSString *path) {
-    NSData *bytes=[LMVDiskNormalizedPath(path) dataUsingEncoding:NSUTF8StringEncoding];
-    unsigned char digest[CC_SHA256_DIGEST_LENGTH]; CC_SHA256(bytes.bytes,(CC_LONG)bytes.length,digest);
-    NSMutableString *name=[NSMutableString new];
-    for (NSUInteger i=0;i<sizeof(digest);i++) [name appendFormat:@"%02x",digest[i]];
-    return [LMV_FRAME_DISK_ROOT stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"plist"]];
+    return [LMV_FRAME_DISK_ROOT stringByAppendingPathComponent:LMVStorageHashFileName(LMVDiskNormalizedPath(path))];
 }
 static BOOL LMVDiskDirectory(void) {
     NSFileManager *fm=NSFileManager.defaultManager;

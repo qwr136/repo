@@ -20,10 +20,7 @@ static dispatch_queue_t LMVVideoPosterQueue(void) {
 }
 static NSString *LMVVideoPosterName(NSString *path) {
     if(!path.length || !path.isAbsolutePath)return nil;
-    NSData *data=[path.stringByStandardizingPath dataUsingEncoding:NSUTF8StringEncoding];
-    unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256(data.bytes,(CC_LONG)data.length,digest);
-    NSMutableString *name=[NSMutableString new];for(NSUInteger n=0;n<sizeof(digest);n++)[name appendFormat:@"%02x",digest[n]];
-    return [name stringByAppendingPathExtension:@"plist"];
+    return LMVStorageHashFileName(path.stringByStandardizingPath);
 }
 static int LMVVideoPosterDirectory(BOOL create) {
     if(create) [NSFileManager.defaultManager createDirectoryAtPath:LMV_VIDEO_POSTER_ROOT withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0755} error:nil];

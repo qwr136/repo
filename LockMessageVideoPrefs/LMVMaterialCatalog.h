@@ -14,12 +14,7 @@
 // the records whose source material still exists, deleting the rest. Keys are
 // derived the same way the stores hash them, so this never touches a live record.
 static NSString *LMVCacheHashName(NSString *string) {
-    NSData *bytes = [string dataUsingEncoding:NSUTF8StringEncoding];
-    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
-    NSMutableString *name = [NSMutableString new];
-    for (NSUInteger i = 0; i < sizeof(digest); i++) [name appendFormat:@"%02x", digest[i]];
-    return [name stringByAppendingPathExtension:@"plist"];
+    return LMVStorageHashFileName(string);
 }
 static void LMVSweepCacheDirectory(NSString *root, NSSet<NSString *> *keep) {
     NSFileManager *fm = NSFileManager.defaultManager;

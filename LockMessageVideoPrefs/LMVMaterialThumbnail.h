@@ -32,22 +32,14 @@ static NSString *LMVThumbnailRevision(NSString *relative) {
         (long long)s.st_mtimespec.tv_sec, s.st_mtimespec.tv_nsec];
 }
 static NSString *LMVThumbnailRecordPath(NSString *relative) {
-    NSData *bytes = [relative dataUsingEncoding:NSUTF8StringEncoding];
-    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
-    NSMutableString *name = [NSMutableString new];
-    for (NSUInteger i = 0; i < sizeof(digest); i++) [name appendFormat:@"%02x", digest[i]];
     return [[LMV_CATALOG_ROOT stringByAppendingPathComponent:LMVThumbnailCacheFolder]
-        stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"plist"]];
+        stringByAppendingPathComponent:LMVStorageHashFileName(relative)];
 }
 #ifndef LMVThumbnailDiagnostic
 #define LMVThumbnailDiagnostic(event) do { } while (0)
 #endif
 static NSString *LMVThumbnailItemID(NSString *relative) {
-    NSData *bytes = [relative dataUsingEncoding:NSUTF8StringEncoding];
-    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
-    return [NSString stringWithFormat:@"%02x%02x%02x%02x%02x%02x", digest[0], digest[1], digest[2], digest[3], digest[4], digest[5]];
+    return LMVStorageHashPrefix(relative, 6);
 }
 static void LMVThumbnailLog(NSString *stage, NSString *relative, NSError *error) {
     // Hooked by the including host; never include paths, filenames or error descriptions.
