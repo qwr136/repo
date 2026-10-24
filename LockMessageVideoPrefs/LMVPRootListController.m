@@ -470,11 +470,18 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     NSString *path = [value isKindOfClass:NSString.class] ? value : nil;
     // 2.44: the row said which material by showing the FILE NAME, and every
     // imported file is a UUID on disk - so a renamed material showed
-    // "8A5A5463-A5C9-4847-BFC2-A0913B51..." outside the picker. Ask the catalog
-    // for the display name first; the file name is only the last resort.
-    NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
-    if (![name isKindOfClass:NSString.class] || !name.length)
-        name = path.length ? [path.lastPathComponent stringByDeletingPathExtension] : nil;
+    // "8A5A5463-A5C9-4847-BFC2-A0913B51..." outside the picker. Resolve the
+    // display name the same way the picker does (catalog name first, then a
+    // generated label for UUID-named files), so the raw UUID is never shown.
+    // 4.0.0: names are no longer pre-written on list load, so only the catalog
+    // name (set by the user or the import path) is consulted here.
+    NSString *name = nil;
+    if (path.length) {
+        NSString *relative = path;
+        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:relative] error:nil];
+        NSString *display = LMVMaterialDisplayName(relative, LMVReadMaterialNames(), attributes ?: @{}, 0);
+        if ([display isKindOfClass:NSString.class] && display.length) name = display;
+    }
     materialValue.text = name.length ? name : @"未选择";
     [materialValue sizeToFit];
     CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.45);
@@ -744,7 +751,8 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (self.materialBusy) return;
     PHPickerConfiguration *config = [[PHPickerConfiguration alloc] initWithPhotoLibrary:[PHPhotoLibrary sharedPhotoLibrary]];
     config.filter = [PHPickerFilter videosFilter];
-    config.selectionLimit = 1;
+    // 4.0.0: allow multiple selections so several videos can be imported at once.
+    config.selectionLimit = 0;
     config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
     picker.delegate = self;
@@ -752,33 +760,47 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
-    PHPickerResult *result = results.firstObject;
-    if (!result || ![result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"]) return;
+    NSArray<PHPickerResult *> *videos = [results filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(PHPickerResult *result, NSDictionary<NSString *, id> *bindings) {
+        return [result.itemProvider hasItemConformingToTypeIdentifier:@"public.movie"];
+    }]];
+    if (videos.count == 0) return;
     self.materialBusy = YES;
-    [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
-        NSError *copyError = error;
-        NSString *relative = nil;
-        if (!url && !copyError) copyError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil];
-        if (url && !copyError) {
-            relative = LMVImportMovie(url, &copyError);
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.materialBusy = NO;
-            if (copyError) [self showError:copyError];
-            else {
-                // Only the three message targets receive an initial selection after import.
-                for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
-                    NSString *key = [target stringByAppendingString:@"Video"];
-                    id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-                    BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];
-                    if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)relative, kLMVPrefsID);
-                }
-                LMVNotify();
-                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已验证原视频并按原片字节保存到素材库：%@\n保留画质、帧率与音轨，未重新编码。", relative] preferredStyle:UIAlertControllerStyleAlert];
-                [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-                [self presentViewController:alert animated:YES completion:nil];
+    dispatch_group_t group = dispatch_group_create();
+    NSMutableArray<NSString *> *imported = [NSMutableArray new];
+    NSMutableArray<NSString *> *failed = [NSMutableArray new];
+    for (PHPickerResult *result in videos) {
+        dispatch_group_enter(group);
+        [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
+            NSError *copyError = error;
+            NSString *relative = nil;
+            if (!url && !copyError) copyError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil];
+            if (url && !copyError) relative = LMVImportMovie(url, &copyError);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (relative && !copyError) [imported addObject:relative];
+                else [failed addObject:copyError.localizedDescription ?: @"导入失败"];
+                dispatch_group_leave(group);
+            });
+        }];
+    }
+    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+        self.materialBusy = NO;
+        if (imported.count) {
+            // Only the three message targets receive an initial selection after import.
+            for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
+                NSString *key = [target stringByAppendingString:@"Video"];
+                id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
+                BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];
+                if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)imported.firstObject, kLMVPrefsID);
             }
-        });
-    }];
+            LMVNotify();
+        }
+        if (failed.count) {
+            [self showError:[NSError errorWithDomain:@"com.minis.lockmessagevideo.import" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%lu 个视频导入失败，其余已保存到素材库。", (unsigned long)failed.count]}]];
+        } else {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已验证原视频并按原片字节保存到素材库：共 %lu 个。\n保留画质、帧率与音轨，未重新编码。", (unsigned long)imported.count] preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+    });
 }
 @end
