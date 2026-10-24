@@ -344,7 +344,7 @@ int main(void) { @autoreleasepool {
     # 3.05: the setters now notify PER CHANNEL (LMVNotifyFor/LMVTargetForPrefKey), so the
     # fixture must carry those two production helpers too - without them the native
     # build fails with "call to undeclared function".
-    actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
+    actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))
