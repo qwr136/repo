@@ -49,7 +49,7 @@ assert '[self appendAudioForTarget:@"AT" title:@"播放"]' in at_section, 'sound
 assert '- (void)switchAT:(PSSpecifier *)specifier { [self switchTarget:@"AT"]; }' in prefs
 CHANNELS=(Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
 assert '@"id": @"AT"' in CHANNELS and '@"title": @"AT 背景视频"' in CHANNELS, 'the applied-material alert names the AT channel'
-assert re.search(r'@"AT": @""', prefs), 'the AT material fallback is empty (nothing selected by default)'
+assert 'LMVChannelLegacyDefaults()' in prefs and re.search(r'@"id": @"AT".*?@"legacy": @""', CHANNELS), 'the AT material fallback is empty (nothing selected by default)'
 
 # ---- floating panel ---------------------------------------------------------
 assert 'static NSInteger LMVEasterATSection(void) { return LMVEasterSquidPanelSection() + 1; }' in panel

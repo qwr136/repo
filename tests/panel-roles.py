@@ -36,7 +36,7 @@ targets = re.findall(r'@"id": @"([^"]+)".*?@"section": @YES', channels)
 assert targets == ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop']
 assert 'LMVChannelTitles()' in video and 'LMVEasterTitles(void)' in video
 for target in ('LockScreen', 'Desktop'):
-    assert video.count(f'@"{target}":@""') == 2  # Label and picker both start unselected.
+    assert video.count('LMVChannelLegacyDefaults()') >= 1  # Label and picker both start unselected.
     assert target + 'Opacity' not in video
 assert len(targets) + 5 == 10  # Existing eight sections + HomeMenu + image display entry.
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', video) is not None

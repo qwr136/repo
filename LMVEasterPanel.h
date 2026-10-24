@@ -529,7 +529,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     } else {
         cell.textLabel.text = @"选择素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         id selected = LMVEasterRead([target stringByAppendingString:@"Video"]);
-        NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@"", @"Desktop":@""};
+        NSDictionary *legacy = LMVChannelLegacyDefaults();
         NSString *relative = [selected isKindOfClass:NSString.class] ? selected : legacy[target];
         cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
         cell.detailTextLabel.numberOfLines = 2;
@@ -624,7 +624,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if (index.section < 0 || index.section >= LMVEasterTargets().count || index.row != 1) return;
         NSString *target = LMVEasterTargets()[index.section];
         key = [target stringByAppendingString:@"Video"];
-        NSDictionary *legacy = @{@"Message":@"message.mov", @"Options":@"options.mov", @"Clear":@"clear.mov", @"LockScreen":@"", @"Desktop":@""};
+        NSDictionary *legacy = LMVChannelLegacyDefaults();
         fallback = legacy[target] ?: @"";
     }
     // 0.0.122: the floating panel shows the same previews as the Settings app.

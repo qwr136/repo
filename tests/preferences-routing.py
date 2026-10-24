@@ -36,7 +36,7 @@ CHANNELS = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
 for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '鱿鱼面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
     assert f'@"id": @"{target}"' in CHANNELS and f'@"title": @"{title}"' in CHANNELS
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
-    assert f'@"{target}": @""' in source
+    assert 'LMVChannelLegacyDefaults()' in source
     assert target + 'Opacity' not in source
 assert '[enabled setProperty:@NO forKey:@"default"]' in source
 assert '[LMVSectionTargets()[i] stringByAppendingString:@"BackgroundEnabled"]' in source

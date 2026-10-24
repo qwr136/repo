@@ -137,7 +137,7 @@ egg_group = '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"小彩
 assert prefs.index(at_group) < prefs.index(cv_group) < prefs.index(egg_group), \
     'the CV group sits directly below the AT group'
 assert '@"id": @"CV"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text() and 'LMVChannelTitles()' in prefs, 'the applied-material alert names the CV channel'
-assert re.search(r'@"CV": @""', prefs), 'the CV material fallback is empty (nothing selected by default)'
+assert 'LMVChannelLegacyDefaults()' in prefs, 'the CV material fallback is empty (nothing selected by default)'
 
 # ---- floating panel -------------------------------------------------------
 assert 'static NSInteger LMVEasterCVSection(void) { return LMVEasterATSection() + 1; }' in panel

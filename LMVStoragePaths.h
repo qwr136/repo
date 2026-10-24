@@ -11,3 +11,22 @@
 #ifndef LMVStorageRootPath
 static NSString *const LMVStorageRootPath = @"/var/mobile/LockMessageVideo";
 #endif
+
+// 4.0.8: the three subfolders and the index file name, named once.
+static NSString *const LMVLibrarySubfolder = @"library";
+static NSString *const LMVImagesSubfolder = @"images";
+static NSString *const LMVEasterSubfolder = @"小彩蛋";
+static NSString *const LMVMaterialNamesFileName = @"material-names.plist";
+// POSIX calls need C strings; these are the same names, not a second source.
+#define LMV_LIBRARY_NAME "library"
+#define LMV_MATERIAL_NAMES_FILE "material-names.plist"
+
+static inline NSString *LMVLibraryPath(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:LMVLibrarySubfolder];
+}
+static inline NSString *LMVImagesPath(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:LMVImagesSubfolder];
+}
+static inline NSString *LMVEasterPath(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:LMVEasterSubfolder];
+}

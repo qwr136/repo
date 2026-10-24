@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonCrypto.h>
 #import "../LMVStoragePaths.h"
+#import "LMVChannels.h"
 
 #ifndef LMV_CATALOG_ROOT
 #define LMV_CATALOG_ROOT LMVStorageRootPath
@@ -47,7 +48,7 @@ static void LMVSweepStaleCaches(NSArray<NSString *> *liveRelatives) {
 // All catalog reads/writes run on LMVMaterialQueue, shared with import/clear.
 // Keys are stable relative paths. Renaming never mutates a material or preference.
 static NSString *LMVCatalogPath(void) {
-    return [LMV_CATALOG_ROOT stringByAppendingPathComponent:@"material-names.plist"];
+    return [LMV_CATALOG_ROOT stringByAppendingPathComponent:LMVMaterialNamesFileName];
 }
 static NSMutableDictionary *LMVReadMaterialNames(void) {
     id value = [NSDictionary dictionaryWithContentsOfFile:LMVCatalogPath()];
@@ -86,7 +87,7 @@ static NSString *LMVUniqueMaterialName(NSString *candidate, NSDictionary *names,
 static NSString *LMVMaterialDisplayName(NSString *relative, NSDictionary *names, NSDictionary *attributes, NSUInteger index) {
     id saved = names[relative];
     if ([saved isKindOfClass:NSString.class] && [saved length]) return saved;
-    NSDictionary *legacy = @{@"message.mov": @"原消息视频", @"options.mov": @"原选项视频", @"clear.mov": @"原清除视频"};
+    NSDictionary *legacy = LMVLegacyDisplayNames();
     if (legacy[relative]) return legacy[relative];
     NSString *stem = relative.lastPathComponent.stringByDeletingPathExtension;
     NSRegularExpression *uuid = [NSRegularExpression regularExpressionWithPattern:@"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" options:0 error:nil];

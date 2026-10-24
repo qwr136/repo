@@ -110,7 +110,7 @@ static BOOL LMVImportDirectoryMatches(int descriptor, NSString *path) {
 // rather than replacing old user labels. Keep the existing plist schema/API.
 static NSError *LMVImportRegisterName(int root, NSString *relative, NSString *sourceName) {
     NSMutableDictionary *names=[NSMutableDictionary new];
-    int catalog=openat(root,"material-names.plist",O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);
+    int catalog=openat(root,LMV_MATERIAL_NAMES_FILE,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);
     if (catalog<0 && errno!=ENOENT) return LMVImportIOError(errno,@"无法安全读取素材名称目录");
     if (catalog>=0) {
         struct stat status;
@@ -150,11 +150,11 @@ static NSError *LMVImportRegisterName(int root, NSString *relative, NSString *so
     fstat(output,&owned);
     if (close(output) && !failure) failure=errno;
     struct stat existing;
-    if (!failure && !fstatat(root,"material-names.plist",&existing,AT_SYMLINK_NOFOLLOW)) {
+    if (!failure && !fstatat(root,LMV_MATERIAL_NAMES_FILE,&existing,AT_SYMLINK_NOFOLLOW)) {
         if (!S_ISREG(existing.st_mode)) failure=EINVAL;
     } else if (!failure && errno!=ENOENT) failure=errno;
     if (!failure && !LMVImportFileMatches(root,pending.fileSystemRepresentation,&owned)) failure=ESTALE;
-    if (!failure && renameat(root,pending.fileSystemRepresentation,root,"material-names.plist")) failure=errno;
+    if (!failure && renameat(root,pending.fileSystemRepresentation,root,LMV_MATERIAL_NAMES_FILE)) failure=errno;
     if (failure) LMVImportUnlinkOwned(root,pending.fileSystemRepresentation,&owned);
     return failure ? LMVImportIOError(failure,@"无法原子保存素材名称，保留已有名称") : nil;
 }
@@ -163,7 +163,7 @@ static NSError *LMVImportRegisterName(int root, NSString *relative, NSString *so
 static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError) {
     NSError *error=nil;
     NSString *base=LMV_CATALOG_ROOT;
-    NSString *library=[base stringByAppendingPathComponent:@"library"];
+    NSString *library=[base stringByAppendingPathComponent:LMVLibrarySubfolder];
     NSString *ext=source.pathExtension.lowercaseString;
     if (!source.isFileURL || ![@[@"mov",@"mp4",@"m4v"] containsObject:ext]) {
         if (outError) *outError=LMVImportError(1,@"请选择 MOV、MP4、M4V 原视频文件",nil);
@@ -171,7 +171,7 @@ static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError
     }
     NSString *name=[NSUUID.UUID.UUIDString stringByAppendingPathExtension:ext];
     NSString *pending=[@".import-source-" stringByAppendingString:name];
-    NSString *relative=[@"library" stringByAppendingPathComponent:name];
+    NSString *relative=[LMVLibrarySubfolder stringByAppendingPathComponent:name];
     NSURL *ownedSource=[NSURL fileURLWithPath:[base stringByAppendingPathComponent:pending]];
     int parent=-1, root=-1, folder=-1, input=-1, staging=-1;
     BOOL ownsStaging=NO, published=NO;
@@ -181,7 +181,7 @@ static NSString *LMVImportMovieOnMaterialQueue(NSURL *source, NSError **outError
         if (parent<0) { error=LMVImportIOError(errno,@"素材父目录不可访问或不安全"); break; }
         root=LMVImportOpenDirectory(parent,base.lastPathComponent.fileSystemRepresentation);
         if (root<0) { error=LMVImportIOError(errno,@"素材目录不可访问或不安全"); break; }
-        folder=LMVImportOpenDirectory(root,"library");
+        folder=LMVImportOpenDirectory(root,LMV_LIBRARY_NAME);
         if (folder<0) { error=LMVImportIOError(errno,@"素材库目录不可访问或不安全"); break; }
         input=open(source.fileSystemRepresentation,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);
         if (input<0) { error=LMVImportIOError(errno,@"原视频不是可读取的普通文件"); break; }

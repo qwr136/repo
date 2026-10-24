@@ -17,7 +17,7 @@ static inline NSString *LMVEasterFolder(void) {
     return [LMVStorageRootPath stringByAppendingPathComponent:@"\u5c0f\u5f69\u86cb"];
 }
 static inline NSString *LMVEasterImagesFolder(void) {
-    return [LMVStorageRootPath stringByAppendingPathComponent:@"images"];
+    return [LMVStorageRootPath stringByAppendingPathComponent:LMVImagesSubfolder];
 }
 static CFStringRef const LMVEasterPrefs = CFSTR("com.minis.lockmessagevideo");
 static void LMVEasterNotify(void) {
@@ -53,7 +53,7 @@ static BOOL LMVEasterSafeDirectory(NSString *path, NSError **error) {
 static __attribute__((unused)) NSString *LMVEasterImagePath(id relative) {
     if (![relative isKindOfClass:NSString.class]) return nil;
     NSArray *parts = [relative pathComponents];
-    if (parts.count != 2 || ![@[@"images", @"\u5c0f\u5f69\u86cb"] containsObject:parts[0]] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
+    if (parts.count != 2 || ![@[LMVImagesSubfolder, LMVEasterSubfolder] containsObject:parts[0]] || [parts containsObject:@".."] || [parts containsObject:@"."]) return nil;
     NSString *path = [LMVStorageRootPath stringByAppendingPathComponent:relative];
     struct stat status;
     struct stat rootStatus, folderStatus;
@@ -120,7 +120,7 @@ static LMVEasterImage *LMVEasterDecode(NSURL *url, NSError **error) {
 static void LMVEasterDeleteReplacedImage(id oldRelative, NSString *newRelative) {
     if (![oldRelative isKindOfClass:NSString.class] || [oldRelative isEqual:newRelative]) return;
     NSArray *parts = [oldRelative pathComponents];
-    if (parts.count != 2 || ![@[@"images",@"\u5c0f\u5f69\u86cb"] containsObject:parts[0]] ||
+    if (parts.count != 2 || ![@[LMVImagesSubfolder, LMVEasterSubfolder] containsObject:parts[0]] ||
         [parts containsObject:@".."] || [parts containsObject:@"."] ||
         ![oldRelative isEqualToString:[parts[0] stringByAppendingPathComponent:parts[1]]] ||
         ![@[@"gif",@"png",@"jpg",@"jpeg",@"heic",@"heif"] containsObject:[parts[1] pathExtension].lowercaseString]) return;
@@ -176,7 +176,7 @@ static NSString *LMVEasterImportWithPublication(NSURL *source, BOOL movie, id ex
     dispatch_sync(LMVMaterialQueue(), ^{
         @autoreleasepool {
             NSString *root = LMVStorageRootPath;
-            NSString *folder = movie ? [root stringByAppendingPathComponent:@"library"] : LMVEasterImagesFolder();
+            NSString *folder = movie ? [root stringByAppendingPathComponent:LMVLibrarySubfolder] : LMVEasterImagesFolder();
             NSFileManager *fm = NSFileManager.defaultManager;
             if (!LMVEasterSafeDirectory(root, &error) || !LMVEasterSafeDirectory(folder, &error)) return;
             NSString *ext = source.pathExtension.lowercaseString;
@@ -212,21 +212,21 @@ static NSString *LMVEasterImportWithPublication(NSURL *source, BOOL movie, id ex
             // Same-volume move publishes only a fully validated source.
             if (!error) [fm moveItemAtPath:staging toPath:destination error:&error];
             if (!error && movie) {
-                NSString *relative = [@"library" stringByAppendingPathComponent:name];
+                NSString *relative = [LMVLibrarySubfolder stringByAppendingPathComponent:name];
                 NSMutableDictionary *names = LMVReadMaterialNames();
                 names[relative] = [NSString stringWithFormat:@"彩蛋原片 · %@", source.lastPathComponent.stringByDeletingPathExtension];
                 error = LMVWriteMaterialNames(names);
                 if (error) [fm removeItemAtPath:destination error:nil];
             }
             if (!error && !movie && current) {
-                NSString *relative = [@"images" stringByAppendingPathComponent:name];
+                NSString *relative = [LMVImagesSubfolder stringByAppendingPathComponent:name];
                 LMVEasterPublishImage(relative, expectedOld, current, &error);
             }
             if (error) {
                 [fm removeItemAtPath:staging error:nil];
-                if(!movie && current && ![LMVEasterRead(@"EasterEggImage") isEqual:[@"images" stringByAppendingPathComponent:name]])
+                if(!movie && current && ![LMVEasterRead(@"EasterEggImage") isEqual:[LMVImagesSubfolder stringByAppendingPathComponent:name]])
                     [fm removeItemAtPath:destination error:nil];
-            } else result = [(movie ? @"library" : @"images") stringByAppendingPathComponent:name];
+            } else result = [(movie ? LMVLibrarySubfolder : LMVImagesSubfolder) stringByAppendingPathComponent:name];
         }
     });
     if (outError) *outError = error;

@@ -124,7 +124,7 @@ assert '- (void)switchCopyLogX:(PSSpecifier *)specifier { [self switchTarget:@"C
 assert '- (void)openCopyLogXTextColor:(PSSpecifier *)specifier {' in prefs
 assert 'LMVCopyLogXTextColorKey' in prefs
 assert '@"id": @"CopyLogX"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
-assert '@"CopyLogX": @""' in prefs
+assert 'LMVChannelLegacyDefaults()' in prefs
 assert 'return [LMVChannelIDs() containsObject:target];' in prefs
 
 # ---- 7) 小彩蛋面板同步：开关 / 素材 / 声音 / 音量，不含文字颜色 -------------

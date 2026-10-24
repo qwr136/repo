@@ -756,7 +756,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     if (self.presentedViewController || !LMVMaterialTargetAllowed(target)) return;
     NSString *key = [target stringByAppendingString:@"Video"];
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-    NSDictionary *legacy = @{@"Message": @"message.mov", @"Options": @"options.mov", @"Clear": @"clear.mov", @"LockScreen": @"", @"Desktop": @"", @"ControlCenterDark": @"", @"ControlCenterLight": @"", @"HomeMenu": @"", @"SquidPanel": @"", @"AT": @"", @"CV": @"", @"Myrtle": @"", @"PA": @"", @"GS": @"", @"CCBorder": @"", @"CopyLogX": @""};
+    NSDictionary *legacy = LMVChannelLegacyDefaults();
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
     LMVMaterialPicker *picker = [LMVMaterialPicker new];
     picker.selected = selected;
@@ -832,7 +832,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
             for (NSString *target in @[@"Message", @"Options", @"Clear"]) {
                 NSString *key = [target stringByAppendingString:@"Video"];
                 id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
-                BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:@"message.mov"]];
+                BOOL legacyMessage = !selected && [target isEqualToString:@"Message"] && [[NSFileManager defaultManager] fileExistsAtPath:[LMVDirectory stringByAppendingPathComponent:LMVCardLegacyDefaults()[@"Message"]]];
                 if (!selected && !legacyMessage) CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)imported.firstObject, kLMVPrefsID);
             }
             LMVNotify();

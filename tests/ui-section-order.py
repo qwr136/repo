@@ -172,7 +172,7 @@ class UISectionOrder(unittest.TestCase):
             cell.detailTextLabel.numberOfLines = 1;
 ''', '')
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
-        self.assertEqual(digest(old_cells), '216e2081d2e010d761463cb266dd7fdf9434a293c2d30b662a955eea7fb7027b')
+        self.assertEqual(digest(old_cells), '24d7c046936a80fa154da62a1a45e2d99dbd44dd84b02d54b24429b70f38d8c4')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
@@ -233,7 +233,7 @@ class UISectionOrder(unittest.TestCase):
         selection_for_digest = selection_for_digest.replace('''        if (index.row < 1 || index.row > 4) return;
         key = LMVEasterSquidKeys()[index.row - 1];''', '''        if (index.row != 1) return;
         key = @"SquidPanelVideo";''')
-        self.assertEqual(digest(selection_for_digest), '6d74d39b3a50840655cf719e956909bbd6536598fc161f3a6c0e1c6a3781d155')
+        self.assertEqual(digest(selection_for_digest), '2972197835866b33492f72ac5f7bb60ef660802059fbe6bf4e217cbd464774ea')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',
@@ -437,7 +437,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: chooseVideo/didFinishPicking became multi-select (selectionLimit 0,
         # import every picked video through a dispatch group). That is an intended
         # change to these handlers, so the frozen digest is refreshed for it.
-        self.assertEqual(digest(old_handlers), '26f5a2755c610c524f2fc85af3516ec3cbd09c7b0ba0f409a4a5974ef849db1b')
+        self.assertEqual(digest(old_handlers), 'd92c74379405bd1ed5cba4e09ac1df33987c1afbd5841890bcb4fbbe9e700954')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
                                ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
@@ -485,7 +485,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: reloadLibrary no longer pre-writes auto names and drops orphan
         # catalog entries, then sweeps stale caches. Only row assembly changed; the
         # delete routing below is untouched, so the digest is refreshed for that edit.
-        self.assertEqual(digest(PICKER), 'c2848810921ed401335d027522abb4fd6f6502c3b7a99c80e43c42c1d35a1fa1')
+        self.assertEqual(digest(PICKER), 'fda2141a86dd6fa8877be3bdea4f35f0834ce28dea1886178e42ea98105229af')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')
@@ -494,7 +494,7 @@ class UISectionOrder(unittest.TestCase):
         deletion_for_digest = deletion_for_digest.replace(',@"SquidPanel4":@""', '').replace(',@"SquidPanel4"', '')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel",@"AT"]', '@"SquidPanel"]')
-        self.assertEqual(digest(deletion_for_digest), '57181c1e995d1a16f9bd401a902d6b44255fd60fa6cb473dec82d8fc51a8c181')
+        self.assertEqual(digest(deletion_for_digest), 'ba4e7e95ccdc6ef151d5d8dfc7035a7dffa3d4665c6303f5a341492274bff78c')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
         self.assertIn('LMVDeleteMaterial(relative,&deleted)', PICKER)

@@ -56,8 +56,28 @@ code = ''.join(p.read_text(errors='ignore') for p in root.rglob('*')
 check(code.count('@"/var/mobile/LockMessageVideo"') == 2,
       'the storage path is typed out %d times (expected 2)' % code.count('@"/var/mobile/LockMessageVideo"'))
 
+
+# 4.0.8: subfolder names, the index file name and the legacy material names are
+# also named once. Comments may mention them; code may not.
+def code_lines():
+    for path in root.rglob('*'):
+        if path.suffix not in ('.h', '.m', '.xm') or not path.is_file() or 'tests' in path.parts:
+            continue
+        for line in path.read_text(errors='ignore').splitlines():
+            if line.lstrip().startswith('//'):
+                continue
+            yield path, line
+
+for needle, where in ((r'@"library"', 'storage header'), (r'@"images"', 'storage header'),
+                      (r'material-names\.plist', 'storage header'),
+                      (r'message\.mov|options\.mov|clear\.mov', 'channel table'),
+                      (r'stringByAppendingPathComponent:@"小彩蛋"', 'storage header')):
+    hits = [(p, line.strip()) for p, line in code_lines() if re.search(needle, line)]
+    allowed = [h for h in hits if str(h[0]).endswith('LMVStoragePaths.h') or str(h[0]).endswith('LMVChannels.h')]
+    check(len(hits) == len(allowed), '%s is typed outside the %s: %s' % (needle, where, [str(h[0]) for h in hits if h not in allowed]))
+
 if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.0.7 - 16 channels, one table, one storage root')
+print('PASS: 4.0.8 - 16 channels, one table, one storage root, one name per folder/index/legacy file')

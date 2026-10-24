@@ -15,13 +15,13 @@
 static NSError *LMVDeleteMaterial(NSString *relative, BOOL *deleted) {
     if (deleted) *deleted=NO;
     NSArray *parts=relative.pathComponents;
-    BOOL library=parts.count==2 && [parts[0] isEqualToString:@"library"];
-    BOOL legacy=parts.count==1 && [@[@"message.mov",@"options.mov",@"clear.mov"] containsObject:relative];
+    BOOL library=parts.count==2 && [parts[0] isEqualToString:LMVLibrarySubfolder];
+    BOOL legacy=parts.count==1 && LMVIsLegacyMaterialName(relative);
     if ((!library && !legacy) || !relative.length || [parts containsObject:@".."] || [parts containsObject:@"."])
         return LMVStorageError(30,@"素材路径无效，未删除任何文件");
     int base=open([LMV_CATALOG_ROOT fileSystemRepresentation],O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
     if (base<0) return LMVStorageError(errno,@"无法打开素材目录，未删除任何文件");
-    int folder=library ? openat(base,"library",O_RDONLY|O_DIRECTORY|O_NOFOLLOW) : dup(base);
+    int folder=library ? openat(base,LMV_LIBRARY_NAME,O_RDONLY|O_DIRECTORY|O_NOFOLLOW) : dup(base);
     int code=errno; close(base);
     if (folder<0) return LMVStorageError(code,@"素材库目录不可访问，未删除任何文件");
     const char *name=relative.lastPathComponent.fileSystemRepresentation;

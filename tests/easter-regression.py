@@ -35,11 +35,11 @@ assert '[volume setProperty:@0.5 forKey:@"default"]' in prefs
 assert 'SoundEnabled' in prefs + panel and 'volumeChanged:' in panel
 assert 'SoundEnabled' not in image and 'setVolume:' not in image
 for target in ('LockScreen', 'Desktop'):
-    assert f'@"{target}":@""' in panel and f'@"{target}": @""' in prefs
+    assert 'LMVChannelLegacyDefaults()' in panel and 'LMVChannelLegacyDefaults()' in prefs
     assert f'@selector(switch{target}:)' in prefs
 for mode, title in [('Dark', '深色'), ('Light', '浅色')]:
     assert f'@selector(switchControlCenter{mode}:)' in prefs
-    assert f'@"ControlCenter{mode}": @""' in prefs
+    assert 'LMVChannelLegacyDefaults()' in prefs
     assert f'@"ControlCenter{mode}Video"' in panel
     assert '切换素材' in prefs and '切换素材' in panel
 prefs_import = prefs[prefs.index('- (void)picker:(PHPickerViewController *)picker didFinishPicking:'):]
@@ -69,7 +69,7 @@ assert 'stringByAppendingString:@"Video"' in panel
 assert 'CFNotificationCenterAddObserver' in panel and 'preferencesChanged' in panel
 assert 'Photos' not in (root / 'LockMessageVideo.plist').read_text()
 assert 'LMVImportMovie' not in media and 'LMVCompressMovie' not in media and 'AVAssetWriter' not in media
-assert '[root stringByAppendingPathComponent:@"library"]' in media
+assert '[root stringByAppendingPathComponent:LMVLibrarySubfolder]' in media
 assert 'LMVWriteMaterialNames(names)' in media and 'movie)' in media
 assert 'LMVEasterFolder' in media and 'parts.count != 2' in media
 assert 'stringByResolvingSymlinksInPath' in media and 'lstat(' in media

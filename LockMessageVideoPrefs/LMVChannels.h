@@ -18,9 +18,9 @@ static inline NSArray<NSDictionary *> *LMVChannelTable(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         rows = @[
-            @{@"id": @"Message",            @"title": @"消息背景",             @"card": @YES, @"section": @YES, @"legacy": @"message.mov"},
-            @{@"id": @"Options",            @"title": @"选项背景",             @"card": @YES, @"section": @YES, @"legacy": @"options.mov"},
-            @{@"id": @"Clear",              @"title": @"清除背景",             @"card": @YES, @"section": @YES, @"legacy": @"clear.mov"},
+            @{@"id": @"Message",            @"title": @"消息背景",             @"card": @YES, @"section": @YES, @"legacy": @"message.mov", @"legacyTitle": @"原消息视频"},
+            @{@"id": @"Options",            @"title": @"选项背景",             @"card": @YES, @"section": @YES, @"legacy": @"options.mov", @"legacyTitle": @"原选项视频"},
+            @{@"id": @"Clear",              @"title": @"清除背景",             @"card": @YES, @"section": @YES, @"legacy": @"clear.mov", @"legacyTitle": @"原清除视频"},
             @{@"id": @"LockScreen",         @"title": @"锁屏背景",             @"card": @NO,  @"section": @YES, @"legacy": @""},
             @{@"id": @"Desktop",            @"title": @"桌面背景",             @"card": @NO,  @"section": @YES, @"legacy": @""},
             @{@"id": @"ControlCenterDark",  @"title": @"控制中心深色背景",      @"card": @NO,  @"section": @NO,  @"legacy": @""},
@@ -94,6 +94,36 @@ static inline NSDictionary<NSString *, NSString *> *LMVCardLegacyDefaults(void) 
         for (NSDictionary *row in LMVChannelTable())
             if ([row[@"card"] boolValue]) defaults[row[@"id"]] = row[@"legacy"] ?: @"";
         value = [defaults copy];
+    });
+    return value;
+}
+
+// 4.0.8: the pre-1.x material names live in the table's "legacy" column, so there
+// is exactly one list. Only the three card channels have one.
+static inline NSArray<NSString *> *LMVLegacyMaterialNames(void) {
+    static NSArray<NSString *> *value;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableArray *names = [NSMutableArray new];
+        for (NSDictionary *row in LMVChannelTable())
+            if ([row[@"legacy"] length]) [names addObject:row[@"legacy"]];
+        value = [names copy];
+    });
+    return value;
+}
+static inline BOOL LMVIsLegacyMaterialName(NSString *name) {
+    return [name isKindOfClass:NSString.class] && [LMVLegacyMaterialNames() containsObject:name];
+}
+
+// Display name for a pre-1.x file, kept beside the legacy list it describes.
+static inline NSDictionary<NSString *, NSString *> *LMVLegacyDisplayNames(void) {
+    static NSDictionary *value;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableDictionary *names = [NSMutableDictionary new];
+        for (NSDictionary *row in LMVChannelTable())
+            if ([row[@"legacy"] length] && [row[@"legacyTitle"] length]) names[row[@"legacy"]] = row[@"legacyTitle"];
+        value = [names copy];
     });
     return value;
 }
