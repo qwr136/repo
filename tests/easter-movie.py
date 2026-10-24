@@ -27,6 +27,10 @@ preamble=r'''
 #include <assert.h>
 static NSString *testRoot;
 #define LMVStorageRootPath testRoot
+static NSString *const LMVLibrarySubfolder = @"library";
+static NSString *const LMVImagesSubfolder = @"images";
+static NSString *const LMVEasterSubfolder = @"小彩蛋";
+static NSString *const LMVMaterialNamesFileName = @"material-names.plist";
 #define LMV_CATALOG_ROOT testRoot
 @interface UIImage : NSObject
 + (instancetype)imageWithCGImage:(CGImageRef)image;
