@@ -473,14 +473,17 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     // "8A5A5463-A5C9-4847-BFC2-A0913B51..." outside the picker. Resolve the
     // display name the same way the picker does (catalog name first, then a
     // generated label for UUID-named files), so the raw UUID is never shown.
-    // 4.0.0: names are no longer pre-written on list load, so only the catalog
-    // name (set by the user or the import path) is consulted here.
-    NSString *name = nil;
-    if (path.length) {
-        NSString *relative = path;
-        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:relative] error:nil];
-        NSString *display = LMVMaterialDisplayName(relative, LMVReadMaterialNames(), attributes ?: @{}, 0);
-        if ([display isKindOfClass:NSString.class] && display.length) name = display;
+    // 4.0.0: names are no longer pre-written on list load, so the catalog name
+    // (set by the user or the import path) is the first source; when it is
+    // absent the catalog's generator turns a UUID file into a readable label.
+    NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
+    if (![name isKindOfClass:NSString.class] || !name.length) {
+        if (path.length) {
+            NSString *relative = path;
+            NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:relative] error:nil];
+            NSString *display = LMVMaterialDisplayName(relative, LMVReadMaterialNames(), attributes ?: @{}, 0);
+            if ([display isKindOfClass:NSString.class] && display.length) name = display;
+        }
     }
     materialValue.text = name.length ? name : @"未选择";
     [materialValue sizeToFit];

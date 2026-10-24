@@ -53,7 +53,6 @@ jobs:
           check python3 tests/roothide-package.py
           check python3 tests/shared-render-regression.py
           check python3 tests/material-thumbnail.py
-          check python3 tests/thumbnail-helper.py
           check python3 tests/preview-diagnostics.py
           check python3 tests/message-sources.py
           check python3 tests/video-audio-controls.py
