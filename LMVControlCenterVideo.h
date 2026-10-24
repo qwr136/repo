@@ -409,9 +409,18 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
 // up to 0.74 s before SBControlCenterWindow itself leaves. An unconfigured
 // module answers nothing at all, so the Desktop keeps its own probe.
 + (BOOL)controlCenterWindowIsEmpty {
-    LMVControlCenterVideoManager *live=LMVControlCenterVideo;
-    if (!live || !live.enabled || !live.path.length) return NO;
-    return !live.presented;
+    // 4.0.0: read the Control Center lifecycle records instead of the
+    // manager's enabled/path flags. The old guard returned NO whenever the CC
+    // background was disabled (enabled/path empty), which left the Desktop
+    // frozen until the CC window fully disappeared - about 0.74 s slower to
+    // resume. The tracked records know when the CC content has actually slid
+    // away, regardless of whether its own background is on.
+    if (LMVCCControllers.count == 0) return NO;
+    for (UIViewController *controller in LMVCCControllers.allObjects) {
+        LMVCCRecord *record = objc_getAssociatedObject(controller, &LMVCCRecordKey);
+        if (record && record.known && record.visible && !record.closing) return NO;
+    }
+    return YES;
 }
 - (instancetype)init {
     if((self=[super init])) {
