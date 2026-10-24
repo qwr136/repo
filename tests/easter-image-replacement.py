@@ -23,6 +23,7 @@ pre=r'''
 #include <unistd.h>
 #include <assert.h>
 static NSString *testRoot;
+#define LMVStorageRootPath testRoot
 static id selected;
 static BOOL persistOK=YES;
 static NSUInteger notifications;

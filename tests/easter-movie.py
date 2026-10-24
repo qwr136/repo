@@ -14,11 +14,9 @@ assert 'if (error) {' in movie and '[fm removeItemAtPath:staging error:nil];' in
 if platform.system()!='Darwin':
     print('PASS: scoped video validation/publish contracts; native AVFoundation test runs on macOS')
     raise SystemExit(0)
-media=media.replace('#pragma once','').replace('#import <UIKit/UIKit.h>','')
+media=media.replace('#pragma once','').replace('#import <UIKit/UIKit.h>','').replace('#import "LMVStoragePaths.h"','')
 import re
-media=re.sub(r'static inline NSString \*LMVEasterFolder\(void\) \{.*?\n\}', 'static NSString *LMVEasterFolder;', media, flags=re.S)
-media=re.sub(r'static inline NSString \*LMVEasterImagesFolder\(void\) \{.*?\n\}', 'static NSString *LMVEasterImagesFolder;', media, flags=re.S)
-media=media.replace('LMVEasterImagesFolder;','LMVEasterImagesFolder;')
+
 media=media.replace('@"/var/mobile/LockMessageVideo"','testRoot')
 for header in ['LMVMaterialStorage.h','LMVMaterialCatalog.h']:
     media=media.replace('"LockMessageVideoPrefs/'+header+'"','"'+str(r/'LockMessageVideoPrefs'/header)+'"')
@@ -28,6 +26,7 @@ preamble=r'''
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 static NSString *testRoot;
+#define LMVStorageRootPath testRoot
 #define LMV_CATALOG_ROOT testRoot
 @interface UIImage : NSObject
 + (instancetype)imageWithCGImage:(CGImageRef)image;
@@ -55,7 +54,7 @@ int main(void) { @autoreleasepool {
     NSFileManager *fm=NSFileManager.defaultManager;
     NSString *temporary=[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     [fm createDirectoryAtPath:temporary withIntermediateDirectories:YES attributes:nil error:nil];
-    testRoot=[temporary stringByAppendingPathComponent:@"LockMessageVideo"]; LMVEasterFolder=[testRoot stringByAppendingPathComponent:@"小彩蛋"];
+    testRoot=[temporary stringByAppendingPathComponent:@"LockMessageVideo"];
     NSURL *bad=[NSURL fileURLWithPath:[temporary stringByAppendingPathComponent:@"bad.mov"]];
     assert([[@"not a movie" dataUsingEncoding:NSUTF8StringEncoding] writeToURL:bad atomically:YES]);
     NSURL *good=[NSURL fileURLWithPath:[temporary stringByAppendingPathComponent:@"original.mov"]]; makeMovie(good);
@@ -74,7 +73,7 @@ int main(void) { @autoreleasepool {
             assert([LMVReadMaterialNames()[relative] hasPrefix:@"彩蛋原片"]);
             assert([fm contentsOfDirectoryAtPath:library error:nil].count==1);
             error=nil; assert(!LMVEasterImport(bad,NO,&error) && error);
-            assert([fm contentsOfDirectoryAtPath:LMVEasterFolder error:nil].count==0);
+            assert([fm contentsOfDirectoryAtPath:LMVEasterFolder() error:nil].count==0);
         }
         dispatch_semaphore_signal(imported);
     });
