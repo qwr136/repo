@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory() as d:
  with wave.open(str(wav),'w') as f:
   f.setnchannels(1);f.setsampwidth(2);f.setframerate(22050)
   f.writeframes(b''.join(struct.pack('<h',int(2000*math.sin(i*2*math.pi*440/22050))) for i in range(44100)))
- src.write_text(pre+h.replace('#pragma once','').replace('AVAudioSession','LMVTestAudioSession')+main)
+ src.write_text('#import "LMVPanelCommon.h"\n'+pre+h.replace('#pragma once','').replace('AVAudioSession','LMVTestAudioSession')+main)
  # 2.42: LMVMediaAudio.h now includes LMVPanelTuning.h for the playback-rate reader,
  # so the fixture needs the repo root on the include path.
  subprocess.run(['clang','-fobjc-arc','-I',str(ROOT),'-framework','Foundation','-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia',str(src),'-o',str(out)],check=True)

@@ -392,6 +392,6 @@ if platform.system()!='Darwin':
  raise SystemExit(0)
 with tempfile.TemporaryDirectory() as tmp:
  Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
- source=Path(tmp)/'cc.m';binary=Path(tmp)/'cc';source.write_text(pre+helpers+preAfter+h+main)
+ source=Path(tmp)/'cc.m';binary=Path(tmp)/'cc';source.write_text('#import "LMVPanelCommon.h"\n'+pre+helpers+preAfter+h+main)
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(source),'-o',str(binary)],check=True)
  subprocess.run([str(binary)],check=True,timeout=30)

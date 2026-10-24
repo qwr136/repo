@@ -15,6 +15,8 @@ import collections
 
 root = Path(__file__).resolve().parents[1]
 common = (root / 'LMVPanelCommon.h').read_text()
+common_ui = (root / 'LMVPanelCommonUI.h').read_text()
+headers = common + common_ui
 
 helpers = ['LMVSpringBoard', 'LMVVisibleArea', 'LMVColorEqual', 'LMVPerfSample',
            'LMVWindowReportSnapshot', 'LMVGlassLikeView', 'LMVObjectGetterFor',
@@ -40,11 +42,11 @@ for p in sources:
         for m in re.finditer(r'(?m)^static(?:\s+inline)?\s[^\n;{}]*?\b' + name + r'\s*\([^;{}]*?\)\s*\{', text):
             defs[name].append(str(p.relative_to(root)))
 for name in helpers:
-    check(name in common, name + ' is missing from the shared header')
+    check(name in common or name in common_ui, name + ' is missing from the shared headers')
     check(len(defs[name]) == 1, '%s is defined %d times: %s' % (name, len(defs[name]), defs[name]))
     if defs[name]:
-        check(defs[name][0] == 'LMVPanelCommon.h',
-              '%s is defined outside the shared header: %s' % (name, defs[name]))
+        check(defs[name][0] in ('LMVPanelCommon.h', 'LMVPanelCommonUI.h'),
+              '%s is defined outside the shared headers: %s' % (name, defs[name]))
 
 # 2) Each panel that used to carry a copy now imports the shared header instead.
 panels = ['LMVATPanelVideo.h', 'LMVCCBorderVideo.h', 'LMVControlCenterVideo.h',
@@ -54,7 +56,8 @@ panels = ['LMVATPanelVideo.h', 'LMVCCBorderVideo.h', 'LMVControlCenterVideo.h',
           'LMVSquidPanelVideo.h']
 for name in panels:
     text = (root / name).read_text()
-    check('#import "LMVPanelCommon.h"' in text, name + ' must import the shared helpers')
+    check('#import "LMVPanelCommon.h"' in text or '#import "LMVPanelCommonUI.h"' in text,
+          name + ' must import the shared helpers')
 
 # 3) No per-panel prefix survived on the eight helpers.
 prefixes = r'(ATPanel|CCBorder|CopyLogX|CVPanel|GlassSuite|HomeMenu|PhoneAssist|Squid|Myrtle|DesktopVideo|LockVideo|Easter|CC)'

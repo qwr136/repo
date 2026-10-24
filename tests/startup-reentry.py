@@ -98,6 +98,6 @@ int main(void){@autoreleasepool{
 '''
 with tempfile.TemporaryDirectory() as tmp:
     Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
-    src=Path(tmp)/'startup.m';out=Path(tmp)/'startup';src.write_text(pre+scheduler+mark+late+cover+main)
+    src=Path(tmp)/'startup.m';out=Path(tmp)/'startup';src.write_text('#import "LMVPanelCommon.h"\n'+pre+scheduler+mark+late+cover+main)
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation',str(src),'-o',str(out)],check=True)
     subprocess.run([str(out)],check=True,timeout=30)

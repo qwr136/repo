@@ -1,5 +1,5 @@
 #pragma once
-#import "LMVPanelCommon.h"
+#import "LMVPanelCommonUI.h"
 // 1.43: the CopyVault clipboard panel background (CopyVault 面板背景视频).
 //
 // Shape settled by the 1.42 device diagnostics (`desktop-panel-tree` /

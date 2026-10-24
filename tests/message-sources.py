@@ -387,7 +387,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
 with tempfile.TemporaryDirectory() as tmp:
     Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src=Path(tmp)/'sources.m'; binary=Path(tmp)/'sources'; movie=Path(tmp)/'fixture.mov'
-    src.write_text(preamble + production + tests)
+    src.write_text('#import "LMVPanelCommon.h"\n'+preamble + production + tests)
     subprocess.run(['clang','-fobjc-arc','-Wno-deprecated-declarations','-framework','Foundation',
         '-framework','AVFoundation','-framework','QuartzCore','-framework','CoreMedia',
         '-framework','CoreVideo','-framework','CoreGraphics','-framework','CoreImage',str(src),'-o',str(binary)],check=True)

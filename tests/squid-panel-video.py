@@ -47,7 +47,7 @@ assert 'if(frame.size.width<bounds.size.width*.4 || frame.size.height<bounds.siz
 # 1.25: each shape keeps SEVERAL cards (device log: two 430x435 views, one on
 # screen at y=497 and one parked at y=1459 in a 932-high window) - scoring by area
 # made the choice flip and the video kept landing on the parked one.
-assert '#import "LMVPanelCommon.h"' in module
+assert '#import "LMVPanelCommonUI.h"' in module
 assert 'CGFloat visible=LMVVisibleArea(frame,bounds);' in module
 common=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LMVPanelCommon.h').read_text()
 assert 'return visible / total >= .5 ? visible : 0;' in common

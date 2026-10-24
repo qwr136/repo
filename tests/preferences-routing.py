@@ -292,6 +292,6 @@ int main(void) { @autoreleasepool {
 with tempfile.TemporaryDirectory() as tmp:
     Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src = Path(tmp)/'routing.m'; binary = Path(tmp)/'routing'
-    src.write_text(preamble + method + '\n' + handlers + tests)
+    src.write_text('#import "LMVPanelCommon.h"\n'+preamble + method + '\n' + handlers + tests)
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation',str(src),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)

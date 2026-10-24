@@ -35,7 +35,7 @@ assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.siz
 # 1.42 device fact: while the panel is CLOSED the same card sits OFF SCREEN at
 # y=1454. The shared "at least half of it is really on screen" rule is what keeps
 # the video off that parked copy.
-assert '#import "LMVPanelCommon.h"' in module
+assert '#import "LMVPanelCommonUI.h"' in module
 assert 'CGFloat visible=LMVVisibleArea(frame,bounds);' in module
 common=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LMVPanelCommon.h').read_text()
 assert 'return visible / total >= .5 ? visible : 0;' in common

@@ -76,7 +76,6 @@ int main(void){
 }
 '''
 with tempfile.TemporaryDirectory() as tmp:
-    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src=Path(tmp)/'geometry.c';binary=Path(tmp)/'geometry';src.write_text(cpre+valid+owned+cmain)
     subprocess.run([cc,'-std=c99',str(src),'-lm','-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True,timeout=30)
@@ -188,6 +187,6 @@ int main(void){@autoreleasepool{
 '''
 with tempfile.TemporaryDirectory() as tmp:
     Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
-    src=Path(tmp)/'lock.m';binary=Path(tmp)/'lock';src.write_text(pre+production+main)
+    src=Path(tmp)/'lock.m';binary=Path(tmp)/'lock';src.write_text('#import "LMVPanelCommon.h"\n'+pre+production+main)
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True,timeout=30)

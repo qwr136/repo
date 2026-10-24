@@ -63,6 +63,6 @@ int main(void){@autoreleasepool{
 '''
 with tempfile.TemporaryDirectory() as d:
  Path(d).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
- p=Path(d)/'replace.m';out=Path(d)/'replace';p.write_text(pre+code+main)
+ p=Path(d)/'replace.m';out=Path(d)/'replace';p.write_text('#import "LMVPanelCommon.h"\n'+pre+code+main)
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','CoreFoundation',str(p),'-o',str(out)],check=True)
  subprocess.run([str(out)],check=True,timeout=30)

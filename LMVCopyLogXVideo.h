@@ -1,5 +1,5 @@
 #pragma once
-#import "LMVPanelCommon.h"
+#import "LMVPanelCommonUI.h"
 #import <dlfcn.h>
 #import <objc/runtime.h>
 // 2.32: the CopyLogX clipboard panel (CopyLogX 视频背景).
