@@ -409,9 +409,20 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
 // up to 0.74 s before SBControlCenterWindow itself leaves. An unconfigured
 // module answers nothing at all, so the Desktop keeps its own probe.
 + (BOOL)controlCenterWindowIsEmpty {
-    LMVControlCenterVideoManager *live=LMVControlCenterVideo;
-    if (!live || !live.enabled || !live.path.length) return NO;
-    return !live.presented;
+    // 1.26: report the Control Center's on-screen state from its lifecycle
+    // records (LMVCCControllers / LMVCCRecord), which the CC view-controller
+    // hooks populate regardless of whether the video background is enabled.
+    // The former guard `!live.enabled` forced the desktop back onto the slow
+    // frame probe whenever the background was OFF, so dismissing Control Center
+    // felt laggy with no video behind it. Now the desktop resumes as soon as the
+    // overlay begins closing (state 3 -> record.closing=YES) whether or not video
+    // is on, matching the zero-delay resume the background gives when enabled.
+    if (LMVCCControllers.count==0) return NO; // no CC knowledge yet - keep the desktop's own probe
+    for (UIViewController *c in LMVCCControllers.allObjects) {
+        LMVCCRecord *rec=objc_getAssociatedObject(c,&LMVCCRecordKey);
+        if (rec && rec.known && rec.visible && !rec.closing) return NO; // a live, non-closing overlay still covers
+    }
+    return YES; // no live overlay -> the window is empty
 }
 - (instancetype)init {
     if((self=[super init])) {
