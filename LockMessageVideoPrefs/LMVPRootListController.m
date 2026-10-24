@@ -52,14 +52,26 @@ static void LMVNotify(void) { LMVNotifyFor(nil); }
 // safe - it just costs the full sweep.
 static NSString *LMVTargetForPrefKey(NSString *key) {
     if (![key isKindOfClass:NSString.class] || !key.length) return nil;
-    for (NSString *target in @[@"GS",@"CopyLogX",@"CCBorder",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"Desktop",@"LockScreen"]) {
-        if ([key hasPrefix:target]) return target;
+    // 4.1.1: the list was hand-written with eleven prefixes while the table holds
+    // sixteen. Message/Options/Clear/ControlCenterDark/ControlCenterLight were never
+    // matched, so changing those switches posted the GLOBAL notification and woke
+    // every channel - the exact cost the per-channel notification was added to
+    // remove. Longest prefix first, so a future "MessageX" cannot be shadowed.
+    NSString *best = nil;
+    for (NSString *target in LMVChannelIDs()) {
+        if (![key hasPrefix:target]) continue;
+        if (!best || target.length > best.length) best = target;
     }
-    return nil;
+    return best;
 }
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
 @property(nonatomic) BOOL materialBusy;
+// 4.1.1: painted rows share one parsed copy of material-names.plist. Every painted
+// row used to open and parse the file on the main thread; a thirteen-row screen cost
+// thirteen synchronous reads per scroll. Cleared by -refreshMaterialRows, which every
+// rename / delete / import already calls.
+@property(nonatomic,strong) NSDictionary *materialNamesCache;
 // 1.88: the very table we are the delegate of - captured in -willDisplayCell: so
 // a repaint never has to guess how to reach it (PSListController has `table`,
 // never `tableView`, which is what used to crash Settings).
@@ -88,8 +100,14 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
 // they are painted directly. Repaint the visible cells first (immediate, no flicker,
 // no dependence on when UIKit decides to ask for the cell again), then reload so a row
 // that is currently off screen picks the new name up when it scrolls in.
+// 4.1.1: one parsed copy per refresh, shared by every painted row.
+- (NSDictionary *)materialNames {
+    if (!self.materialNamesCache) self.materialNamesCache = LMVReadMaterialNames();
+    return self.materialNamesCache;
+}
 - (void)refreshMaterialRows {
     if (!self.isViewLoaded || !_specifiers.count) return;
+    self.materialNamesCache = nil;
     // 4.0.6: reloadData re-runs -willDisplayCell: for every visible row, and that is
     // where the name is painted. The old extra paint loop drew every row twice per
     // refresh (and paid the catalog read twice for the privilege).
@@ -425,13 +443,31 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
 // 2.45: the chosen material's name. PSButtonCell has no subtitle label, so the
 // name is an accessory view (2.46) instead of a hand-placed subview.
 static NSInteger const LMVMaterialValueTag = 0x5F2C;
+// 4.1.1: id -> preference key -> view tag for every row that carries a colour swatch.
+// Three places used to encode this list separately (the tag helper, the per-specifier
+// lookup and the recycled-cell cleanup), so a sixth coloured channel meant three edits
+// and a cell that could keep the previous row's swatch if one was missed.
+static NSArray<NSDictionary *> *LMVTextColorRows(void) {
+    static NSArray *rows;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        rows = @[@{@"id": @"CVTextColor",        @"key": LMVTextColorKey,            @"base": @(0x5A2C)},
+                 @{@"id": @"SquidTextColor",    @"key": LMVSquidTextColorKey,       @"base": @(0x5B2C)},
+                 @{@"id": @"PATextColor",       @"key": LMVPhoneAssistTextColorKey, @"base": @(0x5C2C)},
+                 @{@"id": @"GSTextColor",       @"key": LMVGlassSuiteTextColorKey,  @"base": @(0x5D2C)},
+                 @{@"id": @"CopyLogXTextColor", @"key": LMVCopyLogXTextColorKey,    @"base": @(0x5E2C)}];
+    });
+    return rows;
+}
+static NSDictionary *LMVTextColorRowForKey(NSString *key) {
+    for (NSDictionary *row in LMVTextColorRows())
+        if ([row[@"key"] isEqual:key]) return row;
+    return nil;
+}
 static NSInteger LMVTextColorTagFor(NSString *key, BOOL value) {
-    NSInteger base = 0x5A2C;
-    if ([key isEqualToString:LMVSquidTextColorKey]) base = 0x5B2C;
-    else if ([key isEqualToString:LMVPhoneAssistTextColorKey]) base = 0x5C2C;
-    else if ([key isEqualToString:LMVGlassSuiteTextColorKey]) base = 0x5D2C;
-    else if ([key isEqualToString:LMVCopyLogXTextColorKey]) base = 0x5E2C;
-    return base + (value ? 1 : 0);
+    NSDictionary *row = LMVTextColorRowForKey(key);
+    if (!row) return 0;
+    return [row[@"base"] integerValue] + (value ? 1 : 0);
 }
 static NSString *LMVTextColorSummary(UIColor *color) {
     if (!color) return @"默认";
@@ -441,14 +477,12 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 }
 - (NSDictionary *)textColorRowForSpecifier:(PSSpecifier *)specifier {
     id identifier = [specifier propertyForKey:@"id"];
-    NSString *key = nil;
-    if ([identifier isEqualToString:@"CVTextColor"]) key = LMVTextColorKey;
-    else if ([identifier isEqualToString:@"SquidTextColor"]) key = LMVSquidTextColorKey;
-    else if ([identifier isEqualToString:@"PATextColor"]) key = LMVPhoneAssistTextColorKey;
-    else if ([identifier isEqualToString:@"GSTextColor"]) key = LMVGlassSuiteTextColorKey;
-    else if ([identifier isEqualToString:@"CopyLogXTextColor"]) key = LMVCopyLogXTextColorKey;
-    if (!key) return nil;
-    return @{@"key": key, @"dot": @(LMVTextColorTagFor(key, NO)), @"value": @(LMVTextColorTagFor(key, YES))};
+    for (NSDictionary *row in LMVTextColorRows()) {
+        if (![row[@"id"] isEqual:identifier]) continue;
+        NSInteger base = [row[@"base"] integerValue];
+        return @{@"key": row[@"key"], @"dot": @(base), @"value": @(base + 1)};
+    }
+    return nil;
 }
 - (void)paintMaterialName:(NSString *)materialID inCell:(UITableViewCell *)cell {
     // 2.42: the material rows are all called 切换素材 now; the chosen file is shown
@@ -511,7 +545,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         // 4.0.6: read the catalog ONCE per row. This used to parse
         // material-names.plist twice for every painted row - two synchronous disk
         // reads per row on the main thread, on every reload and every scroll tick.
-        NSDictionary *names = LMVReadMaterialNames();
+        NSDictionary *names = [self materialNames];
         name = names[path];
         if (![name isKindOfClass:NSString.class] || !name.length) {
             NSString *relative = path;
@@ -532,17 +566,22 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     NSDictionary *row = [self textColorRowForSpecifier:specifier];
     if (!row) {
         // 1.88: a recycled cell must not carry a swatch onto an unrelated row.
-        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D), @(0x5E2C), @(0x5E2D), @(0x5F2C)])
-            [[cell.contentView viewWithTag:tag.unsignedIntegerValue] removeFromSuperview];
+        for (NSDictionary *colourRow in LMVTextColorRows()) {
+            NSInteger base = [colourRow[@"base"] integerValue];
+            [[cell.contentView viewWithTag:base] removeFromSuperview];
+            [[cell.contentView viewWithTag:base + 1] removeFromSuperview];
+        }
+        [[cell.contentView viewWithTag:LMVMaterialValueTag] removeFromSuperview];
         return;
     }
     NSInteger dotTag = [row[@"dot"] integerValue];
     NSInteger valueTag = [row[@"value"] integerValue];
     // A cell recycled between the two colour rows must not keep the other row's pair.
-    for (NSNumber *base in @[@(0x5A2C), @(0x5B2C), @(0x5C2C), @(0x5D2C), @(0x5E2C)]) {
-        if (base.integerValue == dotTag) continue;
-        [[cell.contentView viewWithTag:base.unsignedIntegerValue] removeFromSuperview];
-        [[cell.contentView viewWithTag:base.unsignedIntegerValue + 1] removeFromSuperview];
+    for (NSDictionary *otherRow in LMVTextColorRows()) {
+        NSInteger otherBase = [otherRow[@"base"] integerValue];
+        if (otherBase == dotTag) continue;
+        [[cell.contentView viewWithTag:otherBase] removeFromSuperview];
+        [[cell.contentView viewWithTag:otherBase + 1] removeFromSuperview];
     }
     UIView *dot = [cell.contentView viewWithTag:dotTag];
     UILabel *value = [cell.contentView viewWithTag:valueTag];

@@ -128,9 +128,24 @@ for pattern, label in limits:
                 bare.append('%s: %s' % (p.name, line.strip()[:70]))
     check(not bare, '%s ceiling is still a bare number: %s' % (label, bare))
 
+# 7) The settings page has two lists that used to be hand-written in several places.
+#    Both now derive from the one table; a second copy is how the wrong channel gets a
+#    notification and a recycled cell keeps the previous row's colour swatch.
+page = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
+check('for (NSString *target in LMVChannelIDs())' in page,
+      'the switch-to-channel prefix lookup must come from the channel table')
+check('@"GS",@"CopyLogX",@"CCBorder"' not in page,
+      'the channel prefix list is hand-written again')
+for base in ('0x5A2C', '0x5B2C', '0x5C2C', '0x5D2C', '0x5E2C'):
+    check(page.count('@(%s)' % base) == 1,
+          'colour tag base %s appears %d times; it belongs in LMVTextColorRows() once'
+          % (base, page.count('@(%s)' % base)))
+check('LMVTextColorRows()' in page and page.count('static NSArray<NSDictionary *> *LMVTextColorRows(void)') == 1,
+      'the colour rows must come from one table')
+
 if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.1.0 - 8 panel helpers, 3 hash helpers and 5 store wrappers defined once; '
-      '13 panels import the shared header; 8 host tags, 3 cache folders and 3 ceilings named once')
+print('PASS: 4.1.1 - 8 panel helpers, 3 hash helpers and 5 store wrappers defined once; '
+      '13 panels import the shared header; 8 host tags, 3 cache folders, 3 ceilings, one colour-row table')

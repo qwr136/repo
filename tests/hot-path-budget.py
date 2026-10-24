@@ -27,13 +27,17 @@ def slice_between(text, start, end):
     return text[a:b]
 
 
-# 1) row paint reads the catalog once
-paint = slice_between(page, '- (void)paintMaterialName:', '- (void)tableView:(UITableView *)tableView willDisplayCell:')
-check(paint.count('LMVReadMaterialNames()') == 1,
-      'paintMaterialName must read material-names.plist once, found %d' % paint.count('LMVReadMaterialNames()'))
+# 1) row paint never reads the catalog itself - it shares one parsed copy per refresh
+paint = slice_between(page, '- (void)paintMaterialName:(NSString *)materialID inCell:(UITableViewCell *)cell {',
+                      '- (void)tableView:(UITableView *)tableView willDisplayCell:')
+check('LMVReadMaterialNames()' not in paint,
+      'paintMaterialName must not parse material-names.plist; it runs once per painted row')
+check('[self materialNames]' in paint, 'paintMaterialName must use the shared catalog copy')
 # 2) refresh repaints through reloadData only
 refresh = slice_between(page, '- (void)refreshMaterialRows {', '- (void)viewWillAppear:')
 check('[self.table reloadData];' in refresh, 'refreshMaterialRows must reload the table')
+check('self.materialNamesCache = nil;' in refresh,
+      'refreshMaterialRows must drop the cached catalog so the next paint re-reads it')
 check('visibleCells' not in refresh, 'the manual paint loop is redundant with reloadData')
 
 # 3) a material switch loads preferences once
@@ -56,4 +60,4 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.0.6 - one catalog read per row, one prefs load per switch, one ancestry walk per cell per frame')
+print('PASS: 4.1.1 - one catalog parse per refresh, one prefs load per switch, one ancestry walk per cell per frame')

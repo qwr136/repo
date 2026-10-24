@@ -168,7 +168,8 @@ for file, target in channels:
     assert f'LMVTuneProbeInterval(@"{target}")' in src, f'{file}: probe'
 
 # ---- 8) 素材显示：设置行必须查目录里的显示名，而不是文件 UUID -------------------
-assert 'NSDictionary *names = LMVReadMaterialNames();' in prefs and 'name = names[path];' in prefs, 'material row must use the catalog name'
+assert 'NSDictionary *names = [self materialNames];' in prefs and 'name = names[path];' in prefs, 'material row must use the catalog name (through the shared copy, 4.1.1)'
+assert 'self.materialNamesCache = LMVReadMaterialNames();' in prefs, 'the shared copy still comes from the catalog'
 assert '[value lastPathComponent]' not in prefs, 'file name is the last resort only'
 
 # ---- 9) 本测试已接入 CI --------------------------------------------------------
