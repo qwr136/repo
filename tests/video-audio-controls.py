@@ -345,7 +345,7 @@ int main(void) { @autoreleasepool {
     # fixture must carry those two production helpers too - without them the native
     # build fails with "call to undeclared function".
     # 4.0.7: section ids and titles now come from the one channel table.
-    channels = '\n'.join(line for line in (r / 'LockMessageVideoPrefs/LMVChannels.h').read_text().splitlines()
+    channels = '\n'.join(line for line in (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text().splitlines()
                          if not line.startswith('#import') and not line.startswith('#pragma'))
     actual_helpers = helpers + '\n' + channels + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
