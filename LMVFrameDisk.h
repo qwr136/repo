@@ -7,7 +7,7 @@
 #import <math.h>
 #import "LMVStoragePaths.h"
 static inline NSString *LMVFrameDiskRootPath(void) {
-    return [LMVStorageRootPath stringByAppendingPathComponent:@".last-frames"];
+    return LMVFrameCachePath();
 }
 #ifndef LMV_FRAME_DISK_ROOT
 #define LMV_FRAME_DISK_ROOT LMVFrameDiskRootPath()

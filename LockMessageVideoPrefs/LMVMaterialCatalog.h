@@ -41,9 +41,9 @@ static void LMVSweepStaleCaches(NSArray<NSString *> *liveRelatives) {
         [posters addObject:LMVCacheHashName([absolute stringByStandardizingPath])];
         [frames addObject:LMVCacheHashName([[absolute stringByStandardizingPath] stringByResolvingSymlinksInPath])];
     }
-    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:@".material-thumbnails"], thumbnails);
-    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:@".background-posters"], posters);
-    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:@".last-frames"], frames);
+    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:LMVThumbnailCacheFolder], thumbnails);
+    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:LMVPosterCacheFolder], posters);
+    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:LMVFrameCacheFolder], frames);
 }
 // All catalog reads/writes run on LMVMaterialQueue, shared with import/clear.
 // Keys are stable relative paths. Renaming never mutates a material or preference.

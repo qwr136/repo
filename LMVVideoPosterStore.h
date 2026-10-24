@@ -9,7 +9,7 @@
 #import <errno.h>
 #import "LMVStoragePaths.h"
 static inline NSString *LMVVideoPosterRootPath(void) {
-    return [LMVStorageRootPath stringByAppendingPathComponent:@".background-posters"];
+    return LMVPosterCachePath();
 }
 #ifndef LMV_VIDEO_POSTER_ROOT
 #define LMV_VIDEO_POSTER_ROOT LMVVideoPosterRootPath()

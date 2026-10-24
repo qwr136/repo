@@ -37,7 +37,7 @@ static NSString *LMVThumbnailRecordPath(NSString *relative) {
     CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
     NSMutableString *name = [NSMutableString new];
     for (NSUInteger i = 0; i < sizeof(digest); i++) [name appendFormat:@"%02x", digest[i]];
-    return [[LMV_CATALOG_ROOT stringByAppendingPathComponent:@".material-thumbnails"]
+    return [[LMV_CATALOG_ROOT stringByAppendingPathComponent:LMVThumbnailCacheFolder]
         stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"plist"]];
 }
 #ifndef LMVThumbnailDiagnostic
