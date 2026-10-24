@@ -75,7 +75,7 @@ static BOOL LMVDiskWrite(NSString *path, NSString *revision, CGImageRef image, C
         ok=CGImageDestinationFinalize(destination);
     }
     if (scaled) CGImageRelease(scaled); if (destination) CFRelease(destination);
-    if (!ok || !encoded.length || encoded.length>4*1024*1024) return NO;
+    if (!ok || !encoded.length || encoded.length>LMV_FRAME_IMAGE_LIMIT) return NO;
     NSDictionary *record=@{@"schema":@1,@"revision":revision,@"rendered":@YES,@"image":encoded,
         @"value":@(time.value),@"timescale":@(time.timescale),@"epoch":@(time.epoch)};
     NSData *data=[NSPropertyListSerialization dataWithPropertyList:record format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
@@ -101,7 +101,7 @@ static CGImageRef LMVDiskRead(NSString *path, NSString *revision, CMTime *time) 
     NSData *imageData=record[@"image"];
     BOOL valid=[record[@"schema"] isEqual:@1] && [record[@"rendered"] isEqual:@YES] &&
         [record[@"revision"] isEqual:revision] && [LMVDiskRevision(path) isEqualToString:revision] &&
-        [imageData isKindOfClass:NSData.class] && imageData.length>0 && imageData.length<=4*1024*1024;
+        [imageData isKindOfClass:NSData.class] && imageData.length>0 && imageData.length<=LMV_FRAME_IMAGE_LIMIT;
     for (NSString *key in @[@"value",@"timescale",@"epoch"]) valid=valid && [record[key] isKindOfClass:NSNumber.class];
     CMTime pts=valid ? CMTimeMakeWithEpoch([record[@"value"] longLongValue],[record[@"timescale"] intValue],[record[@"epoch"] longLongValue]) : kCMTimeInvalid;
     valid=valid && CMTIME_IS_NUMERIC(pts) && CMTimeCompare(pts,kCMTimeZero)>=0;

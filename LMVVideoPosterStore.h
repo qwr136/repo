@@ -32,7 +32,7 @@ static CGImageRef LMVVideoPosterRead(NSString *path,NSString *revision) {
     if(!name || !revision.length || ![LMVLockVideoRevision(path) isEqualToString:revision])return NULL;
     int directory=LMVVideoPosterDirectory(NO);if(directory<0)return NULL;
     int file=openat(directory,name.fileSystemRepresentation,O_RDONLY|O_NOFOLLOW);close(directory);if(file<0)return NULL;
-    struct stat s;if(fstat(file,&s) || !S_ISREG(s.st_mode) || s.st_size<=0 || s.st_size>8*1024*1024){close(file);return NULL;}
+    struct stat s;if(fstat(file,&s) || !S_ISREG(s.st_mode) || s.st_size<=0 || s.st_size>LMV_POSTER_RECORD_LIMIT){close(file);return NULL;}
     NSMutableData *data=[NSMutableData dataWithLength:(NSUInteger)s.st_size];NSUInteger count=0;BOOL okay=YES;
     while(count<data.length) {ssize_t n=read(file,(char *)data.mutableBytes+count,data.length-count);if(n<0 && errno==EINTR)continue;if(n<=0){okay=NO;break;}count+=(NSUInteger)n;}close(file);
     if(!okay)return NULL;
@@ -40,7 +40,7 @@ static CGImageRef LMVVideoPosterRead(NSString *path,NSString *revision) {
     if(![record isKindOfClass:NSDictionary.class] || ![record[@"schema"] isEqual:@1] ||
        ![record[@"path"] isKindOfClass:NSString.class] || ![record[@"revision"] isKindOfClass:NSString.class] ||
        ![record[@"path"] isEqualToString:path.stringByStandardizingPath] || ![record[@"revision"] isEqualToString:revision])return NULL;
-    NSData *encoded=record[@"image"];if(![encoded isKindOfClass:NSData.class] || !encoded.length || encoded.length>6*1024*1024)return NULL;
+    NSData *encoded=record[@"image"];if(![encoded isKindOfClass:NSData.class] || !encoded.length || encoded.length>LMV_POSTER_IMAGE_LIMIT)return NULL;
     CGImageSourceRef source=CGImageSourceCreateWithData((__bridge CFDataRef)encoded,NULL);if(!source)return NULL;
     NSDictionary *props=(__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source,0,NULL);
     NSUInteger width=[props[(id)kCGImagePropertyPixelWidth] unsignedIntegerValue],height=[props[(id)kCGImagePropertyPixelHeight] unsignedIntegerValue];
@@ -60,9 +60,9 @@ static BOOL LMVVideoPosterWrite(NSString *path,NSString *revision,CGImageRef ima
     CGImageRef scaled=CGBitmapContextCreateImage(context);CGContextRelease(context);if(!scaled)return NO;
     NSMutableData *encoded=[NSMutableData new];CGImageDestinationRef writer=CGImageDestinationCreateWithData((__bridge CFMutableDataRef)encoded,CFSTR("public.jpeg"),1,NULL);
     BOOL okay=NO;if(writer){CGImageDestinationAddImage(writer,scaled,(__bridge CFDictionaryRef)@{(id)kCGImageDestinationLossyCompressionQuality:@0.9});okay=CGImageDestinationFinalize(writer);CFRelease(writer);}CGImageRelease(scaled);
-    if(!okay || encoded.length>6*1024*1024)return NO;
+    if(!okay || encoded.length>LMV_POSTER_IMAGE_LIMIT)return NO;
     NSDictionary *record=@{@"schema":@1,@"path":path.stringByStandardizingPath,@"revision":revision,@"image":encoded};
-    NSData *data=[NSPropertyListSerialization dataWithPropertyList:record format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];if(!data || data.length>8*1024*1024)return NO;
+    NSData *data=[NSPropertyListSerialization dataWithPropertyList:record format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];if(!data || data.length>LMV_POSTER_RECORD_LIMIT)return NO;
     int directory=LMVVideoPosterDirectory(YES);if(directory<0)return NO;
     struct stat s;
     if(fstatat(directory,name.fileSystemRepresentation,&s,AT_SYMLINK_NOFOLLOW)==0 && !S_ISREG(s.st_mode)){close(directory);return NO;}

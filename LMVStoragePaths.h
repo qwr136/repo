@@ -79,6 +79,21 @@ static inline NSString *LMVStorageHashPrefix(NSString *string, NSUInteger bytes)
     return [hex substringToIndex:MIN(bytes * 2, hex.length)];
 }
 
+// 4.1.0: the three record ceilings, each previously typed at both the read and the
+// write side of the same store. Macros rather than consts on purpose: every value is
+// compared against off_t (struct stat.st_size) in one place and NSUInteger
+// (NSData.length) in another, and a const would turn those into signed/unsigned
+// comparisons.
+#ifndef LMV_POSTER_IMAGE_LIMIT
+#define LMV_POSTER_IMAGE_LIMIT  (6 * 1024 * 1024)
+#endif
+#ifndef LMV_POSTER_RECORD_LIMIT
+#define LMV_POSTER_RECORD_LIMIT (8 * 1024 * 1024)
+#endif
+#ifndef LMV_FRAME_IMAGE_LIMIT
+#define LMV_FRAME_IMAGE_LIMIT   (4 * 1024 * 1024)
+#endif
+
 // Full paths for the two stores that hang off the storage root. The catalog and the
 // thumbnail header build their own paths from LMV_CATALOG_ROOT - fixtures override
 // that macro, so they must keep using it rather than these helpers.
