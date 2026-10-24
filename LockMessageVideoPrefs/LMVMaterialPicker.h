@@ -1,6 +1,6 @@
 #pragma once
 #import <UIKit/UIKit.h>
-#import "LMVStoragePaths.h"
+#import "../LMVStoragePaths.h"
 #import <AVFoundation/AVFoundation.h>
 #import "LMVMaterialCatalog.h"
 #import "LMVThumbnailDiagnosticLog.h"

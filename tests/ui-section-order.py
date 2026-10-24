@@ -485,7 +485,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: reloadLibrary no longer pre-writes auto names and drops orphan
         # catalog entries, then sweeps stale caches. Only row assembly changed; the
         # delete routing below is untouched, so the digest is refreshed for that edit.
-        self.assertEqual(digest(PICKER), '085be8b3cb9dc7de9b2503c090f26240e76f3c2291648a2a0163a3867bcf1623')
+        self.assertEqual(digest(PICKER), 'c2848810921ed401335d027522abb4fd6f6502c3b7a99c80e43c42c1d35a1fa1')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')

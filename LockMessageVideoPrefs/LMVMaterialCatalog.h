@@ -1,7 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonCrypto.h>
-#import "LMVStoragePaths.h"
+#import "../LMVStoragePaths.h"
 
 #ifndef LMV_CATALOG_ROOT
 #define LMV_CATALOG_ROOT LMVStorageRootPath

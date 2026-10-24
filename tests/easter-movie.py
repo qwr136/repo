@@ -16,7 +16,9 @@ if platform.system()!='Darwin':
     raise SystemExit(0)
 media=media.replace('#pragma once','').replace('#import <UIKit/UIKit.h>','')
 import re
-media=re.sub(r'static NSString \* const LMVEasterFolder = .*?;', 'static NSString *LMVEasterFolder;', media)
+media=re.sub(r'static inline NSString \*LMVEasterFolder\(void\) \{.*?\n\}', 'static NSString *LMVEasterFolder;', media, flags=re.S)
+media=re.sub(r'static inline NSString \*LMVEasterImagesFolder\(void\) \{.*?\n\}', 'static NSString *LMVEasterImagesFolder;', media, flags=re.S)
+media=media.replace('LMVEasterImagesFolder;','LMVEasterImagesFolder;')
 media=media.replace('@"/var/mobile/LockMessageVideo"','testRoot')
 for header in ['LMVMaterialStorage.h','LMVMaterialCatalog.h']:
     media=media.replace('"LockMessageVideoPrefs/'+header+'"','"'+str(r/'LockMessageVideoPrefs'/header)+'"')

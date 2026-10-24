@@ -107,6 +107,7 @@ int main(void){@autoreleasepool{
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as tmp:
+ pre=pre+'\nstatic NSArray *LMVCardTargets(void) { return @[@"Message",@"Options",@"Clear"]; }\n'
  source=Path(tmp)/'cards.m';binary=Path(tmp)/'cards';source.write_text('\n'.join([pre,ready,retry,queue,maintenance,main]))
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','CoreGraphics',str(source),'-o',str(binary)],check=True)
  subprocess.run([str(binary)],check=True,timeout=30)

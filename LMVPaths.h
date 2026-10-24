@@ -1,6 +1,6 @@
 #pragma once
 #import <Foundation/Foundation.h>
-#import "LockMessageVideoPrefs/LMVStoragePaths.h"
+#import "LMVStoragePaths.h"
 
 // Keep user data on the original iOS root. Only installed jailbreak resources
 // are jbroot-relative; this is not a global replacement of every absolute path.

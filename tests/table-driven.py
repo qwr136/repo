@@ -10,7 +10,7 @@ import re
 
 root = Path(__file__).resolve().parents[1]
 channels = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
-storage = (root / 'LockMessageVideoPrefs/LMVStoragePaths.h').read_text()
+storage = (root / 'LMVStoragePaths.h').read_text()
 tweak = (root / 'Tweak.xm').read_text()
 page = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
 delete = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
@@ -51,8 +51,10 @@ check('@"CopyLogX":@"CopyLogX 视频背景"' not in page, 'titles are hand-writt
 check('LMVStorageRootPath = @"/var/mobile/LockMessageVideo";' in storage, 'storage root constant missing')
 code = ''.join(p.read_text(errors='ignore') for p in root.rglob('*')
                if p.suffix in ('.h', '.m', '.xm') and p.is_file() and 'tests' not in p.parts)
-check(code.count('@"/var/mobile/LockMessageVideo"') == 1,
-      'the storage path is typed out more than once (%d)' % code.count('@"/var/mobile/LockMessageVideo"'))
+# One canonical constant plus one fixture-isolated fallback (the logger header is
+# copied into a temp dir and cannot import anything).
+check(code.count('@"/var/mobile/LockMessageVideo"') == 2,
+      'the storage path is typed out %d times (expected 2)' % code.count('@"/var/mobile/LockMessageVideo"'))
 
 if failures:
     for failure in failures:

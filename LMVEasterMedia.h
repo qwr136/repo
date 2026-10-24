@@ -7,7 +7,7 @@
 #import "LMVPanelTuning.h"
 #import "LockMessageVideoPrefs/LMVMaterialStorage.h"
 #import "LockMessageVideoPrefs/LMVMaterialCatalog.h"
-#import "LockMessageVideoPrefs/LMVStoragePaths.h"
+#import "LMVStoragePaths.h"
 
 #ifndef LMVEasterWindowDiagnostic
 #define LMVEasterWindowDiagnostic(reason) ((void)0)

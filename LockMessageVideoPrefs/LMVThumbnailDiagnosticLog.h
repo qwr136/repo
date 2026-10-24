@@ -1,6 +1,12 @@
 #pragma once
 #import <Foundation/Foundation.h>
-#import "LMVStoragePaths.h"
+// This header is compiled on its own by the preview-diagnostics fixture, which
+// copies it into a temp directory with no include path - so it cannot import the
+// shared header. The fallback below is the only duplicated literal left, and
+// tests/table-driven.py pins it to exactly one.
+#ifndef LMV_STORAGE_ROOT_FALLBACK
+#define LMV_STORAGE_ROOT_FALLBACK @"/var/mobile/LockMessageVideo"
+#endif
 #import <unistd.h>
 // Dedicated serial writer in BOTH hosts. Playback and wallpaper quotas cannot
 // swallow preview events; SpringBoard and Preferences never rotate the same file.
@@ -25,7 +31,7 @@ static void LMVThumbnailDiagnosticWrite(NSString *event) {
             // Windowed budget, not lifetime starvation. Report the dropped window.
             if (++records > 1000) return;
             NSFileManager *fm = NSFileManager.defaultManager;
-            NSString *root = LMVStorageRootPath;
+            NSString *root = LMV_STORAGE_ROOT_FALLBACK;
             [fm createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
             BOOL springboard = [NSProcessInfo.processInfo.processName isEqualToString:@"SpringBoard"];
             NSString *path = [root stringByAppendingPathComponent:springboard ? @"thumbnail-preview-springboard.log" : @"thumbnail-preview-settings.log"];
