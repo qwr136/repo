@@ -137,7 +137,9 @@ static void turn(void) {[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithT
 lock=(r/'LMVLockVideo.h').read_text()
 rect=lock[lock.index('static BOOL LMVLockVideoRectValid'):lock.index('static UIView *LMVLockVideoObjectView')]
 desktop=(r/'LMVDesktopVideo.h').read_text()
-getters=desktop[desktop.index('static BOOL LMVDesktopObjectGetter'):desktop.index('static BOOL LMVDesktopWallpaperClass')]
+# 4.0.9: the getter guard moved to the shared header, so this slice starts at the
+# caller that still lives here.
+getters=desktop[desktop.index('static id LMVDesktopGet'):desktop.index('static BOOL LMVDesktopWallpaperClass')]
 home=desktop[desktop.index('static BOOL LMVDesktopHomeWindow'):desktop.index('static BOOL LMVDesktopGeometryVisible')]
 foreground=desktop[desktop.index('static NSInteger LMVDesktopForeground'):desktop.index('@interface LMVDesktopControllerRecord')]
 cc=(r/'LMVControlCenterVideo.h').read_text()
