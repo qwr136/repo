@@ -50,7 +50,7 @@ check('LMVCardStateVisibleInScope(cell,state,target,cellVisible,cellOnNotificati
       'tick must reuse the per-frame visibility instead of recomputing it per target')
 check('LMVCardStateVisible(cell,state,target)' not in tick,
       'tick still calls the per-target variant that walks the tree again')
-check('static BOOL LMVCardStateVisibleInScope(' in card, 'the scoped variant must exist')
+check('static BOOL LMVCardStateVisibleInScope(' in tweak, 'the scoped variant must exist')
 
 if failures:
     for failure in failures:

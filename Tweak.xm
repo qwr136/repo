@@ -914,6 +914,19 @@ static BOOL LMVVisible(UIView *view) {
     if (!LMVPlaybackAllowed() || !LMVNotificationCenterSurface(view)) return NO;
     return LMVCardExposed(view);
 }
+// 4.0.6: the display-link tick asks "is this target visible" once per target per
+// frame. The owner's ancestry and the playback gate are identical for all three
+// targets, and LMVCardStateAttached has already proved the overlay sits inside
+// this owner, so the overlay shares that ancestry. Callers that computed both
+// once pass them in instead of walking the view tree again for every target.
+static BOOL LMVCardStateVisibleInScope(UIView *owner, LMVVideoState *state, NSString *target,
+                                       BOOL ownerVisible, BOOL ownerOnNotificationCenter) {
+    if (!ownerVisible || !ownerOnNotificationCenter) return NO;
+    if (!LMVEnabled[target].boolValue || !LMVPaths[target].length) return NO;
+    if (![state.path isEqualToString:LMVPaths[target]]) return NO;
+    if (!LMVCardStateAttached(owner,state)) return NO;
+    return LMVPlaybackAllowed() && LMVCardExposed(state.overlay);
+}
 static char LMVCardPipelineAuditKey;
 static void LMVCardPipelineAudit(UIView *owner,LMVVideoState *state,NSString *target,UIView *anchor,NSString *stage) {
     if(!LMVDiagnosticsEnabled.load())return;
