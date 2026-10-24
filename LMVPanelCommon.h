@@ -27,20 +27,6 @@
 #import <math.h>
 #import <string.h>
 
-// The window snapshot and the glass test both need a view's class name. The real
-// probe caches it on the view; a fixture that compiled one header alone has no
-// probe, so fall back to the plain lookup. This stays behind a private name: the
-// panel headers define their own LMVProbeClassName fallback when the probe is
-// missing, and defining that same symbol here would collide with it.
-#if __has_include("LMVProbeWindows.h")
-#import "LMVProbeWindows.h"
-#define LMVCommonClassName(view) LMVProbeClassName(view)
-#else
-static inline NSString *LMVCommonClassName(UIView *view) {
-    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
-}
-#endif
-
 // The desktop and the exit hooks all ask the same question before touching
 // SpringBoard-only state.
 static inline BOOL LMVSpringBoard(void) {

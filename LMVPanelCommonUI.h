@@ -8,6 +8,19 @@
 #import <UIKit/UIKit.h>
 #import "LMVPanelCommon.h"
 
+// The class name is needed by the window snapshot and the glass test. The probe
+// caches it on the view; a fixture that compiled one panel header alone has none, so
+// fall back to the plain lookup. Kept behind a private name: the panel headers define
+// their own LMVProbeClassName fallback and defining that symbol here would collide.
+#if __has_include("LMVProbeWindows.h")
+#import "LMVProbeWindows.h"
+#define LMVCommonClassName(view) LMVProbeClassName(view)
+#else
+static inline NSString *LMVCommonClassName(id view) {
+    return view ? (NSStringFromClass([view class]) ?: @"") : @"";
+}
+#endif
+
 // Text colour is re-applied only when it actually differs; UIColor equality on the
 // same colour space is not reliable enough for a per-view comparison.
 static inline BOOL LMVColorEqual(UIColor *a, UIColor *b) {
