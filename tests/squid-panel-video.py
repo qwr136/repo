@@ -410,8 +410,8 @@ assert 'squidPanelMaterial.buttonAction = @selector(switchSquidPanel:);' in pref
 assert '- (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@"SquidPanel"]; }' in prefs
 # 1.63: all four SquidGesturePro panels share ONE material (SquidPanelVideo), so there is
 # a single "切换视频" button routed to SquidPanel and no per-shape slots.
-assert '@"SquidPanel":@"",@"AT":@"",@"CV":@""' in delete
-assert '@"SquidPanel",@"AT",@"CV"]' in delete
+assert '@"SquidPanel":@"",@"AT":@"",@"CV":@"",' in delete
+assert '@"SquidPanel",@"AT",@"CV",@"Myrtle"' in delete
 assert '@"SquidPanel": @"右一·右上滑面板背景视频"' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel

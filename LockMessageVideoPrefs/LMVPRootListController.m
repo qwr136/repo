@@ -744,6 +744,11 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     picker.selected = selected;
     __weak typeof(self) weakSelf = self;
     picker.apply = ^(NSString *relative, NSString *name) { [weakSelf selectFile:relative name:name target:target]; };
+    // 4.0.4: deleting the selected material happens AFTER the picker dismisses, so
+    // the page underneath has already painted the old name by the time the file is
+    // gone. Repaint when the library actually changes, otherwise the row keeps the
+    // deleted material's name instead of falling back to 未选择.
+    picker.libraryChanged = ^{ [weakSelf refreshMaterialRows]; };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
 - (void)switchMessage:(PSSpecifier *)specifier { [self switchTarget:@"Message"]; }

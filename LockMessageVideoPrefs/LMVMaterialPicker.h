@@ -39,6 +39,11 @@ static const NSTimeInterval LMVMaterialThumbnailRetryDelay = 3.0;
 @property(nonatomic) BOOL showsThumbnails;
 @property(nonatomic, strong) LMVMaterialPrompt *prompt;
 @property(nonatomic, copy) void (^apply)(NSString *relative, NSString *name);
+// 4.0.4: called after a delete / rename actually changed the library. The picker
+// dismisses BEFORE it unlinks the file, so the settings page behind it reappears
+// while the material still exists - its row is painted with the old name and never
+// repaints. The owner hooks this up to repaint its visible rows.
+@property(nonatomic, copy) void (^libraryChanged)(void);
 @property(nonatomic, copy) NSArray<NSDictionary *> *materials;
 @property(nonatomic, strong) NSCache<NSString *, UIImage *> *thumbnails;
 @property(nonatomic, strong) NSMutableSet<NSString *> *pending;
@@ -497,6 +502,7 @@ static void LMVMaterialSharedState(void) {
                 if (deleted) {
                     if ([live.selected isEqualToString:row[@"path"]]) live.selected = @"";
                     [live.thumbnails removeObjectForKey:row[@"revision"]]; [live reloadLibrary];
+                    if (live.libraryChanged) live.libraryChanged();
                 }
                 [live showPrompt:error ? (deleted ? @"素材已删除，清理未完成" : @"删除失败") : @"素材已删除" message:error.localizedDescription ?: @"相关背景选择已更新。" initial:nil action:nil destructive:NO completion:nil];
             });
@@ -511,7 +517,7 @@ static void LMVMaterialSharedState(void) {
             NSError *error = LMVRenameMaterial(row[@"path"], text);
             dispatch_async(dispatch_get_main_queue(), ^{
                 LMVMaterialPicker *live = weakSelf; if (!live) return;
-                if (!error) [live reloadLibrary];
+                if (!error) { [live reloadLibrary]; if (live.libraryChanged) live.libraryChanged(); }
                 else [live showPrompt:@"重命名失败" message:error.localizedDescription initial:nil action:nil destructive:NO completion:nil];
             });
         });
@@ -539,6 +545,7 @@ static void LMVMaterialSharedState(void) {
                         if ([live.selected isEqualToString:relative]) live.selected=@"";
                         [live.thumbnails removeObjectForKey:row[@"revision"]];
                         [live reloadLibrary];
+                        if (live.libraryChanged) live.libraryChanged();
                     }
                     NSString *title=error ? (deleted ? @"素材已删除，清理未完成" : @"删除失败") : @"素材已删除";
                     UIAlertController *result=[UIAlertController alertControllerWithTitle:title message:error.localizedDescription ?: @"相关背景选择已更新。其他素材保持不变。" preferredStyle:UIAlertControllerStyleAlert];

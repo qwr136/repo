@@ -42,6 +42,17 @@ check('fileExistsAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:path]' 
       'the row must verify the selected file before naming it')
 check('@"未选择"' in row, 'an empty / missing selection reads 未选择')
 
+# 4.0.4: deleting or renaming inside the picker happens AFTER it dismisses, so the
+# page must be told to repaint, and the delete must clear every channel's key.
+picker = (root / 'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
+deletion = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
+check('void (^libraryChanged)(void)' in picker, 'the picker needs a library-changed hook')
+check(picker.count('live.libraryChanged()') >= 3, 'delete (both flows) and rename must fire the hook')
+check('picker.libraryChanged = ^{ [weakSelf refreshMaterialRows]; };' in row,
+      'the settings page must repaint when the library changes')
+check('@"CopyLogX"' in deletion and '@"Myrtle"' in deletion,
+      'deleting a material must clear every channel, not just the 1.x ones')
+
 # 3) the tweak must not trust a persisted path whose file is gone
 check('if (![[NSFileManager defaultManager] fileExistsAtPath:path]) continue;' in tweak,
       'preferences must require the selected file to exist')
@@ -61,4 +72,4 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.0.3 - one font size, tail truncation, 未选择 on empty library, missing-file selection rejected, version chain consistent')
+print('PASS: 4.0.4 - one font size, tail truncation, 未选择 on empty library, missing-file selection rejected, version chain consistent')

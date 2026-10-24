@@ -73,8 +73,8 @@ assert targets[-6:] == ['CV', 'Myrtle', 'PA', 'GS', 'CCBorder', 'CopyLogX'], 'AT
 
 # ---- shared material plumbing ----------------------------------------------
 assert '"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"] containsObject:target];' in prefs, 'AT (and the 1.43 CopyVault one) are selectable material targets'
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete
-assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
+assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"])' in delete
+assert re.search(r'@"AT":@"",@"CV":@', delete), 'the AT (and 1.43 CopyVault) selections are cleared when their material is deleted'
 assert '"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"];' in audio, 'the audio chain list carries AT and the 1.43 CopyVault channel'
 
 # ---- 1.28: the mount is wired now ------------------------------------------

@@ -437,7 +437,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: chooseVideo/didFinishPicking became multi-select (selectionLimit 0,
         # import every picked video through a dispatch group). That is an intended
         # change to these handlers, so the frozen digest is refreshed for it.
-        self.assertEqual(digest(old_handlers), '87d6fbea405ca0c036f084b148962e95fa1c5192aff54e11e6c336db6b283867')
+        self.assertEqual(digest(old_handlers), 'b0297be6a3fc8af414fa408106a4d7263c1ae890053090db4fbdbc773162e986')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
                                ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
@@ -484,7 +484,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: reloadLibrary no longer pre-writes auto names and drops orphan
         # catalog entries, then sweeps stale caches. Only row assembly changed; the
         # delete routing below is untouched, so the digest is refreshed for that edit.
-        self.assertEqual(digest(PICKER), 'cea8395b6f019c4d0107004e597e575033b0c0bbbf1ed3d7a6633c14e4a5ed42')
+        self.assertEqual(digest(PICKER), '40c045e199847a78be8d5c6c8f836196c8f01cecb80440ddcf2ad44c3c359977')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')
@@ -493,11 +493,11 @@ class UISectionOrder(unittest.TestCase):
         deletion_for_digest = deletion_for_digest.replace(',@"SquidPanel4":@""', '').replace(',@"SquidPanel4"', '')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel":@"",@"AT":@""', '@"SquidPanel":@""')
         deletion_for_digest = deletion_for_digest.replace('@"SquidPanel",@"AT"]', '@"SquidPanel"]')
-        self.assertEqual(digest(deletion_for_digest), 'b6a7b64b5c62a05698a3a03d7ca5feda863e4a441740db1eb1f3c0310382c2da')
+        self.assertEqual(digest(deletion_for_digest), '9a5fae69029f10a53fe0fb5b9f8934411b6a8e54efeb052e6da75fb12bb19cbd')
         self.assertIn('if (self.pushed) { [self deleteContained:row]; return; }', PICKER)
         self.assertIn('LMVDeleteMaterial(row[@"path"], &deleted)', PICKER)
         self.assertIn('LMVDeleteMaterial(relative,&deleted)', PICKER)
-        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])', DELETION)
+        self.assertIn('for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"])', DELETION)
         self.assertIn('[target stringByAppendingString:@"Video"]', DELETION)
 
 

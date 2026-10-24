@@ -36,8 +36,10 @@ static NSError *LMVDeleteMaterial(NSString *relative, BOOL *deleted) {
     if (deleted) *deleted=YES;
 
     CFPreferencesAppSynchronize(LMV_DELETE_PREFS_ID);
-    NSDictionary *defaults=@{@"Message":@"message.mov",@"Options":@"options.mov",@"Clear":@"clear.mov",@"LockScreen":@"",@"Desktop":@"",@"ControlCenterDark":@"",@"ControlCenterLight":@"",@"HomeMenu":@"",@"SquidPanel":@"",@"AT":@"",@"CV":@""};
-    for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"]) {
+    // 4.0.4: every switchable channel, not just the ones that existed in 1.x. A
+    // deleted material used by Myrtle/PA/GS/CCBorder/CopyLogX used to keep its key.
+    NSDictionary *defaults=@{@"Message":@"message.mov",@"Options":@"options.mov",@"Clear":@"clear.mov",@"LockScreen":@"",@"Desktop":@"",@"ControlCenterDark":@"",@"ControlCenterLight":@"",@"HomeMenu":@"",@"SquidPanel":@"",@"AT":@"",@"CV":@"",@"Myrtle":@"",@"PA":@"",@"GS":@"",@"CCBorder":@"",@"CopyLogX":@""};
+    for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"]) {
         NSString *key=[target stringByAppendingString:@"Video"];
         id value=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key,LMV_DELETE_PREFS_ID);
         NSString *selected=[value isKindOfClass:NSString.class] ? value : defaults[target];

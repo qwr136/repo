@@ -160,8 +160,8 @@ assert re.findall(r'@"(.*?)"', audio_list)[-6:] == ['CV', 'Myrtle', 'PA', 'GS', 
     'the CV sound channel is followed by the newer panel channels'
 
 # ---- shared material plumbing ----------------------------------------------
-assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV"])' in delete
-assert re.search(r'@"AT":@"",@"CV":@""\}', delete), 'the CV selection is cleared when its material is deleted'
+assert 'for (NSString *target in @[@"Message",@"Options",@"Clear",@"LockScreen",@"Desktop",@"ControlCenterDark",@"ControlCenterLight",@"HomeMenu",@"SquidPanel",@"AT",@"CV",@"Myrtle",@"PA",@"GS",@"CCBorder",@"CopyLogX"])' in delete
+assert re.search(r'@"AT":@"",@"CV":@', delete), 'the CV selection is cleared when its material is deleted'
 
 print('PASS: CopyVault clipboard-panel channel - settings (Settings + floating panel), '
       'material/audio plumbing, and the mount (named-card identity so a taller surface '
