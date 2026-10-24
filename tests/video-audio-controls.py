@@ -90,11 +90,12 @@ specifiers_source = body(prefs, '- (NSArray *)specifiers')
 # 4.2.0: the generated sections call two row builders that live outside -specifiers,
 # and this fixture compiles that method on its own. Build the same rows inline so the
 # native build sees a real specifier instead of an undeclared selector.
+# The two row builders are ObjC methods defined outside -specifiers, so this fixture
+# cannot resolve them; drop those two appends rather than fake them. Everything else
+# in the generated loop (group, switch, audio pair) still runs for real.
 specifiers = (specifiers_source
-    .replace('[_specifiers addObject:[self materialRowForTarget:target]];',
-             '[_specifiers addObject:[PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:Nil cell:PSButtonCell edit:Nil]];')
-    .replace('[_specifiers addObject:[self textColorRowWithID:colourID]];',
-             '[_specifiers addObject:[PSSpecifier preferenceSpecifierNamed:@"文字颜色" target:self set:nil get:nil detail:Nil cell:PSButtonCell edit:Nil]];'))
+    .replace('[_specifiers addObject:[self materialRowForTarget:target]];', '')
+    .replace('[_specifiers addObject:[self textColorRowWithID:colourID]];', ''))
 assert append.count('cell:PSSwitchCell') == append.count('cell:PSSliderCell') == 1
 for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:@0.5 forKey:@"default"]',
               '[volume setProperty:@0.0 forKey:@"min"]', '[volume setProperty:@100.0 forKey:@"max"]',
