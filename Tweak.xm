@@ -1999,9 +1999,14 @@ static BOOL LMVSettingsAppProcess(void) {
         // 3.05: Darwin notifications have no wildcards, so every channel name is
         // registered explicitly. A name missing here would leave that channel deaf -
         // the one failure mode this change introduces, hence the full list below.
+        // 4.0.2: Message / Options / Clear were missing from this list (3.05 only
+        // registered the non-card channels plus "Cards"), so switching their
+        // material in Settings posted a name nobody listened to: the old card kept
+        // playing and nothing rebind until a respring.
         NSMutableArray<NSString *> *notes=[NSMutableArray arrayWithObject:@"com.minis.lockmessagevideo/videoChanged"];
         [notes addObject:@"com.minis.lockmessagevideo/preferencesChanged"];
-        for (NSString *channel in @[@"LockNC",@"LockScreen",@"Desktop",@"CC",@"ControlCenterDark",@"ControlCenterLight",
+        for (NSString *channel in @[@"Message",@"Options",@"Clear",
+                                    @"LockNC",@"LockScreen",@"Desktop",@"CC",@"ControlCenterDark",@"ControlCenterLight",
                                     @"HomeMenu",@"SquidPanel",@"AT",@"CopyLogX",@"PA",@"GS",@"CCBorder",@"CV",@"Myrtle",@"Bubble",@"Cards"]) {
             [notes addObject:[NSString stringWithFormat:@"com.minis.lockmessagevideo/preferencesChanged.%@",channel]];
         }

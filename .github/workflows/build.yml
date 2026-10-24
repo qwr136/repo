@@ -111,6 +111,7 @@ jobs:
           check clang -fobjc-arc -framework Foundation tests/material-catalog.m -o "$RUNNER_TEMP/lmv-material-catalog"
           check "$RUNNER_TEMP/lmv-material-catalog"
           check python3 tests/material-row-label.py
+          check python3 tests/prefs-notifications.py
           check cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
           check "$RUNNER_TEMP/lmv-import-plan"
           test "$failures" -eq 0
