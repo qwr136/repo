@@ -241,7 +241,9 @@ enum { PSButtonCell = 13, PSSwitchCell = 6 };
 @end
 @implementation LMVPRootListController
 '''
-preamble = preamble.replace('@TARGET_FUNCTIONS@', re.search(r'static NSArray<NSString \*> \*LMVTargets\(void\) \{[^\n]+\}', source).group(0) + '\n' + allowed_target)
+channels = '\n'.join(line for line in (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text().splitlines()
+                     if not line.startswith('#import') and not line.startswith('#pragma'))
+preamble = preamble.replace('@TARGET_FUNCTIONS@', channels + '\n' + re.search(r'static NSArray<NSString \*> \*LMVSectionTargets\(void\) \{[^\n]+\}', source).group(0) + '\n' + allowed_target)
 # Compile the actual switch wrappers too, so each selector must reach its own target.
 switch_actions = sorted(action for action in actions if action.startswith('switch'))
 switch_handlers = [re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', source).group(0) for action in switch_actions]
