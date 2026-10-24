@@ -871,9 +871,12 @@ static void LMVLoadPreferences(void) {
         if (!explicitSelection) relative = LMVMaterialSources[target];
         if (![relative isKindOfClass:NSString.class] || !relative.length) continue;
         NSString *path = [[LMVDirectory stringByAppendingPathComponent:relative] stringByStandardizingPath];
-        if (!explicitSelection && ![[NSFileManager defaultManager] fileExistsAtPath:path]) continue;
-        // A persisted selection survives unreadable/missing files. Empty selection
-        // (including successful material deletion) alone restores the original.
+        // 4.0.1: a persisted selection whose file is gone is no longer a selection.
+        // Only the implicit default used to be existence-checked, so a material
+        // deleted from a file manager kept LMVPaths[target] alive, the Message card
+        // kept its last surface on screen and the original background never came
+        // back. Every target (explicit or default) must point at a real file.
+        if (![[NSFileManager defaultManager] fileExistsAtPath:path]) continue;
         if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]]) LMVPaths[target] = path;
     }
     NSNumber *opacityEnabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("VideoOpacityEnabled"), kLMVPrefsID);
@@ -1475,6 +1478,15 @@ static void LMVReleaseAllPlayers(void) {
     }
 
 }
+// 4.0.1: a material can be deleted outside the plugin (Files, Filza), which posts
+// no Darwin notification here. Re-validate the selected files on every refresh -
+// one stat per channel, not per frame - so a dead Message selection drops its
+// surface and the original notification background comes back.
+static void LMVPruneMissingPaths(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    for (NSString *target in LMVPaths.allKeys)
+        if (![fm fileExistsAtPath:LMVPaths[target]]) [LMVPaths removeObjectForKey:target];
+}
 static void LMVRefresh(BOOL reload) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
     if (reload) {
@@ -1482,6 +1494,7 @@ static void LMVRefresh(BOOL reload) {
         // Unrelated imports must not tear down a working selected shared source.
         LMVLoadPreferences();LMVReloadAudioControls();
     }
+    LMVPruneMissingPaths();
     [LMVDirtyCards removeAllObjects];[LMVDirtyPresenters removeAllObjects];
     LMVLockVideoRefresh(reload);
     LMVDesktopVideoRefresh(reload);

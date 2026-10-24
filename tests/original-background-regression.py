@@ -105,7 +105,12 @@ assert 'LMVPause(state)' in reuse
 assert 'LMVRestoreBackground(state)' in function(s,'static void LMVPause(LMVVideoState *state)')
 assert 'LMVReleaseOriginals(_originals, self)' in s
 prefs=function(s,'static void LMVLoadPreferences(void)')
-assert 'BOOL explicitSelection' in prefs and '!explicitSelection && ![[NSFileManager' in prefs
+assert 'BOOL explicitSelection' in prefs
+# 4.0.1: every selection - explicit or default - must point at a file that still
+# exists. A material deleted in a file manager used to keep its Message card
+# surface on screen, because only the implicit default was existence-checked.
+assert 'if (![[NSFileManager defaultManager] fileExistsAtPath:path]) continue;' in prefs
+assert '!explicitSelection && ![[NSFileManager' not in prefs
 assert 'if (![relative isKindOfClass:NSString.class] || !relative.length) continue' in prefs
 assert 'if ([path hasPrefix:[LMVDirectory stringByAppendingString:@"/"]]) LMVPaths[target] = path' in prefs
 # Actual frame publish swaps only owned contents; it never invokes replacement,

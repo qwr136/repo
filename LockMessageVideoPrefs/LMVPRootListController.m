@@ -460,7 +460,12 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         materialValue.textColor = [UIColor secondaryLabelColor];
         materialValue.textAlignment = NSTextAlignmentRight;
         materialValue.numberOfLines = 1;
-        materialValue.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        // 4.0.1: names were cut in the MIDDLE ("相册原…音图层"). Tail truncation
+        // keeps the beginning readable, and the label may shrink a little before
+        // it ever shows an ellipsis.
+        materialValue.lineBreakMode = NSLineBreakByTruncatingTail;
+        materialValue.adjustsFontSizeToFitWidth = YES;
+        materialValue.minimumScaleFactor = 0.85;
         materialValue.userInteractionEnabled = NO;
         materialValue.accessibilityIdentifier = @"LMVMaterialValue";
         cell.accessoryView = materialValue;
@@ -476,18 +481,26 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     // 4.0.0: names are no longer pre-written on list load, so the catalog name
     // (set by the user or the import path) is the first source; when it is
     // absent the catalog's generator turns a UUID file into a readable label.
-    NSString *name = path.length ? LMVReadMaterialNames()[path] : nil;
-    if (![name isKindOfClass:NSString.class] || !name.length) {
-        if (path.length) {
+    // 4.0.1: a selection whose file is gone is NOT a selection. The catalog's
+    // generator invents "视频素材 N" whenever it has no file attributes, which is
+    // exactly what an empty library used to show on every row (all of them said
+    // 视频素材 1). Check the file first and fall through to 未选择.
+    NSFileManager *files = [NSFileManager defaultManager];
+    BOOL present = path.length &&
+        [files fileExistsAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:path]];
+    NSString *name = nil;
+    if (present) {
+        name = LMVReadMaterialNames()[path];
+        if (![name isKindOfClass:NSString.class] || !name.length) {
             NSString *relative = path;
-            NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:relative] error:nil];
+            NSDictionary *attributes = [files attributesOfItemAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:relative] error:nil];
             NSString *display = LMVMaterialDisplayName(relative, LMVReadMaterialNames(), attributes ?: @{}, 0);
             if ([display isKindOfClass:NSString.class] && display.length) name = display;
         }
     }
     materialValue.text = name.length ? name : @"未选择";
     [materialValue sizeToFit];
-    CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.45);
+    CGFloat cap = MAX(80, cell.contentView.bounds.size.width * 0.55);
     if (materialValue.bounds.size.width > cap)
         materialValue.frame = CGRectMake(0, 0, cap, materialValue.bounds.size.height);
 }
