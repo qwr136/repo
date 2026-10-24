@@ -347,9 +347,10 @@ int main(void) { @autoreleasepool {
     # 4.0.7: section ids and titles now come from the one channel table.
     channels = '\n'.join(line for line in (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text().splitlines()
                          if not line.startswith('#import') and not line.startswith('#pragma'))
-    actual_helpers = helpers + '\n' + channels + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
+    actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
-    fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
+    # The table must precede every fixture function that reads it.
+    fixture = channels + '\n' + fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))
     fixture = fixture.replace('@PREFS_METHODS@', '\n'.join((append, specifiers, body(prefs, '- (id)enabled:'), set_enabled, getter, setter)))
     with tempfile.TemporaryDirectory() as tmp:
