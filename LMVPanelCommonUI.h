@@ -30,23 +30,6 @@ static inline BOOL LMVColorEqual(UIColor *a, UIColor *b) {
     return fabs(ar - br) < .002 && fabs(ag - bg) < .002 && fabs(ab - bb) < .002 && fabs(aa - ba) < .002;
 }
 
-// Two-second window per channel: the log stays readable and one slow frame shows up
-// as max= instead of being averaged away. Returns nil until the window closes.
-static inline NSString *LMVPerfSample(const char *channel, CFTimeInterval seconds) {
-    static NSUInteger calls = 0, slow = 0;
-    static CFTimeInterval maxSeconds = 0, windowStart = 0;
-    CFTimeInterval now = CACurrentMediaTime();
-    if (windowStart <= 0) windowStart = now;
-    calls++;
-    if (seconds > maxSeconds) maxSeconds = seconds;
-    if (seconds > 0.004) slow++;
-    if (now - windowStart < 2.0) return nil;
-    NSString *report = [NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
-                        channel, (unsigned long)calls, maxSeconds * 1000.0, (unsigned long)slow];
-    calls = 0; slow = 0; maxSeconds = 0; windowStart = now;
-    return report;
-}
-
 // One scene walk, capped so a diagnostic line never grows without bound. This is the
 // answer to "the panel window was never found" - print what the window list actually
 // holds instead of failing silently, because "no panel lines at all" could mean the
@@ -80,14 +63,6 @@ static inline BOOL LMVGlassLikeView(UIView *view) {
     for (NSString *word in @[@"Blur", @"Glass", @"Vibrancy", @"Dimming", @"Backdrop", @"Effect"])
         if ([name rangeOfString:word options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
     return NO;
-}
-
-// A private getter is only safe to call when it takes no arguments and returns an
-// object; anything else would read garbage off the stack.
-static inline BOOL LMVObjectGetterFor(id object, SEL selector) {
-    if (!object || ![object respondsToSelector:selector]) return NO;
-    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
-    return signature && signature.numberOfArguments == 2 && !strcmp(signature.methodReturnType, @encode(id));
 }
 
 // The visual-effect view that actually covers a card, not one of its decorations.
