@@ -349,8 +349,12 @@ int main(void) { @autoreleasepool {
                          if not line.startswith('#import') and not line.startswith('#pragma'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
-    # The table must precede every fixture function that reads it.
-    fixture = channels + '\n' + fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
+    # The table must precede every fixture function that reads it, but after the
+    # system imports (otherwise NSArray is not defined yet).
+    fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
+    _lines = fixture.split('\n')
+    _cut = max(i for i, line in enumerate(_lines[:24]) if line.startswith(('#import', '#include', '@class')))
+    fixture = '\n'.join(_lines[:_cut + 1] + ['', channels] + _lines[_cut + 1:])
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))
     fixture = fixture.replace('@PREFS_METHODS@', '\n'.join((append, specifiers, body(prefs, '- (id)enabled:'), set_enabled, getter, setter)))
     with tempfile.TemporaryDirectory() as tmp:
