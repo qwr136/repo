@@ -24,10 +24,10 @@ pre=r'''
 #include <assert.h>
 static NSString *testRoot;
 #define LMVStorageRootPath testRoot
-static NSString *const LMVLibrarySubfolder = @"library";
-static NSString *const LMVImagesSubfolder = @"images";
-static NSString *const LMVEasterSubfolder = @"小彩蛋";
-static NSString *const LMVMaterialNamesFileName = @"material-names.plist";
+#define LMVLibrarySubfolder @"library"
+#define LMVImagesSubfolder @"images"
+#define LMVEasterSubfolder @"小彩蛋"
+#define LMVMaterialNamesFileName @"material-names.plist"
 static id selected;
 static BOOL persistOK=YES;
 static NSUInteger notifications;

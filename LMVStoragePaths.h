@@ -13,10 +13,20 @@ static NSString *const LMVStorageRootPath = @"/var/mobile/LockMessageVideo";
 #endif
 
 // 4.0.8: the three subfolders and the index file name, named once.
+// Guarded so a standalone fixture can #define its own copy before this header is
+// reached; the macro test is why these are #ifndef blocks rather than plain consts.
+#ifndef LMVLibrarySubfolder
 static NSString *const LMVLibrarySubfolder = @"library";
+#endif
+#ifndef LMVImagesSubfolder
 static NSString *const LMVImagesSubfolder = @"images";
+#endif
+#ifndef LMVEasterSubfolder
 static NSString *const LMVEasterSubfolder = @"小彩蛋";
+#endif
+#ifndef LMVMaterialNamesFileName
 static NSString *const LMVMaterialNamesFileName = @"material-names.plist";
+#endif
 // POSIX calls need C strings; these are the same names, not a second source.
 #define LMV_LIBRARY_NAME "library"
 #define LMV_MATERIAL_NAMES_FILE "material-names.plist"
