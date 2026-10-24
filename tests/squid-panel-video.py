@@ -412,7 +412,7 @@ assert '- (void)switchSquidPanel:(PSSpecifier *)specifier { [self switchTarget:@
 # a single "切换视频" button routed to SquidPanel and no per-shape slots.
 assert '@"SquidPanel":@"",@"AT":@"",@"CV":@"",' in delete
 assert '@"SquidPanel",@"AT",@"CV",@"Myrtle"' in delete
-assert '@"SquidPanel": @"右一·右上滑面板背景视频"' in prefs
+assert '@"SquidPanel": @"鱿鱼面板背景视频"' in prefs
 assert '[_specifiers addObject:[PSSpecifier groupSpecifierWithName:@"鱿鱼面板背景视频"]];' in prefs
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.53: nine rows - switch, four materials, the reset row, the swap row, sound, volume.

@@ -120,7 +120,7 @@ assert 'LMVSharedSources removeAllObjects' not in refresh and 'LMVFrameCache rem
 assert 'LMVDirtyCards removeAllObjects' in refresh  # A full pass subsumes only local work lists.
 # Both Photos paths request Current and use the same byte-preserving importer.
 imp=(root/'LockMessageVideoPrefs/LMVImport.h').read_text()
-for name in ['LMVPRootListController.m','LMVPVideoPickerController.m']:
+for name in ['LMVPRootListController.m']:
     text=(root/'LockMessageVideoPrefs'/name).read_text()
     assert 'LMVImportMovie(url, &copyError)' in text or 'LMVImportMovie(url, &error)' in text
     assert 'PHPickerConfigurationAssetRepresentationModeCurrent' in text

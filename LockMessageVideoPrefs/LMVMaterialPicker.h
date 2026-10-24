@@ -531,29 +531,35 @@ static void LMVMaterialSharedState(void) {
     [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     __weak typeof(self) weakSelf=self;
     [confirm addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        // 4.0.5: delete FIRST, dismiss LAST. The old order dismissed the picker and
+        // only then unlinked the file; by the time the work finished the picker had
+        // been released, so its libraryChanged hook (the only thing that repaints the
+        // page underneath) was already gone. The row kept the deleted name until a
+        // scroll happened to re-run willDisplayCell.
         LMVMaterialPicker *picker=weakSelf;
+        if (!picker) return;
         picker.tableView.userInteractionEnabled=NO;
-        [picker dismissViewControllerAnimated:YES completion:^{
-            dispatch_async(LMVMaterialQueue(),^{
-                BOOL deleted=NO;
-                NSError *error=LMVDeleteMaterial(relative,&deleted);
-                dispatch_async(dispatch_get_main_queue(),^{
-                    LMVMaterialPicker *live=weakSelf;
-                    if (!live) return;
-                    live.tableView.userInteractionEnabled=YES;
-                    if (deleted) {
-                        if ([live.selected isEqualToString:relative]) live.selected=@"";
-                        [live.thumbnails removeObjectForKey:row[@"revision"]];
-                        [live reloadLibrary];
-                        if (live.libraryChanged) live.libraryChanged();
-                    }
-                    NSString *title=error ? (deleted ? @"素材已删除，清理未完成" : @"删除失败") : @"素材已删除";
-                    UIAlertController *result=[UIAlertController alertControllerWithTitle:title message:error.localizedDescription ?: @"相关背景选择已更新。其他素材保持不变。" preferredStyle:UIAlertControllerStyleAlert];
-                    [result addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-                    [live presentViewController:result animated:YES completion:nil];
-                });
+        dispatch_async(LMVMaterialQueue(),^{
+            BOOL deleted=NO;
+            NSError *error=LMVDeleteMaterial(relative,&deleted);
+            dispatch_async(dispatch_get_main_queue(),^{
+                LMVMaterialPicker *live=weakSelf;
+                if (!live) return;
+                live.tableView.userInteractionEnabled=YES;
+                if (deleted) {
+                    if ([live.selected isEqualToString:relative]) live.selected=@"";
+                    [live.thumbnails removeObjectForKey:row[@"revision"]];
+                    [live reloadLibrary];
+                    if (live.libraryChanged) live.libraryChanged();
+                }
+                NSString *title=error ? (deleted ? @"素材已删除，清理未完成" : @"删除失败") : @"素材已删除";
+                UIAlertController *result=[UIAlertController alertControllerWithTitle:title message:error.localizedDescription ?: @"相关背景选择已更新。其他素材保持不变。" preferredStyle:UIAlertControllerStyleAlert];
+                [result addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction *done) {
+                    [live dismissViewControllerAnimated:YES completion:nil];
+                }]];
+                [live presentViewController:result animated:YES completion:nil];
             });
-        }];
+        });
     }]];
     [self presentViewController:confirm animated:YES completion:nil];
 }

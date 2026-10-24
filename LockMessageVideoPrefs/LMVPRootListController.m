@@ -93,6 +93,13 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     // Covers the return from the picker, from import, and from a rename/delete.
     [self refreshMaterialRows];
 }
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    // 4.0.5: second pass after the dismissal animation has finished. A row painted
+    // while the page was still settling kept the name of a material that had just
+    // been deleted, until a scroll re-ran willDisplayCell.
+    [self refreshMaterialRows];
+}
 - (void)appendAudioForTarget:(NSString *)target title:(NSString *)title {
     NSString *volumeKey = [target stringByAppendingString:@"Volume"];
     PSSpecifier *sound = [PSSpecifier preferenceSpecifierNamed:[title stringByAppendingString:@"声音"] target:self set:@selector(setEnabled:specifier:) get:@selector(enabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -729,7 +736,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     // so returning from it does not re-display the row underneath; without this the
     // old name stayed until the user scrolled it out and back in.
     [self refreshMaterialRows];
-    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"右一·右上滑面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频", @"GS": @"GlassSuiteX 弹窗背景视频", @"CCBorder": @"CCBorder 视频背景", @"CopyLogX": @"CopyLogX 视频背景"};
+    NSDictionary *titles = @{@"Message": @"消息背景", @"Options": @"选项背景", @"Clear": @"清除背景", @"LockScreen": @"锁屏背景", @"Desktop": @"桌面背景", @"ControlCenterDark": @"控制中心深色背景", @"ControlCenterLight": @"控制中心浅色背景", @"HomeMenu": @"桌面长按菜单视频背景", @"SquidPanel": @"鱿鱼面板背景视频", @"AT": @"AT 背景视频", @"CV": @"CopyVault 面板背景视频", @"Myrtle": @"Myrtle 面板背景视频", @"PA": @"电话助手弹窗背景视频", @"GS": @"GlassSuiteX 弹窗背景视频", @"CCBorder": @"CCBorder 视频背景", @"CopyLogX": @"CopyLogX 视频背景"};
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已应用素材" message:[NSString stringWithFormat:@"%@ 已切换为 %@", titles[target], name] preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -822,7 +829,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         if (failed.count) {
             [self showError:[NSError errorWithDomain:@"com.minis.lockmessagevideo.import" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%lu 个视频导入失败，其余已保存到素材库。", (unsigned long)failed.count]}]];
         } else {
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已验证原视频并按原片字节保存到素材库：共 %lu 个。\n保留画质、帧率与音轨，未重新编码。", (unsigned long)imported.count] preferredStyle:UIAlertControllerStyleAlert];
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功" message:[NSString stringWithFormat:@"已验证原视频并按原片字节保存到素材库：共 %lu 个。", (unsigned long)imported.count] preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
             [self presentViewController:alert animated:YES completion:nil];
         }

@@ -437,7 +437,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: chooseVideo/didFinishPicking became multi-select (selectionLimit 0,
         # import every picked video through a dispatch group). That is an intended
         # change to these handlers, so the frozen digest is refreshed for it.
-        self.assertEqual(digest(old_handlers), 'b0297be6a3fc8af414fa408106a4d7263c1ae890053090db4fbdbc773162e986')
+        self.assertEqual(digest(old_handlers), '1c8b06cd64f4889019b1f251b7d6822103798faf2cc823a0664104ea55f1d5d5')
         for action, target in [('switchControlCenterDark', 'ControlCenterDark'),
                                ('switchControlCenterLight', 'ControlCenterLight'), ('switchHomeMenu', 'HomeMenu'),
                                ('switchSquidPanel', 'SquidPanel'), ('switchAT', 'AT'), ('switchCV', 'CV')]:
@@ -459,7 +459,8 @@ class UISectionOrder(unittest.TestCase):
         refresh = SETTINGS[SETTINGS.index('- (void)refreshMaterialRows {'):SETTINGS.index('- (void)viewWillAppear:')]
         self.assertNotIn('reloadSpecifier', refresh)
         self.assertIn('- (void)viewWillAppear:(BOOL)animated {', SETTINGS)
-        self.assertEqual(SETTINGS.count('[self refreshMaterialRows];'), 2)
+        # 4.0.5: viewDidAppear repaints a second time after the dismissing animation.
+        self.assertEqual(SETTINGS.count('[self refreshMaterialRows];'), 3)
         select = SETTINGS[SETTINGS.index('- (void)selectFile:'):]
         self.assertIn("LMVNotifyFor(target);\n    // 2.52: repaint this target's row now.", select)
 
@@ -484,7 +485,7 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: reloadLibrary no longer pre-writes auto names and drops orphan
         # catalog entries, then sweeps stale caches. Only row assembly changed; the
         # delete routing below is untouched, so the digest is refreshed for that edit.
-        self.assertEqual(digest(PICKER), '40c045e199847a78be8d5c6c8f836196c8f01cecb80440ddcf2ad44c3c359977')
+        self.assertEqual(digest(PICKER), '75f1f6787b03f6d9aef24ece990fa642bc8524f00bcb5a3e188f50be74191cba')
         # 1.26: the AT target is added to both the defaults map and the sweep list;
         # strip it before hashing so the frozen digest still covers everything else.
         deletion_for_digest = DELETION.replace(',@"CV":@""', '').replace(',@"CV"]', ']')

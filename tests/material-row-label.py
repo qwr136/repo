@@ -72,4 +72,4 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.0.4 - one font size, tail truncation, 未选择 on empty library, missing-file selection rejected, version chain consistent')
+print('PASS: 4.0.5 - one font size, tail truncation, 未选择 on empty library, missing-file selection rejected, version chain consistent')

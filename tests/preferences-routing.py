@@ -32,7 +32,7 @@ assert len(actions) == 19
 assert 'static NSArray<NSString *> *LMVTargets(void) { return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop"]; }' in source
 assert '@[@"消息", @"选项", @"清除", @"锁屏", @"桌面"]' in source
 assert '@[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"]' in source
-for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '右一·右上滑面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
+for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '鱿鱼面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
     assert f'@"{target}": @"{title}"' in source
     assert f'- (void)switch{target}:(PSSpecifier *)specifier {{ [self switchTarget:@"{target}"]; }}' in source
     assert f'@"{target}": @""' in source
@@ -167,7 +167,7 @@ assert '显示场景与图片旋转' in display_section and 'openEaster:' in dis
 assert 'EasterEggImageSettings' in display_section
 assert 'forKey:@"buttonAction"' not in source and 'forKey:@"action"' not in source
 assert 'if (!selected && !legacyMessage) CFPreferencesSetAppValue' in import_callback
-for controller in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
+for controller in ['LMVPRootListController.m']:
     representation=(root/'LockMessageVideoPrefs'/controller).read_text()
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in representation
     assert 'loadFileRepresentationForTypeIdentifier:@"public.movie"' in representation

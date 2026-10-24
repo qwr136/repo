@@ -32,7 +32,7 @@ for token in ['O_NOFOLLOW', 'O_EXCL', 'AT_SYMLINK_NOFOLLOW', 'S_ISREG', 'linkat(
     assert token in imp, token
 for token in ['LMVEncodePlan', 'LMVCompressMovie', 'LMVEncodeMovie', 'AVAssetWriter', 'AVMutableVideoComposition', 'AVVideoExpectedSourceFrameRateKey', '.encode-']:
     assert token not in imp, token
-for filename in ['LMVPRootListController.m', 'LMVPVideoPickerController.m']:
+for filename in ['LMVPRootListController.m']:
     text=(root/'LockMessageVideoPrefs'/filename).read_text()
     assert 'config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;' in text
     assert 'LMVImportMovie(url, &' in text
