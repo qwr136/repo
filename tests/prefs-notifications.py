@@ -42,7 +42,7 @@ for target in sorted(targets):
           'channel %s posts preferencesChanged.%s but nothing observes it' % (target, target))
 
 # Unknown names must not be dropped on the floor.
-check('else { LMVRefresh(reload); return; }' in tweak,
+check('else { LMVRefresh(NO); return; }' in tweak,
       'an unregistered channel name must fall back to the full refresh')
 
 if failures:

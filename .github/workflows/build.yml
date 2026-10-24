@@ -112,6 +112,7 @@ jobs:
           check "$RUNNER_TEMP/lmv-material-catalog"
           check python3 tests/material-row-label.py
           check python3 tests/prefs-notifications.py
+          check python3 tests/hot-path-budget.py
           check cc tests/import-plan.c -lm -o "$RUNNER_TEMP/lmv-import-plan"
           check "$RUNNER_TEMP/lmv-import-plan"
           test "$failures" -eq 0

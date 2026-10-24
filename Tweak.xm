@@ -1543,7 +1543,9 @@ static void LMVRefreshChannel(NSString *target, BOOL reload) {
     else if ([target isEqualToString:@"CV"]) LMVCopyVaultPanelVideoRefresh(reload);
     else if ([target isEqualToString:@"Myrtle"]) LMVMyrtlePanelVideoRefresh(reload);
     else if ([target isEqualToString:@"Bubble"]) { if (LMVEaster) [LMVEaster refresh]; }
-    else { LMVRefresh(reload); return; }
+    // 4.0.6: the channel entry point already reloaded preferences above; a second
+    // full load here parsed every key twice for one switch.
+    else { LMVRefresh(NO); return; }
     LMVRequestSyncDisplayLink();
 }
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
@@ -1630,13 +1632,19 @@ static void LMVSyncDisplayLink(void) {
     NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
     NSUInteger consumers=0;
     CFTimeInterval now=CACurrentMediaTime();
+    CGFloat cardOpacity=LMVCardOpacity();
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
-        BOOL cellVisible=LMVVisible(cell), changed=NO;
+        // 4.0.6: one exposure read and one ancestry walk per cell per frame, shared
+        // by all three targets. This used to be two extra walks per target (seven
+        // per card at 60fps) even though the answer cannot differ between them.
+        BOOL cellVisible=LMVVisible(cell);
+        BOOL cellOnNotificationCenter=LMVNotificationCenterSurface(cell);
+        BOOL changed=NO;
         for (NSString *target in states) {
             LMVVideoState *state=states[target];
-            BOOL active=LMVCardOpacity()>0.0 &&
-                LMVCardStateVisible(cell,state,target);
+            BOOL active=cardOpacity>0.0 &&
+                LMVCardStateVisibleInScope(cell,state,target,cellVisible,cellOnNotificationCenter);
             if (LMVDiagnosticsEnabled.load() && now-state.exposureDiagnosticAt>=.5) {
                 state.exposureDiagnosticAt=now;
                 NSString *status=[NSString stringWithFormat:@"card-exposure target=%@ active=%d scope=%d attached=%d owner=%d anchor=%d overlay=%d layerAttached=%d source=%lu playing=%d published=%lu",

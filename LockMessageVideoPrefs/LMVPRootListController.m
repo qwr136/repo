@@ -79,13 +79,9 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
 // that is currently off screen picks the new name up when it scrolls in.
 - (void)refreshMaterialRows {
     if (!self.isViewLoaded || !_specifiers.count) return;
-    for (UITableViewCell *cell in self.table.visibleCells) {
-        NSIndexPath *indexPath = [self.table indexPathForCell:cell];
-        PSSpecifier *item = [self specifierAtIndexPath:indexPath];
-        NSString *identifier = [item propertyForKey:@"id"];
-        if (![identifier isKindOfClass:NSString.class] || ![identifier hasSuffix:@"Material"]) continue;
-        [self paintMaterialName:identifier inCell:cell];
-    }
+    // 4.0.6: reloadData re-runs -willDisplayCell: for every visible row, and that is
+    // where the name is painted. The old extra paint loop drew every row twice per
+    // refresh (and paid the catalog read twice for the privilege).
     [self.table reloadData];
 }
 - (void)viewWillAppear:(BOOL)animated {
@@ -501,11 +497,15 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         [files fileExistsAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:path]];
     NSString *name = nil;
     if (present) {
-        name = LMVReadMaterialNames()[path];
+        // 4.0.6: read the catalog ONCE per row. This used to parse
+        // material-names.plist twice for every painted row - two synchronous disk
+        // reads per row on the main thread, on every reload and every scroll tick.
+        NSDictionary *names = LMVReadMaterialNames();
+        name = names[path];
         if (![name isKindOfClass:NSString.class] || !name.length) {
             NSString *relative = path;
             NSDictionary *attributes = [files attributesOfItemAtPath:[LMV_CATALOG_ROOT stringByAppendingPathComponent:relative] error:nil];
-            NSString *display = LMVMaterialDisplayName(relative, LMVReadMaterialNames(), attributes ?: @{}, 0);
+            NSString *display = LMVMaterialDisplayName(relative, names, attributes ?: @{}, 0);
             if ([display isKindOfClass:NSString.class] && display.length) name = display;
         }
     }
