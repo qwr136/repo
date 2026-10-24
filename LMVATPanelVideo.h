@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 // 1.28: the AppTools (AT) pop-up background (AT 背景视频).
 //
 // Shape settled by the 1.27 device diagnostics - and it is NOT the shape of the
@@ -46,12 +47,9 @@ static BOOL LMVATPanelEnabled,LMVATPanelPrefsKnown;
 static NSString *LMVATPanelPath,*LMVATPanelRevision;
 static NSTimer *LMVATPanelTimer;
 
-static BOOL LMVATPanelSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVATPanelEnvironment(void) {
     uint64_t blank=1,locked=1;
-    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVATPanelSpringBoard() &&
+    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVSpringBoard() &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
@@ -66,18 +64,6 @@ static UIWindow *LMVATPanelHomeWindow(void) {
     return nil;
 }
 static NSInteger const LMVATPanelHostTag=0x5A18;
-// How much of this view is REALLY on screen. A card that is mostly parked off
-// screen is never a candidate - scoring by raw area alone made the Squid channel
-// jump onto an invisible card, and the same trap exists here.
-static CGFloat LMVATPanelVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
-}
 // 1.40: the SYSTEM long-press menu (home icon or dock icon) is presented into the
 // very same SBHomeScreenWindow AppTools uses, through a *_ContextMenu*TransitionView
 // (_UIContextMenuPlatterTransitionView / _UIContextMenuContainerView). That name
@@ -139,7 +125,7 @@ static UIView *LMVATPanelCard(UIWindow *window) {
                 CGRect frame=[child convertRect:child.bounds toView:window];
                 if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
                 if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;
-                CGFloat visible=LMVATPanelVisibleArea(frame,bounds);
+                CGFloat visible=LMVVisibleArea(frame,bounds);
                 if(visible<=0)continue;
                 if(visible>bestArea){bestArea=visible;best=child;}
             }
@@ -163,7 +149,7 @@ static UIView *LMVATPanelMaterial(UIView *root,UIWindow *window) {
             [pending addObject:child];
             if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
-            CGFloat visible=LMVATPanelVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible<=0)continue;
             if(visible>bestArea){bestArea=visible;best=child;}
         }
@@ -304,7 +290,7 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,
-            LMVATPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
+            LMVVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
@@ -351,6 +337,6 @@ static void LMVATPanelVideoSuspend(void) {
     [LMVATPanelVideo detach];
 }
 static void LMVATPanelVideoInstallHooks(void) {
-    if(LMVATPanelTimer || !LMVATPanelSpringBoard())return;
+    if(LMVATPanelTimer || !LMVSpringBoard())return;
     LMVATPanelRetune();
 }

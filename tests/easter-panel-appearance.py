@@ -150,6 +150,7 @@ if sys.platform != 'darwin':
     print('SKIP native: appearance-rule execution needs Foundation/UIKit; run on macOS CI')
     raise SystemExit(0)
 with tempfile.TemporaryDirectory() as directory:
+    Path(directory).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     binary = Path(directory) / 'lmv-easter-panel-appearance'
     subprocess.run(['clang', '-fobjc-arc', str(root / 'tests/easter-panel-appearance.m'),
                     '-framework', 'Foundation', '-o', str(binary)], check=True)

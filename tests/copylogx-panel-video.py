@@ -82,7 +82,7 @@ assert '@"SystemAperture"' in src and '@"SBControlCenter"' in src
 assert '@"CVPanel",@"CopyVault",@"Myrtle",@"SGPanel",@"SquidPanel"' in src
 assert 'LMVCopyLogXHasList(child)) visible*=2' in src
 # 关闭的面板不能被挂载
-assert 'LMVCopyLogXVisibleArea(frame,window.bounds)' in src
+assert 'LMVVisibleArea(frame,window.bounds)' in src
 
 # ---- 3) 挂载层级：卡片里 index 0，背景之上、列表之下 ------------------------
 assert 'UIView *container=card;NSUInteger index=0;CGRect target=card.bounds;NSString *mode=@"card";' in src

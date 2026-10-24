@@ -162,6 +162,7 @@ int main(int argc,const char **argv) {@autoreleasepool {
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as tmp:
+ Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
  folder=Path(tmp)
  with wave.open(str(folder/'audio.wav'),'wb') as audio:
   audio.setnchannels(1);audio.setsampwidth(2);audio.setframerate(44100);audio.writeframes(bytes(44100*3*2))

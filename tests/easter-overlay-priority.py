@@ -83,6 +83,7 @@ int main(void) {
 '''
 if '--emit-native' not in sys.argv:
     with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
         for scalar in ('float', 'double'):
             source = Path(tmp) / (scalar + '.c')
             binary = Path(tmp) / scalar
@@ -252,6 +253,7 @@ if platform.system() != 'Darwin':
     print('SKIP ObjC native: fixture assembled from exact production helpers; macOS required, no device validation claim')
     raise SystemExit(0)
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src = Path(tmp) / 'priority.m'
     binary = Path(tmp) / 'priority'
     src.write_text(source)

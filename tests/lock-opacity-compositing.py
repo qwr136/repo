@@ -60,6 +60,7 @@ int main(void){@autoreleasepool{
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as d:
+ Path(d).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
  src=Path(d)/'composite.m';out=Path(d)/'composite';src.write_text(pre+production+main)
  subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(out)],check=True)
  subprocess.run([str(out)],check=True,timeout=40)

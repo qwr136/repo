@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #if __has_include("LMVPanelTuning.h")
 #import "LMVPanelTuning.h"
 #else
@@ -391,17 +392,6 @@ static void LMVCCDiscover(void) {
         }
     }
 }
-static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
-    static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
-    CFTimeInterval now=CACurrentMediaTime();
-    if (windowStart<=0) windowStart=now;
-    calls++;if (seconds>maxSeconds)maxSeconds=seconds;if (seconds>0.004)slow++;
-    if (now-windowStart<2.0) return nil;
-    NSString *report=[NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
-        channel,(unsigned long)calls,maxSeconds*1000.0,(unsigned long)slow];
-    calls=0;slow=0;maxSeconds=0;windowStart=now;
-    return report;
-}
 @implementation LMVControlCenterVideoManager
 // 1.15: published for the Desktop probe (reached through the runtime - the two
 // modules are separate translation units). YES means "the Control Center is not
@@ -649,7 +639,7 @@ static NSString *LMVCCPerf(const char *channel,CFTimeInterval seconds) {
                 coverWindow?NSStringFromClass(coverWindow.class):@"none"]);
         }
     }
-    NSString *coverPerf=LMVCCPerf("cc",CACurrentMediaTime()-coverPerf0);
+    NSString *coverPerf=LMVPerfSample("cc",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
     } else {self.status=nil;self.coverage=nil;}
     self.updating=NO;

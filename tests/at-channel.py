@@ -102,9 +102,10 @@ assert 'MSHookMessageEx' not in module and 'class_getInstanceMethod' not in modu
 assert 'static UIView *LMVATPanelCard(UIWindow *window) {' in module
 assert 'if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;' in module
 assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;' in module
-assert 'static CGFloat LMVATPanelVisibleArea(CGRect frame,CGRect bounds) {' in module
-assert 'return visible/total>=.5?visible:0;' in module
-assert 'CGFloat visible=LMVATPanelVisibleArea(frame,bounds);' in module
+assert '#import "LMVPanelCommon.h"' in module
+assert 'CGFloat visible=LMVVisibleArea(frame,bounds);' in module
+common=(R/('LMVPanelCommon.h')).read_text() if False else (__import__('pathlib').Path(__file__).resolve().parents[1]/'LMVPanelCommon.h').read_text()
+assert 'return visible / total >= .5 ? visible : 0;' in common
 assert 'if(visible<=0)continue;' in module
 assert 'if(visible>bestArea){bestArea=visible;best=child;}' in module
 assert 'static UIView *LMVATPanelMaterial(UIView *root,UIWindow *window) {' in module

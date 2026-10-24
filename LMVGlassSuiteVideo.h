@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
 #else
@@ -46,12 +47,9 @@ static BOOL LMVGlassSuiteEnabled,LMVGlassSuitePrefsKnown;
 static NSString *LMVGlassSuitePath,*LMVGlassSuiteRevision;
 static NSTimer *LMVGlassSuiteTimer;
 
-static BOOL LMVGlassSuiteSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVGlassSuiteEnvironment(void) {
     uint64_t blank=1,locked=1;
-    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVGlassSuiteSpringBoard() &&
+    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVSpringBoard() &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
@@ -68,15 +66,6 @@ static NSString *LMVGlassSuiteChain(UIView *view) {
     return [names componentsJoinedByString:@">"];
 }
 static NSInteger const LMVGlassSuiteHostTag=0x5A29;
-static CGFloat LMVGlassSuiteVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
-}
 // The container GlassSuiteX presents the sheet through. Name first: the 2.26 log
 // names it GAXAlertOverlayView, and the 2.35 capture shows it at depth 2 under
 // SBHomeScreenWindow (SBHomeScreenWindow > UITransitionView > GAXAlertOverlayView).
@@ -92,17 +81,6 @@ static BOOL LMVGlassSuiteContainerKind(UIView *view) {
     if(!view)return NO;
     NSString *name=LMVProbeClassName(view);
     return [name rangeOfString:@"GAX" options:NSCaseInsensitiveSearch].location!=NSNotFound;
-}
-static BOOL LMVGlassSuiteGlassKind(UIView *view) {    if(!view)return NO;
-    if([view isKindOfClass:UIVisualEffectView.class])return YES;
-    NSString *name=LMVProbeClassName(view);
-    // 2.29: the CARD itself is _UIVisualEffectContentView - its name contains
-    // "Effect" but it is the content container, not a glass layer. Treating it as
-    // glass skipped the real card and mounted the video above the whole sheet.
-    if([name containsString:@"ContentView"])return NO;
-    for(NSString *word in @[@"Blur",@"Glass",@"Vibrancy",@"Dimming",@"Backdrop",@"Effect"])
-        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
-    return NO;
 }
 // Largest visible, non-full-screen view inside `root` (root itself allowed). This
 // is the card: the 328x589 content view in the 2.26 capture.
@@ -120,11 +98,11 @@ static UIView *LMVGlassSuiteCardIn(UIView *root,UIWindow *window) {
             if(!budget--)break;
             if(child.tag==LMVGlassSuiteHostTag || child.hidden || child.alpha<.01)continue;
             [pending addObject:child];
-            if(LMVGlassSuiteGlassKind(child))continue;
+            if(LMVGlassLikeView(child))continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
             if(frame.size.width<bounds.size.width*.3 || frame.size.height<bounds.size.height*.05)continue;
-            CGFloat visible=LMVGlassSuiteVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible>bestArea){bestArea=visible;best=child;}
         }
     }
@@ -197,31 +175,6 @@ static UIView *LMVGlassSuiteFindCard(UIWindow **windowOut) {
     }
     return best;
 }
-static UIView *LMVGlassSuiteMaterial(UIView *root,UIWindow *window) {
-    if(!root || !window)return nil;
-    CGRect cardFrame=[root convertRect:root.bounds toView:window];
-    if(CGRectIsEmpty(cardFrame))return nil;
-    CGFloat cardArea=cardFrame.size.width*cardFrame.size.height;
-    if(cardArea<=0)return nil;
-    UIView *best=nil;CGFloat bestArea=0;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)root];
-    NSUInteger budget=300;
-    while(pending.count && budget) {
-        UIView *node=pending.lastObject;[pending removeLastObject];
-        for(UIView *child in node.subviews) {
-            if(!budget--)break;
-            [pending addObject:child];
-            if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;
-            CGRect frame=[child convertRect:child.bounds toView:window];
-            CGRect cover=CGRectIntersection(frame,cardFrame);
-            if(CGRectIsEmpty(cover))continue;
-            CGFloat area=cover.size.width*cover.size.height;
-            if(area/cardArea<.85)continue;
-            if(area>bestArea){bestArea=area;best=child;}
-        }
-    }
-    return best;
-}
 // Text colour: independent from every other channel (`GSTextColor`). Remembers the
 // first colour seen per label and restores it when the sheet closes.
 static NSMapTable<UIView *,id> *LMVGlassSuiteTextOriginal;
@@ -231,12 +184,6 @@ static UIColor *LMVGlassSuiteTextColor(void) {
     uint32_t word=value.unsignedIntValue;
     return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
                            blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
-}
-static BOOL LMVGlassSuiteColorEqual(UIColor *a,UIColor *b) {
-    if(!a || !b)return a==b;
-    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
-    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
-    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
 }
 static void LMVGlassSuiteApplyTextColor(UIView *root) {
     UIColor *color=LMVGlassSuiteTextColor();
@@ -254,13 +201,13 @@ static void LMVGlassSuiteApplyTextColor(UIView *root) {
             UILabel *label=(UILabel *)child;
             if(label.attributedText.length) {
                 UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
-                if(LMVGlassSuiteColorEqual(now,color))continue;
+                if(LMVColorEqual(now,color))continue;
                 if(![LMVGlassSuiteTextOriginal objectForKey:label])[LMVGlassSuiteTextOriginal setObject:label.attributedText forKey:label];
                 NSMutableAttributedString *text=[label.attributedText mutableCopy];
                 [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
                 label.attributedText=text;
             } else if(label.text.length) {
-                if(LMVGlassSuiteColorEqual(label.textColor,color))continue;
+                if(LMVColorEqual(label.textColor,color))continue;
                 if(![LMVGlassSuiteTextOriginal objectForKey:label])
                     [LMVGlassSuiteTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
                 label.textColor=color;
@@ -378,7 +325,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
     // covered the moment that frame arrives - no poster, no readyForDisplay wait.
     BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
-    UIView *material=LMVGlassSuiteMaterial(card,window);
+    UIView *material=LMVMaterialBehindCard(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
     // 2.95: ALWAYS THE CARD'S CURRENT SIZE, NEVER THE MATERIAL'S FRAME.
     // The material is the full-screen UIVisualEffectView; the card is its
@@ -407,7 +354,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
         for(NSUInteger i=slot;i<container.subviews.count;i++) {
             UIView *sibling=container.subviews[i];
             if(sibling.tag==LMVGlassSuiteHostTag)break;
-            if(!LMVGlassSuiteGlassKind(sibling))break;
+            if(!LMVGlassLikeView(sibling))break;
             slot=i+1;
         }
         // 2.95: the CARD's rect in the container, not material.frame (full screen).
@@ -433,7 +380,7 @@ static LMVGlassSuiteVideoManager *LMVGlassSuiteVideo;
             LMVProbeClassName(window),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
-            self.card.layer.cornerRadius,LMVGlassSuiteVisibleArea(frame,bounds),(int)live,
+            self.card.layer.cornerRadius,LMVVisibleArea(frame,bounds),(int)live,
             self.host.bounds.size.width,self.host.bounds.size.height,
             (int)self.playback.playerLayer.readyForDisplay,
             (int)(self.playback.posterLayer.contents!=nil),
@@ -535,7 +482,7 @@ static void LMVGlassSuiteInstallContainerHook(void) {
     LMVGlassSuiteContainerHooked=YES;
 }
 static void LMVGlassSuiteVideoInstallHooks(void) {
-    if(!LMVGlassSuiteSpringBoard())return;
+    if(!LMVSpringBoard())return;
     LMVGlassSuiteInstallContainerHook();
     if(LMVGlassSuiteTimer)return;
     LMVGlassSuiteRetune();

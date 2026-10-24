@@ -43,6 +43,7 @@ assert 'S_ISREG(status.st_mode)' in deletion
 assert 'unlinkat(folder,name,0)' in deletion
 # Exercise equivalent nonrecursive fd-relative boundary policy on Linux.
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     base=Path(tmp); originals=base/'originals'; library=base/'library'
     originals.mkdir(); library.mkdir(); (library/'selected.mov').write_bytes(b'keep')
     (originals/'video.mov').write_bytes(b'remove')
@@ -226,6 +227,7 @@ int main(void) { @autoreleasepool {
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     source=Path(tmp)/'settings-import.m'; source.write_text(preamble+native+main)
     binary=Path(tmp)/'settings-import'
     subprocess.run(['clang','-fobjc-arc','-I',str(root),'-framework','Foundation','-framework','AVFoundation','-framework','CoreVideo','-framework','CoreMedia','-framework','CoreGraphics',str(source),'-o',str(binary)],check=True)

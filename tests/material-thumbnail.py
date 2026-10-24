@@ -99,6 +99,7 @@ tests=tests.replace('        [fm removeItemAtPath:LMV_CATALOG_ROOT error:nil];\n
         [fm removeItemAtPath:LMV_CATALOG_ROOT error:nil];
         puts(''')
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     source=Path(tmp)/'poster.m'; binary=Path(tmp)/'poster'
     source.write_text(wrapper+tests)
     subprocess.run(['clang','-fobjc-arc','-I',str(r/'LockMessageVideoPrefs'),'-framework','Foundation','-framework','CoreGraphics','-framework','ImageIO','-framework','AVFoundation','-framework','CoreVideo','-framework','CoreMedia',str(source),'-o',str(binary)],check=True)

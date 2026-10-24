@@ -1,3 +1,4 @@
+#import "LMVPanelCommon.h"
 #if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
 #else
@@ -35,12 +36,9 @@ static BOOL LMVPhoneAssistEnabled,LMVPhoneAssistPrefsKnown;
 static NSString *LMVPhoneAssistPath,*LMVPhoneAssistRevision;
 static NSTimer *LMVPhoneAssistTimer;
 
-static BOOL LMVPhoneAssistSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVPhoneAssistEnvironment(void) {
     uint64_t blank=1,locked=1;
-    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVPhoneAssistSpringBoard() &&
+    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVSpringBoard() &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
@@ -110,16 +108,11 @@ static NSString *LMVPhoneAssistStackDescription(UIView *card,UIView *host) {
     }
     return out;
 }
-static NSInteger const LMVPhoneAssistHostTag=0x5A19;
-static CGFloat LMVPhoneAssistVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
-}
+// 4.0.9: was 0x5A19 - the same value CopyVault uses. Two modules tagging their
+// host view with one number means each can mistake the other's host for its own
+// when both hang under the same parent. CopyVault is left untouched (shipped
+// value); Phone Assist moves to an unused number.
+static NSInteger const LMVPhoneAssistHostTag=0x5A1A;
 // 2.04: the sheet, by CLASS. _UIAlertControllerPhoneTVMacView is the phone-assist
 // presentation; the plain _UIAlertController container around it is full-screen and
 // therefore never a card. Both names are checked so a system rename of either layer
@@ -175,7 +168,7 @@ static UIView *LMVPhoneAssistCard(UIWindow *window) {
             // The alert container fills the window; the sheet itself does not.
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
             if(frame.size.width<bounds.size.width*.3 || frame.size.height<bounds.size.height*.05)continue;
-            CGFloat visible=LMVPhoneAssistVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible>bestArea){bestArea=visible;best=child;}
         }
     }
@@ -216,31 +209,6 @@ static UIView *LMVPhoneAssistFindCard(UIWindow **windowOut) {
     }
     return best;
 }
-static UIView *LMVPhoneAssistMaterial(UIView *root,UIWindow *window) {
-    if(!root || !window)return nil;
-    CGRect cardFrame=[root convertRect:root.bounds toView:window];
-    if(CGRectIsEmpty(cardFrame))return nil;
-    CGFloat cardArea=cardFrame.size.width*cardFrame.size.height;
-    if(cardArea<=0)return nil;
-    UIView *best=nil;CGFloat bestArea=0;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:(id)root];
-    NSUInteger budget=300;
-    while(pending.count && budget) {
-        UIView *node=pending.lastObject;[pending removeLastObject];
-        for(UIView *child in node.subviews) {
-            if(!budget--)break;
-            [pending addObject:child];
-            if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;
-            CGRect frame=[child convertRect:child.bounds toView:window];
-            CGRect cover=CGRectIntersection(frame,cardFrame);
-            if(CGRectIsEmpty(cover))continue;
-            CGFloat area=cover.size.width*cover.size.height;
-            if(area/cardArea<.85)continue;
-            if(area>bestArea){bestArea=area;best=child;}
-        }
-    }
-    return best;
-}
 // Text colour. Same contract as the CopyVault channel: remember the first colour
 // seen for each label and hand it back when the sheet goes away or the switch is
 // turned off, so nothing is left tinted.
@@ -251,12 +219,6 @@ static UIColor *LMVPhoneAssistTextColor(void) {
     uint32_t word=value.unsignedIntValue;
     return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
                            blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
-}
-static BOOL LMVPhoneAssistColorEqual(UIColor *a,UIColor *b) {
-    if(!a || !b)return a==b;
-    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
-    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
-    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
 }
 static void LMVPhoneAssistApplyTextColor(UIView *root) {
     UIColor *color=LMVPhoneAssistTextColor();
@@ -274,13 +236,13 @@ static void LMVPhoneAssistApplyTextColor(UIView *root) {
             UILabel *label=(UILabel *)child;
             if(label.attributedText.length) {
                 UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
-                if(LMVPhoneAssistColorEqual(now,color))continue;
+                if(LMVColorEqual(now,color))continue;
                 if(![LMVPhoneAssistTextOriginal objectForKey:label])[LMVPhoneAssistTextOriginal setObject:label.attributedText forKey:label];
                 NSMutableAttributedString *text=[label.attributedText mutableCopy];
                 [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
                 label.attributedText=text;
             } else if(label.text.length) {
-                if(LMVPhoneAssistColorEqual(label.textColor,color))continue;
+                if(LMVColorEqual(label.textColor,color))continue;
                 if(![LMVPhoneAssistTextOriginal objectForKey:label])
                     [LMVPhoneAssistTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
                 label.textColor=color;
@@ -424,7 +386,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
     // covered the moment that frame arrives - no poster, no readyForDisplay wait.
     BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
-    UIView *material=LMVPhoneAssistMaterial(card,window);
+    UIView *material=LMVMaterialBehindCard(card,window);
     UIView *container=nil;NSUInteger index=0;CGRect target=CGRectZero;NSString *mode=@"card";
     // Fix: place the video ABOVE the material, not inside its contentView.
     // The device log named the failure exactly: pa-panel mode=content live=1
@@ -467,7 +429,7 @@ static LMVPhoneAssistVideoManager *LMVPhoneAssistVideo;
             LMVPhoneAssistModuleIdentifier(window,self.card),
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.layer.cornerRadius,
-            LMVPhoneAssistVisibleArea(frame,bounds),(int)live,
+            LMVVisibleArea(frame,bounds),(int)live,
             self.host.bounds.size.width,self.host.bounds.size.height,
             (int)self.playback.playerLayer.readyForDisplay,
             (int)(self.playback.posterLayer.contents!=nil),
@@ -520,6 +482,6 @@ static void LMVPhoneAssistVideoSuspend(void) {
     [LMVPhoneAssistVideo detach];
 }
 static void LMVPhoneAssistVideoInstallHooks(void) {
-    if(LMVPhoneAssistTimer || !LMVPhoneAssistSpringBoard())return;
+    if(LMVPhoneAssistTimer || !LMVSpringBoard())return;
     LMVPhoneAssistRetune();
 }

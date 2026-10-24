@@ -14,7 +14,7 @@ assert '[LMVLockVideoPlayback new]' in h and '_playback.persistentPosterEnabled=
 assert 'AVMediaTypeVideo' in p and 'live.player.muted=YES;live.player.volume=0' in p
 for forbidden in ('LMVCacheFrame','LMVAcquireOriginal','LMVRequestSafeUpdate','connectedScenes','sharedInstance','LMVLockVideoRefresh(','LMVCCVideoRefresh('):
     assert forbidden not in h, forbidden
-assert 'LMVHomeMenuSpringBoard() && LMVDesktopForeground()==1' in h
+assert 'LMVSpringBoard() && LMVDesktopForeground()==1' in h
 assert 'sourcePreview' in h and 'SBIconView' in h and 'record.known' in h and 'record.active' in h
 assert '@encode(bool)' in h and 'method_copyArgumentType' in h
 assert 'material.layer.opacity=0' in h and '[self.lease restore]' in h
@@ -214,6 +214,7 @@ if os.environ.get('LMV_NATIVE_EXPORT_DIR'):
     print('EXPORTED production HomeMenu native fixture')
     raise SystemExit(0)
 with tempfile.TemporaryDirectory(prefix='lmv-home-menu-') as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src=Path(tmp)/'menu.m';out=Path(tmp)/'menu';src.write_text(source)
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(out)],check=True)
     subprocess.run([str(out)],check=True,timeout=45)

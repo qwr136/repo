@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #import <dlfcn.h>
 #import <objc/runtime.h>
 // 2.32: the CopyLogX clipboard panel (CopyLogX 视频背景).
@@ -41,26 +42,14 @@ static BOOL LMVCopyLogXCardLive;
 static NSString *LMVCopyLogXPath,*LMVCopyLogXRevision;
 static NSTimer *LMVCopyLogXTimer;
 
-static BOOL LMVCopyLogXSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVCopyLogXEnvironment(void) {
     uint64_t blank=1,locked=1;
-    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVCopyLogXSpringBoard() &&
+    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVSpringBoard() &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
 }
 static NSInteger const LMVCopyLogXHostTag=0x5A49;
-static CGFloat LMVCopyLogXVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
-}
 // The window CopyLogX presents the sheet in. It is a PLAIN UIWindow - there is no
 // named subclass to look for - so the window is only a candidate once the card
 // signature below is found inside it. A window whose root controller is named after
@@ -207,7 +196,7 @@ static UIView *LMVCopyLogXCardInIdentityWindow(UIWindow *window) {
             if([name rangeOfString:@"UIVisualEffectContentView" options:NSCaseInsensitiveSearch].location==NSNotFound)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
-            CGFloat visible=LMVCopyLogXVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible<=0)continue;
             if(LMVCopyLogXHasList(child))visible*=2;
             if(visible>bestArea){bestArea=visible;best=child;}
@@ -252,7 +241,7 @@ static UIView *LMVCopyLogXFindCard(UIWindow **windowOut) {
                 [pending addObject:child];
                 if(!LMVCopyLogXCardKind(window,child))continue;
                 CGRect frame=[child convertRect:child.bounds toView:window];
-                CGFloat visible=LMVCopyLogXVisibleArea(frame,window.bounds);
+                CGFloat visible=LMVVisibleArea(frame,window.bounds);
                 // A tighter fit to the sheet edges wins when several match.
                 if(LMVCopyLogXHasList(child)) visible*=2;
                 if(visible>bestArea){bestArea=visible;best=child;bestWindow=window;}
@@ -273,12 +262,6 @@ static UIColor *LMVCopyLogXTextColor(void) {
     return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
                            blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
 }
-static BOOL LMVCopyLogXColorEqual(UIColor *a,UIColor *b) {
-    if(!a || !b)return a==b;
-    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
-    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
-    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
-}
 static void LMVCopyLogXApplyTextColor(UIView *root) {
     UIColor *color=LMVCopyLogXTextColor();
     if(!root || !color)return;
@@ -295,13 +278,13 @@ static void LMVCopyLogXApplyTextColor(UIView *root) {
             UILabel *label=(UILabel *)child;
             if(label.attributedText.length) {
                 UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
-                if(LMVCopyLogXColorEqual(now,color))continue;
+                if(LMVColorEqual(now,color))continue;
                 if(![LMVCopyLogXTextOriginal objectForKey:label])[LMVCopyLogXTextOriginal setObject:label.attributedText forKey:label];
                 NSMutableAttributedString *text=[label.attributedText mutableCopy];
                 [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
                 label.attributedText=text;
             } else if(label.text.length) {
-                if(LMVCopyLogXColorEqual(label.textColor,color))continue;
+                if(LMVColorEqual(label.textColor,color))continue;
                 if(![LMVCopyLogXTextOriginal objectForKey:label])
                     [LMVCopyLogXTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
                 label.textColor=color;
@@ -451,7 +434,7 @@ static LMVCopyLogXVideoManager *LMVCopyLogXVideo;
             NSStringFromClass(window.class),bounds.size.width,bounds.size.height,
             self.mode?:@"none",
             NSStringFromClass(card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
-            radius,LMVCopyLogXVisibleArea(frame,bounds),(int)live,
+            radius,LMVVisibleArea(frame,bounds),(int)live,
             self.host.bounds.size.width,self.host.bounds.size.height,
             (int)self.playback.playerLayer.readyForDisplay,
             (int)(self.playback.posterLayer.contents!=nil),
@@ -564,7 +547,7 @@ static void LMVCopyLogXInstallControllerHook(void) {
     LMVCopyLogXControllerHooked=YES;
 }
 static void LMVCopyLogXVideoInstallHooks(void) {
-    if(!LMVCopyLogXSpringBoard())return;
+    if(!LMVSpringBoard())return;
     LMVCopyLogXInstallControllerHook();
     if(LMVCopyLogXTimer)return;
     LMVCopyLogXRetune();

@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 // 1.43: the CopyVault clipboard panel background (CopyVault 面板背景视频).
 //
 // Shape settled by the 1.42 device diagnostics (`desktop-panel-tree` /
@@ -60,14 +61,11 @@ static void LMVCopyVaultPanelVideoSuspend(void);
 static BOOL LMVCVPanelEnabled,LMVCVPanelPrefsKnown;
 static NSString *LMVCVPanelPath,*LMVCVPanelRevision;
 static NSTimer *LMVCVPanelTimer;
-static BOOL LMVCVPanelSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVCVPanelEnvironment(void) {
     uint64_t blank=1,locked=1;
     // 1.76.8: same nine joined conditions as the Squid channel - print the failing set.
     BOOL init=LMVInitialized, ready=LMVLaunchReady, main=NSThread.isMainThread;
-    BOOL sb=LMVCVPanelSpringBoard();
+    BOOL sb=LMVSpringBoard();
     BOOL haveTokens=(LMVBlankToken>=0 && LMVLockToken>=0);
     BOOL blankOK=haveTokens && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockOK=haveTokens && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
@@ -90,22 +88,6 @@ static BOOL LMVCVPanelEnvironment(void) {
 }
 // The window CopyVault owns. The 1.42 desktop-window-meta line named it:
 // CVPanelWindow with root view controller CVPanelViewController.
-// 1.76.8: see the Squid channel - when the panel window is missing, print what the
-// window list really holds instead of failing silently.
-static NSString *LMVCVWindowReport(void) {
-    NSMutableString *out=[NSMutableString new];
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(out.length>900)break;
-            [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
-                LMVProbeClassName(window),(int)window.hidden,window.alpha,
-                window.frame.size.width,window.frame.size.height,window.windowLevel,
-                (unsigned long)window.subviews.count];
-        }
-    }
-    return out.length?out:@"none";
-}
 static UIWindow *LMVCVPanelWindow(void) {
     // 2.55: shared snapshot (already filtered to visible windows).
     for(UIWindow *window in LMVProbeVisibleWindows()) {
@@ -115,17 +97,8 @@ static UIWindow *LMVCVPanelWindow(void) {
     return nil;
 }
 static NSInteger const LMVCVPanelHostTag=0x5A19;
-// How much of this view is REALLY on screen. The card is parked at y=1454 while the
-// panel is closed, and scoring by raw area alone would happily mount there.
-static CGFloat LMVCVPanelVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
-}
+// Device fact (1.42): while the panel is closed the card sits parked at y=1454, so
+// LMVVisibleArea() reports zero there and it is never mounted.
 // How much of `inner` lies inside `outer`.
 static CGFloat LMVCVPanelCoverage(CGRect inner,CGRect outer) {
     if(CGRectIsEmpty(inner) || CGRectIsEmpty(outer))return 0;
@@ -171,7 +144,7 @@ static UIView *LMVCVPanelVaultView(UIWindow *window,BOOL *existsOut) {
             if(existsOut)*existsOut=YES;
             if(child.hidden || child.alpha<.01)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
-            CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible>bestArea){bestArea=visible;best=child;}
         }
     }
@@ -200,7 +173,7 @@ static UIView *LMVCVPanelCard(UIWindow *window) {
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
             if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;
-            CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible<=0)continue;   // parked off screen - never a candidate
             if(visible>bestArea){bestArea=visible;best=child;}
         }
@@ -227,7 +200,7 @@ static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window,CGRect clip) {
             [pending addObject:child];
             if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<.01)continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
-            CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible<=0)continue;
             if(LMVCVPanelCoverage(frame,clip)<.9)continue;
             if(visible>bestArea){bestArea=visible;best=child;}
@@ -262,12 +235,6 @@ static UIColor *LMVCVPanelTextColor(void) {
     return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
                            blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
 }
-static BOOL LMVCVPanelColorEqual(UIColor *a,UIColor *b) {
-    if(!a || !b)return a==b;
-    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
-    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
-    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
-}
 static void LMVCVPanelApplyTextColor(UIView *root) {
     UIColor *color=LMVCVPanelTextColor();
     if(!root || !color)return;
@@ -283,13 +250,13 @@ static void LMVCVPanelApplyTextColor(UIView *root) {
             UILabel *label=(UILabel *)child;
             if(label.attributedText.length) {
                 UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
-                if(LMVCVPanelColorEqual(now,color))continue;
+                if(LMVColorEqual(now,color))continue;
                 if(![LMVCVPanelTextOriginal objectForKey:label])[LMVCVPanelTextOriginal setObject:label.attributedText forKey:label];
                 NSMutableAttributedString *text=[label.attributedText mutableCopy];
                 [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
                 label.attributedText=text;
             } else if(label.text.length) {
-                if(LMVCVPanelColorEqual(label.textColor,color))continue;
+                if(LMVColorEqual(label.textColor,color))continue;
                 if(![LMVCVPanelTextOriginal objectForKey:label])
                     [LMVCVPanelTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
                 label.textColor=color;
@@ -380,7 +347,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
     // 1.49: a card parked off screen (the closed panel, y=1454) is not a target,
     // whichever way it was found.
     CGRect cardFrame=[card convertRect:card.bounds toView:window];
-    if(LMVCVPanelVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}
+    if(LMVVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}
     if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCVPanelPath] ||
         ![self.playback.revision isEqualToString:LMVCVPanelRevision];
@@ -451,7 +418,7 @@ static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
             self.mode?:@"none",
             LMVCVPanelVaultClass(self.card)?@"vault":@"generic",
             NSStringFromClass(self.card.class),cardFrame.origin.x,cardFrame.origin.y,cardFrame.size.width,cardFrame.size.height,
-            radius,LMVCVPanelVisibleArea(cardFrame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
+            radius,LMVVisibleArea(cardFrame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
@@ -496,7 +463,7 @@ static void LMVCopyVaultPanelVideoRefresh(BOOL reload) {
         if(LMVDiagnosticsEnabled.load()) {
             static NSString *lastWindows=nil;
             NSString *windows=[NSString stringWithFormat:@"cv-panel windows env=%d win=%d %@",
-                (int)LMVCVPanelEnvironment(),(int)(LMVCVPanelWindow()!=nil),LMVCVWindowReport()];
+                (int)LMVCVPanelEnvironment(),(int)(LMVCVPanelWindow()!=nil),LMVWindowReportSnapshot()];
             if(![windows isEqualToString:lastWindows]) {lastWindows=[windows copy];LMVDiagnostic(windows);}
         }
         [LMVCopyVaultPanelVideo detach];return;
@@ -514,6 +481,6 @@ static void LMVCopyVaultPanelVideoSuspend(void) {
     [LMVCopyVaultPanelVideo detach];
 }
 static void LMVCopyVaultPanelVideoInstallHooks(void) {
-    if(LMVCVPanelTimer || !LMVCVPanelSpringBoard())return;
+    if(LMVCVPanelTimer || !LMVSpringBoard())return;
     LMVCVPanelRetune();
 }

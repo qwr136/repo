@@ -47,9 +47,10 @@ assert 'if(frame.size.width<bounds.size.width*.4 || frame.size.height<bounds.siz
 # 1.25: each shape keeps SEVERAL cards (device log: two 430x435 views, one on
 # screen at y=497 and one parked at y=1459 in a 932-high window) - scoring by area
 # made the choice flip and the video kept landing on the parked one.
-assert 'static CGFloat LMVSquidPanelVisibleArea(CGRect frame,CGRect bounds) {' in module
-assert 'return visible/total>=.5?visible:0;' in module
-assert 'CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);' in module
+assert '#import "LMVPanelCommon.h"' in module
+assert 'CGFloat visible=LMVVisibleArea(frame,bounds);' in module
+common=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LMVPanelCommon.h').read_text()
+assert 'return visible / total >= .5 ? visible : 0;' in common
 assert 'if(visible<=0)continue;   // parked off screen - never a candidate' in module
 assert 'if(visible>bestArea){bestArea=visible;best=child;}' in module
 # 1.44: the material is NOT scored with the card rule. It is searched inside the

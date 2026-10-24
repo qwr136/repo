@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 // Import after Lock/Desktop/CC. Independent of EasterEnabled/bubble visibility.
 // iOS 16.0 (20A5303f) classdump evidence (not claims about other OS builds):
 // https://raw.githubusercontent.com/lechium/iPhoneOS_16.0_20A5303f/master/System/Library/PrivateFrameworks/UIKitCore/_UIContextMenuListView.h
@@ -28,13 +29,10 @@ static NSString *LMVHomeMenuPath,*LMVHomeMenuRevision;
 // here too, exactly like the eight panel channels.
 static NSTimer *LMVHomeMenuTimer;
 static NSTimeInterval LMVHomeMenuPendingHide;
-static BOOL LMVHomeMenuSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVHomeMenuEnvironment(void) {
     uint64_t blank=1,locked=1;
     return LMVInitialized && LMVLaunchReady && NSThread.isMainThread &&
-        LMVHomeMenuSpringBoard() && LMVDesktopForeground()==1 &&
+        LMVSpringBoard() && LMVDesktopForeground()==1 &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank && !locked;
@@ -418,7 +416,7 @@ static void LMVHomeMenuVideoSuspend(void) {
 }
 // Observe confirmed presentation AFTER original. No singleton or loadView call.
 static void LMVHomeMenuPresentation(id object,BOOL active) {
-    if(!NSThread.isMainThread || !LMVHomeMenuSpringBoard())return;
+    if(!NSThread.isMainThread || !LMVSpringBoard())return;
     LMVHomeMenuRecord *record=objc_getAssociatedObject(object,&LMVHomeMenuRecordKey);
     if(!record && active && LMVHomeMenuEnvironment() && LMVHomeMenuIconSource(object)) {
         record=[LMVHomeMenuRecord new];record.presentation=object;
@@ -477,7 +475,7 @@ static BOOL LMVHomeMenuHookMatches(Class cls,SEL selector,BOOL hasBool) {
     return okay;
 }
 static void LMVHomeMenuVideoInstallHooks(void) {
-    static BOOL installed;if(installed || !LMVHomeMenuSpringBoard())return;
+    static BOOL installed;if(installed || !LMVSpringBoard())return;
     // 1.32: the LIST hooks are the ones that actually find the menu, and they now
     // install on their own. Until this change the whole install aborted unless
     // _UIContextMenuPresentationController existed AND exposed all three

@@ -385,6 +385,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src=Path(tmp)/'sources.m'; binary=Path(tmp)/'sources'; movie=Path(tmp)/'fixture.mov'
     src.write_text(preamble + production + tests)
     subprocess.run(['clang','-fobjc-arc','-Wno-deprecated-declarations','-framework','Foundation',

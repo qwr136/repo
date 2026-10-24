@@ -228,6 +228,7 @@ if '--emit-native' in sys.argv:
     print(preamble+helpers)
     raise SystemExit(0)
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     p=Path(tmp)/'windows.m';p.write_text(preamble+helpers+main);binary=Path(tmp)/'windows'
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(p),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True,timeout=20)

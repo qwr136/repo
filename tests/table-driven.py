@@ -80,4 +80,4 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.0.8 - 16 channels, one table, one storage root, one name per folder/index/legacy file')
+print('PASS: 4.0.9 - 16 channels, one table, one storage root, one name per folder/index/legacy file')

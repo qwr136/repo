@@ -358,6 +358,7 @@ int main(void) { @autoreleasepool {
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))
     fixture = fixture.replace('@PREFS_METHODS@', '\n'.join((append, specifiers, body(prefs, '- (id)enabled:'), set_enabled, getter, setter)))
     with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
         src, binary = Path(tmp)/'audio.m', Path(tmp)/'audio'
         src.write_text(fixture + main)
         subprocess.run(['clang', '-fobjc-arc', '-framework', 'Foundation', str(src), '-o', str(binary)], check=True)

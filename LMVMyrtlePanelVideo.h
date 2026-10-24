@@ -1,3 +1,4 @@
+#import "LMVPanelCommon.h"
 #if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
 #else
@@ -57,20 +58,6 @@ static BOOL LMVMyrtlePanelEnvironment(void) {
         if(![line isEqualToString:last]) {last=[line copy];LMVDiagnostic(line);}
     }
     return ok;
-}
-static NSString *LMVMyrtleWindowReport(void) {
-    NSMutableString *out=[NSMutableString new];
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(out.length>900)break;
-            [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
-                LMVProbeClassName(window),(int)window.hidden,window.alpha,
-                window.frame.size.width,window.frame.size.height,window.windowLevel,
-                (unsigned long)window.subviews.count];
-        }
-    }
-    return out.length?out:@"none";
 }
 // 1.82: only the App Library panel window. `MyrtleHostWindow` is the floating-app
 // surface (the WeChat chat list card) and `MyrtleKeyboardWindow` is a sibling at a
@@ -250,7 +237,7 @@ static LMVMyrtlePanelVideoManager *LMVMyrtlePanelVideo;
         if(LMVDiagnosticsEnabled.load()) {
             static NSString *lastWindows=nil;
             NSString *line=[NSString stringWithFormat:@"myrtle-panel windows win=%d %@",
-                (int)(LMVMyrtlePanelWindow(0)!=nil),LMVMyrtleWindowReport()];
+                (int)(LMVMyrtlePanelWindow(0)!=nil),LMVWindowReportSnapshot()];
             if(![line isEqualToString:lastWindows]) {lastWindows=[line copy];LMVDiagnostic(line);}
         }
         [self detach];self.updating=NO;return;
@@ -353,7 +340,7 @@ static void LMVMyrtlePanelVideoRefresh(BOOL reload) {
         if(LMVDiagnosticsEnabled.load()) {
             static NSString *lastWindows=nil;
             NSString *line=[NSString stringWithFormat:@"myrtle-panel windows env=%d win=%d %@",
-                (int)LMVMyrtlePanelEnvironment(),(int)(LMVMyrtlePanelWindow(0)!=nil),LMVMyrtleWindowReport()];
+                (int)LMVMyrtlePanelEnvironment(),(int)(LMVMyrtlePanelWindow(0)!=nil),LMVWindowReportSnapshot()];
             if(![line isEqualToString:lastWindows]) {lastWindows=[line copy];LMVDiagnostic(line);}
         }
         [LMVMyrtlePanelVideo detach];return;

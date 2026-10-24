@@ -35,9 +35,10 @@ assert 'if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.siz
 # 1.42 device fact: while the panel is CLOSED the same card sits OFF SCREEN at
 # y=1454. The shared "at least half of it is really on screen" rule is what keeps
 # the video off that parked copy.
-assert 'static CGFloat LMVCVPanelVisibleArea(CGRect frame,CGRect bounds) {' in module
-assert 'return visible/total>=.5?visible:0;' in module
-assert 'CGFloat visible=LMVCVPanelVisibleArea(frame,bounds);' in module
+assert '#import "LMVPanelCommon.h"' in module
+assert 'CGFloat visible=LMVVisibleArea(frame,bounds);' in module
+common=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LMVPanelCommon.h').read_text()
+assert 'return visible / total >= .5 ? visible : 0;' in common
 assert 'if(visible<=0)continue;   // parked off screen - never a candidate' in module
 assert 'if(visible>bestArea){bestArea=visible;best=child;}' in module
 assert 'static UIView *LMVCVPanelMaterial(UIView *root,UIWindow *window,CGRect clip) {' in module
@@ -58,7 +59,7 @@ assert 'if(named)return vault;' in module, 'the named card wins outright when th
 assert 'LMVCVPanelVaultClass(self.card)?@"vault":@"generic"' in module, 'why= tells the next log which way the card was found'
 # A card parked at y=1454 while closed must be refused on BOTH paths, and the
 # "no card" answer must never be confused with "the plugin is not here at all".
-assert 'if(LMVCVPanelVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}' in module
+assert 'if(LMVVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}' in module
 assert 'if(existsOut)*existsOut=YES;' in module
 assert 'NSStringFromClass(self.card.class),cardFrame.origin.x' in module
 # A UIVisualEffectView refuses direct subviews - adding one raises, and an exception

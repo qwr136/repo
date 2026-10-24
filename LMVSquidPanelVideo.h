@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 // 1.25: the SquidGesturePro panel background (鱿鱼面板背景视频).
 //
 // Device diagnostics settled the shape of that panel: it lives in SGPanelWindow,
@@ -80,16 +81,13 @@ static NSArray *LMVSquidPanelSlotHeightKeys(void) {
 static NSArray *LMVSquidPanelSlotTitles(void) {
     return @[@"右一·右上滑",@"右二·右上上滑",@"左一·左上滑",@"左二·左上上滑"];
 }
-static BOOL LMVSquidPanelSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVSquidPanelEnvironment(void) {
     uint64_t blank=1,locked=1;
     // 1.76.8: nine conditions joined by &&. Any one of them false makes this channel
     // stand down SILENTLY, and the report ("panel shows no video") looks identical
     // whichever one it was. Evaluate them separately and print the failing set.
     BOOL init=LMVInitialized, ready=LMVLaunchReady, main=NSThread.isMainThread;
-    BOOL sb=LMVSquidPanelSpringBoard();
+    BOOL sb=LMVSpringBoard();
     BOOL haveTokens=(LMVBlankToken>=0 && LMVLockToken>=0);
     BOOL blankOK=haveTokens && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockOK=haveTokens && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
@@ -111,24 +109,6 @@ static BOOL LMVSquidPanelEnvironment(void) {
     return ok;
 }
 // The panel window: the class name the device log named. Nothing else is assumed.
-// 1.76.8: when the panel window cannot be found, say WHAT the window list actually
-// holds. Three captures in a row showed "no squid-* lines at all", which could mean
-// switch off, no material, or panel in a window we never look at - three completely
-// different fixes. This collapses that to one line.
-static NSString *LMVSquidWindowReport(void) {
-    NSMutableString *out=[NSMutableString new];
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if(![scene isKindOfClass:UIWindowScene.class])continue;
-        for(UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if(out.length>900)break;
-            [out appendFormat:@"%@(h%d,a%.2f,%.0fx%.0f,lv%.0f,sub%lu) ",
-                LMVProbeClassName(window),(int)window.hidden,window.alpha,
-                window.frame.size.width,window.frame.size.height,window.windowLevel,
-                (unsigned long)window.subviews.count];
-        }
-    }
-    return out.length?out:@"none";
-}
 // 2.01: what is actually inside a panel window, when nothing in it passes the card
 // rule. The "largest visible subview" summary always loses to a full-window
 // container, so the panel it is hiding never gets named.
@@ -152,22 +132,6 @@ static UIWindow *LMVSquidPanelWindow(void) {
     return nil;
 }
 static NSInteger const LMVSquidPanelHostTag=0x5A17;
-// 1.25: how much of this view is REALLY on screen. The panel keeps SEVERAL activity
-// panel views - the device log shows two of them, both 430x435, one on screen at
-// y=497 and one parked at y=1459 in a 932-high window. Scoring by raw area alone
-// made the choice flip between them as the tree order changed, so the video kept
-// jumping onto the parked (invisible) card - which is what "看不到视频背景" was.
-// A candidate now only qualifies while at least half of it is inside the window,
-// and the one with the largest visible area wins.
-static CGFloat LMVSquidPanelVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
-}
 // The card: the largest visible descendant that does NOT fill the window (at least
 // half its width and an eighth of its height). That rule skips the full-screen
 // containers - the window content and the tweak's activity container - and our own
@@ -192,7 +156,7 @@ static UIView *LMVSquidPanelSurfaceIn(UIWindow *window) {
             if(sub.hidden || sub.alpha<.01)continue;
             if(![LMVProbeClassName(sub) isEqualToString:@"SFActivityPanelView"])continue;
             CGRect frame=[sub convertRect:sub.bounds toView:window];
-            CGFloat area=LMVSquidPanelVisibleArea(frame,bounds);
+            CGFloat area=LMVVisibleArea(frame,bounds);
             if(area>bestArea){bestArea=area;best=sub;}
         }
     }
@@ -218,7 +182,7 @@ static UIView *LMVSquidPanelCard(UIWindow *window) {
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
             // 2.02: lowered - the small panels are real panels, not noise.
             if(frame.size.width<bounds.size.width*.4 || frame.size.height<bounds.size.height*.05)continue;
-            CGFloat visible=LMVSquidPanelVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if(visible<=0)continue;   // parked off screen - never a candidate
             if(visible>bestArea){bestArea=visible;best=child;}
         }
@@ -1071,12 +1035,6 @@ static UIColor *LMVSquidPanelTextColor(void) {
     return [UIColor colorWithRed:((word>>24)&0xFF)/255.0 green:((word>>16)&0xFF)/255.0
                            blue:((word>>8)&0xFF)/255.0 alpha:(word&0xFF)/255.0];
 }
-static BOOL LMVSquidPanelColorEqual(UIColor *a,UIColor *b) {
-    if(!a || !b)return a==b;
-    CGFloat ar=0,ag=0,ab=0,aa=0,br=0,bg=0,bb=0,ba=0;
-    if(![a getRed:&ar green:&ag blue:&ab alpha:&aa] || ![b getRed:&br green:&bg blue:&bb alpha:&ba])return [a isEqual:b];
-    return fabs(ar-br)<.002 && fabs(ag-bg)<.002 && fabs(ab-bb)<.002 && fabs(aa-ba)<.002;
-}
 static void LMVSquidPanelApplyTextColor(UIView *root) {
     UIColor *color=LMVSquidPanelTextColor();
     if(!root || !color)return;
@@ -1092,13 +1050,13 @@ static void LMVSquidPanelApplyTextColor(UIView *root) {
             UILabel *label=(UILabel *)child;
             if(label.attributedText.length) {
                 UIColor *now=[label.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
-                if(LMVSquidPanelColorEqual(now,color))continue;
+                if(LMVColorEqual(now,color))continue;
                 if(![LMVSquidPanelTextOriginal objectForKey:label])[LMVSquidPanelTextOriginal setObject:label.attributedText forKey:label];
                 NSMutableAttributedString *text=[label.attributedText mutableCopy];
                 [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];
                 label.attributedText=text;
             } else if(label.text.length) {
-                if(LMVSquidPanelColorEqual(label.textColor,color))continue;
+                if(LMVColorEqual(label.textColor,color))continue;
                 if(![LMVSquidPanelTextOriginal objectForKey:label])
                     [LMVSquidPanelTextOriginal setObject:(label.textColor?:UIColor.labelColor) forKey:label];
                 label.textColor=color;
@@ -1227,7 +1185,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                                 [stack addObject:sub];
                                 if(sub.hidden || sub.alpha<.01)continue;
                                 CGRect f=[sub convertRect:sub.bounds toView:win];
-                                CGFloat area=LMVSquidPanelVisibleArea(f,win.bounds);
+                                CGFloat area=LMVVisibleArea(f,win.bounds);
                                 if(area>bestArea){bestArea=area;best=sub;}
                             }
                         }
@@ -1243,7 +1201,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                 if(window)LMVSquidPanelDumpTree(window,4,tree,&nodes);
                 LMVDiagnostic([NSString stringWithFormat:@"squid-panel-nocard window=%@ hunt=%@ tree=%@ windows=%@",
                     window?LMVProbeClassName(window):@"none",hunt.length?hunt:@"none",
-                    tree.length?tree:@"none",LMVSquidWindowReport()]);
+                    tree.length?tree:@"none",LMVWindowReportSnapshot()]);
             }
         }
         [self detach];self.updating=NO;return;
@@ -1477,7 +1435,7 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             self.mode?:@"none",
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             (void *)self.card,
-            LMVSquidPanelVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
+            LMVVisibleArea(frame,bounds),(int)live,self.host.bounds.size.width,self.host.bounds.size.height];
         static NSString *lastStatus=nil;
         if(![status isEqualToString:lastStatus]) {lastStatus=[status copy];LMVDiagnostic(status);}
     }
@@ -1612,7 +1570,7 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
         if(LMVDiagnosticsEnabled.load()) {
             static NSString *lastWindows=nil;
             NSString *windows=[NSString stringWithFormat:@"squid-panel windows env=%d win=%d %@",
-                (int)LMVSquidPanelEnvironment(),(int)(LMVSquidPanelWindow()!=nil),LMVSquidWindowReport()];
+                (int)LMVSquidPanelEnvironment(),(int)(LMVSquidPanelWindow()!=nil),LMVWindowReportSnapshot()];
             if(![windows isEqualToString:lastWindows]) {lastWindows=[windows copy];LMVDiagnostic(windows);}
         }
         [LMVSquidPanelVideo detach];return;
@@ -1630,6 +1588,6 @@ static void LMVSquidPanelVideoSuspend(void) {
     [LMVSquidPanelVideo detach];
 }
 static void LMVSquidPanelVideoInstallHooks(void) {
-    if(LMVSquidPanelTimer || !LMVSquidPanelSpringBoard())return;
+    if(LMVSquidPanelTimer || !LMVSpringBoard())return;
     LMVSquidPanelRetune();
 }

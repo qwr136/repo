@@ -87,6 +87,7 @@ int main(void) { @autoreleasepool {
 } return 0; }
 '''
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     source=Path(tmp)/'movie.m'; source.write_text(preamble+media+main)
     binary=Path(tmp)/'movie'
     subprocess.run(['clang','-fobjc-arc','-I',str(r),'-framework','Foundation','-framework','AVFoundation','-framework','CoreVideo','-framework','CoreMedia','-framework','CoreGraphics','-framework','ImageIO',str(source),'-o',str(binary)],check=True)

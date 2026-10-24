@@ -25,7 +25,7 @@ shadow = shadow[:shadow.index('\n}')]
 assert 'containsString:@"Shadow"' in shadow and 'containsString:@"Cutout"' in shadow
 cardin = src[src.index('static UIView *LMVCCBorderCardIn'):]
 cardin = cardin[:cardin.index('\n}')]
-assert 'LMVCCBorderGlassKind(child) || LMVCCBorderShadowKind(child))continue' in cardin
+assert 'LMVGlassLikeView(child) || LMVCCBorderShadowKind(child))continue' in cardin
 
 # 2) 内容卡片（UIVisualEffectView 的非玻璃子视图）单独成层，优于兜底的“最大可见”
 assert '[child.superview isKindOfClass:UIVisualEffectView.class]' in cardin

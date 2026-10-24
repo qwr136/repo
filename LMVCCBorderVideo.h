@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
 #else
@@ -57,12 +58,9 @@ static BOOL LMVCCBorderEnabled,LMVCCBorderPrefsKnown;
 static NSString *LMVCCBorderPath,*LMVCCBorderRevision;
 static NSTimer *LMVCCBorderTimer;
 
-static BOOL LMVCCBorderSpringBoard(void) {
-    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"];
-}
 static BOOL LMVCCBorderEnvironment(void) {
     uint64_t blank=1,locked=1;
-    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVCCBorderSpringBoard() &&
+    return LMVInitialized && LMVLaunchReady && NSThread.isMainThread && LMVSpringBoard() &&
         LMVBlankToken>=0 && LMVLockToken>=0 &&
         notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK &&
         notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK && !blank;
@@ -82,15 +80,6 @@ static BOOL LMVCCBorderMenuKind(UIView *view) {
     NSString *name=LMVProbeClassName(view);
     return [name rangeOfString:@"UIContextMenu" options:NSCaseInsensitiveSearch].location!=NSNotFound;
 }
-static BOOL LMVCCBorderGlassKind(UIView *view) {
-    if(!view)return NO;
-    if([view isKindOfClass:UIVisualEffectView.class])return YES;
-    NSString *name=LMVProbeClassName(view);
-    if([name containsString:@"ContentView"])return NO;
-    for(NSString *word in @[@"Blur",@"Glass",@"Vibrancy",@"Dimming",@"Backdrop",@"Effect"])
-        if([name rangeOfString:word options:NSCaseInsensitiveSearch].location!=NSNotFound)return YES;
-    return NO;
-}
 // 2.31: A SHADOW IS NEVER THE CARD. _UICutoutShadowView (a _UIRoundedRectShadowView
 // subclass) draws the platter rim BELOW the platter; a video mounted into it is
 // covered by the platter itself - the 2.30 "sound only" capture. Shadow/cutout
@@ -99,15 +88,6 @@ static BOOL LMVCCBorderShadowKind(UIView *view) {
     if(!view)return NO;
     NSString *name=LMVProbeClassName(view);
     return [name containsString:@"Shadow"] || [name containsString:@"Cutout"];
-}
-static CGFloat LMVCCBorderVisibleArea(CGRect frame,CGRect bounds) {
-    if(CGRectIsEmpty(frame) || CGRectIsEmpty(bounds))return 0;
-    CGRect onScreen=CGRectIntersection(frame,bounds);
-    if(CGRectIsEmpty(onScreen))return 0;
-    CGFloat total=frame.size.width*frame.size.height;
-    if(total<=0)return 0;
-    CGFloat visible=onScreen.size.width*onScreen.size.height;
-    return visible/total>=.5?visible:0;
 }
 static NSInteger const LMVCCBorderHostTag=0x5A39;
 // 2.31: THE PICK USED TO BE "LARGEST VISIBLE" - and on the device the largest
@@ -140,11 +120,11 @@ static UIView *LMVCCBorderCardIn(UIView *root,UIWindow *window) {
             if(!budget--)break;
             if(child.tag==LMVCCBorderHostTag || child.hidden || child.alpha<.01)continue;
             [pending addObject:child];
-            if(LMVCCBorderGlassKind(child) || LMVCCBorderShadowKind(child))continue;
+            if(LMVGlassLikeView(child) || LMVCCBorderShadowKind(child))continue;
             CGRect frame=[child convertRect:child.bounds toView:window];
             if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
             if(frame.size.width<ref*.3 || frame.size.height<ref*.05)continue;
-            CGFloat visible=LMVCCBorderVisibleArea(frame,bounds);
+            CGFloat visible=LMVVisibleArea(frame,bounds);
             if([child.superview isKindOfClass:UIVisualEffectView.class]) {
                 if(visible>bestContentArea){bestContentArea=visible;bestContent=child;}
             } else if(visible>bestFallbackArea){bestFallbackArea=visible;bestFallback=child;}
@@ -379,7 +359,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
         for(NSUInteger i=slot;i<container.subviews.count;i++) {
             UIView *sibling=container.subviews[i];
             if(sibling.tag==LMVCCBorderHostTag)break;
-            if(!LMVCCBorderGlassKind(sibling))break;
+            if(!LMVGlassLikeView(sibling))break;
             slot=i+1;
         }
         index=slot;target=material.frame;mode=@"above-material";
@@ -407,7 +387,7 @@ static LMVCCBorderVideoManager *LMVCCBorderVideo;
             LMVPhoneAssistModuleIdentifier(window,self.card),
             NSStringFromClass(self.card.class),frame.origin.x,frame.origin.y,frame.size.width,frame.size.height,
             self.card.superview?NSStringFromClass(self.card.superview.class):@"nil",(long)cardIndex,
-            self.card.layer.cornerRadius,LMVCCBorderVisibleArea(frame,bounds),(int)live,
+            self.card.layer.cornerRadius,LMVVisibleArea(frame,bounds),(int)live,
             self.host.bounds.size.width,self.host.bounds.size.height,
             (int)self.playback.playerLayer.readyForDisplay,
             (int)(self.playback.posterLayer.contents!=nil),
@@ -457,6 +437,6 @@ static void LMVCCBorderVideoSuspend(void) {
     [LMVCCBorderVideo detach];
 }
 static void LMVCCBorderVideoInstallHooks(void) {
-    if(LMVCCBorderTimer || !LMVCCBorderSpringBoard())return;
+    if(LMVCCBorderTimer || !LMVSpringBoard())return;
     LMVCCBorderRetune();
 }

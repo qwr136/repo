@@ -66,6 +66,7 @@ int main(int argc,const char **argv){@autoreleasepool{
 }return 0;}
 '''
 with tempfile.TemporaryDirectory() as d:
+ Path(d).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
  d=Path(d);src=d/'audio.m';out=d/'audio';wav=d/'tone.wav'
  with wave.open(str(wav),'w') as f:
   f.setnchannels(1);f.setsampwidth(2);f.setframerate(22050)

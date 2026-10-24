@@ -1,15 +1,11 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #import "LMVPanelTuning.h"
 // Included after LMVLockVideo.h: use its proven video-only playback class as a
 // separate instance. No player/item/looper/position/poster is shared with Lock.
-static BOOL LMVDesktopObjectGetter(id object,SEL selector) {
-    if (!object || ![object respondsToSelector:selector]) return NO;
-    NSMethodSignature *signature=[object methodSignatureForSelector:selector];
-    return signature && signature.numberOfArguments==2 && !strcmp(signature.methodReturnType,@encode(id));
-}
 static id LMVDesktopGet(id object,NSString *name) {
     SEL selector=NSSelectorFromString(name);
-    return LMVDesktopObjectGetter(object,selector)?((id(*)(id,SEL))objc_msgSend)(object,selector):nil;
+    return LMVObjectGetterFor(object,selector)?((id(*)(id,SEL))objc_msgSend)(object,selector):nil;
 }
 static BOOL LMVDesktopWallpaperClass(UIView *view) {
     if (![view isKindOfClass:UIView.class]) return NO;
@@ -92,7 +88,7 @@ static NSInteger LMVDesktopForeground(void) {
     UIApplication *app=UIApplication.sharedApplication;
     BOOL observed=NO,unknownObject=NO;
     for (NSString *name in @[@"_frontmostApplication",@"_accessibilityFrontMostApplication"]) {
-        SEL selector=NSSelectorFromString(name);if(!LMVDesktopObjectGetter(app,selector))continue;
+        SEL selector=NSSelectorFromString(name);if(!LMVObjectGetterFor(app,selector))continue;
         observed=YES;id object=((id(*)(id,SEL))objc_msgSend)(app,selector);if(!object)continue;
         id bundle=LMVDesktopGet(object,@"bundleIdentifier");
         if ([bundle isKindOfClass:NSString.class] && [bundle length]) return [bundle isEqualToString:@"com.apple.springboard"]?1:-1;
@@ -712,17 +708,6 @@ static void LMVDesktopStage(const char *name,CFTimeInterval started) {
     CFTimeInterval ms=(CACurrentMediaTime()-started)*1000.0;
     if (ms<50.0) return;
     LMVDiagnostic([NSString stringWithFormat:@"desktop-stage %s %.0fms",name,ms]);
-}
-static NSString *LMVDesktopVideoPerf(const char *channel,CFTimeInterval seconds) {
-    static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
-    CFTimeInterval now=CACurrentMediaTime();
-    if (windowStart<=0) windowStart=now;
-    calls++;if (seconds>maxSeconds)maxSeconds=seconds;if (seconds>0.004)slow++;
-    if (now-windowStart<2.0) return nil;
-    NSString *report=[NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
-        channel,(unsigned long)calls,maxSeconds*1000.0,(unsigned long)slow];
-    calls=0;slow=0;maxSeconds=0;windowStart=now;
-    return report;
 }
 // Retention is not discovery: only an exact, still-attached Home ownership
 // acquired while visible may survive a lifecycle/geometry transition.
@@ -2123,7 +2108,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
                 self.container?NSStringFromClass(self.container.class):@"none"]);
         }
     }
-    NSString *coverPerf=LMVDesktopVideoPerf("desktop",CACurrentMediaTime()-coverPerf0);
+    NSString *coverPerf=LMVPerfSample("desktop",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
     }
     LMVDesktopStage("rest",stageCover);

@@ -284,6 +284,7 @@ if platform.system() != 'Darwin':
     print('SKIP native: real Foundation/QuartzCore execution requires macOS; no device validation claim')
     raise SystemExit(0)
 with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src = Path(tmp) / 'rotating-panel.m'
     binary = Path(tmp) / 'rotating-panel'
     src.write_text(source)

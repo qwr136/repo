@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -303,17 +304,6 @@ static inline CGRect LMVLockVideoClip(UIView *content,UIView *container,UIWindow
 // checks remain for separate z-order/system-redraw issues.
 static NSString *LMVLockVideoRectText(CGRect rect) {
     return LMVLockVideoRectValid(rect)?[NSString stringWithFormat:@"{{%.0f,%.0f},{%.0f,%.0f}}",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height]:@"(none)";
-}
-static NSString *LMVLockVideoPerf(const char *channel,CFTimeInterval seconds) {
-    static NSUInteger calls=0,slow=0;static CFTimeInterval maxSeconds=0,windowStart=0;
-    CFTimeInterval now=CACurrentMediaTime();
-    if (windowStart<=0) windowStart=now;
-    calls++;if (seconds>maxSeconds)maxSeconds=seconds;if (seconds>0.004)slow++;
-    if (now-windowStart<2.0) return nil;
-    NSString *report=[NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
-        channel,(unsigned long)calls,maxSeconds*1000.0,(unsigned long)slow];
-    calls=0;slow=0;maxSeconds=0;windowStart=now;
-    return report;
 }
 // 0.0.99: views the panel paints ABOVE our surface that repaint the ORIGINAL
 // wallpaper. Device hierarchy (SBCoverSheetWindow -> ... -> CSCoverSheetView ->
@@ -841,7 +831,7 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
         if (self.playback.path || self.playback.player || self.playback.loading) [self.playback clear];
     }
     if(diagnostics) {
-        NSString *coverPerf=LMVLockVideoPerf("lock",CACurrentMediaTime()-coverPerf0);
+        NSString *coverPerf=LMVPerfSample("lock",CACurrentMediaTime()-coverPerf0);
         if (coverPerf) LMVLockVideoLog(coverPerf);
     }
     if(diagnostics && visible && CACurrentMediaTime()-self.lastCompositeAt>=.10) {

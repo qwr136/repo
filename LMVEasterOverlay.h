@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVPanelCommon.h"
 #import "LMVPanelTuning.h"
 #import "LMVEasterPanel.h"
 #import "LMVEasterGeometry.h"
@@ -267,19 +268,14 @@ static BOOL LMVEasterPhysicalCheckNeeded(BOOL invalid,BOOL changed,CFTimeInterva
                                         CFTimeInterval last,BOOL tracking) {
     return invalid || changed || (!tracking && (now<last || now-last>=1.0));
 }
-static BOOL LMVEasterObjectGetter(id object,SEL selector) {
-    if(!object || ![object respondsToSelector:selector])return NO;
-    NSMethodSignature *signature=[object methodSignatureForSelector:selector];
-    return signature && signature.numberOfArguments==2 && !strcmp(signature.methodReturnType,@encode(id));
-}
 // Home=1, application=-1, unknown=0. Only use existing published state.
 static NSInteger LMVEasterForeground(void) {
     UIApplication *app=UIApplication.sharedApplication;BOOL known=NO,unknown=NO;
     for(NSString *name in @[@"_frontmostApplication",@"_accessibilityFrontMostApplication"]) {
-        SEL selector=NSSelectorFromString(name);if(!LMVEasterObjectGetter(app,selector))continue;
+        SEL selector=NSSelectorFromString(name);if(!LMVObjectGetterFor(app,selector))continue;
         known=YES;id object=((id(*)(id,SEL))objc_msgSend)(app,selector);if(!object)continue;
         SEL bundle=NSSelectorFromString(@"bundleIdentifier");
-        id identifier=LMVEasterObjectGetter(object,bundle)?((id(*)(id,SEL))objc_msgSend)(object,bundle):nil;
+        id identifier=LMVObjectGetterFor(object,bundle)?((id(*)(id,SEL))objc_msgSend)(object,bundle):nil;
         if([identifier isKindOfClass:NSString.class] && [identifier length])return [identifier isEqualToString:@"com.apple.springboard"]?1:-1;
         unknown=YES;
     }
