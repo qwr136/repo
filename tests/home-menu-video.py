@@ -215,6 +215,6 @@ if os.environ.get('LMV_NATIVE_EXPORT_DIR'):
     raise SystemExit(0)
 with tempfile.TemporaryDirectory(prefix='lmv-home-menu-') as tmp:
     Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
-    src=Path(tmp)/'menu.m';out=Path(tmp)/'menu';src.write_text(source)
+    src=Path(tmp)/'menu.m';out=Path(tmp)/'menu';src.write_text("#import \"LMVPanelCommon.h\"\n"+source)
     subprocess.run(['clang','-fobjc-arc','-framework','Foundation','-framework','QuartzCore','-framework','CoreGraphics',str(src),'-o',str(out)],check=True)
     subprocess.run([str(out)],check=True,timeout=45)

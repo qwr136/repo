@@ -256,6 +256,6 @@ with tempfile.TemporaryDirectory() as tmp:
     Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
     src = Path(tmp) / 'priority.m'
     binary = Path(tmp) / 'priority'
-    src.write_text(source)
+    src.write_text("#import \"LMVPanelCommon.h\"\n"+source)
     subprocess.run(['clang', '-fobjc-arc', '-Wall', '-Wextra', '-Wno-unused-function', '-framework', 'Foundation', '-framework', 'QuartzCore', '-framework', 'CoreGraphics', str(src), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
