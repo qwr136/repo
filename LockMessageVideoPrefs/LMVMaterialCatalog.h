@@ -1,9 +1,48 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#import <CommonCrypto/CommonCrypto.h>
 
 #ifndef LMV_CATALOG_ROOT
 #define LMV_CATALOG_ROOT @"/var/mobile/LockMessageVideo"
 #endif
+
+// 4.0.0: best-effort purge of orphaned per-material caches. A material's file
+// can disappear (deleted in a file manager, re-imported under a new inode) while
+// its thumbnails / first-frame posters / last-frame records linger. We keep only
+// the records whose source material still exists, deleting the rest. Keys are
+// derived the same way the stores hash them, so this never touches a live record.
+static NSString *LMVCacheHashName(NSString *string) {
+    NSData *bytes = [string dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
+    NSMutableString *name = [NSMutableString new];
+    for (NSUInteger i = 0; i < sizeof(digest); i++) [name appendFormat:@"%02x", digest[i]];
+    return [name stringByAppendingPathExtension:@"plist"];
+}
+static void LMVSweepCacheDirectory(NSString *root, NSSet<NSString *> *keep) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSArray *files = [fm contentsOfDirectoryAtPath:root error:nil];
+    for (NSString *file in files) {
+        if (![file.pathExtension isEqualToString:@"plist"]) continue;
+        if ([keep containsObject:file]) continue;
+        [fm removeItemAtPath:[root stringByAppendingPathComponent:file] error:nil];
+    }
+}
+static void LMVSweepStaleCaches(NSArray<NSString *> *liveRelatives) {
+    NSString *catalogRoot = LMV_CATALOG_ROOT;
+    NSMutableSet<NSString *> *thumbnails = [NSMutableSet new];
+    NSMutableSet<NSString *> *posters = [NSMutableSet new];
+    NSMutableSet<NSString *> *frames = [NSMutableSet new];
+    for (NSString *relative in liveRelatives) {
+        NSString *absolute = [catalogRoot stringByAppendingPathComponent:relative];
+        [thumbnails addObject:LMVCacheHashName(relative)];
+        [posters addObject:LMVCacheHashName([absolute stringByStandardizingPath])];
+        [frames addObject:LMVCacheHashName([[absolute stringByStandardizingPath] stringByResolvingSymlinksInPath])];
+    }
+    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:@".material-thumbnails"], thumbnails);
+    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:@".background-posters"], posters);
+    LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:@".last-frames"], frames);
+}
 // All catalog reads/writes run on LMVMaterialQueue, shared with import/clear.
 // Keys are stable relative paths. Renaming never mutates a material or preference.
 static NSString *LMVCatalogPath(void) {
