@@ -90,6 +90,12 @@ check("ARCHS = arm64 arm64e" in makefile, "Makefile is no longer dual-arch")
 check('ARCHS="arm64 arm64e"' in workflow, "CI no longer builds both slices")
 check("gallery-panel.py" in workflow, "CI does not run this regression test")
 
+# The picker header carries its @implementation; exactly one TU may include it.
+includers = [path.name for path in PREFS.glob("*.m") if '#import "LMVMaterialPicker.h"' in read(path)]
+check(includers == ["LMVMaterialPickerHost.m"], f"material picker included by {includers}")
+check((PREFS / "LMVMaterialPickerAPI.h").exists(), "picker declaration-only header missing")
+check("LMVCreateMaterialPicker" in read(PREFS / "LMVMaterialPickerHost.m"), "picker factory missing")
+
 # Unique implementations
 check(len(re.findall(r"@implementation LMVChannelDetailController\b", detail)) == 1,
       "detail controller implemented more than once")
