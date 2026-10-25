@@ -616,14 +616,14 @@ int main(void){@autoreleasepool {
  // covered, app frontmost); the moment the reveal starts it requests one full
  // update and the layer is back WITHOUT waiting for the ~0.4 s cadence.
  assert(m.coverWatch!=nil);
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  // still provably covered (fg==-1, full cover): the watcher must NOT fire yet
  assert(!m.host.hidden);
  scene.windows=@[homeWindow,wallWindow,nc];
  // The watcher hands over through LMVDesktopRequestUpdate, which drives the
  // GLOBAL manager - point it at this instance so the async update lands here.
  LMVDesktopVideo=m;
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback);
  // 0.0.137: the watcher is BIDIRECTIONAL and stays running while the surface
@@ -693,7 +693,7 @@ int main(void){@autoreleasepool {
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && m.coveredNow);
  assert(m.coverWatch!=nil);
  scene.windows=@[homeWindow,wallWindow,nc];
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.host.hidden && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  // 1.25: the watcher fires ONLY when the frozen state actually ends. With a
@@ -710,12 +710,12 @@ int main(void){@autoreleasepool {
  [m update];
  assert(m.playback.frozen && m.coveredNow);
  LMVDesktopUpdatePending=NO;
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  assert(LMVDesktopUpdatePending==NO);
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  assert(LMVDesktopUpdatePending==NO);
  scene.windows=@[homeWindow,wallWindow,nc];
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  assert(LMVDesktopUpdatePending==YES);
  LMVDesktopUpdatePending=NO;
  [m update];
@@ -791,7 +791,7 @@ int main(void){@autoreleasepool {
  for(CFTimeInterval t=CACurrentMediaTime();CACurrentMediaTime()-t<0.45;)[m update];
  assert(m.host.superview==wall && !m.host.hidden && m.playback.frozen && wallPixels.hidden);
  scene.windows=@[homeWindow,wallWindow,nc];
- [m coverWatchTick:nil];
+ m.lastCoverTick=0;[m coverWatchTick:nil];
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
  assert(m.host.superview==wall && !m.playback.frozen && m.playback.wantsPlayback && !m.coveredNow);
  // 0.0.138: SpringBoard says the switcher/CC is presented with NO covering
