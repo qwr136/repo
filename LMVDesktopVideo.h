@@ -164,7 +164,8 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,strong) NSTimer *timer;
 @property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage,*windowListStatus;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
-@property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery,lastFullUpdate;
+@property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery,lastFullUpdate,lastCoverTick;
+@property(nonatomic) NSInteger coverTargetFPS;
 // 0.0.97: how long the surface has been held (attached, frozen) through a
 // transient loss of visibility, and how many real teardowns have happened. Both
 // are diagnostics for the "hitches when opening/leaving an app" report.
@@ -278,7 +279,7 @@ static void LMVDesktopRequestUpdate(void) {
     CFTimeInterval delay=0;
     LMVDesktopVideoManager *manager=LMVDesktopVideo;
     if(manager && (manager.playback.frozen || manager.appAway)) {
-        NSInteger hz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
+        NSInteger hz=LMVTuneValue(@"Desktop",@"CoveredFPS");
         if(hz<1)hz=1;
         CFTimeInterval interval=1.0/(CFTimeInterval)hz;
         CFTimeInterval now=CACurrentMediaTime();
@@ -892,14 +893,13 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // (the app-exit cross-fade) is one frame wide at 60 Hz anyway, and two frames
     // of extra latency at worst on the reveal.
     // 3.02: the watcher ran at a hard-coded 60 Hz for the whole time the desktop was
-    // covered - that is the ~3% SpringBoard CPU seen while inside an app. It is a row
-    // now (设置 → 自定义参数 → 桌面背景视频 → 遮挡检测频率); the lower it goes, the
-    // cheaper the idle and the later the reveal, at most one interval.
-    NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
-    self.coverWatch.preferredFramesPerSecond=watchHz;
-    LMVTuneReport(@"Desktop",@"CoverWatchHz",watchHz);
-    LMVDiagnostic([NSString stringWithFormat:@"desktop-coverwatch setting=%ld link=%ld",
-        (long)watchHz,(long)self.coverWatch.preferredFramesPerSecond]);
+    // 4.4.4: 「遮挡检测频率」 was removed. It wrote preferredFramesPerSecond here and
+    // then 「可见刷新率」/「被遮挡时心跳」 overwrote it in the same tick, so the row
+    // never had any effect. The watcher now always runs at the panel rate and the
+    // cadence is a gate inside the tick, owned by those two rows alone.
+    self.coverWatch.preferredFramesPerSecond=60;
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-coverwatch link=%ld gate=%ld",
+        (long)self.coverWatch.preferredFramesPerSecond,(long)self.coverTargetFPS]);
     [self.coverWatch addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 - (void)stopCoverWatch {
@@ -931,6 +931,14 @@ static NSInteger LMVDesktopCadence(NSString *key) {
 }
 - (void)coverWatchTick:(CADisplayLink *)link {
     if (self.suspended || self.host.superview==nil || self.container==nil) {[self stopCoverWatch];return;}
+    // 4.4.4: the link runs at 60 Hz, the ROW decides how often the body actually runs.
+    // A display link cannot be slower than its own divisor, so 「可见刷新率 = 1」 is
+    // enforced here instead of in preferredFramesPerSecond. First tick passes through
+    // because coverTargetFPS is still 0.
+    CFTimeInterval coverGateNow=CACurrentMediaTime();
+    if (self.coverTargetFPS>0 &&
+        coverGateNow-self.lastCoverTick < 1.0/(CFTimeInterval)self.coverTargetFPS) return;
+    self.lastCoverTick=coverGateNow;
     // 2.54: count the callbacks, once a second. Only the ticks that actually arrive
     // are counted, and only while the watcher runs - a stopped watcher freezes the
     // number, which is exactly what the age stamp next to it is for.
@@ -944,15 +952,6 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         self.measuredSince = measuredNow;
         LMVTuneReport(@"Desktop", @"MeasuredFPS", measured);
         LMVTuneTouch(@"Desktop", @"MeasuredFPS");
-    }
-    // 3.02: apply a change to 遮挡检测频率 without waiting for the next cover. Once a
-    // second is enough - the value is a setting, not a signal.
-    static CFTimeInterval lastWatchSync;
-    if (measuredNow-lastWatchSync>=1.0) {
-        lastWatchSync=measuredNow;
-        NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");
-        if (link.preferredFramesPerSecond!=watchHz) link.preferredFramesPerSecond=watchHz;
-        LMVTuneReport(@"Desktop",@"CoverWatchHz",watchHz);
     }
     // 2.07: A COVERED DESKTOP IS A WATCHDOG, NOT A RENDERER.
     // While an app is in front the player is frozen, yet this tick kept running at
@@ -980,6 +979,9 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // exact frame the desktop is uncovered.
     NSInteger wantFPS=(self.playback.frozen || self.appAway)?
         (burst?60:LMVDesktopCadence(@"CoveredFPS")):LMVDesktopCadence(@"IdleFPS");
+    // 4.4.4: the gate at the top of the next tick reads this. Single owner: the two
+    // rows above, nothing else writes preferredFramesPerSecond on this link.
+    self.coverTargetFPS=wantFPS;
     // 0 = idle (desktop visible), 1 = covered heartbeat, 2 = the 1 s burst that runs
     // right after a key-window change. Without this the page showed "实际 60" while
     // the user had set 10 and looked like the setting was ignored.

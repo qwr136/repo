@@ -115,7 +115,6 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
                 // 3.02: the 60 Hz cover watcher was a constant. It runs only while the
                 // desktop is covered, and it is the 3% CPU seen inside an app; expose it
                 // so the trade (reveal latency vs. idle cost) is the user's call.
-                LMVTuneParam(@"CoverWatchHz", @"遮挡检测频率 (Hz, 1~60)", 1, 60, 60),
                 // 4.4.0: the 0.2 s poll timer was a literal, so the full probe ran
                 // five times a second no matter what the two rows above said. The
                 // timer keeps its 0.2 s wake (that is the response floor), the probe

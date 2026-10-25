@@ -264,9 +264,16 @@ assert '[CADisplayLink displayLinkWithTarget:self selector:@selector(coverWatchT
 # every frame, which is what preserves the zero-delay resume.
 assert 'LMVDesktopVisibleWindowCount' in h, 'the cheap visible-window count exists (1.32)'
 assert 'if (!self.host.hidden && !self.playback.frozen && !self.appAway) {' in h, 'only the playing state is gated; the frozen state still probes every frame (1.32)'
-assert 'NSInteger watchHz=LMVTuneValue(@"Desktop",@"CoverWatchHz");' in h, '3.02: the covered-desktop watcher rate is a row'
-assert 'self.coverWatch.preferredFramesPerSecond=watchHz;' in h, 'the watcher takes that value'
-assert 'self.coverWatch.preferredFramesPerSecond=60;' not in h, 'no hard-coded 60 left' 
+# 4.4.4: 「遮挡检测频率」 is GONE, and this is a deliberate change of expectation,
+# not a weakened assertion. A device capture proved the row never took effect: it
+# wrote preferredFramesPerSecond and 「可见刷新率」/「被遮挡时心跳」 overwrote the same
+# property later in the same tick. One owner now - the two FPS rows - and the real
+# cadence is a gate at the top of the tick.
+assert 'CoverWatchHz' not in h, 'the removed row came back'
+assert 'self.coverWatch.preferredFramesPerSecond=60;' in h, 'the watcher runs at the panel rate'
+assert 'self.coverTargetFPS=wantFPS;' in h, 'the gate is fed by the FPS rows'
+assert 'coverGateNow-self.lastCoverTick < 1.0/(CFTimeInterval)self.coverTargetFPS' in h, \
+    'the watcher body is not gated by the FPS rows' 
 # 0.0.137: the watcher runs while the surface exists and watches BOTH
 # directions - a cover appearing freezes within ~16 ms, the desktop being
 # revealed resumes within ~16 ms.
