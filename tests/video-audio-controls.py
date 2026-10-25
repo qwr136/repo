@@ -93,9 +93,14 @@ specifiers_source = body(prefs, '- (NSArray *)specifiers')
 # The two row builders are ObjC methods defined outside -specifiers, so this fixture
 # cannot resolve them; drop those two appends rather than fake them. Everything else
 # in the generated loop (group, switch, audio pair) still runs for real.
+# 4.2.0: the generated loop calls two row builders (materialRowForTarget:,
+# textColorRowWithID:) that live outside -specifiers and cannot be resolved by this
+# fixture. Drop the two appends AND the if/declaration that wraps the colour one, so
+# the if is not left dangling (an empty if body is a hard compile error). Everything
+# else in the loop (group, switch, audio pair) still runs for real.
 specifiers = (specifiers_source
-    .replace('[_specifiers addObject:[self materialRowForTarget:target]];', '')
-    .replace('[_specifiers addObject:[self textColorRowWithID:colourID]];', ''))
+    .replace('[_specifiers addObject:[self materialRowForTarget:target]];\n', '')
+    .replace('        NSString *colourID = row[@"textColor"];\n        if ([colourID isKindOfClass:NSString.class] && colourID.length)\n            [_specifiers addObject:[self textColorRowWithID:colourID]];\n', ''))
 assert append.count('cell:PSSwitchCell') == append.count('cell:PSSliderCell') == 1
 for exact in ('[sound setProperty:@NO forKey:@"default"]', '[volume setProperty:@0.5 forKey:@"default"]',
               '[volume setProperty:@0.0 forKey:@"min"]', '[volume setProperty:@100.0 forKey:@"max"]',
@@ -285,7 +290,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
- assert(rows.count==99);
+ assert(rows.count==87);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
   NSString *soundKey=[target stringByAppendingString:@"SoundEnabled"],*volumeKey=[target stringByAppendingString:@"Volume"];
@@ -348,7 +353,7 @@ int main(void) { @autoreleasepool {
   else if(section==15&&row==0)assert(p.navigationController.pushes==before+1);
   else {assert(p.navigationController.pushes==before);assert(p.imports==imports+(section==17&&row==0));}
  }
- puts("PASS: exact production specifiers (76), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
+ puts("PASS: exact production specifiers (87), all eleven audio keys/handlers/defaults/clamps, live percent and every real panel selection row (Foundation doubles; not UIKit)");
  } return 0; }
 '''
     # 4.2.0: one shared switch action and one shared colour action replace the
