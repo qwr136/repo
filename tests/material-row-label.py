@@ -48,7 +48,7 @@ picker = (root / 'LockMessageVideoPrefs/LMVMaterialPicker.h').read_text()
 deletion = (root / 'LockMessageVideoPrefs/LMVMaterialDeletion.h').read_text()
 check('void (^libraryChanged)(void)' in picker, 'the picker needs a library-changed hook')
 check(picker.count('live.libraryChanged()') >= 3, 'delete (both flows) and rename must fire the hook')
-check('picker.libraryChanged = ^{ [weakSelf refreshMaterialRows]; };' in row,
+check('LMVCreateMaterialPicker' in row and '[weakSelf refreshMaterialRows];' in row,
       'the settings page must repaint when the library changes')
 channels = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
 check('@"CopyLogX"' in channels and '@"Myrtle"' in channels and 'LMVChannelIDs()' in deletion,

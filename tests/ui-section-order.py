@@ -429,7 +429,11 @@ class UISectionOrder(unittest.TestCase):
         # 4.0.0: chooseVideo/didFinishPicking became multi-select (selectionLimit 0,
         # import every picked video through a dispatch group). That is an intended
         # change to these handlers, so the frozen digest is refreshed for it.
-        self.assertEqual(digest(old_handlers), 'ea639d9914bc504df635d94d4b2a9a50fd85c4c9ac7d88b3e75b949028661b53')
+        # 4.3.0: -switchTarget: now opens the picker through LMVCreateMaterialPicker
+        # (the picker header may only be implemented in one translation unit). The
+        # handler still writes the same key and still repaints on libraryChanged, so
+        # the digest is refreshed for this intended refactor only.
+        self.assertEqual(digest(old_handlers), '309dad4c24f1d7ad3a9805009b1484cef59c59e93a509c78056753fd2949a746')
         # 4.2.0: the six per-channel wrappers are one shared method that reads the
         # target from the row id, so there is no per-channel handler to assert any more.
         self.assertIn('- (void)switchTargetFromRow:(PSSpecifier *)specifier {', SETTINGS)
