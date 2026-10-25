@@ -938,19 +938,6 @@ static BOOL LMVVisible(UIView *view) {
     if (!LMVPlaybackAllowed() || !LMVNotificationCenterSurface(view)) return NO;
     return LMVCardExposed(view);
 }
-// 4.0.6: the display-link tick asks "is this target visible" once per target per
-// frame. The owner's ancestry and the playback gate are identical for all three
-// targets, and LMVCardStateAttached has already proved the overlay sits inside
-// this owner, so the overlay shares that ancestry. Callers that computed both
-// once pass them in instead of walking the view tree again for every target.
-static BOOL LMVCardStateVisibleInScope(UIView *owner, LMVVideoState *state, NSString *target,
-                                       BOOL ownerVisible, BOOL ownerOnNotificationCenter) {
-    if (!ownerVisible || !ownerOnNotificationCenter) return NO;
-    if (!LMVEnabled[target].boolValue || !LMVPaths[target].length) return NO;
-    if (![state.path isEqualToString:LMVPaths[target]]) return NO;
-    if (!LMVTickAttached(owner,state)) return NO;
-    return LMVTickExposed(state.overlay);
-}
 // 4.4.8: per-frame caches for the display-link tick. LMVCardExposed walks the
 // superview/superlayer tree and LMVCardStateAttached walks owner+anchor+host
 // ancestry; a single card is touched ~4x per frame (card once + 3 overlays), and
@@ -980,6 +967,19 @@ static BOOL LMVTickAttached(UIView *owner, LMVVideoState *state) {
     BOOL r=LMVCardStateAttached(owner,state);
     LMVTickAttachedCache[k]=@(r);
     return r;
+}
+// 4.0.6: the display-link tick asks "is this target visible" once per target per
+// frame. The owner's ancestry and the playback gate are identical for all three
+// targets, and LMVCardStateAttached has already proved the overlay sits inside
+// this owner, so the overlay shares that ancestry. Callers that computed both
+// once pass them in instead of walking the view tree again for every target.
+static BOOL LMVCardStateVisibleInScope(UIView *owner, LMVVideoState *state, NSString *target,
+                                       BOOL ownerVisible, BOOL ownerOnNotificationCenter) {
+    if (!ownerVisible || !ownerOnNotificationCenter) return NO;
+    if (!LMVEnabled[target].boolValue || !LMVPaths[target].length) return NO;
+    if (![state.path isEqualToString:LMVPaths[target]]) return NO;
+    if (!LMVTickAttached(owner,state)) return NO;
+    return LMVTickExposed(state.overlay);
 }
 static char LMVCardPipelineAuditKey;
 // 4.4.8 stage 2: stationary cards reuse the previous frame's active flags instead
