@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.3"
+#define LMVGalleryVersion @"4.3.4"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -35,21 +35,19 @@
 }
 @end
 
-@interface LMVGalleryController () <UIScrollViewDelegate>
+@interface LMVGalleryController () <UIScrollViewDelegate, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIStackView *stack;
 @property(nonatomic,strong) UIScrollView *heroScroll;
 @property(nonatomic,strong) UIStackView *heroRow;
 @property(nonatomic,strong) UIPageControl *pageControl;
 @property(nonatomic,strong) UIStackView *sceneGrid;
-@property(nonatomic,strong) UIStackView *panelRow;
 @property(nonatomic,strong) UILabel *subtitleLabel;
-@property(nonatomic,strong) UIView *panelHeader;
 @property(nonatomic,strong) NSArray<NSString *> *scenes;
 @property(nonatomic,strong) NSArray<NSString *> *panels;
+@property(nonatomic,strong) NSArray<NSString *> *featured;
 @property(nonatomic,strong) NSMutableArray<UIView *> *sceneCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *heroCards;
-@property(nonatomic,strong) NSMutableArray<UIView *> *panelTiles;
 @end
 
 @implementation LMVGalleryController
@@ -57,11 +55,13 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _scenes = LMVGSceneIDs();
+        // 4.3.4: the nine panel channels join the scene grid; the home page no
+        // longer repeats the panel strip that the bottom bar already opens.
+        _featured = LMVGSceneIDs();
         _panels = LMVGPanelIDs();
+        _scenes = [_featured arrayByAddingObjectsFromArray:_panels];
         _sceneCards = [NSMutableArray new];
         _heroCards = [NSMutableArray new];
-        _panelTiles = [NSMutableArray new];
     }
     return self;
 }
@@ -74,7 +74,6 @@
     [self buildTitle];
     [self buildHero];
     [self buildSceneSection];
-    [self buildPanelSection];
     [self buildFooter];
     [self buildTabBar];
     [self refreshContent];
@@ -198,7 +197,7 @@
     [row.bottomAnchor constraintEqualToAnchor:hero.contentLayoutGuide.bottomAnchor].active = YES;
     [row.heightAnchor constraintEqualToAnchor:hero.frameLayoutGuide.heightAnchor].active = YES;
 
-    for (NSString *identifier in self.scenes) {
+    for (NSString *identifier in self.featured) {
         UIView *card = [self heroCardForChannel:identifier];
         [row addArrangedSubview:card];
         [card.widthAnchor constraintEqualToAnchor:hero.frameLayoutGuide.widthAnchor constant:-28].active = YES;
@@ -207,7 +206,7 @@
 
     UIPageControl *page = [UIPageControl new];
     page.translatesAutoresizingMaskIntoConstraints = NO;
-    page.numberOfPages = self.scenes.count;
+    page.numberOfPages = self.featured.count;
     page.currentPageIndicatorTintColor = UIColor.labelColor;
     page.pageIndicatorTintColor = [UIColor.labelColor colorWithAlphaComponent:0.18];
     page.userInteractionEnabled = NO;
@@ -282,8 +281,26 @@
     [badge.heightAnchor constraintEqualToConstant:20].active = YES;
     [badge.widthAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
 
+    UIButton *edit = [UIButton buttonWithType:UIButtonTypeSystem];
+    edit.translatesAutoresizingMaskIntoConstraints = NO;
+    [edit setImage:[UIImage systemImageNamed:@"slider.horizontal.3"] forState:UIControlStateNormal];
+    edit.tintColor = UIColor.whiteColor;
+    edit.backgroundColor = [UIColor.whiteColor colorWithAlphaComponent:0.22];
+    edit.layer.cornerRadius = 14;
+    edit.layer.cornerCurve = kCACornerCurveContinuous;
+    edit.tag = 1007;
+    [edit addTarget:self action:@selector(editHero:) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:edit];
+    [edit.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12].active = YES;
+    [edit.topAnchor constraintEqualToAnchor:card.topAnchor constant:12].active = YES;
+    [edit.widthAnchor constraintEqualToConstant:28].active = YES;
+    [edit.heightAnchor constraintEqualToConstant:28].active = YES;
+
     LMVGAddPressFeedback(card);
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
+    // 4.3.4: tapping the hero plays the video; the small button above opens the
+    // detail page (material / sound / colour).
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(playHero:)];
+    tap.delegate = self;
     [card addGestureRecognizer:tap];
     card.userInteractionEnabled = YES;
     card.isAccessibilityElement = YES;
@@ -307,7 +324,7 @@
 }
 
 - (void)buildSceneSection {
-    [self.stack addArrangedSubview:[self sectionHeader:@"场景" detail:@"5 个"]];
+    [self.stack addArrangedSubview:[self sectionHeader:@"场景" detail:[NSString stringWithFormat:@"%lu 个", (unsigned long)self.scenes.count]]];
 
     UIView *box = [self paddedContainer];
     [self.stack addArrangedSubview:box];
@@ -425,103 +442,6 @@
     card.isAccessibilityElement = YES;
     card.accessibilityLabel = LMVGChannelTitle(identifier);
     return card;
-}
-
-- (void)buildPanelSection {
-    UIView *header = [self sectionHeader:@"面板" detail:[NSString stringWithFormat:@"%lu 个", (unsigned long)self.panels.count]];
-    self.panelHeader = header;
-    [self.stack addArrangedSubview:header];
-
-    UIView *box = [self paddedContainer];
-    box.layoutMargins = UIEdgeInsetsMake(0, 0, 0, 0);
-    [self.stack addArrangedSubview:box];
-
-    UIScrollView *scroll = [UIScrollView new];
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    scroll.showsHorizontalScrollIndicator = NO;
-    [box addSubview:scroll];
-
-    UIStackView *row = [UIStackView new];
-    row.translatesAutoresizingMaskIntoConstraints = NO;
-    row.axis = UILayoutConstraintAxisHorizontal;
-    row.spacing = 10;
-    row.alignment = UIStackViewAlignmentTop;
-    [scroll addSubview:row];
-    self.panelRow = row;
-
-    [scroll.leadingAnchor constraintEqualToAnchor:box.leadingAnchor].active = YES;
-    [scroll.trailingAnchor constraintEqualToAnchor:box.trailingAnchor].active = YES;
-    [scroll.topAnchor constraintEqualToAnchor:box.topAnchor].active = YES;
-    [scroll.bottomAnchor constraintEqualToAnchor:box.bottomAnchor].active = YES;
-    [scroll.heightAnchor constraintEqualToConstant:96].active = YES;
-    [row.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:14].active = YES;
-    [row.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-14].active = YES;
-    [row.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor].active = YES;
-    [row.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor].active = YES;
-    [row.heightAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.heightAnchor].active = YES;
-
-    for (NSString *identifier in self.panels) {
-        UIView *tile = [self panelTileForChannel:identifier];
-        [row addArrangedSubview:tile];
-        [tile.widthAnchor constraintEqualToConstant:64].active = YES;
-        [self.panelTiles addObject:tile];
-    }
-}
-
-- (UIView *)panelTileForChannel:(NSString *)identifier {
-    UIView *tile = [UIView new];
-    tile.translatesAutoresizingMaskIntoConstraints = NO;
-    tile.accessibilityIdentifier = identifier;
-
-    UIView *box = [UIView new];
-    box.translatesAutoresizingMaskIntoConstraints = NO;
-    box.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    box.layer.cornerRadius = 16;
-    box.layer.cornerCurve = kCACornerCurveContinuous;
-    [tile addSubview:box];
-
-    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:LMVGSymbolForChannel(identifier)]];
-    icon.translatesAutoresizingMaskIntoConstraints = NO;
-    icon.tintColor = [UIColor labelColor];
-    icon.contentMode = UIViewContentModeScaleAspectFit;
-    [box addSubview:icon];
-
-    UIView *dot = [UIView new];
-    dot.translatesAutoresizingMaskIntoConstraints = NO;
-    dot.tag = 1004;
-    dot.layer.cornerRadius = 3;
-    dot.hidden = YES;
-    [box addSubview:dot];
-
-    UILabel *name = LMVGLabel(LMVGChannelTitle(identifier), LMVGFont(9, UIFontWeightRegular), UIColor.secondaryLabelColor);
-    name.textAlignment = NSTextAlignmentCenter;
-    name.numberOfLines = 2;
-    [tile addSubview:name];
-
-    [box.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor].active = YES;
-    [box.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor].active = YES;
-    [box.topAnchor constraintEqualToAnchor:tile.topAnchor].active = YES;
-    [box.heightAnchor constraintEqualToConstant:56].active = YES;
-    [icon.centerXAnchor constraintEqualToAnchor:box.centerXAnchor].active = YES;
-    [icon.centerYAnchor constraintEqualToAnchor:box.centerYAnchor].active = YES;
-    [icon.widthAnchor constraintEqualToConstant:22].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:22].active = YES;
-    [dot.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-7].active = YES;
-    [dot.topAnchor constraintEqualToAnchor:box.topAnchor constant:7].active = YES;
-    [dot.widthAnchor constraintEqualToConstant:6].active = YES;
-    [dot.heightAnchor constraintEqualToConstant:6].active = YES;
-    [name.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor].active = YES;
-    [name.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor].active = YES;
-    [name.topAnchor constraintEqualToAnchor:box.bottomAnchor constant:4].active = YES;
-    [name.bottomAnchor constraintLessThanOrEqualToAnchor:tile.bottomAnchor].active = YES;
-
-    LMVGAddPressFeedback(tile);
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
-    [tile addGestureRecognizer:tap];
-    tile.userInteractionEnabled = YES;
-    tile.isAccessibilityElement = YES;
-    tile.accessibilityLabel = LMVGChannelTitle(identifier);
-    return tile;
 }
 
 - (void)buildFooter {
@@ -661,7 +581,7 @@
         }
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
-            LMVGLoadCover(relative, ^(UIImage *image) {
+            LMVGLoadCoverSized(relative, 700.0, ^(UIImage *image) {
                 if (!image) return;
                 if (LMVGReduceMotion()) { weakCover.image = image; return; }
                 [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
@@ -671,13 +591,6 @@
         }
     }
 
-    for (UIView *tile in self.panelTiles) {
-        NSString *identifier = tile.accessibilityIdentifier;
-        BOOL on = LMVGPrefBool([identifier stringByAppendingString:@"BackgroundEnabled"], NO);
-        UIView *dot = [tile viewWithTag:1004];
-        dot.hidden = !on;
-        dot.backgroundColor = UIColor.systemGreenColor;
-    }
 }
 
 #pragma mark - Actions
@@ -686,6 +599,27 @@
     [self.navigationController popViewControllerAnimated:YES];
 }
 
+- (void)playHero:(UITapGestureRecognizer *)gesture {
+    NSString *identifier = gesture.view.accessibilityIdentifier;
+    if (!identifier.length) return;
+    NSString *relative = LMVGSelectedMaterial(identifier);
+    if (!relative.length) {
+        // Nothing to play yet - send the user to the page that can pick one.
+        [self openChannel:gesture];
+        return;
+    }
+    LMVGLightHaptic();
+    LMVVideoPreviewController *preview = [[LMVVideoPreviewController alloc] initWithChannelID:identifier];
+    preview.modalPresentationStyle = UIModalPresentationFullScreen;
+    preview.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+    [self presentViewController:preview animated:YES completion:nil];
+}
+- (void)editHero:(UIButton *)sender {
+    NSString *identifier = sender.superview.accessibilityIdentifier;
+    if (!identifier.length) return;
+    LMVGLightHaptic();
+    [self.navigationController pushViewController:[[LMVChannelDetailController alloc] initWithChannelID:identifier] animated:YES];
+}
 - (void)openChannel:(UITapGestureRecognizer *)gesture {
     NSString *identifier = gesture.view.accessibilityIdentifier;
     if (!identifier.length) return;
@@ -702,11 +636,6 @@
 }
 - (void)openMaterialLibrary {
     [self.navigationController pushViewController:[LMVMaterialLibraryController new] animated:YES];
-}
-- (void)scrollPanel {
-    if (!self.panelHeader) return;
-    CGRect rect = [self.panelHeader convertRect:self.panelHeader.bounds toView:self.scroll];
-    [self.scroll scrollRectToVisible:CGRectInset(rect, 0, -20) animated:YES];
 }
 - (void)openLibrary {
     UIViewController *picker = LMVCreateMaterialPicker(@"", YES, nil, nil);
@@ -731,6 +660,18 @@
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+#pragma mark - Gestures
+
+// Tapping the little edit button must not also start playback.
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    UIView *view = touch.view;
+    while (view && view != gestureRecognizer.view) {
+        if ([view isKindOfClass:UIControl.class]) return NO;
+        view = view.superview;
+    }
+    return YES;
+}
+
 #pragma mark - Carousel
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
@@ -738,7 +679,7 @@
     CGFloat step = [self heroStep];
     if (step <= 0) return;
     NSInteger page = (NSInteger)lround(scrollView.contentOffset.x / step);
-    page = MAX(0, MIN((NSInteger)self.scenes.count - 1, page));
+    page = MAX(0, MIN((NSInteger)self.featured.count - 1, page));
     if (self.pageControl.currentPage != page) self.pageControl.currentPage = page;
 
     if (LMVGReduceMotion()) return;
@@ -768,7 +709,7 @@
     CGFloat proposed = targetContentOffset->x;
     CGFloat maxX = MAX(0, scrollView.contentSize.width - scrollView.bounds.size.width);
     NSInteger page = (NSInteger)lround(proposed / step);
-    page = MAX(0, MIN((NSInteger)self.scenes.count - 1, page));
+    page = MAX(0, MIN((NSInteger)self.featured.count - 1, page));
     targetContentOffset->x = MIN(maxX, page * step);
 }
 

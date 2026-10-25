@@ -53,8 +53,8 @@ static NSCache<NSString *, UIImage *> *LMVGCoverCache(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         cache = [NSCache new];
-        cache.countLimit = 48;
-        cache.totalCostLimit = 96 * 1024 * 1024;
+        cache.countLimit = 40;
+        cache.totalCostLimit = 192 * 1024 * 1024;
     });
     return cache;
 }
@@ -90,8 +90,8 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
                 AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
                 generator.appliesPreferredTrackTransform = YES;
                 generator.maximumSize = CGSizeMake(maxPixel, maxPixel);
-                generator.requestedTimeToleranceBefore = CMTimeMakeWithSeconds(0.35, 600);
-                generator.requestedTimeToleranceAfter = CMTimeMakeWithSeconds(0.35, 600);
+                generator.requestedTimeToleranceBefore = CMTimeMakeWithSeconds(0.10, 600);
+                generator.requestedTimeToleranceAfter = CMTimeMakeWithSeconds(0.10, 600);
                 NSError *error = nil;
                 CGImageRef frame = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(0.05, 600) actualTime:NULL error:&error];
                 if (frame) {
@@ -110,7 +110,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
 }
 
 void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image)) {
-    LMVGLoadCoverSized(relative, 900.0, completion);
+    LMVGLoadCoverSized(relative, 1500.0, completion);
 }
 
 void LMVGLoadThumb(NSString *relative, void (^completion)(UIImage *image)) {

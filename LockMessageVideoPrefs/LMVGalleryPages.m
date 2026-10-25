@@ -2,6 +2,7 @@
 #import "LMVGalleryKit.h"
 #import "LMVMaterialPickerAPI.h"
 #import "LMVImport.h"
+#import <AVFoundation/AVFoundation.h>
 
 // 4.3.1 (C1): the two pages the gallery's bottom bar points at. Both are ordinary
 // pushes on the Settings navigation stack, hide the bar like the gallery and keep
@@ -486,7 +487,7 @@
     }
 
     __weak UIImageView *weakCover = cover;
-    LMVGLoadCoverSized(material[@"path"], 600.0, ^(UIImage *image) {
+    LMVGLoadCoverSized(material[@"path"], 800.0, ^(UIImage *image) {
         if (!image) return;
         [UIView transitionWithView:weakCover duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
             weakCover.image = image;
@@ -548,6 +549,124 @@
             [weakSelf presentViewController:alert animated:YES completion:nil];
         }
     });
+}
+
+@end
+
+#pragma mark - Video preview
+
+// 4.3.4: tapping the hero used to open the editor; it now plays the video, which
+// is what the big cover implies. Looping playback, muted unless the channel's
+// sound switch is on, tap to pause, X to close.
+@interface LMVVideoPreviewController ()
+@property(nonatomic,copy) NSString *channelID;
+@property(nonatomic,strong) AVQueuePlayer *player;
+@property(nonatomic,strong) AVPlayerLooper *looper;
+@property(nonatomic,strong) AVPlayerLayer *playerLayer;
+@property(nonatomic,strong) UIImageView *pauseBadge;
+@end
+
+@implementation LMVVideoPreviewController
+
+- (instancetype)initWithChannelID:(NSString *)channelID {
+    self = [super init];
+    if (self) _channelID = [channelID copy];
+    return self;
+}
+
+- (BOOL)prefersStatusBarHidden { return YES; }
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = UIColor.blackColor;
+
+    NSString *relative = LMVGSelectedMaterial(self.channelID);
+    NSURL *url = relative.length ? [NSURL fileURLWithPath:[LMVStorageRootPath stringByAppendingPathComponent:relative]] : nil;
+    if (url) {
+        AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+        AVQueuePlayer *player = [[AVQueuePlayer alloc] initWithPlayerItem:item];
+        self.looper = [AVPlayerLooper playerLooperWithPlayer:player templateItem:item];
+        BOOL sound = LMVGPrefBool([self.channelID stringByAppendingString:@"SoundEnabled"], NO);
+        player.muted = !sound;
+        player.volume = (float)MAX(0.0, MIN(1.0, LMVGPrefDouble([self.channelID stringByAppendingString:@"Volume"], 0.5)));
+        if (sound) {
+            AVAudioSession *session = AVAudioSession.sharedInstance;
+            [session setCategory:AVAudioSessionCategoryAmbient error:nil];
+            [session setActive:YES error:nil];
+        }
+        self.player = player;
+        self.playerLayer = [AVPlayerLayer playerLayerWithPlayer:player];
+        self.playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
+        [self.view.layer addSublayer:self.playerLayer];
+        [player play];
+    }
+
+    UIImage *pause = [UIImage systemImageNamed:@"pause.fill"];
+    UIImageView *badge = [[UIImageView alloc] initWithImage:pause];
+    badge.translatesAutoresizingMaskIntoConstraints = NO;
+    badge.tintColor = [UIColor.whiteColor colorWithAlphaComponent:0.9];
+    badge.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.35];
+    badge.contentMode = UIViewContentModeCenter;
+    badge.layer.cornerRadius = 30;
+    badge.hidden = YES;
+    [self.view addSubview:badge];
+    self.pauseBadge = badge;
+    [badge.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor].active = YES;
+    [badge.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor].active = YES;
+    [badge.widthAnchor constraintEqualToConstant:60].active = YES;
+    [badge.heightAnchor constraintEqualToConstant:60].active = YES;
+
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.translatesAutoresizingMaskIntoConstraints = NO;
+    [close setImage:[UIImage systemImageNamed:@"xmark"] forState:UIControlStateNormal];
+    close.tintColor = UIColor.whiteColor;
+    close.backgroundColor = [UIColor.whiteColor colorWithAlphaComponent:0.18];
+    close.layer.cornerRadius = 18;
+    [close addTarget:self action:@selector(closePreview) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:close];
+    [close.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16].active = YES;
+    [close.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8].active = YES;
+    [close.widthAnchor constraintEqualToConstant:36].active = YES;
+    [close.heightAnchor constraintEqualToConstant:36].active = YES;
+
+    UILabel *title = LMVGLabel(LMVGChannelTitle(self.channelID), LMVGFont(16, UIFontWeightSemibold), UIColor.whiteColor);
+    UILabel *sub = LMVGLabel(LMVGMaterialName(relative), LMVGFont(11, UIFontWeightRegular), [UIColor.whiteColor colorWithAlphaComponent:0.75]);
+    [self.view addSubview:title];
+    [self.view addSubview:sub];
+    [title.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:18].active = YES;
+    [sub.leadingAnchor constraintEqualToAnchor:title.leadingAnchor].active = YES;
+    [sub.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:2].active = YES;
+    [sub.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-18].active = YES;
+
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePlayback)];
+    [self.view addGestureRecognizer:tap];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    self.playerLayer.frame = self.view.bounds;
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self.player pause];
+    [AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+}
+
+- (void)togglePlayback {
+    if (!self.player) return;
+    if (self.player.rate > 0) {
+        [self.player pause];
+        self.pauseBadge.hidden = NO;
+    } else {
+        [self.player play];
+        self.pauseBadge.hidden = YES;
+    }
+    LMVGLightHaptic();
+}
+
+- (void)closePreview {
+    [self dismissViewControllerAnimated:YES completion:nil];
 }
 
 @end

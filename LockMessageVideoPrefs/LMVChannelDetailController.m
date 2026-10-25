@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"4.3.3"
+#define LMVGalleryVersion @"4.3.4"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -296,11 +296,14 @@ static UIColor *LMVGAccent(void) {
     buttons.spacing = 10;
     buttons.distribution = UIStackViewDistributionFillEqually;
     [self.panel addArrangedSubview:buttons];
-    [buttons addArrangedSubview:[self actionButton:@"更换素材" symbol:@"rectangle.2.swap" filled:YES action:@selector(changeMaterial)]];
+    UIButton *change = [self actionButton:@"更换素材" symbol:@"rectangle.2.swap" filled:YES action:@selector(cycleMaterial)];
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(changeMaterialFromLongPress:)];
+    [change addGestureRecognizer:longPress];
+    [buttons addArrangedSubview:change];
     [buttons addArrangedSubview:[self actionButton:@"从相册导入" symbol:@"square.and.arrow.down" filled:NO action:@selector(importVideos)]];
     [buttons.heightAnchor constraintEqualToConstant:44].active = YES;
 
-    UILabel *note = LMVGLabel(@"素材原片保存在应用沙盒，切换后立即生效；删除正在使用的素材会取消选择。",
+    UILabel *note = LMVGLabel(@"点按「更换素材」直接切到下一个；长按可从列表中选择。删除使用中的素材会取消选择。",
                               LMVGFont(10, UIFontWeightRegular), UIColor.tertiaryLabelColor);
     note.numberOfLines = 0;
     [self.panel addArrangedSubview:note];
@@ -528,6 +531,26 @@ static UIColor *LMVGAccent(void) {
     [self rebuildPanel];
 }
 
+// 4.3.4: the button's primary action is a direct switch (the reported surprise was
+// that it only opened a list). Long-press still reaches the full picker.
+- (void)cycleMaterial {
+    if (!self.materials.count) { [self importVideos]; return; }
+    NSString *current = LMVGSelectedMaterial(self.channelID);
+    NSUInteger index = NSNotFound;
+    for (NSUInteger i = 0; i < self.materials.count; i++) {
+        if ([self.materials[i][@"path"] isEqualToString:current]) { index = i; break; }
+    }
+    NSUInteger next = (index == NSNotFound) ? 0 : (index + 1) % self.materials.count;
+    LMVGPrefSet([self.channelID stringByAppendingString:@"Video"], self.materials[next][@"path"]);
+    LMVGNotifyChannel(self.channelID);
+    LMVGLightHaptic();
+    [self refresh];
+    [self rebuildPanel];
+}
+- (void)changeMaterialFromLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan) return;
+    [self changeMaterial];
+}
 - (void)changeMaterial {
     __weak typeof(self) weakSelf = self;
     UIViewController *picker = LMVCreateMaterialPicker(LMVGSelectedMaterial(self.channelID), YES, ^(NSString *relative, NSString *name) {

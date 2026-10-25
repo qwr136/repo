@@ -7,6 +7,10 @@
 @property(nonatomic,copy) void (^onRequestClassicList)(void);
 @end
 
+@interface LMVVideoPreviewController : UIViewController
+- (instancetype)initWithChannelID:(NSString *)channelID;
+@end
+
 @interface LMVPanelGridController : UIViewController
 @end
 
