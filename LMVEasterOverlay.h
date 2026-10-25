@@ -709,10 +709,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // 4.4.1: the bubble's cadence is a real NSTimer, but nothing measured what one
     // tick costs. Sampled after syncRotation so every path (including the early
     // return below) is counted.
-    if (LMVDiagnosticsEnabled.load()) {
-        NSString *bubblePerf=LMVPerfSample("bubble",CACurrentMediaTime()-bubblePerf0);
-        if (bubblePerf) LMVDiagnostic(bubblePerf);
-    }
+    // No LMVDiagnosticsEnabled guard here: the flag is private to Tweak.xm and this
+    // header is also compiled standalone by the native fixture. LMVDiagnostic
+    // already checks it, and the sampler is two clock reads per tick.
+    NSString *bubblePerf=LMVPerfSample("bubble",CACurrentMediaTime()-bubblePerf0);
+    if (bubblePerf) LMVDiagnostic(bubblePerf);
     if (!LMVEasterPhysicalCheckNeeded(!self.physicalSnapshot,![snapshot isEqual:self.physicalSnapshot],
             CACurrentMediaTime(),self.lastPhysicalCheck,tracking)) return;
     [self refresh];
