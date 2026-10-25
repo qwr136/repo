@@ -38,11 +38,11 @@ standalone = re.findall(r'@"id": @"(\w+)"[^}]*@"standalone": @YES', CHANNELS)
 assert 'SquidPanel' in standalone and 'AT' in standalone and 'CV' in standalone
 assert standalone.index('SquidPanel') < standalone.index('AT') < standalone.index('CV')
 assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs, 'the AT group is generated'
-assert re.search(r'@"id": @"AT"[^}]*@"title": @"AT 背景视频"', CHANNELS), 'the AT group keeps its title'
+assert re.search(r'@"id": @"AT"[^}]*@"title": @"AppTools背景"', CHANNELS), 'the AT group keeps its title'
 assert re.search(r'@"id": @"AT"[^}]*@"audio": @YES', CHANNELS), 'sound switch + volume slider'
 assert '@selector(switchTargetFromRow:)' in prefs, 'one shared action serves every channel'
 CHANNELS=(Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
-assert '@"id": @"AT"' in CHANNELS and '@"title": @"AT 背景视频"' in CHANNELS, 'the applied-material alert names the AT channel'
+assert '@"id": @"AT"' in CHANNELS and '@"title": @"AppTools背景"' in CHANNELS, 'the applied-material alert names the AT channel'
 assert 'LMVChannelLegacyDefaults()' in prefs and re.search(r'@"id": @"AT".*?@"legacy": @""', CHANNELS), 'the AT material fallback is empty (nothing selected by default)'
 
 # ---- floating panel ---------------------------------------------------------
@@ -53,9 +53,9 @@ assert 'static NSInteger LMVEasterCCBorderSection(void) { return LMVEasterGlassS
 assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLogXSection() + 1; }' in panel
 assert 'if (section == LMVEasterATSection()) return 4;' in panel
-assert 'if (section == LMVEasterATSection()) return @"AT 背景视频";' in panel
+assert 'if (section == LMVEasterATSection()) return @"AppTools背景";' in panel
 at_cells = panel[panel.index('if (index.section == LMVEasterATSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
-assert 'cell.textLabel.text = @"AT 背景视频";' in at_cells and 'cell.textLabel.text = @"切换素材";' in at_cells
+assert 'cell.textLabel.text = @"AppTools背景";' in at_cells and 'cell.textLabel.text = @"切换素材";' in at_cells
 assert 'toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];' in at_cells
 assert 'id selected = LMVEasterRead(@"ATVideo");' in at_cells, 'the panel material row reads its own key'
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')

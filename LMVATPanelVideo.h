@@ -1,6 +1,6 @@
 #pragma once
 #import "LMVPanelCommon.h"
-// 1.28: the AppTools (AT) pop-up background (AT 背景视频).
+// 1.28: the AppTools (AT) pop-up background (AppTools背景).
 //
 // Shape settled by the 1.27 device diagnostics - and it is NOT the shape of the
 // SquidGesture panel. AppTools has NO window of its own: it PRESENTS its panel

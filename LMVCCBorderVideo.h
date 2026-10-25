@@ -12,7 +12,7 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
 }
 #endif
 #import <dlfcn.h>
-// 2.30: the Control Center context-menu background (CCBorder 视频背景).
+// 2.30: the Control Center context-menu background (CCBorder背景).
 //
 // The 2.29 capture showed the phone-assist channel mounting a video on a Control
 // Center long-press menu by mistake:

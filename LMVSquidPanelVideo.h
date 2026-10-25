@@ -1,6 +1,6 @@
 #pragma once
 #import "LMVPanelCommonUI.h"
-// 1.25: the SquidGesturePro panel background (鱿鱼面板背景视频).
+// 1.25: the SquidGesturePro panel background (SquidGesture Pro背景).
 //
 // Device diagnostics settled the shape of that panel: it lives in SGPanelWindow,
 // a FULL-SCREEN window (430x932) whose first two levels are full-screen as well,

@@ -128,7 +128,7 @@ assert 'return LMVChannelIDs();' in audio
 # 4.2.0: generated from the table.
 CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
 assert re.search(r'@"id": @"CV"[^}]*@"standalone": @YES', CHANNELS)
-assert re.search(r'@"id": @"CV"[^}]*@"title": @"CopyVault 面板背景视频"', CHANNELS)
+assert re.search(r'@"id": @"CV"[^}]*@"title": @"CopyVault背景"', CHANNELS)
 assert re.search(r'@"id": @"CV"[^}]*@"audio": @YES', CHANNELS)
 assert re.search(r'@"id": @"CV"[^}]*@"textColor": @"CVTextColor"', CHANNELS)
 assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs
@@ -151,9 +151,9 @@ assert 'static NSInteger LMVEasterCCBorderSection(void) { return LMVEasterGlassS
 assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel
 assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLogXSection() + 1; }' in panel
 assert 'if (section == LMVEasterCVSection()) return 4;' in panel
-assert 'if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";' in panel
+assert 'if (section == LMVEasterCVSection()) return @"CopyVault背景";' in panel
 cv_cells = panel[panel.index('if (index.section == LMVEasterCVSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
-assert 'cell.textLabel.text = @"CopyVault 面板背景视频";' in cv_cells and 'cell.textLabel.text = @"切换素材";' in cv_cells
+assert 'cell.textLabel.text = @"CopyVault背景";' in cv_cells and 'cell.textLabel.text = @"切换素材";' in cv_cells
 assert 'toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];' in cv_cells
 assert 'id selected = LMVEasterRead(@"CVVideo");' in cv_cells, 'the panel material row reads its own key'
 assert '(row == 2 || row == 3)) return @"CV";' in panel

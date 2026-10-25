@@ -2,7 +2,7 @@
 #import "LMVPanelCommonUI.h"
 #import <dlfcn.h>
 #import <objc/runtime.h>
-// 2.32: the CopyLogX clipboard panel (CopyLogX 视频背景).
+// 2.32: the CopyLogX clipboard panel (CopyLogX背景).
 //
 // The 2.31 capture showed the phone-assist channel mounting a video on this panel
 // by mistake - it is NOT the phone-assist sheet, and it gets its own channel now:

@@ -172,7 +172,9 @@ class UISectionOrder(unittest.TestCase):
             cell.detailTextLabel.numberOfLines = 1;
 ''', '')
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
-        self.assertEqual(digest(old_cells), '24d7c046936a80fa154da62a1a45e2d99dbd44dd84b02d54b24429b70f38d8c4')
+        # 4.3.9: channel display names changed (text only; layout and routing are
+        # unchanged), so the frozen cell digest is refreshed for this rename.
+        self.assertEqual(digest(old_cells), 'f63b6da871e574f3da9e3dfc7c7bf5535a80ae3e71292d584d9d4d8bf26cdc4c')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
@@ -349,8 +351,8 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = handlers[:volume_start] + handlers[volume_end:]
         old_handlers = old_handlers.replace(': [specifier propertyForKey:@"audioVolumeKey"];', ': nil;')
         # ...and the AT / CV entries added to the titles and legacy maps.
-        old_handlers = old_handlers.replace(', @"AT": @"AT 背景视频"', '').replace(', @"AT": @""', '')
-        old_handlers = old_handlers.replace(', @"CV": @"CopyVault 面板背景视频"', '').replace(', @"CV": @""', '')
+        old_handlers = old_handlers.replace(', @"AT": @"AppTools背景"', '').replace(', @"AT": @""', '')
+        old_handlers = old_handlers.replace(', @"CV": @"CopyVault背景"', '').replace(', @"CV": @""', '')
         # 1.44: the second Squid material slot, and the one existing Squid title that
         # was renamed when that slot appeared. 1.50: the left-hand pair, the claim row
         # and their handlers.
@@ -367,14 +369,14 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = old_handlers.replace(', @"SquidPanel2": @"右二·右上上滑面板背景视频"', '')
         old_handlers = old_handlers.replace(', @"SquidPanel3": @"左一·左上滑面板背景视频"', '')
         old_handlers = old_handlers.replace(', @"SquidPanel4": @"左二·左上上滑面板背景视频"', '')
-        old_handlers = old_handlers.replace('@"SquidPanel": @"右一·右上滑面板背景视频"', '@"SquidPanel": @"鱿鱼面板背景视频"')
+        old_handlers = old_handlers.replace('@"SquidPanel": @"右一·右上滑面板背景视频"', '@"SquidPanel": @"SquidGesture Pro背景"')
         # 1.77: the Myrtle channel is new - strip it so this digest keeps guarding the
         # pre-Myrtle handlers rather than drifting with every added channel.
         # 2.04: the phone-assist channel is new - strip it the same way, so this
         # digest keeps guarding the rows that predate it.
-        old_handlers = old_handlers.replace(', @"PA": @"电话助手弹窗背景视频"', '')
+        old_handlers = old_handlers.replace(', @"PA": @"电话助手背景"', '')
         old_handlers = old_handlers.replace(', @"PA": @""', '')
-        old_handlers = old_handlers.replace(', @"Myrtle": @"Myrtle 面板背景视频"', '')
+        old_handlers = old_handlers.replace(', @"Myrtle": @"Myrtle背景"', '')
         old_handlers = old_handlers.replace(', @"Myrtle": @""', '')
         # 1.83: the CopyVault swatch cell hook and the picker handler - drop both
         # before the frozen digest.
@@ -394,10 +396,10 @@ class UISectionOrder(unittest.TestCase):
     [self openTextColorForKey:LMVGlassSuiteTextColorKey];
 }
 ''', '')
-        old_handlers = old_handlers.replace(', @"GS": @"GlassSuiteX 弹窗背景视频"', '').replace(', @"GS": @""', '')
+        old_handlers = old_handlers.replace(', @"GS": @"GlassSuiteX背景"', '').replace(', @"GS": @""', '')
         # 2.30: the CCBorder channel is new as well - strip its handler and its two
         # map entries before the frozen digest, exactly like AT/CV/Myrtle/PA/GS.
-        old_handlers = old_handlers.replace(', @"CCBorder": @"CCBorder 视频背景"', '').replace(', @"CCBorder": @""', '')
+        old_handlers = old_handlers.replace(', @"CCBorder": @"CCBorder背景"', '').replace(', @"CCBorder": @""', '')
         # 2.32: the CopyLogX channel is new too - strip its handler, its colour row
         # and its two map entries before the frozen digest.
         old_handlers = old_handlers.replace('''// 2.32: the CopyLogX clipboard panel's own colour row.
@@ -411,7 +413,7 @@ class UISectionOrder(unittest.TestCase):
         old_handlers = old_handlers.replace('        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D), @(0x5E2C), @(0x5E2D)])',
                                             '        for (NSNumber *tag in @[@(0x5A2C), @(0x5A2D), @(0x5B2C), @(0x5B2D), @(0x5C2C), @(0x5C2D), @(0x5D2C), @(0x5D2D)])')
         old_handlers = old_handlers.replace('    else if ([identifier isEqualToString:@"CopyLogXTextColor"]) key = LMVCopyLogXTextColorKey;\n', '')
-        old_handlers = old_handlers.replace(', @"CopyLogX": @"CopyLogX 视频背景"', '').replace(', @"CopyLogX": @""', '')
+        old_handlers = old_handlers.replace(', @"CopyLogX": @"CopyLogX背景"', '').replace(', @"CopyLogX": @""', '')
         # 2.39: drop the tuning entry point before the frozen digest (the page itself
         # lives in LMVTuneController.m and is covered by tests/tuning.py).
         tune_start = old_handlers.find('// 2.39: push the per-channel tuning page.')

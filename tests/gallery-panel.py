@@ -44,13 +44,13 @@ check("LMVGalleryController.m" in makefile.split("LockMessageVideoPrefs_FILES ="
       "gallery controller outside the prefs bundle file list")
 
 # Version agreement (the receipt compares these three)
-check("LMV_VERSION = 4.3.8" in makefile, "Makefile version not 4.3.8")
-check(re.search(r"^Version: 4\.3\.8$", control, re.M) is not None, "control version not 4.3.8")
-check(plist.count("<string>4.3.8</string>") == 2, "Info.plist versions not 4.3.8")
+check("LMV_VERSION = 4.3.9" in makefile, "Makefile version not 4.3.9")
+check(re.search(r"^Version: 4\.3\.9$", control, re.M) is not None, "control version not 4.3.9")
+check(plist.count("<string>4.3.9</string>") == 2, "Info.plist versions not 4.3.9")
 
 # Entry: the classic list stays intact and the gallery opens exactly once per visit
 check("@implementation LMVPRootListController" in root, "classic root controller removed")
-# 4.3.8: embedded as a child, not pushed - pushing showed the classic list first.
+# 4.3.9: embedded as a child, not pushed - pushing showed the classic list first.
 check("addChildViewController:gallery" in root, "gallery is not embedded")
 check("pushViewController:[LMVGalleryController new]" not in root, "gallery still pushed")
 check("self.table.hidden = YES" in root, "classic table not hidden behind the gallery")
@@ -99,7 +99,7 @@ check(includers == ["LMVMaterialPickerHost.m"], f"material picker included by {i
 check((PREFS / "LMVMaterialPickerAPI.h").exists(), "picker declaration-only header missing")
 check("LMVCreateMaterialPicker" in read(PREFS / "LMVMaterialPickerHost.m"), "picker factory missing")
 
-# 4.3.8 pages and motion
+# 4.3.9 pages and motion
 pages = read(PREFS / "LMVGalleryPages.m")
 check("@implementation LMVMaterialLibraryController" in pages, "material library page missing")
 check("pushViewController:[LMVMaterialLibraryController new]" in gallery, "material tab does not open the library")
@@ -107,7 +107,7 @@ check("LMVGAddPressFeedback" in pages and "LMVGAddPressFeedback" in gallery, "pr
 kitm = read(PREFS / "LMVGalleryKit.m")
 check(kitm.count("void LMVGAddPressFeedback(UIView *view)") == 1, "press feedback defined more than once")
 check("UIViewAnimationOptionTransitionCrossDissolve" in gallery, "covers do not cross-fade")
-# 4.3.8: covers decoded at draw size (not the 144px list thumbnail) and one serial queue.
+# 4.3.9: covers decoded at draw size (not the 144px list thumbnail) and one serial queue.
 kit_impl = read(PREFS / "LMVGalleryKit.m")
 check("AVAssetImageGenerator" in kit_impl and "maximumSize = CGSizeMake(maxPixel, maxPixel)" in kit_impl,
       "covers are not decoded at their display size")
@@ -117,7 +117,7 @@ check("LMVGLoadThumb" in read(PREFS / "LMVChannelDetailController.m"), "detail s
 check("shouldRecognizeSimultaneouslyWithGestureRecognizer" in kit_impl,
       "press feedback can still swallow taps")
 
-# 4.3.8 (C2): refresh after a material change, scene subtitles, tab selection,
+# 4.3.9 (C2): refresh after a material change, scene subtitles, tab selection,
 # parallax, safe-area back button, import failure alert, reduce-motion support.
 check("accessibilityValue isEqualToString:relative" in gallery, "home does not refresh a changed cover")
 check("coverRelative" in detail, "detail does not refresh a changed cover")
@@ -128,13 +128,13 @@ check("CGAffineTransformMakeScale(1.08, 1.08)" in gallery, "hero parallax missin
 check("imported == 0" in pages, "import failure has no alert")
 check("UIColor.systemBlueColor" in gallery and "tab.tag = index" in gallery, "tab has no selected state")
 
-# 4.3.8: hero plays, panels merged into scenes, direct material switch, 1500px covers.
+# 4.3.9: hero plays, panels merged into scenes, direct material switch, 1500px covers.
 check("buildPanelSection" not in gallery, "home still has the separate panel strip")
 check("arrayByAddingObjectsFromArray:_panels" in gallery, "panels not merged into the scene grid")
 check("cycleMaterial" in detail and "changeMaterialFromLongPress" in detail, "material button does not switch directly")
 check("1500.0" in kit_impl, "hero covers are not 1500px")
 
-# 4.3.8
+# 4.3.9
 check("LMVPanelGridController" not in pages and "LMVPanelGridController" not in read(PREFS / "LMVGalleryController.h"),
       "panel grid page still exists")
 check("editingMaterials" in pages, "material editor missing")
@@ -144,19 +144,29 @@ check('actionWithTitle:@"素材库"' not in gallery, "settings still lists 素�
 check("显示场景与图片旋转" in gallery and "onRequestDisplaySettings" in gallery,
       "display settings entry missing from the sheet")
 
-# 4.3.8
+# 4.3.9
 check("numberOfTapsRequired = 2" in gallery and "openClassicList" in gallery,
       "classic list is not on a double tap")
 check('actionWithTitle:@"经典列表"' not in gallery, "sheet still lists 经典列表")
 check("EasterEggEnabled" in gallery, "easter toggle missing from the sheet")
-check("startPreviewPlayback" in detail and "AVQueuePlayer" in detail, "detail does not autoplay")
+check("AVPlayer" not in detail, "detail still contains playback code")
 check("setContentOffset:CGPointZero" in detail, "material strip does not return to the first item")
 check("nameLabels[relative].text = name" in pages, "rename still rebuilds the grid")
 check('systemImageNamed:@"trash"' in pages and "cornerRadius = 8" in pages, "edit icons not restyled")
+
+# 4.3.9: display names live in the channel table (gallery + classic list).
+channels = read(PREFS / "LMVChannels.h")
+for name in ("长按菜单背景", "SquidGesture Pro背景", "AppTools背景", "CopyVault背景",
+             "Myrtle背景", "电话助手背景", "GlassSuiteX背景", "CCBorder背景", "CopyLogX背景"):
+    check(name in channels, f"channel title missing: {name}")
+for name in ("桌面长按菜单视频背景", "鱿鱼面板背景视频", "AT 背景视频",
+             "CopyVault 面板背景视频", "Myrtle 面板背景视频", "电话助手弹窗背景视频",
+             "GlassSuiteX 弹窗背景视频", "CCBorder 视频背景", "CopyLogX 视频背景"):
+    check(name not in channels, f"old channel title still present: {name}")
 check("cardsByPath" in pages and "for (UIView *card in self.cardsByPath.allValues)" in pages,
       "edit toggle still rebuilds the grid")
 check("revealSelectedMaterial" in detail, "selection does not follow")
-check("playImmediatelyAtRate" in detail, "autoplay is not forced after layout")
+check("AVPlayer" not in gallery, "home still contains playback code")
 check("back.topAnchor constraintEqualToAnchor:coverBox.topAnchor" in detail,
       "back button is outside the cover")
 check("LMVEasterImageSettings" not in gallery, "gallery includes a header-only implementation")

@@ -76,7 +76,7 @@ assert 'self.userInteractionEnabled=NO;self.isAccessibilityElement=NO;' in modul
 
 # --- settings: same switch / material / sound / volume layout as CV --------
 CHANNELS=(__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text()
-assert '@"id": @"Myrtle"' in CHANNELS and '@"title": @"Myrtle 面板背景视频"' in CHANNELS, 'it is a selectable material target'
+assert '@"id": @"Myrtle"' in CHANNELS and '@"title": @"Myrtle背景"' in CHANNELS, 'it is a selectable material target'
 assert 'return [LMVChannelIDs() containsObject:target];' in prefs
 # 4.2.0: generated from the table.
 assert re.search(r'@"id": @"Myrtle"[^}]*@"standalone": @YES', CHANNELS)
@@ -95,7 +95,7 @@ assert 'NSString *key=[target stringByAppendingString:@"SoundEnabled"];' in audi
 
 # --- the easter panel mirrors Settings ------------------------------------
 assert 'static NSInteger LMVEasterMyrtleSection(void) { return LMVEasterCVSection() + 1; }' in panel
-assert 'if (section == LMVEasterMyrtleSection()) return @"Myrtle 面板背景视频";' in panel
+assert 'if (section == LMVEasterMyrtleSection()) return @"Myrtle背景";' in panel
 assert 'key = @"MyrtleVideo";' in panel
 assert '@"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"];' in panel, 'the audio target list carries it'
 

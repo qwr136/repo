@@ -282,15 +282,15 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section < LMVEasterTargets().count) return LMVEasterTitles()[section];
     if (section == LMVEasterControlCenterSection()) return @"控制中心背景";
-    if (section == LMVEasterHomeMenuSection()) return @"桌面长按菜单视频背景";
-    if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";
-    if (section == LMVEasterATSection()) return @"AT 背景视频";
-    if (section == LMVEasterCVSection()) return @"CopyVault 面板背景视频";
-    if (section == LMVEasterMyrtleSection()) return @"Myrtle 面板背景视频";
-    if (section == LMVEasterPhoneAssistSection()) return @"电话助手弹窗背景视频";
-    if (section == LMVEasterGlassSuiteSection()) return @"GlassSuiteX 弹窗背景视频";
-    if (section == LMVEasterCCBorderSection()) return @"CCBorder 视频背景";
-    if (section == LMVEasterCopyLogXSection()) return @"CopyLogX 视频背景";
+    if (section == LMVEasterHomeMenuSection()) return @"长按菜单背景";
+    if (section == LMVEasterSquidPanelSection()) return @"SquidGesture Pro背景";
+    if (section == LMVEasterATSection()) return @"AppTools背景";
+    if (section == LMVEasterCVSection()) return @"CopyVault背景";
+    if (section == LMVEasterMyrtleSection()) return @"Myrtle背景";
+    if (section == LMVEasterPhoneAssistSection()) return @"电话助手背景";
+    if (section == LMVEasterGlassSuiteSection()) return @"GlassSuiteX背景";
+    if (section == LMVEasterCCBorderSection()) return @"CCBorder背景";
+    if (section == LMVEasterCopyLogXSection()) return @"CopyLogX背景";
     if (section == LMVEasterDisplaySection()) return @"小彩蛋显示设置";
     return section == LMVEasterOpacitySection() ? @"消息、选项、清除视频透明度" : @"独立原片导入";
 }
@@ -344,7 +344,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     }
     if (index.section == LMVEasterHomeMenuSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"桌面长按菜单视频背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"长按菜单背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterHomeMenuSection();
             toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -359,7 +359,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     }
     if (index.section == LMVEasterSquidPanelSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"鱿鱼面板背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"SquidGesture Pro背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterSquidPanelSection();
             toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -375,7 +375,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     }
     if (index.section == LMVEasterATSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"AT 背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"AppTools背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterATSection();
             toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -390,7 +390,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     }
     if (index.section == LMVEasterCVSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"CopyVault 面板背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"CopyVault背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCVSection();
             toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -405,7 +405,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     }
     if (index.section == LMVEasterMyrtleSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"Myrtle 面板背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"Myrtle背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterMyrtleSection();
             toggle.on = [LMVEasterRead(@"MyrtleBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -420,7 +420,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     }
     if (index.section == LMVEasterPhoneAssistSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"电话助手弹窗背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"电话助手背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterPhoneAssistSection();
             toggle.on = [LMVEasterRead(@"PABackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -436,7 +436,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     // 2.30: CCBorder section - switch / material / sound / volume / debug size.
     if (index.section == LMVEasterCCBorderSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"CCBorder 视频背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"CCBorder背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCCBorderSection();
             toggle.on = [LMVEasterRead(@"CCBorderBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -452,7 +452,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     // 2.32: CopyLogX section - switch / material / sound / volume.
     if (index.section == LMVEasterCopyLogXSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"CopyLogX 视频背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"CopyLogX背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCopyLogXSection();
             toggle.on = [LMVEasterRead(@"CopyLogXBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
@@ -469,7 +469,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     // No text-colour row here: that one stays in Settings, as the user asked.
     if (index.section == LMVEasterGlassSuiteSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"GlassSuiteX 弹窗背景视频"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"GlassSuiteX背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterGlassSuiteSection();
             toggle.on = [LMVEasterRead(@"GSBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;

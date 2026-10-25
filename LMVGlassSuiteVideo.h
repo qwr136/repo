@@ -13,7 +13,7 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
 #endif
 #import <dlfcn.h>
 #import <objc/runtime.h>
-// 2.29: the GlassSuiteX pop-up background (GlassSuiteX 弹窗背景视频).
+// 2.29: the GlassSuiteX pop-up background (GlassSuiteX背景).
 //
 // GlassSuiteX re-hosts the phone-assist sheet into its own hierarchy and renames
 // the presentation view; the device log (2.26) shows the shape it presents:

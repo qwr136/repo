@@ -3,9 +3,8 @@
 #import "LMVImport.h"
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
-#import <AVFoundation/AVFoundation.h>
 
-#define LMVGalleryVersion @"4.3.8"
+#define LMVGalleryVersion @"4.3.9"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -32,16 +31,6 @@ static UIColor *LMVGAccent(void) {
 }
 @end
 
-// 4.3.7: inline autoplay for the header preview. A layer-backed view so the
-// player follows the rounded cover without extra layout code.
-@interface LMVDetailPlayerView : UIView
-- (AVPlayerLayer *)playerLayer;
-@end
-@implementation LMVDetailPlayerView
-+ (Class)layerClass { return AVPlayerLayer.class; }
-- (AVPlayerLayer *)playerLayer { return (AVPlayerLayer *)self.layer; }
-@end
-
 @interface LMVChannelDetailController () <PHPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *channelID;
 @property(nonatomic,strong) UIScrollView *scroll;
@@ -49,10 +38,6 @@ static UIColor *LMVGAccent(void) {
 @property(nonatomic,strong) UIImageView *cover;
 @property(nonatomic,copy) NSString *coverRelative;
 @property(nonatomic,strong) NSLayoutConstraint *coverTopInset;
-@property(nonatomic,strong) AVQueuePlayer *previewPlayer;
-@property(nonatomic,strong) AVPlayerLooper *previewLooper;
-@property(nonatomic,strong) LMVDetailPlayerView *previewHost;
-@property(nonatomic,copy) NSString *playedRelative;
 @property(nonatomic,strong) UIScrollView *materialStrip;
 @property(nonatomic,strong) UILabel *subtitle;
 @property(nonatomic,strong) UISwitch *toggle;
@@ -95,25 +80,11 @@ static UIColor *LMVGAccent(void) {
     self.navigationController.interactivePopGestureRecognizer.enabled = YES;
     [self refresh];
     [self loadMaterials];
-    // 4.3.8: start after the first layout pass, so the layer already has bounds.
-    __weak typeof(self) weakSelf = self;
-    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf startPreviewPlayback]; });
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    [self startPreviewPlayback];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-    [self.previewPlayer pause];
     [self.navigationController setNavigationBarHidden:NO animated:animated];
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    if (self.previewHost.superview) self.previewHost.frame = self.previewHost.superview.bounds;
 }
 
 - (void)buildScroll {
@@ -186,14 +157,6 @@ static UIColor *LMVGAccent(void) {
     shade.shade = YES;
     shade.userInteractionEnabled = NO;
     [coverBox addSubview:shade];
-
-    // Above the shade so the video is never dimmed; the back button is added last.
-    LMVDetailPlayerView *host = [LMVDetailPlayerView new];
-    host.userInteractionEnabled = NO;
-    host.playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    host.hidden = YES;
-    [coverBox addSubview:host];
-    self.previewHost = host;
 
     for (UIView *view in @[gradient, cover, shade]) {
         [view.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor].active = YES;
@@ -283,11 +246,6 @@ static UIColor *LMVGAccent(void) {
         self.coverRelative = relative ?: @"";
         self.cover.image = nil;
     }
-    if (![self.playedRelative isEqualToString:relative]) {
-        self.playedRelative = nil;
-        [self.previewPlayer pause];
-    }
-    if (self.view.window) [self startPreviewPlayback];
     if (!self.cover.image) {
         __weak typeof(self) weakSelf = self;
         LMVGLoadCover(relative, ^(UIImage *image) {
@@ -628,38 +586,6 @@ static UIColor *LMVGAccent(void) {
         CGRect rect = [strongSelf.panel convertRect:strongSelf.panel.bounds toView:strongSelf.scroll];
         [strongSelf.scroll scrollRectToVisible:CGRectInset(rect, 0, -12) animated:YES];
     });
-}
-
-- (void)startPreviewPlayback {
-    if (!self.previewHost) return;
-    NSString *relative = LMVGSelectedMaterial(self.channelID);
-    if (!relative.length) {
-        [self.previewPlayer pause];
-        self.previewHost.hidden = YES;
-        return;
-    }
-    if (![self.playedRelative isEqualToString:relative] || !self.previewPlayer.currentItem) {
-        NSURL *url = [NSURL fileURLWithPath:[LMVStorageRootPath stringByAppendingPathComponent:relative]];
-        AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
-        AVQueuePlayer *player = [[AVQueuePlayer alloc] initWithPlayerItem:item];
-        self.previewLooper = [AVPlayerLooper playerLooperWithPlayer:player templateItem:item];
-        BOOL sound = LMVGPrefBool([self.channelID stringByAppendingString:@"SoundEnabled"], NO);
-        player.muted = !sound;
-        player.volume = (float)MAX(0.0, MIN(1.0, LMVGPrefDouble([self.channelID stringByAppendingString:@"Volume"], 0.5)));
-        if (sound) {
-            AVAudioSession *session = AVAudioSession.sharedInstance;
-            [session setCategory:AVAudioSessionCategoryAmbient error:nil];
-            [session setActive:YES error:nil];
-        }
-        self.previewPlayer = player;
-        self.playedRelative = relative;
-    }
-    self.previewHost.hidden = NO;
-    self.previewHost.frame = self.previewHost.superview.bounds;
-    [self.previewPlayer play];
-    if ([self.previewPlayer respondsToSelector:@selector(playImmediatelyAtRate:)]) {
-        [self.previewPlayer playImmediatelyAtRate:1.0];
-    }
 }
 
 - (void)cycleMaterial {

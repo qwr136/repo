@@ -45,7 +45,7 @@ check('LMVSectionChannelIDs()' in panel, 'panel sections must come from the tabl
 
 # No hand-written copies left outside the table.
 check('@[@"Message",@"Options",@"Clear",@"LockScreen"' not in audio, 'audio list is hand-written again')
-check('@"CopyLogX":@"CopyLogX 视频背景"' not in page, 'titles are hand-written again')
+check('@"CopyLogX":@"CopyLogX背景"' not in page, 'titles are hand-written again')
 
 # One storage root.
 check('LMVStorageRootPath = @"/var/mobile/LockMessageVideo";' in storage, 'storage root constant missing')

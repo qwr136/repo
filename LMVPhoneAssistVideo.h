@@ -11,7 +11,7 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
 }
 #endif
 #pragma once
-// 2.04: the PHONE-ASSIST pop-up background (电话助手弹窗背景视频).
+// 2.04: the PHONE-ASSIST pop-up background (电话助手背景).
 //
 // This is the sheet the phone-assistant tweak presents over the home screen. It is
 // built on UIAlertController internals - the device log names it

@@ -10,7 +10,7 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
     (void)mounted; return want;
 }
 #endif
-// 1.77: the Myrtle panel background video (Myrtle 面板背景视频).
+// 1.77: the Myrtle panel background video (Myrtle背景).
 // The panel is the one that appears under the App Library / search surface: the
 // window list from the device carries two visible Myrtle windows,
 //   MyrtleWindow       level 1035

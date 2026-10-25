@@ -117,7 +117,7 @@ assert 'return LMVChannelIDs();' in audio and '@"CopyLogX"' in (__import__('path
 # 4.2.0: generated from the table; the footer and the colour row are table columns.
 CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
 assert re.search(r'@"id": @"CopyLogX"[^}]*@"standalone": @YES', CHANNELS)
-assert re.search(r'@"id": @"CopyLogX"[^}]*@"title": @"CopyLogX 视频背景"', CHANNELS)
+assert re.search(r'@"id": @"CopyLogX"[^}]*@"title": @"CopyLogX背景"', CHANNELS)
 assert re.search(r'@"id": @"CopyLogX"[^}]*@"audio": @YES', CHANNELS)
 assert re.search(r'@"id": @"CopyLogX"[^}]*@"textColor": @"CopyLogXTextColor"', CHANNELS)
 assert '剪贴板面板（411×470 底部卡片）的背景视频；诊断日志会写入 clx-panel。' in CHANNELS
@@ -132,7 +132,7 @@ assert 'return [LMVChannelIDs() containsObject:target];' in prefs
 # ---- 7) 小彩蛋面板同步：开关 / 素材 / 声音 / 音量，不含文字颜色 -------------
 assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBorderSection() + 1; }' in panel
 assert 'if (section == LMVEasterCopyLogXSection()) return 4;' in panel
-assert 'if (section == LMVEasterCopyLogXSection()) return @"CopyLogX 视频背景";' in panel
+assert 'if (section == LMVEasterCopyLogXSection()) return @"CopyLogX背景";' in panel
 assert 'toggle.on = [LMVEasterRead(@"CopyLogXBackgroundEnabled") boolValue];' in panel
 assert 'id selected = LMVEasterRead(@"CopyLogXVideo");' in panel
 assert 'else if (toggle.tag == LMVEasterCopyLogXSection()) key = @"CopyLogXBackgroundEnabled";' in panel

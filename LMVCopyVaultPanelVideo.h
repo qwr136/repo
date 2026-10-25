@@ -1,6 +1,6 @@
 #pragma once
 #import "LMVPanelCommonUI.h"
-// 1.43: the CopyVault clipboard panel background (CopyVault 面板背景视频).
+// 1.43: the CopyVault clipboard panel background (CopyVault背景).
 //
 // Shape settled by the 1.42 device diagnostics (`desktop-panel-tree` /
 // `desktop-window-meta`), and it is the SAME shape as SquidGesturePro's panel:

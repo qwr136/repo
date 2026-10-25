@@ -408,7 +408,7 @@ assert 'return LMVChannelIDs();' in audio
 # 4.2.0: generated from the table.
 CHANNELS = __import__('pathlib').Path(__file__).resolve().parents[1].joinpath('LockMessageVideoPrefs','LMVChannels.h').read_text()
 assert re.search(r'@"id": @"SquidPanel"[^}]*@"standalone": @YES', CHANNELS)
-assert re.search(r'@"id": @"SquidPanel"[^}]*@"title": @"鱿鱼面板背景视频"', CHANNELS)
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"title": @"SquidGesture Pro背景"', CHANNELS)
 assert re.search(r'@"id": @"SquidPanel"[^}]*@"audio": @YES', CHANNELS)
 assert re.search(r'@"id": @"SquidPanel"[^}]*@"textColor": @"SquidTextColor"', CHANNELS)
 assert 'for (NSDictionary *row in LMVStandaloneChannelRows()) {' in prefs
@@ -418,13 +418,13 @@ assert '@selector(switchTargetFromRow:)' in prefs
 assert 'NSDictionary *defaults=LMVChannelLegacyDefaults();' in delete and 'for (NSString *target in LMVChannelIDs())' in delete
 assert 'for (NSString *target in LMVChannelIDs())' in delete
 assert '@"id": @"SquidPanel"' in (__import__('pathlib').Path(__file__).resolve().parents[1]/'LockMessageVideoPrefs/LMVChannels.h').read_text() and 'LMVChannelTitles()' in prefs
-assert re.search(r'@"id": @"SquidPanel"[^}]*@"title": @"鱿鱼面板背景视频"', CHANNELS)
+assert re.search(r'@"id": @"SquidPanel"[^}]*@"title": @"SquidGesture Pro背景"', CHANNELS)
 assert 'static NSInteger LMVEasterSquidPanelSection(void) { return LMVEasterHomeMenuSection() + 1; }' in panel
 # 1.53: nine rows - switch, four materials, the reset row, the swap row, sound, volume.
 # The sound pair sits at 7/8, which is also what stops the volume row from rendering as
 # a second "播放声音" switch (the report that started 1.50).
 assert 'if (section == LMVEasterSquidPanelSection()) return 4;' in panel
-assert 'if (section == LMVEasterSquidPanelSection()) return @"鱿鱼面板背景视频";' in panel
+assert 'if (section == LMVEasterSquidPanelSection()) return @"SquidGesture Pro背景";' in panel
 assert 'if (section == LMVEasterSquidPanelSection() && (row == 2 || row == 3)) return @"SquidPanel";' in panel
 assert 'if (section == LMVEasterSquidPanelSection()) return row == 3;' in panel
 assert 'static NSArray *LMVEasterSquidKeys(void) {' not in panel

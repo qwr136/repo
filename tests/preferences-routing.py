@@ -36,7 +36,7 @@ assert 'static NSArray<NSString *> *LMVSectionTargets(void) { return LMVSectionC
 assert 'LMVChannelTitles()[target]' in source and 'hasSuffix:@"背景"' in source
 assert '@[@"切换素材", @"切换素材", @"切换素材", @"切换素材", @"切换素材"]' in source
 CHANNELS = (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
-for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '桌面长按菜单视频背景'), ('SquidPanel', '鱿鱼面板背景视频'), ('AT', 'AT 背景视频'), ('CV', 'CopyVault 面板背景视频')]:
+for target, title in [('LockScreen', '锁屏背景'), ('Desktop', '桌面背景'), ('ControlCenterDark', '控制中心深色背景'), ('ControlCenterLight', '控制中心浅色背景'), ('HomeMenu', '长按菜单背景'), ('SquidPanel', 'SquidGesture Pro背景'), ('AT', 'AppTools背景'), ('CV', 'CopyVault背景')]:
     assert f'@"id": @"{target}"' in CHANNELS and f'@"title": @"{title}"' in CHANNELS
     # 4.2.0: one action serves every channel; it reads the target from the row id.
     assert '- (void)switchTargetFromRow:(PSSpecifier *)specifier {' in source
@@ -80,15 +80,15 @@ assert '[self materialRowForTarget:target]' in generated
 assert '[self appendAudioForTarget:target title:@"播放"]' in generated
 assert '[self textColorRowWithID:colourID]' in generated
 assert 'setProperty:footer forKey:@"footerText"' in generated
-panel_rows = [('HomeMenu',   '桌面长按菜单视频背景',       ''),
-              ('SquidPanel', '鱿鱼面板背景视频',           'SquidTextColor'),
-              ('AT',         'AT 背景视频',                ''),
-              ('CV',         'CopyVault 面板背景视频',      'CVTextColor'),
-              ('Myrtle',     'Myrtle 面板背景视频',         ''),
-              ('PA',         '电话助手弹窗背景视频',        'PATextColor'),
-              ('GS',         'GlassSuiteX 弹窗背景视频',    'GSTextColor'),
-              ('CCBorder',   'CCBorder 视频背景',           ''),
-              ('CopyLogX',   'CopyLogX 视频背景',           'CopyLogXTextColor')]
+panel_rows = [('HomeMenu',   '长按菜单背景',       ''),
+              ('SquidPanel', 'SquidGesture Pro背景',           'SquidTextColor'),
+              ('AT',         'AppTools背景',                ''),
+              ('CV',         'CopyVault背景',      'CVTextColor'),
+              ('Myrtle',     'Myrtle背景',         ''),
+              ('PA',         '电话助手背景',        'PATextColor'),
+              ('GS',         'GlassSuiteX背景',    'GSTextColor'),
+              ('CCBorder',   'CCBorder背景',           ''),
+              ('CopyLogX',   'CopyLogX背景',           'CopyLogXTextColor')]
 standalone = re.findall(r'@"id": @"(\w+)"[^}]*@"standalone": @YES', CHANNELS)
 assert standalone == [row[0] for row in panel_rows], standalone
 for ident, title, colour in panel_rows:
