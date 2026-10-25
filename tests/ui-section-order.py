@@ -433,7 +433,10 @@ class UISectionOrder(unittest.TestCase):
         # (the picker header may only be implemented in one translation unit). The
         # handler still writes the same key and still repaints on libraryChanged, so
         # the digest is refreshed for this intended refactor only.
-        self.assertEqual(digest(old_handlers), '309dad4c24f1d7ad3a9805009b1484cef59c59e93a509c78056753fd2949a746')
+        # 4.3.6: -openEaster: now delegates to -presentDisplaySettings so the gallery
+        # can ask the pane to present the same page without a second header include.
+        # Behaviour is unchanged; only the entry point moved.
+        self.assertEqual(digest(old_handlers), '5c178495950542402f58ced1293bfd0698cfcaaf70ea16cba33d7ebed9312e22')
         # 4.2.0: the six per-channel wrappers are one shared method that reads the
         # target from the row id, so there is no per-channel handler to assert any more.
         self.assertIn('- (void)switchTargetFromRow:(PSSpecifier *)specifier {', SETTINGS)

@@ -141,8 +141,9 @@ check("editingMaterials" in pages, "material editor missing")
 check("deleteMaterialTapped" in pages and "renameMaterialTapped" in pages, "in-place delete/rename missing")
 check("LMVCreateMaterialPicker" not in pages, "manage still opens the picker")
 check('actionWithTitle:@"素材库"' not in gallery, "settings still lists 素材库")
-check("显示场景与图片旋转" in gallery and "LMVEasterImageSettings" in gallery,
+check("显示场景与图片旋转" in gallery and "onRequestDisplaySettings" in gallery,
       "display settings entry missing from the sheet")
+check("LMVEasterImageSettings" not in gallery, "gallery includes a header-only implementation")
 
 # Unique implementations
 check(len(re.findall(r"@implementation LMVChannelDetailController\b", detail)) == 1,

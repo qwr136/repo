@@ -105,6 +105,7 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     LMVGalleryController *gallery = [LMVGalleryController new];
     __weak typeof(self) weakSelf = self;
     gallery.onRequestClassicList = ^{ [weakSelf showClassicList]; };
+    gallery.onRequestDisplaySettings = ^{ [weakSelf presentDisplaySettings]; };
     [self addChildViewController:gallery];
     gallery.view.frame = self.view.bounds;
     gallery.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -384,12 +385,15 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
 - (void)openTuneList:(PSSpecifier *)specifier {
     [self.navigationController pushViewController:[LMVTuneListController new] animated:YES];
 }
-- (void)openEaster:(PSSpecifier *)specifier {
+- (void)presentDisplaySettings {
     if (self.presentedViewController) return;
     LMVEasterImageSettings *panel = [LMVEasterImageSettings new];
     __weak LMVEasterImageSettings *weakPanel = panel;
     panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:nil]; };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
+}
+- (void)openEaster:(PSSpecifier *)specifier {
+    [self presentDisplaySettings];
 }
 // 1.83: PSButtonCell keeps the tap routing; the round swatch is painted on the
 // cell here so no private cell subclass (and no extra Preferences header) is needed.

@@ -2,7 +2,6 @@
 #import "LMVGalleryKit.h"
 #import "LMVTuneListController.h"
 #import "LMVMaterialPickerAPI.h"
-#import "../LMVEasterImageSettings.h"
 
 // 4.3.0: the settings page as a picture-led gallery. The classic specifier list is
 // still one tap away from 「更多」, so nothing is lost if a device-specific layout
@@ -644,10 +643,7 @@
         [weakSelf.navigationController pushViewController:[LMVTuneListController new] animated:YES];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"显示场景与图片旋转" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        LMVEasterImageSettings *panel = [LMVEasterImageSettings new];
-        __weak LMVEasterImageSettings *weakPanel = panel;
-        panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:nil]; };
-        [weakSelf presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
+        if (weakSelf.onRequestDisplaySettings) weakSelf.onRequestDisplaySettings();
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.view;
