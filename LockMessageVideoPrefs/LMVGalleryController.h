@@ -11,9 +11,6 @@
 - (instancetype)initWithChannelID:(NSString *)channelID;
 @end
 
-@interface LMVPanelGridController : UIViewController
-@end
-
 @interface LMVMaterialLibraryController : UIViewController
 @end
 

@@ -2,13 +2,14 @@
 #import "LMVGalleryKit.h"
 #import "LMVTuneListController.h"
 #import "LMVMaterialPickerAPI.h"
+#import <AVFoundation/AVFoundation.h>
 
 // 4.3.0: the settings page as a picture-led gallery. The classic specifier list is
 // still one tap away from 「更多」, so nothing is lost if a device-specific layout
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.4"
+#define LMVGalleryVersion @"4.3.5"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -35,6 +36,15 @@
 }
 @end
 
+// A UIView whose layer is the player layer, so it follows the card's bounds.
+@interface LMVPlayerHostView : UIView
+@property(nonatomic,strong) AVPlayerLayer *playerLayer;
+@end
+@implementation LMVPlayerHostView
++ (Class)layerClass { return AVPlayerLayer.class; }
+- (AVPlayerLayer *)playerLayer { return (AVPlayerLayer *)self.layer; }
+@end
+
 @interface LMVGalleryController () <UIScrollViewDelegate, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIStackView *stack;
@@ -48,6 +58,12 @@
 @property(nonatomic,strong) NSArray<NSString *> *featured;
 @property(nonatomic,strong) NSMutableArray<UIView *> *sceneCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *heroCards;
+// 4.3.5: the big card autoplays the selected material, muted, looped. One player
+// is reused across pages; the host view moves to the current card.
+@property(nonatomic,strong) AVQueuePlayer *heroPlayer;
+@property(nonatomic,strong) AVPlayerLooper *heroLooper;
+@property(nonatomic,strong) LMVPlayerHostView *heroPlayerView;
+@property(nonatomic,copy) NSString *heroRelative;
 @end
 
 @implementation LMVGalleryController
@@ -77,7 +93,15 @@
     [self buildFooter];
     [self buildTabBar];
     [self refreshContent];
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center addObserver:self selector:@selector(applicationDidEnterBackground) name:UIApplicationDidEnterBackgroundNotification object:nil];
+    [center addObserver:self selector:@selector(applicationWillEnterForeground) name:UIApplicationWillEnterForegroundNotification object:nil];
+    [self updateHeroPlayback];
 }
+
+- (void)applicationDidEnterBackground { [self.heroPlayer pause]; }
+- (void)applicationWillEnterForeground { [self updateHeroPlayback]; }
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
@@ -87,6 +111,18 @@
     self.navigationController.interactivePopGestureRecognizer.delegate = nil;
     self.navigationController.interactivePopGestureRecognizer.enabled = YES;
     [self refreshContent];
+    [self updateHeroPlayback];
+    [self.heroPlayer play];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [self.heroPlayer pause];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (self.heroPlayerView.superview) self.heroPlayerView.frame = self.heroPlayerView.superview.bounds;
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -215,6 +251,11 @@
     [page.centerXAnchor constraintEqualToAnchor:box.centerXAnchor].active = YES;
     [page.topAnchor constraintEqualToAnchor:hero.bottomAnchor constant:2].active = YES;
     [page.bottomAnchor constraintEqualToAnchor:box.bottomAnchor].active = YES;
+
+    LMVPlayerHostView *host = [LMVPlayerHostView new];
+    host.userInteractionEnabled = NO;
+    host.playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+    self.heroPlayerView = host;
 }
 
 - (UIView *)heroCardForChannel:(NSString *)identifier {
@@ -476,7 +517,6 @@
     [bar addSubview:row];
 
     NSArray *items = @[@[@"rectangle.stack", @"场景", @"scrollTop"],
-                       @[@"square.grid.2x2", @"面板", @"openPanelGrid"],
                        @[@"photo.on.rectangle", @"素材", @"openMaterialLibrary"],
                        @[@"gearshape", @"设置", @"showMore"]];
     [items enumerateObjectsUsingBlock:^(NSArray *item, NSUInteger index, BOOL *stop) {
@@ -593,6 +633,43 @@
 
 }
 
+#pragma mark - Hero playback
+
+- (void)updateHeroPlayback {
+    [self updateHeroPlaybackForPage:self.pageControl.currentPage];
+}
+
+- (void)updateHeroPlaybackForPage:(NSInteger)page {
+    if (LMVGReduceMotion()) return;
+    if (page < 0 || page >= (NSInteger)self.featured.count) return;
+    NSString *identifier = self.featured[page];
+    NSString *relative = LMVGSelectedMaterial(identifier);
+    UIView *card = self.heroCards[page];
+    if (!relative.length) {
+        [self.heroPlayer pause];
+        self.heroPlayerView.hidden = YES;
+        return;
+    }
+    if (![self.heroRelative isEqualToString:relative] || !self.heroPlayer.currentItem) {
+        NSURL *url = [NSURL fileURLWithPath:[LMVStorageRootPath stringByAppendingPathComponent:relative]];
+        AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+        AVQueuePlayer *player = [[AVQueuePlayer alloc] initWithPlayerItem:item];
+        self.heroLooper = [AVPlayerLooper playerLooperWithPlayer:player templateItem:item];
+        player.muted = YES;   // autoplay must never make sound
+        player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+        self.heroPlayer = player;
+        self.heroRelative = relative;
+    }
+    if (self.heroPlayerView.superview != card) {
+        // Index 2: above the cover image, below the shade and labels.
+        [card insertSubview:self.heroPlayerView atIndex:2];
+    }
+    self.heroPlayerView.hidden = NO;
+    self.heroPlayerView.frame = card.bounds;
+    self.heroPlayerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.heroPlayer play];
+}
+
 #pragma mark - Actions
 
 - (void)goBack {
@@ -630,9 +707,6 @@
 
 - (void)scrollTop {
     [self.scroll setContentOffset:CGPointMake(0, -self.scroll.adjustedContentInset.top) animated:YES];
-}
-- (void)openPanelGrid {
-    [self.navigationController pushViewController:[LMVPanelGridController new] animated:YES];
 }
 - (void)openMaterialLibrary {
     [self.navigationController pushViewController:[LMVMaterialLibraryController new] animated:YES];
@@ -680,7 +754,10 @@
     if (step <= 0) return;
     NSInteger page = (NSInteger)lround(scrollView.contentOffset.x / step);
     page = MAX(0, MIN((NSInteger)self.featured.count - 1, page));
-    if (self.pageControl.currentPage != page) self.pageControl.currentPage = page;
+    if (self.pageControl.currentPage != page) {
+        self.pageControl.currentPage = page;
+        [self updateHeroPlayback];
+    }
 
     if (LMVGReduceMotion()) return;
     CGFloat center = scrollView.contentOffset.x + scrollView.bounds.size.width * 0.5;
@@ -711,6 +788,7 @@
     NSInteger page = (NSInteger)lround(proposed / step);
     page = MAX(0, MIN((NSInteger)self.featured.count - 1, page));
     targetContentOffset->x = MIN(maxX, page * step);
+    [self updateHeroPlaybackForPage:page];
 }
 
 @end

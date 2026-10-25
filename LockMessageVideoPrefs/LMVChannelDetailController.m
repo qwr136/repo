@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"4.3.4"
+#define LMVGalleryVersion @"4.3.5"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -125,6 +125,10 @@ static UIColor *LMVGAccent(void) {
     cover.clipsToBounds = YES;
     [coverBox addSubview:cover];
     self.cover = cover;
+    // 4.3.5: tapping the header cover plays the material, like the home hero.
+    cover.userInteractionEnabled = YES;
+    UITapGestureRecognizer *play = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(playPreview)];
+    [cover addGestureRecognizer:play];
 
     LMVGDetailGradientView *shade = [LMVGDetailGradientView new];
     shade.translatesAutoresizingMaskIntoConstraints = NO;
@@ -533,6 +537,15 @@ static UIColor *LMVGAccent(void) {
 
 // 4.3.4: the button's primary action is a direct switch (the reported surprise was
 // that it only opened a list). Long-press still reaches the full picker.
+- (void)playPreview {
+    NSString *relative = LMVGSelectedMaterial(self.channelID);
+    if (!relative.length) { return; }
+    LMVGLightHaptic();
+    LMVVideoPreviewController *preview = [[LMVVideoPreviewController alloc] initWithChannelID:self.channelID];
+    preview.modalPresentationStyle = UIModalPresentationFullScreen;
+    preview.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+    [self presentViewController:preview animated:YES completion:nil];
+}
 - (void)cycleMaterial {
     if (!self.materials.count) { [self importVideos]; return; }
     NSString *current = LMVGSelectedMaterial(self.channelID);

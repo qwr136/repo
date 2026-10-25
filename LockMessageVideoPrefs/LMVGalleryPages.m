@@ -2,233 +2,12 @@
 #import "LMVGalleryKit.h"
 #import "LMVMaterialPickerAPI.h"
 #import "LMVImport.h"
+#import "LMVMaterialDeletion.h"
 #import <AVFoundation/AVFoundation.h>
 
 // 4.3.1 (C1): the two pages the gallery's bottom bar points at. Both are ordinary
 // pushes on the Settings navigation stack, hide the bar like the gallery and keep
 // every write on the same per-channel keys.
-
-#pragma mark - Panel grid
-
-@interface LMVPanelGridController () <UIScrollViewDelegate>
-@property(nonatomic,strong) UIScrollView *scroll;
-@property(nonatomic,strong) UIStackView *stack;
-@property(nonatomic,strong) NSArray<NSString *> *panels;
-@property(nonatomic,strong) NSMutableArray<UIView *> *cards;
-@end
-
-@implementation LMVPanelGridController
-
-- (instancetype)init {
-    self = [super init];
-    if (self) {
-        _panels = LMVGPanelIDs();
-        _cards = [NSMutableArray new];
-    }
-    return self;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
-    [self build];
-    [self refresh];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    [self.navigationController setNavigationBarHidden:YES animated:animated];
-    self.navigationController.interactivePopGestureRecognizer.delegate = nil;
-    self.navigationController.interactivePopGestureRecognizer.enabled = YES;
-    [self refresh];
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    [self.navigationController setNavigationBarHidden:NO animated:animated];
-}
-
-- (void)build {
-    UIScrollView *scroll = [UIScrollView new];
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    scroll.alwaysBounceVertical = YES;
-    scroll.showsVerticalScrollIndicator = NO;
-    scroll.contentInset = UIEdgeInsetsMake(0, 0, 28, 0);
-    [self.view addSubview:scroll];
-    self.scroll = scroll;
-
-    UIStackView *stack = [UIStackView new];
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.alignment = UIStackViewAlignmentFill;
-    [scroll addSubview:stack];
-    self.stack = stack;
-    [scroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor].active = YES;
-    [scroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor].active = YES;
-    [scroll.topAnchor constraintEqualToAnchor:self.view.topAnchor].active = YES;
-    [scroll.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor].active = YES;
-    [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor].active = YES;
-    [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor].active = YES;
-    [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor].active = YES;
-    [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor].active = YES;
-    [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor].active = YES;
-
-    UIView *bar = [UIView new];
-    bar.translatesAutoresizingMaskIntoConstraints = NO;
-    bar.layoutMargins = UIEdgeInsetsMake(0, 14, 0, 14);
-    [stack addArrangedSubview:bar];
-    [bar.heightAnchor constraintEqualToConstant:52].active = YES;
-    UIButton *back = LMVGRoundButton(@"chevron.left", self, @selector(goBack));
-    [bar addSubview:back];
-    [back.leadingAnchor constraintEqualToAnchor:bar.layoutMarginsGuide.leadingAnchor].active = YES;
-    [back.topAnchor constraintEqualToAnchor:bar.topAnchor constant:10].active = YES;
-
-    UIView *head = [UIView new];
-    head.translatesAutoresizingMaskIntoConstraints = NO;
-    head.layoutMargins = UIEdgeInsetsMake(0, 16, 0, 16);
-    [stack addArrangedSubview:head];
-    UILabel *title = LMVGLabel(@"面板", LMVGFont(28, UIFontWeightHeavy), UIColor.labelColor);
-    UILabel *sub = LMVGLabel([NSString stringWithFormat:@"%lu 个面板通道 · 已启用 %lu 个",
-                              (unsigned long)self.panels.count,
-                              (unsigned long)[self enabledCount]], LMVGFont(12, UIFontWeightRegular), UIColor.secondaryLabelColor);
-    [head addSubview:title];
-    [head addSubview:sub];
-    [title.leadingAnchor constraintEqualToAnchor:head.layoutMarginsGuide.leadingAnchor].active = YES;
-    [title.topAnchor constraintEqualToAnchor:head.topAnchor constant:2].active = YES;
-    [sub.leadingAnchor constraintEqualToAnchor:title.leadingAnchor].active = YES;
-    [sub.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:4].active = YES;
-    [sub.bottomAnchor constraintEqualToAnchor:head.bottomAnchor constant:-14].active = YES;
-
-    UIView *gridBox = [UIView new];
-    gridBox.translatesAutoresizingMaskIntoConstraints = NO;
-    gridBox.layoutMargins = UIEdgeInsetsMake(0, 14, 0, 14);
-    [stack addArrangedSubview:gridBox];
-    UIStackView *grid = [UIStackView new];
-    grid.translatesAutoresizingMaskIntoConstraints = NO;
-    grid.axis = UILayoutConstraintAxisVertical;
-    grid.spacing = 9;
-    [gridBox addSubview:grid];
-    [grid.leadingAnchor constraintEqualToAnchor:gridBox.layoutMarginsGuide.leadingAnchor].active = YES;
-    [grid.trailingAnchor constraintEqualToAnchor:gridBox.layoutMarginsGuide.trailingAnchor].active = YES;
-    [grid.topAnchor constraintEqualToAnchor:gridBox.topAnchor].active = YES;
-    [grid.bottomAnchor constraintEqualToAnchor:gridBox.bottomAnchor].active = YES;
-
-    UIStackView *row = nil;
-    for (NSUInteger index = 0; index < self.panels.count; index++) {
-        if (index % 2 == 0) {
-            row = [UIStackView new];
-            row.axis = UILayoutConstraintAxisHorizontal;
-            row.spacing = 9;
-            row.distribution = UIStackViewDistributionFillEqually;
-            [grid addArrangedSubview:row];
-            if (index + 1 >= self.panels.count) {
-                UIView *filler = [UIView new];
-                filler.translatesAutoresizingMaskIntoConstraints = NO;
-                [row addArrangedSubview:filler];
-            }
-        }
-        UIView *card = [self cardForChannel:self.panels[index]];
-        [row addArrangedSubview:card];
-        [card.heightAnchor constraintEqualToConstant:112].active = YES;
-        [self.cards addObject:card];
-    }
-}
-
-- (NSUInteger)enabledCount {
-    NSUInteger count = 0;
-    for (NSString *identifier in self.panels)
-        if (LMVGPrefBool([identifier stringByAppendingString:@"BackgroundEnabled"], NO)) count++;
-    return count;
-}
-
-- (UIView *)cardForChannel:(NSString *)identifier {
-    UIView *card = [UIView new];
-    card.translatesAutoresizingMaskIntoConstraints = NO;
-    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    card.layer.cornerRadius = 18;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
-    card.accessibilityIdentifier = identifier;
-
-    UIView *tile = [UIView new];
-    tile.translatesAutoresizingMaskIntoConstraints = NO;
-    tile.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.10];
-    tile.layer.cornerRadius = 13;
-    tile.layer.cornerCurve = kCACornerCurveContinuous;
-    [card addSubview:tile];
-    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:LMVGSymbolForChannel(identifier)]];
-    icon.translatesAutoresizingMaskIntoConstraints = NO;
-    icon.tintColor = UIColor.systemBlueColor;
-    icon.contentMode = UIViewContentModeScaleAspectFit;
-    [tile addSubview:icon];
-
-    UIView *dot = [UIView new];
-    dot.translatesAutoresizingMaskIntoConstraints = NO;
-    dot.tag = 1004;
-    dot.layer.cornerRadius = 3;
-    dot.backgroundColor = UIColor.systemGreenColor;
-    dot.hidden = YES;
-    [card addSubview:dot];
-
-    UILabel *name = LMVGLabel(LMVGChannelTitle(identifier), LMVGFont(13, UIFontWeightSemibold), UIColor.labelColor);
-    name.numberOfLines = 2;
-    UILabel *material = LMVGLabel(@"", LMVGFont(10, UIFontWeightRegular), UIColor.secondaryLabelColor);
-    material.tag = 1002;
-    material.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    [card addSubview:name];
-    [card addSubview:material];
-
-    [tile.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12].active = YES;
-    [tile.topAnchor constraintEqualToAnchor:card.topAnchor constant:12].active = YES;
-    [tile.widthAnchor constraintEqualToConstant:34].active = YES;
-    [tile.heightAnchor constraintEqualToConstant:34].active = YES;
-    [icon.centerXAnchor constraintEqualToAnchor:tile.centerXAnchor].active = YES;
-    [icon.centerYAnchor constraintEqualToAnchor:tile.centerYAnchor].active = YES;
-    [icon.widthAnchor constraintEqualToConstant:18].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:18].active = YES;
-    [dot.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12].active = YES;
-    [dot.topAnchor constraintEqualToAnchor:card.topAnchor constant:16].active = YES;
-    [dot.widthAnchor constraintEqualToConstant:6].active = YES;
-    [dot.heightAnchor constraintEqualToConstant:6].active = YES;
-    [name.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12].active = YES;
-    [name.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12].active = YES;
-    [name.topAnchor constraintEqualToAnchor:tile.bottomAnchor constant:9].active = YES;
-    [material.leadingAnchor constraintEqualToAnchor:name.leadingAnchor].active = YES;
-    [material.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12].active = YES;
-    [material.topAnchor constraintEqualToAnchor:name.bottomAnchor constant:2].active = YES;
-    [material.bottomAnchor constraintLessThanOrEqualToAnchor:card.bottomAnchor constant:-10].active = YES;
-
-    LMVGAddPressFeedback(card);
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
-    [card addGestureRecognizer:tap];
-    card.userInteractionEnabled = YES;
-    card.isAccessibilityElement = YES;
-    card.accessibilityLabel = LMVGChannelTitle(identifier);
-    return card;
-}
-
-- (void)refresh {
-    for (UIView *card in self.cards) {
-        NSString *identifier = card.accessibilityIdentifier;
-        BOOL on = LMVGPrefBool([identifier stringByAppendingString:@"BackgroundEnabled"], NO);
-        [card viewWithTag:1004].hidden = !on;
-        NSString *relative = LMVGSelectedMaterial(identifier);
-        UILabel *material = (UILabel *)[card viewWithTag:1002];
-        material.text = relative.length ? LMVGMaterialName(relative) : @"未选择素材";
-        material.textColor = relative.length ? UIColor.secondaryLabelColor : UIColor.tertiaryLabelColor;
-    }
-}
-
-- (void)openChannel:(UITapGestureRecognizer *)gesture {
-    NSString *identifier = gesture.view.accessibilityIdentifier;
-    if (!identifier.length) return;
-    [self.navigationController pushViewController:[[LMVChannelDetailController alloc] initWithChannelID:identifier] animated:YES];
-}
-
-- (void)goBack {
-    [self.navigationController popViewControllerAnimated:YES];
-}
-
-@end
 
 #pragma mark - Material library
 
@@ -239,6 +18,8 @@
 @property(nonatomic,strong) UILabel *subtitle;
 @property(nonatomic,strong) NSArray<NSDictionary *> *materials;
 @property(nonatomic) BOOL importing;
+@property(nonatomic) BOOL editingMaterials;
+@property(nonatomic,strong) UIButton *manageButton;
 @end
 
 @implementation LMVMaterialLibraryController
@@ -346,7 +127,8 @@
     actions.distribution = UIStackViewDistributionFillEqually;
     [bar2 addSubview:actions];
     [actions addArrangedSubview:[self button:@"从相册导入" symbol:@"square.and.arrow.down" filled:YES action:@selector(importVideos)]];
-    [actions addArrangedSubview:[self button:@"管理素材" symbol:@"slider.horizontal.3" filled:NO action:@selector(manageMaterials)]];
+    self.manageButton = [self button:@"管理素材" symbol:@"slider.horizontal.3" filled:NO action:@selector(manageMaterials)];
+    [actions addArrangedSubview:self.manageButton];
     [bar2.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:14].active = YES;
     [bar2.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-14].active = YES;
     [bar2.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-10].active = YES;
@@ -468,6 +250,37 @@
     badge.hidden = YES;
     [card addSubview:badge];
 
+    UIButton *rename = [UIButton buttonWithType:UIButtonTypeSystem];
+    rename.translatesAutoresizingMaskIntoConstraints = NO;
+    [rename setImage:[UIImage systemImageNamed:@"pencil"] forState:UIControlStateNormal];
+    rename.tintColor = UIColor.whiteColor;
+    rename.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.42];
+    rename.layer.cornerRadius = 12;
+    rename.tag = 1004;
+    rename.hidden = !self.editingMaterials;
+    [rename addTarget:self action:@selector(renameMaterialTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:rename];
+
+    UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
+    remove.translatesAutoresizingMaskIntoConstraints = NO;
+    [remove setImage:[UIImage systemImageNamed:@"trash.fill"] forState:UIControlStateNormal];
+    remove.tintColor = UIColor.whiteColor;
+    remove.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.88];
+    remove.layer.cornerRadius = 12;
+    remove.tag = 1003;
+    remove.hidden = !self.editingMaterials;
+    [remove addTarget:self action:@selector(deleteMaterialTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:remove];
+
+    [remove.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-7].active = YES;
+    [remove.topAnchor constraintEqualToAnchor:card.topAnchor constant:7].active = YES;
+    [remove.widthAnchor constraintEqualToConstant:24].active = YES;
+    [remove.heightAnchor constraintEqualToConstant:24].active = YES;
+    [rename.trailingAnchor constraintEqualToAnchor:remove.leadingAnchor constant:-5].active = YES;
+    [rename.topAnchor constraintEqualToAnchor:remove.topAnchor].active = YES;
+    [rename.widthAnchor constraintEqualToConstant:24].active = YES;
+    [rename.heightAnchor constraintEqualToConstant:24].active = YES;
+
     [cover.leadingAnchor constraintEqualToAnchor:card.leadingAnchor].active = YES;
     [cover.trailingAnchor constraintEqualToAnchor:card.trailingAnchor].active = YES;
     [cover.topAnchor constraintEqualToAnchor:card.topAnchor].active = YES;
@@ -481,7 +294,7 @@
     BOOL used = NO;
     for (NSString *identifier in LMVChannelIDs())
         if ([LMVGSelectedMaterial(identifier) isEqualToString:material[@"path"]]) { used = YES; break; }
-    if (used) {
+    if (used && !self.editingMaterials) {
         badge.text = @"使用中";
         badge.hidden = NO;
     }
@@ -501,9 +314,52 @@
     [self.navigationController popViewControllerAnimated:YES];
 }
 
+// 4.3.5: in-place management. The button used to open the picker again; now it
+// turns every card into an editable tile (trash + pencil), no second screen.
 - (void)manageMaterials {
-    UIViewController *picker = LMVCreateMaterialPicker(@"", YES, nil, ^{ });
-    [self presentViewController:picker animated:YES completion:nil];
+    self.editingMaterials = !self.editingMaterials;
+    [self.manageButton setTitle:(self.editingMaterials ? @"完成" : @"管理素材") forState:UIControlStateNormal];
+    [self rebuildGrid];
+}
+- (void)deleteMaterialTapped:(UIButton *)sender {
+    UIView *card = sender.superview;
+    NSString *relative = card.accessibilityIdentifier;
+    if (!relative.length) return;
+    NSString *name = LMVGMaterialName(relative);
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"删除素材？"
+                                                                   message:[NSString stringWithFormat:@"“%@”将被永久删除，使用它的通道会取消选择。", name]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        dispatch_async(LMVMaterialQueue(), ^{
+            BOOL deleted = NO;
+            LMVDeleteMaterial(relative, &deleted);
+            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf reload]; });
+        });
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+- (void)renameMaterialTapped:(UIButton *)sender {
+    UIView *card = sender.superview;
+    NSString *relative = card.accessibilityIdentifier;
+    if (!relative.length) return;
+    NSString *current = LMVGMaterialName(relative);
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名素材"
+                                                                   message:nil
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) { field.text = current; }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *name = alert.textFields.firstObject.text ?: @"";
+        if (!name.length) return;
+        dispatch_async(LMVMaterialQueue(), ^{
+            LMVRenameMaterial(relative, name);
+            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf reload]; });
+        });
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)importVideos {
