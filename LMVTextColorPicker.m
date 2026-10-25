@@ -429,6 +429,16 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     _sheet.clipsToBounds=YES;
     [self.view addSubview:_sheet];
 
+    // 4.2.1: a frosted layer under the whole sheet. The 2.88 sheet was fully
+    // transparent so the video background could show through, but the 0.3 dim
+    // was not enough to hide the Settings rows - their labels bled straight
+    // onto the swatches. The blur keeps the background mood and makes the
+    // text unreadable, so the colour grid stays clean.
+    UIVisualEffectView *blur=[[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
+    blur.tag=0x5A45;
+    blur.userInteractionEnabled=NO;
+    [_sheet addSubview:blur];
+
     UILabel *title=[UILabel new];
     title.text=@"文字颜色";
     title.font=[UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
@@ -590,6 +600,8 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     CGFloat y=(self.view.bounds.size.height-height)/2;
     [self.view viewWithTag:0x5A30].frame=self.view.bounds;
     _sheet.frame=CGRectMake(x,y,width,height);
+    // 4.2.1: the blur must cover the whole sheet, under every control.
+    [self.view viewWithTag:0x5A45].frame=_sheet.bounds;
     CGFloat pad=20,inner=width-pad*2;
     [self.view viewWithTag:0x5A31].frame=CGRectMake(pad,16,inner,24);
     [self.view viewWithTag:0x5A32].frame=CGRectMake(width-44,10,34,34);
