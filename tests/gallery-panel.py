@@ -32,26 +32,29 @@ control = read(ROOT / "control")
 plist = read(PREFS / "Info.plist")
 workflow = read(ROOT / ".github/workflows/build.yml")
 
-for name in ("LMVGalleryKit.h", "LMVGalleryController.m", "LMVChannelDetailController.m"):
+for name in ("LMVGalleryKit.h", "LMVGalleryKit.m", "LMVGalleryController.m",
+             "LMVChannelDetailController.m", "LMVGalleryPages.m"):
     check((PREFS / name).exists(), f"missing {name}")
 
 # Bundle wiring
-check("LMVGalleryController.m" in makefile and "LMVChannelDetailController.m" in makefile,
+check(all(name in makefile for name in ("LMVGalleryController.m", "LMVGalleryPages.m",
+                                        "LMVGalleryKit.m", "LMVChannelDetailController.m")),
       "gallery sources not in LockMessageVideoPrefs_FILES")
 check("LMVGalleryController.m" in makefile.split("LockMessageVideoPrefs_FILES =", 1)[-1].split("\n", 1)[0],
       "gallery controller outside the prefs bundle file list")
 
 # Version agreement (the receipt compares these three)
-check("LMV_VERSION = 4.3.0" in makefile, "Makefile version not 4.3.0")
-check(re.search(r"^Version: 4\.3\.0$", control, re.M) is not None, "control version not 4.3.0")
-check(plist.count("<string>4.3.0</string>") == 2, "Info.plist versions not 4.3.0")
+check("LMV_VERSION = 4.3.1" in makefile, "Makefile version not 4.3.1")
+check(re.search(r"^Version: 4\.3\.1$", control, re.M) is not None, "control version not 4.3.1")
+check(plist.count("<string>4.3.1</string>") == 2, "Info.plist versions not 4.3.1")
 
 # Entry: the classic list stays intact and the gallery opens exactly once per visit
 check("@implementation LMVPRootListController" in root, "classic root controller removed")
-check("pushViewController:[LMVGalleryController new]" in root, "gallery entry missing")
-check("openedGallery" in root, "gallery latch missing")
-check(root.count("pushViewController:[LMVGalleryController new]") == 1,
-      "gallery pushed from more than one place")
+# 4.3.1: embedded as a child, not pushed - pushing showed the classic list first.
+check("addChildViewController:gallery" in root, "gallery is not embedded")
+check("pushViewController:[LMVGalleryController new]" not in root, "gallery still pushed")
+check("self.table.hidden = YES" in root, "classic table not hidden behind the gallery")
+check("onRequestClassicList" in root and "showClassicList" in root, "classic-list switch missing")
 check("containsObject:self" in root, "pane-level reset missing")
 
 # Table-driven: no hand-written channel ids in the new pages
@@ -95,6 +98,17 @@ includers = [path.name for path in PREFS.glob("*.m") if '#import "LMVMaterialPic
 check(includers == ["LMVMaterialPickerHost.m"], f"material picker included by {includers}")
 check((PREFS / "LMVMaterialPickerAPI.h").exists(), "picker declaration-only header missing")
 check("LMVCreateMaterialPicker" in read(PREFS / "LMVMaterialPickerHost.m"), "picker factory missing")
+
+# 4.3.1 pages and motion
+pages = read(PREFS / "LMVGalleryPages.m")
+check("@implementation LMVPanelGridController" in pages, "panel grid page missing")
+check("@implementation LMVMaterialLibraryController" in pages, "material library page missing")
+check("pushViewController:[LMVPanelGridController new]" in gallery, "panel tab does not open the grid")
+check("pushViewController:[LMVMaterialLibraryController new]" in gallery, "material tab does not open the library")
+check("LMVGAddPressFeedback" in pages and "LMVGAddPressFeedback" in gallery, "press feedback not wired")
+kitm = read(PREFS / "LMVGalleryKit.m")
+check(kitm.count("void LMVGAddPressFeedback(UIView *view)") == 1, "press feedback defined more than once")
+check("UIViewAnimationOptionTransitionCrossDissolve" in gallery, "covers do not cross-fade")
 
 # Unique implementations
 check(len(re.findall(r"@implementation LMVChannelDetailController\b", detail)) == 1,

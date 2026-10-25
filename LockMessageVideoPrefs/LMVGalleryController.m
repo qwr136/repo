@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.0"
+#define LMVGalleryVersion @"4.3.1"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -50,6 +50,9 @@
 @property(nonatomic,strong) NSMutableArray<UIView *> *sceneCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *heroCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *panelTiles;
+// 4.3.1: the page is embedded in the pane, not pushed, so "经典列表" is a switch
+// inside the pane instead of a navigation pop.
+@property(nonatomic,copy) void (^onRequestClassicList)(void);
 @end
 
 @implementation LMVGalleryController
@@ -282,6 +285,7 @@
     [badge.heightAnchor constraintEqualToConstant:20].active = YES;
     [badge.widthAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
 
+    LMVGAddPressFeedback(card);
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
     [card addGestureRecognizer:tap];
     card.userInteractionEnabled = YES;
@@ -410,6 +414,7 @@
     [dot.widthAnchor constraintEqualToConstant:6].active = YES;
     [dot.heightAnchor constraintEqualToConstant:6].active = YES;
 
+    LMVGAddPressFeedback(card);
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
     [card addGestureRecognizer:tap];
     card.userInteractionEnabled = YES;
@@ -506,6 +511,7 @@
     [name.topAnchor constraintEqualToAnchor:box.bottomAnchor constant:4].active = YES;
     [name.bottomAnchor constraintLessThanOrEqualToAnchor:tile.bottomAnchor].active = YES;
 
+    LMVGAddPressFeedback(tile);
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
     [tile addGestureRecognizer:tap];
     tile.userInteractionEnabled = YES;
@@ -546,8 +552,8 @@
     [bar addSubview:row];
 
     NSArray *items = @[@[@"rectangle.stack", @"场景", @"scrollTop"],
-                       @[@"square.grid.2x2", @"面板", @"scrollPanel"],
-                       @[@"photo.on.rectangle", @"素材", @"openLibrary"],
+                       @[@"square.grid.2x2", @"面板", @"openPanelGrid"],
+                       @[@"photo.on.rectangle", @"素材", @"openMaterialLibrary"],
                        @[@"gearshape", @"设置", @"showMore"]];
     for (NSArray *item in items) {
         [row addArrangedSubview:[self tabItemSymbol:item[0] title:item[1] action:NSSelectorFromString(item[2])]];
@@ -610,7 +616,12 @@
         UIImageView *cover = (UIImageView *)[card viewWithTag:1001];
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
-            LMVGLoadCover(relative, ^(UIImage *image) { if (image) weakCover.image = image; });
+            LMVGLoadCover(relative, ^(UIImage *image) {
+                if (!image) return;
+                [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
+                    weakCover.image = image;
+                } completion:nil];
+            });
         }
     }
 
@@ -624,7 +635,12 @@
         if (!cover.image) {
             NSString *relative = LMVGSelectedMaterial(identifier);
             __weak UIImageView *weakCover = cover;
-            LMVGLoadCover(relative, ^(UIImage *image) { if (image) weakCover.image = image; });
+            LMVGLoadCover(relative, ^(UIImage *image) {
+                if (!image) return;
+                [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
+                    weakCover.image = image;
+                } completion:nil];
+            });
         }
     }
 
@@ -653,6 +669,12 @@
 - (void)scrollTop {
     [self.scroll setContentOffset:CGPointMake(0, -self.scroll.adjustedContentInset.top) animated:YES];
 }
+- (void)openPanelGrid {
+    [self.navigationController pushViewController:[LMVPanelGridController new] animated:YES];
+}
+- (void)openMaterialLibrary {
+    [self.navigationController pushViewController:[LMVMaterialLibraryController new] animated:YES];
+}
 - (void)scrollPanel {
     if (!self.panelHeader) return;
     CGRect rect = [self.panelHeader convertRect:self.panelHeader.bounds toView:self.scroll];
@@ -666,7 +688,8 @@
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
     [sheet addAction:[UIAlertAction actionWithTitle:@"经典列表" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [weakSelf.navigationController popViewControllerAnimated:YES];
+        if (weakSelf.onRequestClassicList) weakSelf.onRequestClassicList();
+        else [weakSelf.navigationController popViewControllerAnimated:YES];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"功能面板参数" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [weakSelf.navigationController pushViewController:[LMVTuneListController new] animated:YES];

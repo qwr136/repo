@@ -240,6 +240,10 @@ static inline UIFont *LMVGFont(CGFloat size, UIFontWeight weight) {
     UIFont *font = [UIFont systemFontOfSize:size weight:weight];
     return [[UIFontMetrics defaultMetrics] scaledFontForFont:font];
 }
+// 4.3.1: shared press feedback (scale on touch down, spring back on release).
+// Implemented in LMVGalleryKit.m so the recogniser class exists once per bundle.
+void LMVGAddPressFeedback(UIView *view);
+
 static inline UIView *LMVGSpacer(void) {
     UIView *view = [UIView new];
     view.translatesAutoresizingMaskIntoConstraints = NO;
