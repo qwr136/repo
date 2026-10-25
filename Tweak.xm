@@ -982,31 +982,15 @@ static BOOL LMVCardStateVisibleInScope(UIView *owner, LMVVideoState *state, NSSt
     return LMVTickExposed(state.overlay);
 }
 static char LMVCardPipelineAuditKey;
-// 4.4.8 stage 2: stationary cards reuse the previous frame's active flags instead
-// of re-walking the exposure tree. A lightweight per-cell fingerprint (cell +
-// overlays geometry / alpha / hidden / window / on-screen animation) detects
-// motion. Two safety nets guarantee a missed signal self-heals: any preference
-// write sets LMVCardVisibilityDirty (so an enabled/path flip that does not move
-// geometry still recomputes next tick), and every LMV_CARD_RECOMPUTE_EVERY frames
-// the whole card is recomputed unconditionally.
-#define LMV_CARD_RECOMPUTE_EVERY 30
-static char LMVCardFPKey;
-static BOOL LMVCardVisibilityDirty=NO;
-static NSUInteger LMVCardFingerprint(UIView *cell, NSDictionary *states) {
-    NSUInteger h=0;
-    h ^= (NSUInteger)(cell.frame.origin.x*1000.0) ^ (NSUInteger)(cell.frame.origin.y*1000.0)
-       ^ (NSUInteger)(cell.frame.size.width*100.0) ^ (NSUInteger)(cell.frame.size.height*100.0);
-    h ^= (NSUInteger)(cell.alpha*1000.0) ^ (cell.hidden ? 0x1u : 0u) ^ (NSUInteger)(__bridge void*)cell.window;
-    if (cell.layer.presentationLayer != cell.layer) h ^= 0x2u;
-    for (NSString *t in states) {
-        LMVVideoState *s=states[t]; UIView *o=s.overlay; if (!o) continue;
-        h ^= (NSUInteger)(o.frame.origin.x*1000.0) ^ (NSUInteger)(o.frame.origin.y*1000.0)
-           ^ (NSUInteger)(o.frame.size.width*100.0) ^ (NSUInteger)(o.frame.size.height*100.0)
-           ^ (NSUInteger)(o.alpha*1000.0) ^ (o.hidden ? 0x4u : 0u) ^ (NSUInteger)(__bridge void*)o.window;
-        if (o.layer.presentationLayer != o.layer) h ^= 0x8u;
-    }
-    return h;
-}
+// 4.4.9: stage 2 (stationary skip via per-cell geometry fingerprint) is reverted.
+// On-device it never actually skipped - card-exposure audit lines proved the tick
+// kept taking the recompute path - while the fingerprint's own cost (per-cell
+// frame/alpha/presentationLayer reads) pushed perf cards max from ~18ms to 30ms.
+// The likely loop: the stationary branch still ran LMVCardNeedsUpdate/LMVUpdate,
+// which writes state.overlay.frame (Tweak.xm ~1115), changing the fingerprint and
+// forcing a recompute the next frame. Stage 0 (audit outside the perf window) and
+// stage 1 (per-frame exposure/attached caches) stay: they are pure de-dup with a
+// measured slow win (52-76% -> 35-40%) and no behavior change.
 static void LMVCardPipelineAudit(UIView *owner,LMVVideoState *state,NSString *target,UIView *anchor,NSString *stage) {
     if(!LMVDiagnosticsEnabled.load())return;
     NSMutableDictionary *records=objc_getAssociatedObject(owner,&LMVCardPipelineAuditKey);
@@ -1753,9 +1737,6 @@ static void LMVSyncDisplayLink(void) {
     if (!lmvAttachedCache) lmvAttachedCache=[NSMutableDictionary new];
     [lmvExposedCache removeAllObjects]; [lmvAttachedCache removeAllObjects];
     LMVTickExposedCache=lmvExposedCache; LMVTickAttachedCache=lmvAttachedCache;
-    // 4.4.8 stage 2: tick counter + preference-change invalidation.
-    static NSUInteger lmvTickCount; lmvTickCount++;
-    BOOL lmvForceAll=LMVCardVisibilityDirty; LMVCardVisibilityDirty=NO;
     NSUInteger consumers=0;
     CFTimeInterval now=CACurrentMediaTime();
     CGFloat cardOpacity=LMVCardOpacity();
@@ -1767,21 +1748,6 @@ static void LMVSyncDisplayLink(void) {
     if (LMVDiagnosticsEnabled.load()) exposureAudit=[NSMutableArray new];
     for (UIView *cell in LMVCells.allObjects) {
         NSDictionary *states=objc_getAssociatedObject(cell,&LMVStatesKey);
-        // 4.4.8 stage 2: skip the exposure walks when geometry is unchanged since
-        // the last frame. A fingerprint of the cell + its overlays catches motion;
-        // a preference write (LMVCardVisibilityDirty) or the periodic full recompute
-        // (LMV_CARD_RECOMPUTE_EVERY) forces a real pass so a missed signal heals.
-        NSUInteger lmvFP=LMVCardFingerprint(cell,states);
-        BOOL lmvRecompute=lmvForceAll || (lmvTickCount % LMV_CARD_RECOMPUTE_EVERY)==0 ||
-            lmvFP != [objc_getAssociatedObject(cell,&LMVCardFPKey) unsignedIntegerValue];
-        objc_setAssociatedObject(cell,&LMVCardFPKey,@(lmvFP),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if (!lmvRecompute) {
-            // Stationary: keep last active flags, skip the exposure tree. Still honor
-            // a cold-start / first-frame update and collect the source set.
-            if (LMVCardNeedsUpdate(cell,now)) LMVUpdate(cell);
-            for (LMVVideoState *state in states.allValues) if (state.active && state.source) { [visible addObject:state.source]; consumers++; }
-            continue;
-        }
         // 4.0.6: one exposure read and one ancestry walk per cell per frame, shared
         // by all three targets. This used to be two extra walks per target (seven
         // per card at 60fps) even though the answer cannot differ between them.
@@ -1894,10 +1860,6 @@ static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer
     NSString *changedTarget=[note hasPrefix:channelPrefix] ? [note substringFromIndex:channelPrefix.length] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!LMVInitialized) return;
-        // 4.4.8 stage 2: any preference write may flip a channel's enabled/path,
-        // which changes card visibility without moving geometry - force a full
-        // recompute on the next tick instead of waiting for the periodic net.
-        LMVCardVisibilityDirty=YES;
         // 2.74: SILENCE ON THE SAME RUN-LOOP TURN. The audio channel is a SEPARATE
         // player and used to stop only on its next sync pass, so flipping either
         // switch let a moment of sound through ("关闭的一瞬间漏一下"). Reading the two
