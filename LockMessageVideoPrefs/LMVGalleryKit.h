@@ -3,9 +3,10 @@
 #import <Foundation/Foundation.h>
 #import <PhotosUI/PhotosUI.h>
 #import "LMVChannels.h"
-#import "LMVMaterialCatalog.h"
-#import "LMVMaterialThumbnail.h"
 #import "LMVMaterialStorage.h"
+#import "LMVMaterialCatalog.h"
+#import "LMVThumbnailDiagnosticLog.h"
+#import "LMVMaterialThumbnail.h"
 #import "LMVImport.h"
 #import "../LMVTextColorPicker.h"
 
