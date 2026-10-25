@@ -19,6 +19,8 @@
 @property(nonatomic) BOOL importing;
 @property(nonatomic) BOOL editingMaterials;
 @property(nonatomic,strong) UIButton *manageButton;
+// 4.3.7: rename updates the visible label in place; a full rebuild flashed.
+@property(nonatomic,strong) NSMutableDictionary<NSString *, UILabel *> *nameLabels;
 @end
 
 @implementation LMVMaterialLibraryController
@@ -44,6 +46,7 @@
 }
 
 - (void)build {
+    self.nameLabels = [NSMutableDictionary new];
     UIScrollView *scroll = [UIScrollView new];
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
     scroll.alwaysBounceVertical = YES;
@@ -249,12 +252,17 @@
     badge.hidden = YES;
     [card addSubview:badge];
 
+    // 4.3.7: white discs with coloured glyphs read cleanly over any frame.
     UIButton *rename = [UIButton buttonWithType:UIButtonTypeSystem];
     rename.translatesAutoresizingMaskIntoConstraints = NO;
     [rename setImage:[UIImage systemImageNamed:@"pencil"] forState:UIControlStateNormal];
-    rename.tintColor = UIColor.whiteColor;
-    rename.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.42];
-    rename.layer.cornerRadius = 12;
+    rename.tintColor = UIColor.systemBlueColor;
+    rename.backgroundColor = UIColor.systemBackgroundColor;
+    rename.layer.cornerRadius = 14;
+    rename.layer.shadowColor = UIColor.blackColor.CGColor;
+    rename.layer.shadowOpacity = 0.18;
+    rename.layer.shadowRadius = 5;
+    rename.layer.shadowOffset = CGSizeMake(0, 1);
     rename.tag = 1004;
     rename.hidden = !self.editingMaterials;
     [rename addTarget:self action:@selector(renameMaterialTapped:) forControlEvents:UIControlEventTouchUpInside];
@@ -262,23 +270,28 @@
 
     UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
     remove.translatesAutoresizingMaskIntoConstraints = NO;
-    [remove setImage:[UIImage systemImageNamed:@"trash.fill"] forState:UIControlStateNormal];
-    remove.tintColor = UIColor.whiteColor;
-    remove.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.88];
-    remove.layer.cornerRadius = 12;
+    [remove setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
+    remove.tintColor = UIColor.systemRedColor;
+    remove.backgroundColor = UIColor.systemBackgroundColor;
+    remove.layer.cornerRadius = 14;
+    remove.layer.shadowColor = UIColor.blackColor.CGColor;
+    remove.layer.shadowOpacity = 0.18;
+    remove.layer.shadowRadius = 5;
+    remove.layer.shadowOffset = CGSizeMake(0, 1);
     remove.tag = 1003;
     remove.hidden = !self.editingMaterials;
     [remove addTarget:self action:@selector(deleteMaterialTapped:) forControlEvents:UIControlEventTouchUpInside];
     [card addSubview:remove];
 
-    [remove.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-7].active = YES;
-    [remove.topAnchor constraintEqualToAnchor:card.topAnchor constant:7].active = YES;
-    [remove.widthAnchor constraintEqualToConstant:24].active = YES;
-    [remove.heightAnchor constraintEqualToConstant:24].active = YES;
-    [rename.trailingAnchor constraintEqualToAnchor:remove.leadingAnchor constant:-5].active = YES;
+    [remove.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-8].active = YES;
+    [remove.topAnchor constraintEqualToAnchor:card.topAnchor constant:8].active = YES;
+    [remove.widthAnchor constraintEqualToConstant:28].active = YES;
+    [remove.heightAnchor constraintEqualToConstant:28].active = YES;
+    [rename.trailingAnchor constraintEqualToAnchor:remove.leadingAnchor constant:-6].active = YES;
     [rename.topAnchor constraintEqualToAnchor:remove.topAnchor].active = YES;
-    [rename.widthAnchor constraintEqualToConstant:24].active = YES;
-    [rename.heightAnchor constraintEqualToConstant:24].active = YES;
+    [rename.widthAnchor constraintEqualToConstant:28].active = YES;
+    [rename.heightAnchor constraintEqualToConstant:28].active = YES;
+    self.nameLabels[material[@"path"]] = name;
 
     [cover.leadingAnchor constraintEqualToAnchor:card.leadingAnchor].active = YES;
     [cover.trailingAnchor constraintEqualToAnchor:card.trailingAnchor].active = YES;
@@ -355,7 +368,19 @@
         if (!name.length) return;
         dispatch_async(LMVMaterialQueue(), ^{
             LMVRenameMaterial(relative, name);
-            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf reload]; });
+            dispatch_async(dispatch_get_main_queue(), ^{
+                // In-place: updating the label avoids the rebuild flash.
+                weakSelf.nameLabels[relative].text = name;
+                NSMutableArray *updated = [weakSelf.materials mutableCopy];
+                for (NSUInteger i = 0; i < updated.count; i++) {
+                    if (![updated[i][@"path"] isEqualToString:relative]) continue;
+                    NSMutableDictionary *row = [updated[i] mutableCopy];
+                    row[@"name"] = name;
+                    updated[i] = row;
+                    break;
+                }
+                weakSelf.materials = updated;
+            });
         });
     }]];
     [self presentViewController:alert animated:YES completion:nil];

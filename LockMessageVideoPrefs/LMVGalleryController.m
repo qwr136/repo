@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.6"
+#define LMVGalleryVersion @"4.3.7"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -146,7 +146,12 @@
     [bar.heightAnchor constraintEqualToConstant:52].active = YES;
 
     UIButton *back = LMVGRoundButton(@"chevron.left", self, @selector(goBack));
-    UIButton *more = LMVGRoundButton(@"ellipsis", self, @selector(showMore));
+    // 4.3.7: a single tap no longer opens the sheet; double-tap jumps to the
+    // classic list. The sheet stays on the bottom 设置 tab.
+    UIButton *more = LMVGRoundButton(@"ellipsis", nil, nil);
+    UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openClassicList)];
+    doubleTap.numberOfTapsRequired = 2;
+    [more addGestureRecognizer:doubleTap];
     [bar addSubview:back];
     [bar addSubview:more];
     [back.leadingAnchor constraintEqualToAnchor:bar.layoutMarginsGuide.leadingAnchor].active = YES;
@@ -632,12 +637,19 @@
     UIViewController *picker = LMVCreateMaterialPicker(@"", YES, nil, nil);
     [self presentViewController:picker animated:YES completion:nil];
 }
+- (void)openClassicList {
+    if (self.onRequestClassicList) self.onRequestClassicList();
+}
 - (void)showMore {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
-    [sheet addAction:[UIAlertAction actionWithTitle:@"经典列表" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        if (weakSelf.onRequestClassicList) weakSelf.onRequestClassicList();
-        else [weakSelf.navigationController popViewControllerAnimated:YES];
+    BOOL easterOn = LMVGPrefBool(@"EasterEggEnabled", NO);
+    [sheet addAction:[UIAlertAction actionWithTitle:(easterOn ? @"关闭小彩蛋" : @"启用小彩蛋")
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+        LMVGPrefSet(@"EasterEggEnabled", @(!easterOn));
+        LMVGNotifyChannel(nil);
+        LMVGLightHaptic();
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"功能面板参数" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [weakSelf.navigationController pushViewController:[LMVTuneListController new] animated:YES];

@@ -3,8 +3,9 @@
 #import "LMVImport.h"
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
+#import <AVFoundation/AVFoundation.h>
 
-#define LMVGalleryVersion @"4.3.6"
+#define LMVGalleryVersion @"4.3.7"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -31,6 +32,16 @@ static UIColor *LMVGAccent(void) {
 }
 @end
 
+// 4.3.7: inline autoplay for the header preview. A layer-backed view so the
+// player follows the rounded cover without extra layout code.
+@interface LMVDetailPlayerView : UIView
+- (AVPlayerLayer *)playerLayer;
+@end
+@implementation LMVDetailPlayerView
++ (Class)layerClass { return AVPlayerLayer.class; }
+- (AVPlayerLayer *)playerLayer { return (AVPlayerLayer *)self.layer; }
+@end
+
 @interface LMVChannelDetailController () <PHPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *channelID;
 @property(nonatomic,strong) UIScrollView *scroll;
@@ -38,6 +49,11 @@ static UIColor *LMVGAccent(void) {
 @property(nonatomic,strong) UIImageView *cover;
 @property(nonatomic,copy) NSString *coverRelative;
 @property(nonatomic,strong) NSLayoutConstraint *coverTopInset;
+@property(nonatomic,strong) AVQueuePlayer *previewPlayer;
+@property(nonatomic,strong) AVPlayerLooper *previewLooper;
+@property(nonatomic,strong) LMVDetailPlayerView *previewHost;
+@property(nonatomic,copy) NSString *playedRelative;
+@property(nonatomic,strong) UIScrollView *materialStrip;
 @property(nonatomic,strong) UILabel *subtitle;
 @property(nonatomic,strong) UISwitch *toggle;
 @property(nonatomic,strong) UISegmentedControl *segments;
@@ -81,9 +97,20 @@ static UIColor *LMVGAccent(void) {
     [self loadMaterials];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self startPreviewPlayback];
+}
+
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self.previewPlayer pause];
     [self.navigationController setNavigationBarHidden:NO animated:animated];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (self.previewHost.superview) self.previewHost.frame = self.previewHost.superview.bounds;
 }
 
 - (void)buildScroll {
@@ -150,6 +177,13 @@ static UIColor *LMVGAccent(void) {
     cover.clipsToBounds = YES;
     [coverBox addSubview:cover];
     self.cover = cover;
+
+    LMVDetailPlayerView *host = [LMVDetailPlayerView new];
+    host.userInteractionEnabled = NO;
+    host.playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+    host.hidden = YES;
+    [coverBox insertSubview:host atIndex:2];
+    self.previewHost = host;
 
     LMVGDetailGradientView *shade = [LMVGDetailGradientView new];
     shade.translatesAutoresizingMaskIntoConstraints = NO;
@@ -245,6 +279,11 @@ static UIColor *LMVGAccent(void) {
         self.coverRelative = relative ?: @"";
         self.cover.image = nil;
     }
+    if (![self.playedRelative isEqualToString:relative]) {
+        self.playedRelative = nil;
+        [self.previewPlayer pause];
+    }
+    if (self.view.window) [self startPreviewPlayback];
     if (!self.cover.image) {
         __weak typeof(self) weakSelf = self;
         LMVGLoadCover(relative, ^(UIImage *image) {
@@ -280,6 +319,14 @@ static UIColor *LMVGAccent(void) {
     if (self.segmentIndex == 0) [self buildMaterialsPanel];
     else if (self.segmentIndex == 1) [self buildSoundPanel];
     else [self buildColorPanel];
+    // 4.3.7: the strip always starts at the first material after entering or
+    // refreshing, instead of keeping whatever offset it had.
+    if (self.segmentIndex == 0) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf.materialStrip setContentOffset:CGPointZero animated:NO];
+        });
+    }
 }
 
 - (void)buildMaterialsPanel {
@@ -302,6 +349,7 @@ static UIColor *LMVGAccent(void) {
         row.spacing = 8;
         [scroll addSubview:row];
         [self.panel addArrangedSubview:scroll];
+        self.materialStrip = scroll;
         [scroll.heightAnchor constraintEqualToConstant:112].active = YES;
         [row.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor].active = YES;
         [row.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor].active = YES;
@@ -557,6 +605,35 @@ static UIColor *LMVGAccent(void) {
 
 // 4.3.4: the button's primary action is a direct switch (the reported surprise was
 // that it only opened a list). Long-press still reaches the full picker.
+- (void)startPreviewPlayback {
+    if (!self.previewHost) return;
+    NSString *relative = LMVGSelectedMaterial(self.channelID);
+    if (!relative.length) {
+        [self.previewPlayer pause];
+        self.previewHost.hidden = YES;
+        return;
+    }
+    if (![self.playedRelative isEqualToString:relative] || !self.previewPlayer.currentItem) {
+        NSURL *url = [NSURL fileURLWithPath:[LMVStorageRootPath stringByAppendingPathComponent:relative]];
+        AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+        AVQueuePlayer *player = [[AVQueuePlayer alloc] initWithPlayerItem:item];
+        self.previewLooper = [AVPlayerLooper playerLooperWithPlayer:player templateItem:item];
+        BOOL sound = LMVGPrefBool([self.channelID stringByAppendingString:@"SoundEnabled"], NO);
+        player.muted = !sound;
+        player.volume = (float)MAX(0.0, MIN(1.0, LMVGPrefDouble([self.channelID stringByAppendingString:@"Volume"], 0.5)));
+        if (sound) {
+            AVAudioSession *session = AVAudioSession.sharedInstance;
+            [session setCategory:AVAudioSessionCategoryAmbient error:nil];
+            [session setActive:YES error:nil];
+        }
+        self.previewPlayer = player;
+        self.playedRelative = relative;
+    }
+    self.previewHost.hidden = NO;
+    self.previewHost.frame = self.previewHost.superview.bounds;
+    [self.previewPlayer play];
+}
+
 - (void)cycleMaterial {
     if (!self.materials.count) { [self importVideos]; return; }
     NSString *current = LMVGSelectedMaterial(self.channelID);
