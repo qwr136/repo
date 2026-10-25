@@ -186,11 +186,16 @@ enum { PSButtonCell = 13, PSSwitchCell = 6 };
 channels = '\n'.join(line for line in (root / 'LockMessageVideoPrefs/LMVChannels.h').read_text().splitlines()
                      if not line.startswith('#import') and not line.startswith('#pragma'))
 preamble = preamble.replace('@TARGET_FUNCTIONS@', channels + '\n' + re.search(r'static NSArray<NSString \*> \*LMVSectionTargets\(void\) \{[^\n]+\}', source).group(0) + '\n' + allowed_target)
-# Compile the actual switch wrappers too, so each selector must reach its own target.
+# 4.2.0: the sixteen per-channel switch methods collapsed into one data-driven
+# dispatcher, so the old "each selector reaches its own @\"xxx\" target" extraction
+# no longer applies. Keep a plain stub for the dispatch loop (records the call), and
+# compile the REAL switchTargetFromRow: body under a renamed selector so the runtime
+# test can verify the material-row id strips back to its target.
+real_switch = re.search(r'- \(void\)switchTargetFromRow:\(PSSpecifier \*\)specifier \{[\s\S]*?\n\}', source).group(0).replace('- (void)switchTargetFromRow:', '- (void)realSwitchTargetFromRow:')
 switch_actions = sorted(action for action in actions if action.startswith('switch'))
-switch_handlers = [re.search(r'- \(void\)' + re.escape(action) + r'\(PSSpecifier \*\)specifier \{ \[self switchTarget:@"\w+"\]; \}', source).group(0) for action in switch_actions]
+switch_handlers = ['- (void)%s(PSSpecifier *)specifier { self.calls++; self.lastRow = specifier; self.lastTarget = nil; }' % action for action in switch_actions]
 other_handlers = ['- (void)%s(PSSpecifier *)specifier { self.calls++; self.lastRow = specifier; self.lastTarget = nil; }' % action for action in sorted(actions) if action not in switch_actions]
-handlers = '\n'.join(['- (void)switchTarget:(NSString *)target { self.calls++; self.lastRow = self.testRow; self.lastTarget = target; }', '- (void)badScalar:(NSInteger)value { self.calls++; }'] + switch_handlers + other_handlers)
+handlers = '\n'.join(['- (void)switchTarget:(NSString *)target { self.calls++; self.lastRow = self.testRow; self.lastTarget = target; }', '- (void)badScalar:(NSInteger)value { self.calls++; }', real_switch] + switch_handlers + other_handlers)
 tests = r'''
 @end
 int main(void) { @autoreleasepool {
@@ -203,15 +208,27 @@ int main(void) { @autoreleasepool {
     row.cellType = PSButtonCell; row.target = controller; row.properties = [NSMutableDictionary new];
     controller.testRow = row;
     NSArray *selectors = @SELECTORS@;
-    NSDictionary *targets = @{@"switchMessage:":@"Message", @"switchOptions:":@"Options", @"switchClear:":@"Clear", @"switchLockScreen:":@"LockScreen", @"switchDesktop:":@"Desktop", @"switchControlCenterDark:":@"ControlCenterDark", @"switchControlCenterLight:":@"ControlCenterLight", @"switchHomeMenu:":@"HomeMenu", @"switchSquidPanel:":@"SquidPanel", @"switchAT:":@"AT", @"switchCV:":@"CV", @"switchMyrtle:":@"Myrtle", @"switchPA:":@"PA", @"switchGS:":@"GS", @"switchCCBorder:":@"CCBorder", @"switchCopyLogX:":@"CopyLogX"};
     for (NSString *selector in selectors) {
         row.buttonAction = NSSelectorFromString(selector);
         [controller tableView:table didSelectRowAtIndexPath:nil];
-        if (targets[selector]) assert([controller.lastTarget isEqualToString:targets[selector]]);
-        else assert(controller.lastTarget == nil);
+        assert(controller.lastTarget == nil);
     }
     NSInteger expectedCalls = selectors.count;
     assert(controller.calls == expectedCalls && controller.lastRow == row && controller.superSelections == 0 && table.deselections == expectedCalls);
+    // 4.2.0: one data-driven switch dispatcher. The material row id is the target
+    // plus "Material"; the dispatcher must strip it and reach switchTarget:target,
+    // and must ignore ids without that suffix.
+    for (NSString *target in @[@"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"]) {
+        row.buttonAction = @selector(realSwitchTargetFromRow:);
+        row.properties[@"id"] = [target stringByAppendingString:@"Material"];
+        [controller realSwitchTargetFromRow:row];
+        assert([controller.lastTarget isEqualToString:target]);
+    }
+    row.buttonAction = @selector(realSwitchTargetFromRow:);
+    row.properties[@"id"] = @"HomeMenu";
+    [controller realSwitchTargetFromRow:row];
+    assert(controller.lastTarget == nil);
+    [row.properties removeObjectForKey:@"id"];
     row.properties[@"enabled"] = @NO;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     [row.properties removeObjectForKey:@"enabled"];
@@ -228,7 +245,7 @@ int main(void) { @autoreleasepool {
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
-    puts("PASS: actual button routing method, all eighteen actions and fourteen actual switch wrappers including the four Squid ones, claimSquidPanel:, switchAT:/switchCV:, allowed/invalid material targets, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
+    puts("PASS: actual button routing method, six shared action selectors (one data-driven switch dispatcher + one data-driven text-colour dispatcher), material-row id strips to its target, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
 with tempfile.TemporaryDirectory() as tmp:
