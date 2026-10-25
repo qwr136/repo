@@ -37,6 +37,7 @@ static UIColor *LMVGAccent(void) {
 @property(nonatomic,strong) UIStackView *stack;
 @property(nonatomic,strong) UIImageView *cover;
 @property(nonatomic,copy) NSString *coverRelative;
+@property(nonatomic,strong) NSLayoutConstraint *coverTopInset;
 @property(nonatomic,strong) UILabel *subtitle;
 @property(nonatomic,strong) UISwitch *toggle;
 @property(nonatomic,strong) UISegmentedControl *segments;
@@ -64,6 +65,11 @@ static UIColor *LMVGAccent(void) {
     [self rebuildPanel];
     [self refresh];
     [self loadMaterials];
+}
+
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    self.coverTopInset.constant = self.view.safeAreaInsets.top + 6;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -113,7 +119,8 @@ static UIColor *LMVGAccent(void) {
     UIView *spacer = [UIView new];
     spacer.translatesAutoresizingMaskIntoConstraints = NO;
     [self.stack addArrangedSubview:spacer];
-    [spacer.heightAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:6].active = YES;
+    self.coverTopInset = [spacer.heightAnchor constraintEqualToConstant:8];
+    self.coverTopInset.active = YES;
 
     UIView *wrap = [UIView new];
     wrap.translatesAutoresizingMaskIntoConstraints = NO;
