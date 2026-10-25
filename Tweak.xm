@@ -1631,7 +1631,10 @@ static void LMVSyncDisplayLink(void) {
     if (cardFPS<1) cardFPS=1;
     if (cardFPS>60) cardFPS=60;
     LMVTuneReport(@"Cards",@"FPS",cardFPS);
-    LMVLink.preferredFramesPerSecond=cardFPS;
+    // 4.4.5: the link always runs at the panel rate; the row is enforced by the gate
+    // in -tick:. Setting 45 here was rounded down to 30 by the system, and a gate can
+    // only slow a link down - never speed it back up.
+    LMVLink.preferredFramesPerSecond=60;
     LMVDiagnostic([NSString stringWithFormat:@"cards-cadence setting=%ld link=%ld",
         (long)cardFPS,(long)LMVLink.preferredFramesPerSecond]);
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];

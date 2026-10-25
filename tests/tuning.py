@@ -203,8 +203,14 @@ assert 'if(!forced && now-live.lastFullUpdate < interval) return;' in desktop, \
     'desktop probe is not gated by the effective interval'
 assert 'targetFPS=(live.playback.frozen || live.appAway)' in desktop, \
     'desktop gate ignores frozen/away'
-assert 'if(now-live.lastFullUpdate < updateMs/1000.0) return;' in cc, \
-    'control-centre probe is not gated by the row'
+# 4.4.5: CC now gates on the slower of 「检测频率」 and 「完整探测间隔」, the same
+# rule the desktop uses, and keeps its geometry link at the panel rate.
+assert 'NSTimeInterval ccInterval=1.0/(NSTimeInterval)MAX((NSInteger)1,ccHz);' in cc, \
+    'control centre does not derive its interval from the frequency row'
+assert 'if(now-live.lastFullUpdate < ccInterval) return;' in cc, \
+    'control-centre probe is not gated'
+assert 'if(link.preferredFramesPerSecond!=60)link.preferredFramesPerSecond=60;' in cc, \
+    'control-centre geometry link is not at the panel rate'
 
 # A material change must still apply on the tick it arrives, not up to one
 # interval later - the gate may never delay a revision.

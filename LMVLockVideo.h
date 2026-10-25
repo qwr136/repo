@@ -593,7 +593,10 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     // and reopen. The read is a cached CFPreferences lookup and the write inside
     // LMVTuneReport only happens when the number changes.
     NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
-    if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
+    // 4.4.5: fixed panel rate; the row is a gate later in this method. A link cannot
+    // run slower than its own divisor, and it cannot run faster than what the system
+    // grants either - the gate is the only place that can honour both ends.
+    if(link.preferredFramesPerSecond!=60)link.preferredFramesPerSecond=60;
     LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
     // 2.98: one line per change so "did the number I typed reach the display link?"
     // is answerable from a capture. The steady state stays silent.
@@ -835,7 +838,7 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
             // 60 for exactly that reason - dropping it re-exposes the band - but the
             // user can trade that off and see the applied value on the same page.
             NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
-            self.link.preferredFramesPerSecond=probeHz;
+            self.link.preferredFramesPerSecond=60;
             LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
             NSString *created=[NSString stringWithFormat:@"lock-cadence created hz=%ld",(long)probeHz];
             LMVLockVideoLog(created);

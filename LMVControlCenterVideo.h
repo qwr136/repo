@@ -502,7 +502,10 @@ static void LMVCCDiscover(void) {
 - (void)geometryTick:(CADisplayLink *)link {
     // 2.97: apply a settings change on the next frame instead of at the next open.
     NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
-    if(link.preferredFramesPerSecond!=probeHz)link.preferredFramesPerSecond=probeHz;
+    // 4.4.5: this link follows the card's geometry; slowing it down made the video
+    // lag behind the panel. The row now gates the DETECTION instead (see the poll
+    // timer below), and the link always runs at the panel rate.
+    if(link.preferredFramesPerSecond!=60)link.preferredFramesPerSecond=60;
     LMVTuneReport(@"CC",@"ProbeHz",probeHz);
     // 2.98: one line per change, same reason as the lock channel.
     static NSInteger appliedHz=-1;
@@ -595,7 +598,7 @@ static void LMVCCDiscover(void) {
         // nailed to 60. Read the row instead, and report what was actually applied so
         // 「当前生效」 can answer "is my value in effect".
         NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
-        self.geometryLink.preferredFramesPerSecond=probeHz;
+        self.geometryLink.preferredFramesPerSecond=60;
         LMVTuneReport(@"CC",@"ProbeHz",probeHz);
         LMVDiagnostic([NSString stringWithFormat:@"cc-cadence created hz=%ld",(long)probeHz]);
         [self.geometryLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
@@ -613,7 +616,14 @@ static void LMVCCDiscover(void) {
             CFTimeInterval now=CACurrentMediaTime();
             NSInteger updateMs=LMVTuneValue(@"CC",@"UpdateIntervalMs");
             LMVTuneReport(@"CC",@"UpdateIntervalMs",updateMs);
-            if(now-live.lastFullUpdate < updateMs/1000.0) return;
+            // 4.4.5: 「检测频率」 and 「完整探测间隔」 both describe how often the
+            // panel is inspected. Taking the slower of the two keeps them from
+            // fighting, the same rule the desktop uses.
+            NSInteger ccHz=LMVTuneValue(@"CC",@"ProbeHz");
+            LMVTuneReport(@"CC",@"ProbeHz",ccHz);
+            NSTimeInterval ccInterval=1.0/(NSTimeInterval)MAX((NSInteger)1,ccHz);
+            if (ccInterval < updateMs/1000.0) ccInterval = updateMs/1000.0;
+            if(now-live.lastFullUpdate < ccInterval) return;
             live.lastFullUpdate=now;
             [live update];
         }];

@@ -22,7 +22,10 @@ assert 'return LMVCardLayerAttached(view.layer,window.layer);' in h
 assert 'LMVCardAttached(state.overlay,window)' in h and 'state.overlay.window==window' not in h
 # 2.48: the card link's cadence is a setting now (设置 → 自定义参数 → 通知卡片), so the
 # literal 30 became a value read from the tuning table and reported back to Settings.
-assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=cardFPS' in s
+# 4.4.5: the link is fixed at the panel rate and the row is enforced by the gate in
+# -tick:. Handing 45 to preferredFramesPerSecond got rounded to 30 by the system.
+assert 'NSRunLoopCommonModes' in s and 'LMVLink.preferredFramesPerSecond=60' in s
+assert 'self.lastCardTick' in s, 'cards cadence gate missing'
 assert 'LMVTuneValue(@"Cards",@"FPS")' in s
 assert 'LMVTuneReport(@"Cards",@"FPS",cardFPS)' in s
 resign=s[s.index('addObserverForName:UIApplicationWillResignActiveNotification'):]
