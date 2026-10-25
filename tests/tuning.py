@@ -236,6 +236,9 @@ easier = (root / 'LMVEasterOverlay.h').read_text()
 assert 'LMVPerfSample("cards"' in tweak, 'cards has no perf sample'
 assert 'LMVPerfSample("bubble"' in easier, 'bubble has no perf sample'
 assert 'strcmp(names[i], channel)' in common, 'perf counters still share one bucket'
+# 4.4.3: Tweak.xm hosts eleven channels; 8 slots silently dropped pa/cards/bubble.
+assert 'names[24]' in common, 'perf bucket table too small for eleven channels'
+assert 'dropped=%lu' in common, 'dropped channels are not reported'
 assert 'LMVPerfSample("desktop"' in desktop and 'LMVPerfSample("cc"' in cc
 assert 'LMVPerfSample("lock"' in lock
 

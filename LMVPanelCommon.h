@@ -58,17 +58,20 @@ static inline CGFloat LMVVisibleArea(CGRect frame, CGRect bounds) {
 // unit (cards and bubble both live in Tweak.xm), and a single set of statics mixed
 // their counts into one line - the number then described neither channel.
 static inline NSString *LMVPerfSample(const char *channel, CFTimeInterval seconds) {
-    static const char *names[8] = {0};
-    static NSUInteger calls[8] = {0}, slow[8] = {0};
-    static CFTimeInterval maxSeconds[8] = {0}, windowStart[8] = {0};
-    static NSUInteger used = 0;
+    // 4.4.3: 8 slots were not enough - Tweak.xm hosts eleven channels (nine panels
+    // plus cards and bubble), so pa/cards/bubble were dropped WITHOUT a word and the
+    // log looked complete. 24 leaves room, and the drop count travels on every line.
+    static const char *names[24] = {0};
+    static NSUInteger calls[24] = {0}, slow[24] = {0};
+    static CFTimeInterval maxSeconds[24] = {0}, windowStart[24] = {0};
+    static NSUInteger used = 0, dropped = 0;
     NSUInteger slot = 0;
     BOOL found = NO;
     for (NSUInteger i = 0; i < used; i++) {
         if (names[i] && channel && strcmp(names[i], channel) == 0) { slot = i; found = YES; break; }
     }
     if (!found) {
-        if (used >= 8) return nil;
+        if (used >= 24) { dropped++; return nil; }
         names[used] = channel; slot = used; used++;
     }
     CFTimeInterval now = CACurrentMediaTime();
@@ -77,8 +80,9 @@ static inline NSString *LMVPerfSample(const char *channel, CFTimeInterval second
     if (seconds > maxSeconds[slot]) maxSeconds[slot] = seconds;
     if (seconds > 0.004) slow[slot]++;
     if (now - windowStart[slot] < 2.0) return nil;
-    NSString *report = [NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu",
-                        channel, (unsigned long)calls[slot], maxSeconds[slot] * 1000.0, (unsigned long)slow[slot]];
+    NSString *report = [NSString stringWithFormat:@"perf %s calls=%lu max=%.2fms slow=%lu dropped=%lu",
+                        channel, (unsigned long)calls[slot], maxSeconds[slot] * 1000.0,
+                        (unsigned long)slow[slot], (unsigned long)dropped];
     calls[slot] = 0; slow[slot] = 0; maxSeconds[slot] = 0; windowStart[slot] = now;
     return report;
 }
