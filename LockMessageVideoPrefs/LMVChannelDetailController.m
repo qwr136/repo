@@ -356,9 +356,9 @@ static UIColor *LMVGAccent(void) {
         button.tintColor = LMVGAccent();
         [button setTitleColor:LMVGAccent() forState:UIControlStateNormal];
     }
-    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
-    config.imagePadding = 5.0;
-    button.configuration = config;
+    // Title and icon are laid out by the default button metrics; no deprecated
+    // edge insets and no configuration object (which would reset the colours set
+    // above on iOS 15+).
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }
