@@ -125,7 +125,7 @@ selection = source[source.index('- (void)selectFile:'):source.index('- (void)cho
 assert selection.count('CFPreferencesSetAppValue(') == 1
 assert 'NSString *key = [target stringByAppendingString:@"Video"];' in selection
 assert 'if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";' in selection
-assert 'picker.selected = selected;' in selection and 'target:target' in selection
+assert 'LMVCreateMaterialPicker(selected, YES' in selection and 'target:target' in selection
 assert 'picker.showsThumbnails = NO' not in selection and 'picker.pushed = YES' not in selection
 assert 'clearOriginals' not in source and '清空原素材' not in source
 for action in actions:
