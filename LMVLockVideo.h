@@ -508,6 +508,7 @@ static void LMVLockVideoSuspend(void);
 @property(nonatomic,strong) CADisplayLink *link;
 @property(nonatomic,copy) NSString *path,*revision,*diagnostic,*coverage;
 @property(nonatomic) BOOL enabled,updating,screenAllowed;
+@property(nonatomic) CFTimeInterval lastFullProbe;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
 @property(nonatomic,strong) LMVLockVideoPaintLease *paintLease;
 @property(nonatomic) CFTimeInterval paintLeaseTime;
@@ -568,7 +569,12 @@ static BOOL LMVLockVideoScreenAllowed(void) {
         self.revision=LMVLockVideoRevision(self.path);self.lastRevisionCheck=CACurrentMediaTime();
         [self.playback selectPath:self.path revision:self.revision];
     }
-    self.screenAllowed=LMVLockVideoScreenAllowed();[self update];
+    // 4.4.1: a display link cannot go below its own divisor (4 Hz on a 120 Hz
+    // panel), so "检测频率 = 1" used to run at 4. The gate below makes the row mean
+    // what it says; a screen off/on edge still passes through immediately.
+    BOOL lockNowAllowed=LMVLockVideoScreenAllowed();
+    BOOL lockAllowedChanged=(lockNowAllowed!=self.screenAllowed);
+    self.screenAllowed=lockNowAllowed;[self update];
 }
 - (void)suspend {
     [self releasePaint];
@@ -659,6 +665,11 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     } else if (!diagnostics) self.paintText=nil;
 }
 - (void)update {
+    if (probeHz>0 && !lockAllowedChanged) {
+        CFTimeInterval gateNow=CACurrentMediaTime();
+        if (gateNow-self.lastFullProbe < 1.0/probeHz) return;
+        self.lastFullProbe=gateNow;
+    }
     if (self.updating) return;self.updating=YES;
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
     CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;

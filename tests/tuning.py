@@ -205,6 +205,31 @@ assert 'forced=YES' in desktop, 'desktop material change is gated away'
 # both entries; this pins the classic entry that used to be the only one.
 assert 'pushViewController:[LMVTuneListController new]' in prefs, 'classic entry missing'
 
+# ---- 8.6) 4.4.1: the lock screen's row must actually reach 1 Hz ---------------
+# A CADisplayLink cannot be slower than its own divisor (4 Hz on a 120 Hz panel),
+# so a row set to 1 used to run at 4. The gate is what makes the number honest.
+lock = (root / 'LMVLockVideo.h').read_text()
+assert 'LMVTuneValue(@"LockNC",@"ProbeHz")' in lock, 'lock screen ignores its row'
+assert 'if (gateNow-self.lastFullProbe < 1.0/probeHz) return;' in lock, \
+    'lock screen tick is not gated by the row'
+assert 'probeHz>0 && !lockAllowedChanged' in lock, \
+    'lock screen edge is gated away (screen off/on would be late)'
+assert 'lockAllowedChanged=(lockNowAllowed!=self.screenAllowed)' in lock, \
+    'lock screen no longer detects the screen-state edge'
+
+# ---- 8.7) 4.4.1: every channel that claims a cadence must be measurable -------
+# cards and bubble had no perf line, so "刷新率 = 45" could only be proven as
+# written. Both now sample, and the sampler buckets by channel name because they
+# share Tweak.xm as one translation unit.
+common = (root / 'LMVPanelCommon.h').read_text()
+tweak = (root / 'Tweak.xm').read_text()
+easier = (root / 'LMVEasterOverlay.h').read_text()
+assert 'LMVPerfSample("cards"' in tweak, 'cards has no perf sample'
+assert 'LMVPerfSample("bubble"' in easier, 'bubble has no perf sample'
+assert 'strcmp(names[i], channel)' in common, 'perf counters still share one bucket'
+assert 'LMVPerfSample("desktop"' in desktop and 'LMVPerfSample("cc"' in cc
+assert 'LMVPerfSample("lock"' in lock
+
 # ---- 9) 本测试已接入 CI --------------------------------------------------------
 assert 'tests/tuning.py' in workflow
 

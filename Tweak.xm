@@ -1638,6 +1638,7 @@ static void LMVSyncDisplayLink(void) {
 
 @implementation LMVDisplayLinkTarget
 - (void)tick:(CADisplayLink *)link {
+    CFTimeInterval cardsPerf0=CACurrentMediaTime();
     if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
     // Visibility is separate from frame conversion; never rediscover/layout every card per frame.
     NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
@@ -1725,6 +1726,12 @@ static void LMVSyncDisplayLink(void) {
     }
     nextSource++;
     LMVRequestSyncDisplayLink();
+    // 4.4.1: cards had no perf line at all, so "刷新率 = 45" could only be proven as
+    // written, never as actually run. Same 2 s window and 4 ms threshold as the rest.
+    if (LMVDiagnosticsEnabled.load()) {
+        NSString *cardsPerf=LMVPerfSample("cards",CACurrentMediaTime()-cardsPerf0);
+        if (cardsPerf) LMVDiagnostic(cardsPerf);
+    }
 }
 @end
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {

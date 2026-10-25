@@ -659,6 +659,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
 }
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
+    CFTimeInterval bubblePerf0=CACurrentMediaTime();
     [self retuneVisibilityTimer];
     // 3.10.5: optional auto-hide. A still ball that nobody touches fades out after the
     // user's timeout; it comes back the next time the scene changes (lock / unlock /
@@ -705,6 +706,13 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // EVERY tick (50 ms), not only when a full refresh happens to run. Hiding
     // stops the animation immediately; showing resumes it from the same phase.
     [self syncRotation];
+    // 4.4.1: the bubble's cadence is a real NSTimer, but nothing measured what one
+    // tick costs. Sampled after syncRotation so every path (including the early
+    // return below) is counted.
+    if (LMVDiagnosticsEnabled.load()) {
+        NSString *bubblePerf=LMVPerfSample("bubble",CACurrentMediaTime()-bubblePerf0);
+        if (bubblePerf) LMVDiagnostic(bubblePerf);
+    }
     if (!LMVEasterPhysicalCheckNeeded(!self.physicalSnapshot,![snapshot isEqual:self.physicalSnapshot],
             CACurrentMediaTime(),self.lastPhysicalCheck,tracking)) return;
     [self refresh];
