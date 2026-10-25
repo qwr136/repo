@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"4.3.1"
+#define LMVGalleryVersion @"4.3.2"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -335,7 +335,7 @@ static UIColor *LMVGAccent(void) {
 
     __weak UIImageView *weakThumb = thumb;
     NSString *relative = material[@"path"];
-    LMVGLoadCover(relative, ^(UIImage *image) {
+    LMVGLoadThumb(relative, ^(UIImage *image) {
         if (!image) return;
         [UIView transitionWithView:weakThumb duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
             weakThumb.image = image;

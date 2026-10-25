@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.1"
+#define LMVGalleryVersion @"4.3.2"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -102,7 +102,7 @@
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
     scroll.alwaysBounceVertical = YES;
     scroll.showsVerticalScrollIndicator = NO;
-    scroll.contentInset = UIEdgeInsetsMake(0, 0, 96, 0);
+    scroll.contentInset = UIEdgeInsetsMake(0, 0, 132, 0);
     [self.view addSubview:scroll];
     self.scroll = scroll;
 

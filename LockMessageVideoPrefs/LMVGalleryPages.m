@@ -486,7 +486,7 @@
     }
 
     __weak UIImageView *weakCover = cover;
-    LMVGLoadCover(material[@"path"], ^(UIImage *image) {
+    LMVGLoadCoverSized(material[@"path"], 600.0, ^(UIImage *image) {
         if (!image) return;
         [UIView transitionWithView:weakCover duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
             weakCover.image = image;

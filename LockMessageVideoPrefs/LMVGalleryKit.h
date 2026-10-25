@@ -137,20 +137,12 @@ static inline void LMVGApplyGradient(CALayer *layer, NSString *identifier) {
     gradient.endPoint = CGPointMake(0.9, 1.0);
 }
 
-// Covers are generated off the main thread (first frame extraction is expensive)
-// and cached on disk by LMVEnsureThumbnail, so a revisit is just a file read.
-static inline void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image)) {
-    if (!completion) return;
-    if (![relative isKindOfClass:NSString.class] || !relative.length) {
-        dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
-        return;
-    }
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSString *revision = LMVThumbnailRevision(relative);
-        UIImage *image = revision ? LMVEnsureThumbnail(relative, revision) : nil;
-        dispatch_async(dispatch_get_main_queue(), ^{ completion(image); });
-    });
-}
+// Covers: decoded at the size the page actually draws (a 144px list thumbnail
+// stretched to 450pt was the reported blur). Memory-cached per size and generated
+// on one serial queue so ten cards cannot saturate the CPU at once.
+void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image));
+void LMVGLoadThumb(NSString *relative, void (^completion)(UIImage *image));
+void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)(UIImage *image));
 
 // Same catalog rules as LMVMaterialPicker: legacy files first, then the library
 // folder, deduplicated, live files only, names resolved through the catalog.

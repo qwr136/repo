@@ -44,13 +44,13 @@ check("LMVGalleryController.m" in makefile.split("LockMessageVideoPrefs_FILES ="
       "gallery controller outside the prefs bundle file list")
 
 # Version agreement (the receipt compares these three)
-check("LMV_VERSION = 4.3.1" in makefile, "Makefile version not 4.3.1")
-check(re.search(r"^Version: 4\.3\.1$", control, re.M) is not None, "control version not 4.3.1")
-check(plist.count("<string>4.3.1</string>") == 2, "Info.plist versions not 4.3.1")
+check("LMV_VERSION = 4.3.2" in makefile, "Makefile version not 4.3.2")
+check(re.search(r"^Version: 4\.3\.2$", control, re.M) is not None, "control version not 4.3.2")
+check(plist.count("<string>4.3.2</string>") == 2, "Info.plist versions not 4.3.2")
 
 # Entry: the classic list stays intact and the gallery opens exactly once per visit
 check("@implementation LMVPRootListController" in root, "classic root controller removed")
-# 4.3.1: embedded as a child, not pushed - pushing showed the classic list first.
+# 4.3.2: embedded as a child, not pushed - pushing showed the classic list first.
 check("addChildViewController:gallery" in root, "gallery is not embedded")
 check("pushViewController:[LMVGalleryController new]" not in root, "gallery still pushed")
 check("self.table.hidden = YES" in root, "classic table not hidden behind the gallery")
@@ -81,7 +81,7 @@ for page, text in (("gallery", gallery), ("detail", detail)):
 # Material catalogue is reused, not re-listed
 check("LMVReadMaterialNames" in kit and "LMVMaterialDisplayName" in kit,
       "gallery does not reuse the material catalogue")
-check("LMVEnsureThumbnail" in kit, "covers do not reuse the thumbnail cache")
+check("LMVEnsureThumbnail" in read(PREFS / "LMVGalleryKit.m"), "thumbnail fallback missing")
 check("LMVMaterialQueue" in kit, "catalogue scan is not on the shared serial queue")
 
 # Text colour routes through the existing picker and per-channel keys
@@ -99,7 +99,7 @@ check(includers == ["LMVMaterialPickerHost.m"], f"material picker included by {i
 check((PREFS / "LMVMaterialPickerAPI.h").exists(), "picker declaration-only header missing")
 check("LMVCreateMaterialPicker" in read(PREFS / "LMVMaterialPickerHost.m"), "picker factory missing")
 
-# 4.3.1 pages and motion
+# 4.3.2 pages and motion
 pages = read(PREFS / "LMVGalleryPages.m")
 check("@implementation LMVPanelGridController" in pages, "panel grid page missing")
 check("@implementation LMVMaterialLibraryController" in pages, "material library page missing")
@@ -109,6 +109,15 @@ check("LMVGAddPressFeedback" in pages and "LMVGAddPressFeedback" in gallery, "pr
 kitm = read(PREFS / "LMVGalleryKit.m")
 check(kitm.count("void LMVGAddPressFeedback(UIView *view)") == 1, "press feedback defined more than once")
 check("UIViewAnimationOptionTransitionCrossDissolve" in gallery, "covers do not cross-fade")
+# 4.3.2: covers decoded at draw size (not the 144px list thumbnail) and one serial queue.
+kit_impl = read(PREFS / "LMVGalleryKit.m")
+check("AVAssetImageGenerator" in kit_impl and "maximumSize = CGSizeMake(maxPixel, maxPixel)" in kit_impl,
+      "covers are not decoded at their display size")
+check("DISPATCH_QUEUE_SERIAL" in kit_impl, "cover decoding is not serialised")
+check("NSCache" in kit_impl, "covers have no memory cache")
+check("LMVGLoadThumb" in read(PREFS / "LMVChannelDetailController.m"), "detail strip does not use small thumbs")
+check("shouldRecognizeSimultaneouslyWithGestureRecognizer" in kit_impl,
+      "press feedback can still swallow taps")
 
 # Unique implementations
 check(len(re.findall(r"@implementation LMVChannelDetailController\b", detail)) == 1,
