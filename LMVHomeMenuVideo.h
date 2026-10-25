@@ -360,7 +360,14 @@ static void LMVHomeMenuRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVHomeMenuVideo.host.superview!=nil);
     if(LMVHomeMenuTimer && fabs(LMVHomeMenuTimer.timeInterval-want)<.001)return;
     [LMVHomeMenuTimer invalidate];
-    LMVHomeMenuTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVHomeMenuVideoRefresh(NO);}];
+    LMVHomeMenuTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVHomeMenuVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("homemenu",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     LMVHomeMenuTimer.tolerance=want*.3;
     [NSRunLoop.mainRunLoop addTimer:LMVHomeMenuTimer forMode:NSRunLoopCommonModes];
 }

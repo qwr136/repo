@@ -302,7 +302,14 @@ static void LMVATPanelRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVATPanelVideo.host.superview!=nil);
     if(LMVATPanelTimer && fabs(LMVATPanelTimer.timeInterval-want)<.001)return;
     [LMVATPanelTimer invalidate];
-    LMVATPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVATPanelVideoRefresh(NO);}];
+    LMVATPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVATPanelVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("at",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     [NSRunLoop.mainRunLoop addTimer:LMVATPanelTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVATPanelVideoRefresh(BOOL reload) {

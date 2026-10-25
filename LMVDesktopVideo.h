@@ -833,11 +833,17 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             // walk from the steady state with no effect on the cover decisions,
             // which never read this list.
             if(now-live.lastDiscovery>=2){live.lastDiscovery=now;LMVDesktopDiscover();}
-            // 4.4.0: 完整探测走「完整探测间隔」这一行。定时器仍按 0.2 s 唤醒（那是响应
-            // 下限），但真正昂贵的 update 由这一行决定频率；素材变化（forced）立即执行。
+            // 4.4.2: this timer and the cover watcher both drive the same channel.
+            // Taking the SLOWER of the two is what makes 「可见刷新率 = 1」 mean 1 Hz:
+            // the FPS row is the target, 「完整探测间隔」 is a floor that can only
+            // slow it down, never a second faster source that overrides it.
             NSInteger updateMs=LMVTuneValue(@"Desktop",@"UpdateIntervalMs");
             LMVTuneReport(@"Desktop",@"UpdateIntervalMs",updateMs);
-            if(!forced && now-live.lastFullUpdate < updateMs/1000.0) return;
+            NSInteger targetFPS=(live.playback.frozen || live.appAway)
+                ? LMVDesktopCadence(@"CoveredFPS") : LMVDesktopCadence(@"IdleFPS");
+            NSTimeInterval interval=1.0/(NSTimeInterval)MAX((NSInteger)1,targetFPS);
+            if (interval < updateMs/1000.0) interval = updateMs/1000.0;
+            if(!forced && now-live.lastFullUpdate < interval) return;
             live.lastFullUpdate=now;
             [live update];
         }];[NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];

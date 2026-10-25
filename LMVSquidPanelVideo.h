@@ -1447,7 +1447,14 @@ static void LMVSquidPanelRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVSquidPanelVideo.host.superview!=nil);
     if(LMVSquidPanelTimer && fabs(LMVSquidPanelTimer.timeInterval-want)<.001)return;
     [LMVSquidPanelTimer invalidate];
-    LMVSquidPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVSquidPanelVideoRefresh(NO);}];
+    LMVSquidPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVSquidPanelVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("squid",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     [NSRunLoop.mainRunLoop addTimer:LMVSquidPanelTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVSquidPanelVideoRefresh(BOOL reload) {

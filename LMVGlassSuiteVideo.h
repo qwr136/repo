@@ -411,7 +411,14 @@ static void LMVGlassSuiteRetune(void) {
     NSTimeInterval want=LMVGlassSuiteInterval();
     if(LMVGlassSuiteTimer && fabs(LMVGlassSuiteTimer.timeInterval-want)<.001)return;
     [LMVGlassSuiteTimer invalidate];
-    LMVGlassSuiteTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVGlassSuiteVideoRefresh(NO);}];
+    LMVGlassSuiteTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVGlassSuiteVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("gs",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     LMVGlassSuiteTimer.tolerance=want*.3;
     [NSRunLoop.mainRunLoop addTimer:LMVGlassSuiteTimer forMode:NSRunLoopCommonModes];
 }

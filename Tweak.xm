@@ -1562,6 +1562,8 @@ static void LMVRefreshChannel(NSString *target, BOOL reload) {
 // Tracking mode suppresses default-mode timers and scrolling does not relayout every cell.
 // Only visibility/readiness/host identity transitions invoke the heavier layout path.
 @interface LMVDisplayLinkTarget : NSObject
+// 4.4.2: the gate's last-run stamp. 0 means "not yet run".
+@property(nonatomic) CFTimeInterval lastCardTick;
 - (void)tick:(CADisplayLink *)link;
 @end
 static void LMVSuspend(void) {
@@ -1640,6 +1642,15 @@ static void LMVSyncDisplayLink(void) {
 - (void)tick:(CADisplayLink *)link {
     CFTimeInterval cardsPerf0=CACurrentMediaTime();
     if (!LMVPlaybackAllowed()) { LMVSuspend(); return; }
+    // 4.4.2: a display link rounds a requested 45 Hz down to 30, so the row was only
+    // honoured between divisors of the panel rate. The gate makes it exact: 45 means
+    // 45, 1 means 1.
+    NSInteger cardsHz=LMVTuneValue(@"Cards",@"FPS");
+    if (cardsHz<1) cardsHz=1;
+    if (cardsHz>60) cardsHz=60;
+    CFTimeInterval cardsNow=CACurrentMediaTime();
+    if (self.lastCardTick>0 && cardsNow-self.lastCardTick < 1.0/(NSTimeInterval)cardsHz) return;
+    self.lastCardTick=cardsNow;
     // Visibility is separate from frame conversion; never rediscover/layout every card per frame.
     NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
     NSUInteger consumers=0;

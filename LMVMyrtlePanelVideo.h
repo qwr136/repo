@@ -309,7 +309,14 @@ static void LMVMyrtlePanelRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVMyrtlePanelVideo.host.superview!=nil);
     if(LMVMyrtlePanelTimer && fabs(LMVMyrtlePanelTimer.timeInterval-want)<.001)return;
     [LMVMyrtlePanelTimer invalidate];
-    LMVMyrtlePanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVMyrtlePanelVideoRefresh(NO);}];
+    LMVMyrtlePanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVMyrtlePanelVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("myrtle",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     [NSRunLoop.mainRunLoop addTimer:LMVMyrtlePanelTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVMyrtlePanelVideoRefresh(BOOL reload) {

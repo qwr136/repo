@@ -458,7 +458,14 @@ static void LMVCopyLogXRetune(void) {
     NSTimeInterval want=LMVCopyLogXInterval();
     if(LMVCopyLogXTimer && fabs(LMVCopyLogXTimer.timeInterval-want)<.001)return;
     [LMVCopyLogXTimer invalidate];
-    LMVCopyLogXTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyLogXVideoRefresh(NO);}];
+    LMVCopyLogXTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVCopyLogXVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("clx",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     LMVCopyLogXTimer.tolerance=want*.3;
     [NSRunLoop.mainRunLoop addTimer:LMVCopyLogXTimer forMode:NSRunLoopCommonModes];
 }

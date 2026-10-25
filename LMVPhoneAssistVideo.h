@@ -449,7 +449,14 @@ static void LMVPhoneAssistRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVPhoneAssistVideo.host.superview!=nil);
     if(LMVPhoneAssistTimer && fabs(LMVPhoneAssistTimer.timeInterval-want)<.001)return;
     [LMVPhoneAssistTimer invalidate];
-    LMVPhoneAssistTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVPhoneAssistVideoRefresh(NO);}];
+    LMVPhoneAssistTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVPhoneAssistVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("pa",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     [NSRunLoop.mainRunLoop addTimer:LMVPhoneAssistTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVPhoneAssistVideoRefresh(BOOL reload) {

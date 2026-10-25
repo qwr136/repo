@@ -430,7 +430,14 @@ static void LMVCVPanelRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVCopyVaultPanelVideo.host.superview!=nil);
     if(LMVCVPanelTimer && fabs(LMVCVPanelTimer.timeInterval-want)<.001)return;
     [LMVCVPanelTimer invalidate];
-    LMVCVPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCopyVaultPanelVideoRefresh(NO);}];
+    LMVCVPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVCopyVaultPanelVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("cv",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     [NSRunLoop.mainRunLoop addTimer:LMVCVPanelTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVCopyVaultPanelVideoRefresh(BOOL reload) {

@@ -407,7 +407,14 @@ static void LMVCCBorderRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVCCBorderVideo.host.superview!=nil);
     if(LMVCCBorderTimer && fabs(LMVCCBorderTimer.timeInterval-want)<.001)return;
     [LMVCCBorderTimer invalidate];
-    LMVCCBorderTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){LMVCCBorderVideoRefresh(NO);}];
+    LMVCCBorderTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+        // 4.4.2: every panel channel now reports its own call count and cost, so
+        // "检测频率 = N" can be checked against the log instead of trusted.
+        CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
+        LMVCCBorderVideoRefresh(NO);
+        NSString *lmvPanelPerf=LMVPerfSample("ccb",CACurrentMediaTime()-lmvPanelPerf0);
+        if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
+    }];
     [NSRunLoop.mainRunLoop addTimer:LMVCCBorderTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVCCBorderVideoRefresh(BOOL reload) {

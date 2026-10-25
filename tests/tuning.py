@@ -192,8 +192,17 @@ assert 'timerWithTimeInterval:.1 repeats:YES' in cc, 'control-centre wake interv
 # on the path to [update], otherwise the row is decoration.
 assert 'LMVTuneValue(@"Desktop",@"UpdateIntervalMs")' in desktop, 'desktop does not read the row'
 assert 'LMVTuneValue(@"CC",@"UpdateIntervalMs")' in cc, 'control centre does not read the row'
-assert 'if(!forced && now-live.lastFullUpdate < updateMs/1000.0) return;' in desktop, \
-    'desktop probe is not gated by the row'
+# 4.4.2: the timer and the cover watcher both drive the desktop, so the effective
+# rate is the SLOWER of 「可见刷新率」 and 「完整探测间隔」 - that is what makes the
+# FPS row mean what it says instead of being overridden by the interval row.
+assert 'NSTimeInterval interval=1.0/(NSTimeInterval)MAX((NSInteger)1,targetFPS);' in desktop, \
+    'desktop effective rate is not derived from the FPS row'
+assert 'if (interval < updateMs/1000.0) interval = updateMs/1000.0;' in desktop, \
+    'desktop interval row is not treated as a floor'
+assert 'if(!forced && now-live.lastFullUpdate < interval) return;' in desktop, \
+    'desktop probe is not gated by the effective interval'
+assert 'targetFPS=(live.playback.frozen || live.appAway)' in desktop, \
+    'desktop gate ignores frozen/away'
 assert 'if(now-live.lastFullUpdate < updateMs/1000.0) return;' in cc, \
     'control-centre probe is not gated by the row'
 
@@ -229,6 +238,23 @@ assert 'LMVPerfSample("bubble"' in easier, 'bubble has no perf sample'
 assert 'strcmp(names[i], channel)' in common, 'perf counters still share one bucket'
 assert 'LMVPerfSample("desktop"' in desktop and 'LMVPerfSample("cc"' in cc
 assert 'LMVPerfSample("lock"' in lock
+
+# ---- 8.8) 4.4.2: cards must honour the exact value ---------------------------
+# A display link rounds 45 Hz down to 30, so the row was only honoured on divisors
+# of the panel rate. The gate makes the number exact.
+tweak_src = (root / 'Tweak.xm').read_text()
+assert 'lastCardTick' in tweak_src, 'cards have no gate stamp'
+assert 'if (self.lastCardTick>0 && cardsNow-self.lastCardTick < 1.0/(NSTimeInterval)cardsHz) return;' in tweak_src, \
+    'cards tick is not gated by the row'
+
+# ---- 8.9) every panel channel reports its own cadence ------------------------
+for fn, short in (('LMVSquidPanelVideo.h','squid'), ('LMVATPanelVideo.h','at'),
+                  ('LMVCopyVaultPanelVideo.h','cv'), ('LMVMyrtlePanelVideo.h','myrtle'),
+                  ('LMVPhoneAssistVideo.h','pa'), ('LMVGlassSuiteVideo.h','gs'),
+                  ('LMVCCBorderVideo.h','ccb'), ('LMVCopyLogXVideo.h','clx'),
+                  ('LMVHomeMenuVideo.h','homemenu')):
+    body = (root / fn).read_text()
+    assert f'LMVPerfSample("{short}"' in body, f'{fn} has no perf sample'
 
 # ---- 9) 本测试已接入 CI --------------------------------------------------------
 assert 'tests/tuning.py' in workflow
