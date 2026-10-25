@@ -1,5 +1,5 @@
+#import "LMVMaterialStorage.h"
 #import "LMVMaterialPicker.h"
-#import "LMVMaterialPickerAPI.h"
 
 // The only translation unit allowed to include LMVMaterialPicker.h. The header
 // carries the @implementation, so a second include would duplicate every ivar and
