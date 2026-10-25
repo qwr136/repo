@@ -215,20 +215,6 @@ int main(void) { @autoreleasepool {
     }
     NSInteger expectedCalls = selectors.count;
     assert(controller.calls == expectedCalls && controller.lastRow == row && controller.superSelections == 0 && table.deselections == expectedCalls);
-    // 4.2.0: one data-driven switch dispatcher. The material row id is the target
-    // plus "Material"; the dispatcher must strip it and reach switchTarget:target,
-    // and must ignore ids without that suffix.
-    for (NSString *target in @[@"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"]) {
-        row.buttonAction = @selector(realSwitchTargetFromRow:);
-        row.properties[@"id"] = [target stringByAppendingString:@"Material"];
-        [controller realSwitchTargetFromRow:row];
-        assert([controller.lastTarget isEqualToString:target]);
-    }
-    row.buttonAction = @selector(realSwitchTargetFromRow:);
-    row.properties[@"id"] = @"HomeMenu";
-    [controller realSwitchTargetFromRow:row];
-    assert(controller.lastTarget == nil);
-    [row.properties removeObjectForKey:@"id"];
     row.properties[@"enabled"] = @NO;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls);
     [row.properties removeObjectForKey:@"enabled"];
@@ -245,6 +231,22 @@ int main(void) { @autoreleasepool {
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.calls == expectedCalls && controller.superSelections == 0);
     row.cellType = PSSwitchCell;
     [controller tableView:table didSelectRowAtIndexPath:nil]; assert(controller.superSelections == 1);
+    // 4.2.0: one data-driven switch dispatcher. The material row id is the target
+    // plus "Material"; the dispatcher must strip it and reach switchTarget:target,
+    // and must ignore ids without that suffix. Kept after the dispatch-safety
+    // checks above so the calls count they assert stays at the six shared actions.
+    for (NSString *target in @[@"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"]) {
+        row.buttonAction = @selector(realSwitchTargetFromRow:);
+        row.properties[@"id"] = [target stringByAppendingString:@"Material"];
+        [controller realSwitchTargetFromRow:row];
+        assert([controller.lastTarget isEqualToString:target]);
+    }
+    row.buttonAction = @selector(realSwitchTargetFromRow:);
+    row.properties[@"id"] = @"HomeMenu";  // suffix missing -> must not route
+    NSInteger callsBeforeUnknown = controller.calls;
+    [controller realSwitchTargetFromRow:row];
+    assert(controller.calls == callsBeforeUnknown);
+    [row.properties removeObjectForKey:@"id"];
     puts("PASS: actual button routing method, six shared action selectors (one data-driven switch dispatcher + one data-driven text-colour dispatcher), material-row id strips to its target, disabled/wrong target/stale/wrong signature/nil routes, superclass control handling (Foundation doubles, not UIKit)");
 } return 0; }
 '''.replace('@SELECTORS@', '@[' + ','.join('@"'+action+'"' for action in sorted(actions)) + ']')
