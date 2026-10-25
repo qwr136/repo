@@ -92,7 +92,9 @@ static CGFloat LMVOriginalVisibilityAlpha(UIView *view){
  return lease && !lease.retired && lease.method==LMVOriginalSuppressDrawing && view.layer.opacity==0 ? lease.baselineOpacity:view.alpha;
 }
 '''
-scope=s[s.index('static BOOL LMVNotificationCenterSurface(UIView *view) {'):s.index('#import "LMVCardPresentation.h"')]
+# 4.4.7: the scope starts one function earlier - LMVNotificationCenterSurface now
+# calls LMVClassNameContains, and the fixture extracts only this range.
+scope=s[s.index('static inline BOOL LMVClassNameContains'):s.index('#import "LMVCardPresentation.h"')]
 pre+=scope
 main=r'''
 static SampleLayer *snapshot(UIView *v){
