@@ -253,8 +253,11 @@ assert 'LMVPerfSample("lock"' in lock
 # of the panel rate. The gate makes the number exact.
 tweak_src = (root / 'Tweak.xm').read_text()
 assert 'lastCardTick' in tweak_src, 'cards have no gate stamp'
-assert 'if (self.lastCardTick>0 && cardsNow-self.lastCardTick < 1.0/(NSTimeInterval)cardsHz) return;' in tweak_src, \
+# 4.4.6: the gate keeps the remainder, so 25 Hz does not collapse to 20.
+assert 'if (elapsed<cardsInterval) return;' in tweak_src, \
     'cards tick is not gated by the row'
+assert 'self.lastCardTick+=floor(elapsed/cardsInterval)*cardsInterval;' in tweak_src, \
+    'cards gate does not accumulate the remainder'
 
 # ---- 8.9) every panel channel reports its own cadence ------------------------
 for fn, short in (('LMVSquidPanelVideo.h','squid'), ('LMVATPanelVideo.h','at'),

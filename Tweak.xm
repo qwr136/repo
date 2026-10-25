@@ -1651,9 +1651,19 @@ static void LMVSyncDisplayLink(void) {
     NSInteger cardsHz=LMVTuneValue(@"Cards",@"FPS");
     if (cardsHz<1) cardsHz=1;
     if (cardsHz>60) cardsHz=60;
+    // 4.4.6: a plain "now - last < interval" gate can only produce divisors of the
+    // panel rate: at 60 Hz it yields 30/20/15 Hz, so 25 landed on 20. Advancing by
+    // whole intervals and KEEPING THE REMAINDER makes the long-run average exact
+    // (25 Hz = one run every 40 ms), while the per-frame jitter stays one vsync.
+    CFTimeInterval cardsInterval=1.0/(NSTimeInterval)cardsHz;
     CFTimeInterval cardsNow=CACurrentMediaTime();
-    if (self.lastCardTick>0 && cardsNow-self.lastCardTick < 1.0/(NSTimeInterval)cardsHz) return;
-    self.lastCardTick=cardsNow;
+    if (self.lastCardTick>0) {
+        CFTimeInterval elapsed=cardsNow-self.lastCardTick;
+        if (elapsed<cardsInterval) return;
+        self.lastCardTick+=floor(elapsed/cardsInterval)*cardsInterval;
+    } else {
+        self.lastCardTick=cardsNow;
+    }
     // Visibility is separate from frame conversion; never rediscover/layout every card per frame.
     NSMutableSet<LMVSharedSource *> *visible=[NSMutableSet new];
     NSUInteger consumers=0;
