@@ -97,15 +97,11 @@
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     [self stopHeroTimer];
+    [self.navigationController setNavigationBarHidden:NO animated:animated];
 }
 
 - (void)dealloc {
     [_heroTimer invalidate];
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    [self.navigationController setNavigationBarHidden:NO animated:animated];
 }
 
 #pragma mark - Layout
