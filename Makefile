@@ -19,7 +19,7 @@ LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m Loc
 LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI AVFoundation CoreMedia CoreVideo ImageIO QuartzCore
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LockMessageVideoPrefs_RESOURCE_FILES = LockMessageVideoPrefs/Info.plist LockMessageVideoPrefs/icon.png LockMessageVideoPrefs/icon@2x.png LockMessageVideoPrefs/icon@3x.png
-LockMessageVideoPrefs_CFLAGS = -fobjc-arc
+LockMessageVideoPrefs_CFLAGS = -fobjc-arc -Wno-unused-function
 LockMessageVideoPrefs_LIBRARIES = roothide
 LockMessageVideoPrefs_PRIVATE_FRAMEWORKS = Preferences
 
