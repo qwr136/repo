@@ -13,6 +13,7 @@
 #import "LMVMaterialPicker.h"
 #import "LMVTuneController.h"
 #import "LMVTuneListController.h"
+#import "LMVGalleryController.h"
 #import "../LMVPanelTuning.h"
 #import "../LMVEasterImageSettings.h"
 #import "../LMVPaths.h"
@@ -67,6 +68,9 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
 
 @interface LMVPRootListController : PSListController <PHPickerViewControllerDelegate>
 @property(nonatomic) BOOL materialBusy;
+// 4.3.0: the gallery page opens once per visit to the Settings pane; backing out
+// of it leaves the classic list visible, which doubles as the fallback entry.
+@property(nonatomic) BOOL openedGallery;
 // 4.1.1: painted rows share one parsed copy of material-names.plist. Every painted
 // row used to open and parse the file on the main thread; a thirteen-row screen cost
 // thirteen synchronous reads per scroll. Cleared by -refreshMaterialRows, which every
@@ -124,6 +128,18 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     // while the page was still settling kept the name of a material that had just
     // been deleted, until a scroll re-ran willDisplayCell.
     [self refreshMaterialRows];
+    // 4.3.0: land on the gallery page. Only once per visit - popping back from it
+    // must show the classic list instead of bouncing the user forward again.
+    if (!self.openedGallery && self.navigationController.topViewController == self) {
+        self.openedGallery = YES;
+        [self.navigationController pushViewController:[LMVGalleryController new] animated:NO];
+    }
+}
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    // Leaving the whole Settings pane (not just the gallery) resets the latch so
+    // the next visit starts on the gallery again.
+    if (![self.navigationController.viewControllers containsObject:self]) self.openedGallery = NO;
 }
 - (PSSpecifier *)materialRowForTarget:(NSString *)target {
     PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
