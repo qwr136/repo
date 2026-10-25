@@ -356,7 +356,9 @@ static UIColor *LMVGAccent(void) {
         button.tintColor = LMVGAccent();
         [button setTitleColor:LMVGAccent() forState:UIControlStateNormal];
     }
-    button.imageEdgeInsets = UIEdgeInsetsMake(0, -3, 0, 3);
+    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
+    config.imagePadding = 5.0;
+    button.configuration = config;
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }
