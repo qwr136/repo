@@ -50,9 +50,6 @@
 @property(nonatomic,strong) NSMutableArray<UIView *> *sceneCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *heroCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *panelTiles;
-// 4.3.1: the page is embedded in the pane, not pushed, so "经典列表" is a switch
-// inside the pane instead of a navigation pop.
-@property(nonatomic,copy) void (^onRequestClassicList)(void);
 @end
 
 @implementation LMVGalleryController

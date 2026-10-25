@@ -150,7 +150,7 @@
 
     UIView *tile = [UIView new];
     tile.translatesAutoresizingMaskIntoConstraints = NO;
-    tile.backgroundColor = [UIColor.systemBlue colorWithAlphaComponent:0.10];
+    tile.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.10];
     tile.layer.cornerRadius = 13;
     tile.layer.cornerCurve = kCACornerCurveContinuous;
     [card addSubview:tile];
@@ -370,7 +370,7 @@
         [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     } else {
         button.backgroundColor = [UIColor systemBlueColor];
-        button.backgroundColor = [UIColor.systemBlue colorWithAlphaComponent:0.12];
+        button.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.12];
         button.tintColor = UIColor.systemBlueColor;
         [button setTitleColor:UIColor.systemBlueColor forState:UIControlStateNormal];
     }
