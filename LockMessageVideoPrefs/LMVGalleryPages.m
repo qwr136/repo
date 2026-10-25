@@ -21,6 +21,9 @@
 @property(nonatomic,strong) UIButton *manageButton;
 // 4.3.7: rename updates the visible label in place; a full rebuild flashed.
 @property(nonatomic,strong) NSMutableDictionary<NSString *, UILabel *> *nameLabels;
+// 4.3.8: reuse card views across reloads so covers are not re-decoded and the
+// grid does not flash when entering/leaving edit mode or after an import.
+@property(nonatomic,strong) NSMutableDictionary<NSString *, UIView *> *cardsByPath;
 @end
 
 @implementation LMVMaterialLibraryController
@@ -47,6 +50,7 @@
 
 - (void)build {
     self.nameLabels = [NSMutableDictionary new];
+    self.cardsByPath = [NSMutableDictionary new];
     UIScrollView *scroll = [UIScrollView new];
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
     scroll.alwaysBounceVertical = YES;
@@ -172,42 +176,32 @@
 }
 
 - (void)rebuildGrid {
-    for (UIView *view in self.grid.arrangedSubviews) {
-        [self.grid removeArrangedSubview:view];
-        [view removeFromSuperview];
-    }
+    NSMutableArray<NSString *> *paths = [NSMutableArray new];
+    for (NSDictionary *row in self.materials) [paths addObject:row[@"path"]];
     self.subtitle.text = [NSString stringWithFormat:@"%lu 个素材 · 原片保存", (unsigned long)self.materials.count];
 
+    // Drop cards whose material disappeared.
+    for (NSString *path in self.cardsByPath.allKeys) {
+        if ([paths containsObject:path]) continue;
+        UIView *card = self.cardsByPath[path];
+        [card removeFromSuperview];
+        [self.cardsByPath removeObjectForKey:path];
+        [self.nameLabels removeObjectForKey:path];
+    }
+    // Detach old rows but keep the card views alive in the registry.
+    for (UIView *row in [self.grid.arrangedSubviews copy]) {
+        [self.grid removeArrangedSubview:row];
+        [row removeFromSuperview];
+    }
+
     if (!self.materials.count) {
-        UIView *empty = [UIView new];
-        empty.translatesAutoresizingMaskIntoConstraints = NO;
-        empty.layer.cornerRadius = 20;
-        empty.layer.cornerCurve = kCACornerCurveContinuous;
-        empty.layer.borderWidth = 1.4;
-        empty.layer.borderColor = [UIColor.separatorColor colorWithAlphaComponent:0.7].CGColor;
-        [self.grid addArrangedSubview:empty];
-        [empty.heightAnchor constraintEqualToConstant:170].active = YES;
-        UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"photo.on.rectangle.angled"]];
-        icon.translatesAutoresizingMaskIntoConstraints = NO;
-        icon.tintColor = UIColor.tertiaryLabelColor;
-        UILabel *label = LMVGLabel(@"还没有素材", LMVGFont(14, UIFontWeightSemibold), UIColor.secondaryLabelColor);
-        UILabel *hint = LMVGLabel(@"点下方「从相册导入」添加视频", LMVGFont(11, UIFontWeightRegular), UIColor.tertiaryLabelColor);
-        [empty addSubview:icon];
-        [empty addSubview:label];
-        [empty addSubview:hint];
-        [icon.centerXAnchor constraintEqualToAnchor:empty.centerXAnchor].active = YES;
-        [icon.centerYAnchor constraintEqualToAnchor:empty.centerYAnchor constant:-26].active = YES;
-        [icon.widthAnchor constraintEqualToConstant:34].active = YES;
-        [icon.heightAnchor constraintEqualToConstant:34].active = YES;
-        [label.centerXAnchor constraintEqualToAnchor:empty.centerXAnchor].active = YES;
-        [label.topAnchor constraintEqualToAnchor:icon.bottomAnchor constant:10].active = YES;
-        [hint.centerXAnchor constraintEqualToAnchor:empty.centerXAnchor].active = YES;
-        [hint.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:4].active = YES;
+        [self.grid addArrangedSubview:[self emptyStateView]];
         return;
     }
 
     UIStackView *row = nil;
     for (NSUInteger index = 0; index < self.materials.count; index++) {
+        NSDictionary *material = self.materials[index];
         if (index % 2 == 0) {
             row = [UIStackView new];
             row.axis = UILayoutConstraintAxisHorizontal;
@@ -220,10 +214,45 @@
                 [row addArrangedSubview:filler];
             }
         }
-        UIView *card = [self cardForMaterial:self.materials[index]];
+        UIView *card = self.cardsByPath[material[@"path"]];
+        if (!card) {
+            card = [self cardForMaterial:material];
+            self.cardsByPath[material[@"path"]] = card;
+        } else {
+            UILabel *name = self.nameLabels[material[@"path"]];
+            name.text = material[@"name"];
+            [card viewWithTag:1003].hidden = !self.editingMaterials;
+            [card viewWithTag:1004].hidden = !self.editingMaterials;
+        }
         [row addArrangedSubview:card];
-        [card.heightAnchor constraintEqualToConstant:132].active = YES;
     }
+}
+
+- (UIView *)emptyStateView {
+    UIView *empty = [UIView new];
+    empty.translatesAutoresizingMaskIntoConstraints = NO;
+    empty.layer.cornerRadius = 20;
+    empty.layer.cornerCurve = kCACornerCurveContinuous;
+    empty.layer.borderWidth = 1.4;
+    empty.layer.borderColor = [UIColor.separatorColor colorWithAlphaComponent:0.7].CGColor;
+    [empty.heightAnchor constraintEqualToConstant:170].active = YES;
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"photo.on.rectangle.angled"]];
+    icon.translatesAutoresizingMaskIntoConstraints = NO;
+    icon.tintColor = UIColor.tertiaryLabelColor;
+    UILabel *label = LMVGLabel(@"还没有素材", LMVGFont(14, UIFontWeightSemibold), UIColor.secondaryLabelColor);
+    UILabel *hint = LMVGLabel(@"点下方「从相册导入」添加视频", LMVGFont(11, UIFontWeightRegular), UIColor.tertiaryLabelColor);
+    [empty addSubview:icon];
+    [empty addSubview:label];
+    [empty addSubview:hint];
+    [icon.centerXAnchor constraintEqualToAnchor:empty.centerXAnchor].active = YES;
+    [icon.centerYAnchor constraintEqualToAnchor:empty.centerYAnchor constant:-26].active = YES;
+    [icon.widthAnchor constraintEqualToConstant:34].active = YES;
+    [icon.heightAnchor constraintEqualToConstant:34].active = YES;
+    [label.centerXAnchor constraintEqualToAnchor:empty.centerXAnchor].active = YES;
+    [label.topAnchor constraintEqualToAnchor:icon.bottomAnchor constant:10].active = YES;
+    [hint.centerXAnchor constraintEqualToAnchor:empty.centerXAnchor].active = YES;
+    [hint.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:4].active = YES;
+    return empty;
 }
 
 - (UIView *)cardForMaterial:(NSDictionary *)material {
@@ -234,6 +263,7 @@
     card.layer.cornerCurve = kCACornerCurveContinuous;
     card.clipsToBounds = YES;
     card.accessibilityIdentifier = material[@"path"];
+    [card.heightAnchor constraintEqualToConstant:132].active = YES;
 
     UIImageView *cover = [UIImageView new];
     cover.translatesAutoresizingMaskIntoConstraints = NO;
@@ -252,17 +282,13 @@
     badge.hidden = YES;
     [card addSubview:badge];
 
-    // 4.3.7: white discs with coloured glyphs read cleanly over any frame.
+    // 4.3.8: small translucent chips instead of big white discs.
     UIButton *rename = [UIButton buttonWithType:UIButtonTypeSystem];
     rename.translatesAutoresizingMaskIntoConstraints = NO;
     [rename setImage:[UIImage systemImageNamed:@"pencil"] forState:UIControlStateNormal];
-    rename.tintColor = UIColor.systemBlueColor;
-    rename.backgroundColor = UIColor.systemBackgroundColor;
-    rename.layer.cornerRadius = 14;
-    rename.layer.shadowColor = UIColor.blackColor.CGColor;
-    rename.layer.shadowOpacity = 0.18;
-    rename.layer.shadowRadius = 5;
-    rename.layer.shadowOffset = CGSizeMake(0, 1);
+    rename.tintColor = UIColor.whiteColor;
+    rename.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.38];
+    rename.layer.cornerRadius = 8;
     rename.tag = 1004;
     rename.hidden = !self.editingMaterials;
     [rename addTarget:self action:@selector(renameMaterialTapped:) forControlEvents:UIControlEventTouchUpInside];
@@ -271,26 +297,22 @@
     UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
     remove.translatesAutoresizingMaskIntoConstraints = NO;
     [remove setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
-    remove.tintColor = UIColor.systemRedColor;
-    remove.backgroundColor = UIColor.systemBackgroundColor;
-    remove.layer.cornerRadius = 14;
-    remove.layer.shadowColor = UIColor.blackColor.CGColor;
-    remove.layer.shadowOpacity = 0.18;
-    remove.layer.shadowRadius = 5;
-    remove.layer.shadowOffset = CGSizeMake(0, 1);
+    remove.tintColor = [UIColor colorWithRed:1.0 green:0.45 blue:0.45 alpha:1.0];
+    remove.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.38];
+    remove.layer.cornerRadius = 8;
     remove.tag = 1003;
     remove.hidden = !self.editingMaterials;
     [remove addTarget:self action:@selector(deleteMaterialTapped:) forControlEvents:UIControlEventTouchUpInside];
     [card addSubview:remove];
 
-    [remove.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-8].active = YES;
-    [remove.topAnchor constraintEqualToAnchor:card.topAnchor constant:8].active = YES;
-    [remove.widthAnchor constraintEqualToConstant:28].active = YES;
-    [remove.heightAnchor constraintEqualToConstant:28].active = YES;
-    [rename.trailingAnchor constraintEqualToAnchor:remove.leadingAnchor constant:-6].active = YES;
+    [remove.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-7].active = YES;
+    [remove.topAnchor constraintEqualToAnchor:card.topAnchor constant:7].active = YES;
+    [remove.widthAnchor constraintEqualToConstant:24].active = YES;
+    [remove.heightAnchor constraintEqualToConstant:24].active = YES;
+    [rename.trailingAnchor constraintEqualToAnchor:remove.leadingAnchor constant:-5].active = YES;
     [rename.topAnchor constraintEqualToAnchor:remove.topAnchor].active = YES;
-    [rename.widthAnchor constraintEqualToConstant:28].active = YES;
-    [rename.heightAnchor constraintEqualToConstant:28].active = YES;
+    [rename.widthAnchor constraintEqualToConstant:24].active = YES;
+    [rename.heightAnchor constraintEqualToConstant:24].active = YES;
     self.nameLabels[material[@"path"]] = name;
 
     [cover.leadingAnchor constraintEqualToAnchor:card.leadingAnchor].active = YES;
@@ -331,7 +353,13 @@
 - (void)manageMaterials {
     self.editingMaterials = !self.editingMaterials;
     [self.manageButton setTitle:(self.editingMaterials ? @"完成" : @"管理素材") forState:UIControlStateNormal];
-    [self rebuildGrid];
+    // 4.3.8: toggle in place; rebuilding here flashed every cover.
+    for (UIView *card in self.cardsByPath.allValues) {
+        [card viewWithTag:1003].hidden = !self.editingMaterials;
+        [card viewWithTag:1004].hidden = !self.editingMaterials;
+        UILabel *badge = (UILabel *)[card viewWithTag:1002];
+        badge.hidden = self.editingMaterials || !badge.text.length;
+    }
 }
 - (void)deleteMaterialTapped:(UIButton *)sender {
     UIView *card = sender.superview;

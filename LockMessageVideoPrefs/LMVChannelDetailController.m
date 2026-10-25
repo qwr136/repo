@@ -5,7 +5,7 @@
 #import "../LMVTextColorPicker.h"
 #import <AVFoundation/AVFoundation.h>
 
-#define LMVGalleryVersion @"4.3.7"
+#define LMVGalleryVersion @"4.3.8"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -95,6 +95,9 @@ static UIColor *LMVGAccent(void) {
     self.navigationController.interactivePopGestureRecognizer.enabled = YES;
     [self refresh];
     [self loadMaterials];
+    // 4.3.8: start after the first layout pass, so the layer already has bounds.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf startPreviewPlayback]; });
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -178,18 +181,19 @@ static UIColor *LMVGAccent(void) {
     [coverBox addSubview:cover];
     self.cover = cover;
 
-    LMVDetailPlayerView *host = [LMVDetailPlayerView new];
-    host.userInteractionEnabled = NO;
-    host.playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    host.hidden = YES;
-    [coverBox insertSubview:host atIndex:2];
-    self.previewHost = host;
-
     LMVGDetailGradientView *shade = [LMVGDetailGradientView new];
     shade.translatesAutoresizingMaskIntoConstraints = NO;
     shade.shade = YES;
     shade.userInteractionEnabled = NO;
     [coverBox addSubview:shade];
+
+    // Above the shade so the video is never dimmed; the back button is added last.
+    LMVDetailPlayerView *host = [LMVDetailPlayerView new];
+    host.userInteractionEnabled = NO;
+    host.playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+    host.hidden = YES;
+    [coverBox addSubview:host];
+    self.previewHost = host;
 
     for (UIView *view in @[gradient, cover, shade]) {
         [view.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor].active = YES;
@@ -601,10 +605,31 @@ static UIColor *LMVGAccent(void) {
     LMVGNotifyChannel(self.channelID);
     [self refresh];
     [self rebuildPanel];
+    [self revealSelectedMaterial];
 }
 
 // 4.3.4: the button's primary action is a direct switch (the reported surprise was
 // that it only opened a list). Long-press still reaches the full picker.
+// 4.3.8: after a selection the strip scrolls to that card and the page scrolls
+// down so the chosen material is actually visible.
+- (void)revealSelectedMaterial {
+    if (self.segmentIndex != 0) return;
+    NSString *selected = LMVGSelectedMaterial(self.channelID);
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LMVChannelDetailController *strongSelf = weakSelf;
+        if (!strongSelf || strongSelf.segmentIndex != 0) return;
+        UIView *row = strongSelf.materialStrip.subviews.firstObject;
+        for (UIView *card in row.subviews) {
+            if (![card.accessibilityIdentifier isEqualToString:selected]) continue;
+            [strongSelf.materialStrip scrollRectToVisible:CGRectInset(card.frame, -16, 0) animated:YES];
+            break;
+        }
+        CGRect rect = [strongSelf.panel convertRect:strongSelf.panel.bounds toView:strongSelf.scroll];
+        [strongSelf.scroll scrollRectToVisible:CGRectInset(rect, 0, -12) animated:YES];
+    });
+}
+
 - (void)startPreviewPlayback {
     if (!self.previewHost) return;
     NSString *relative = LMVGSelectedMaterial(self.channelID);
@@ -632,6 +657,9 @@ static UIColor *LMVGAccent(void) {
     self.previewHost.hidden = NO;
     self.previewHost.frame = self.previewHost.superview.bounds;
     [self.previewPlayer play];
+    if ([self.previewPlayer respondsToSelector:@selector(playImmediatelyAtRate:)]) {
+        [self.previewPlayer playImmediatelyAtRate:1.0];
+    }
 }
 
 - (void)cycleMaterial {
@@ -647,6 +675,7 @@ static UIColor *LMVGAccent(void) {
     LMVGLightHaptic();
     [self refresh];
     [self rebuildPanel];
+    [self revealSelectedMaterial];
 }
 - (void)changeMaterialFromLongPress:(UILongPressGestureRecognizer *)recognizer {
     if (recognizer.state != UIGestureRecognizerStateBegan) return;
