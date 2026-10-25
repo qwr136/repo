@@ -1,7 +1,7 @@
 #import "LMVGalleryController.h"
 #import "LMVGalleryKit.h"
 #import "LMVImport.h"
-#import "LMVMaterialPicker.h"
+#import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
 #define LMVGalleryVersion @"4.3.0"
@@ -509,17 +509,14 @@ static UIColor *LMVGAccent(void) {
 }
 
 - (void)changeMaterial {
-    LMVMaterialPicker *picker = [LMVMaterialPicker new];
-    picker.selected = LMVGSelectedMaterial(self.channelID);
-    picker.showsThumbnails = YES;
     __weak typeof(self) weakSelf = self;
-    picker.apply = ^(NSString *relative, NSString *name) {
+    UIViewController *picker = LMVCreateMaterialPicker(LMVGSelectedMaterial(self.channelID), YES, ^(NSString *relative, NSString *name) {
         LMVGPrefSet([weakSelf.channelID stringByAppendingString:@"Video"], relative ?: @"");
         LMVGNotifyChannel(weakSelf.channelID);
         [weakSelf refresh];
         [weakSelf rebuildPanel];
-    };
-    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
+    }, nil);
+    [self presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)importVideos {

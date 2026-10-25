@@ -15,7 +15,7 @@ LockMessageVideo_LIBRARIES = roothide
 LockMessageVideo_FRAMEWORKS = UIKit Foundation AVFoundation CoreImage CoreVideo CoreMedia QuartzCore CoreGraphics ImageIO Photos PhotosUI
 
 BUNDLE_NAME = LockMessageVideoPrefs
-LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m LockMessageVideoPrefs/LMVGalleryController.m LockMessageVideoPrefs/LMVChannelDetailController.m LockMessageVideoPrefs/LMVTuneController.m LockMessageVideoPrefs/LMVTuneListController.m LMVTextColorPicker.m
+LockMessageVideoPrefs_FILES = LockMessageVideoPrefs/LMVPRootListController.m LockMessageVideoPrefs/LMVGalleryController.m LockMessageVideoPrefs/LMVChannelDetailController.m LockMessageVideoPrefs/LMVMaterialPickerHost.m LockMessageVideoPrefs/LMVTuneController.m LockMessageVideoPrefs/LMVTuneListController.m LMVTextColorPicker.m
 LockMessageVideoPrefs_FRAMEWORKS = UIKit Foundation Photos PhotosUI AVFoundation CoreMedia CoreVideo ImageIO QuartzCore
 LockMessageVideoPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LockMessageVideoPrefs_RESOURCE_FILES = LockMessageVideoPrefs/Info.plist LockMessageVideoPrefs/icon.png LockMessageVideoPrefs/icon@2x.png LockMessageVideoPrefs/icon@3x.png

@@ -1,7 +1,7 @@
 #import "LMVGalleryController.h"
 #import "LMVGalleryKit.h"
 #import "LMVTuneListController.h"
-#import "LMVMaterialPicker.h"
+#import "LMVMaterialPickerAPI.h"
 
 // 4.3.0: the settings page as a picture-led gallery. The classic specifier list is
 // still one tap away from 「更多」, so nothing is lost if a device-specific layout
@@ -659,10 +659,8 @@
     [self.scroll scrollRectToVisible:CGRectInset(rect, 0, -20) animated:YES];
 }
 - (void)openLibrary {
-    LMVMaterialPicker *picker = [LMVMaterialPicker new];
-    picker.selected = @"";
-    picker.showsThumbnails = YES;
-    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
+    UIViewController *picker = LMVCreateMaterialPicker(@"", YES, nil, nil);
+    [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)showMore {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];

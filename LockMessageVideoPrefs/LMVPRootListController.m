@@ -10,7 +10,7 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "LMVImport.h"
-#import "LMVMaterialPicker.h"
+#import "LMVMaterialPickerAPI.h"
 #import "LMVTuneController.h"
 #import "LMVTuneListController.h"
 #import "LMVGalleryController.h"
@@ -704,16 +704,17 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     id selected = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, kLMVPrefsID);
     NSDictionary *legacy = LMVChannelLegacyDefaults();
     if (![selected isKindOfClass:NSString.class]) selected = legacy[target] ?: @"";
-    LMVMaterialPicker *picker = [LMVMaterialPicker new];
-    picker.selected = selected;
     __weak typeof(self) weakSelf = self;
-    picker.apply = ^(NSString *relative, NSString *name) { [weakSelf selectFile:relative name:name target:target]; };
     // 4.0.4: deleting the selected material happens AFTER the picker dismisses, so
     // the page underneath has already painted the old name by the time the file is
     // gone. Repaint when the library actually changes, otherwise the row keeps the
     // deleted material's name instead of falling back to 未选择.
-    picker.libraryChanged = ^{ [weakSelf refreshMaterialRows]; };
-    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
+    UIViewController *picker = LMVCreateMaterialPicker(selected, YES, ^(NSString *relative, NSString *name) {
+        [weakSelf selectFile:relative name:name target:target];
+    }, ^{
+        [weakSelf refreshMaterialRows];
+    });
+    [self presentViewController:picker animated:YES completion:nil];
 }
 // 1.50: "认领刚用过的面板" - the panel's content says nothing about which gesture opened
 // it, so this is the user's word on it: the panel they were just looking at is bound
