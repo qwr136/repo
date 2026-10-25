@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"4.3.5"
+#define LMVGalleryVersion @"4.3.6"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -108,11 +108,29 @@ static UIColor *LMVGAccent(void) {
 }
 
 - (void)buildCover {
+    // 4.3.6: rounded preview with margins instead of a full-bleed square header,
+    // and no playback on tap.
+    UIView *spacer = [UIView new];
+    spacer.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.stack addArrangedSubview:spacer];
+    [spacer.heightAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:6].active = YES;
+
+    UIView *wrap = [UIView new];
+    wrap.translatesAutoresizingMaskIntoConstraints = NO;
+    wrap.layoutMargins = UIEdgeInsetsMake(0, 14, 0, 14);
+    [self.stack addArrangedSubview:wrap];
+
     UIView *coverBox = [UIView new];
     coverBox.translatesAutoresizingMaskIntoConstraints = NO;
     coverBox.clipsToBounds = YES;
-    [self.stack addArrangedSubview:coverBox];
-    [coverBox.heightAnchor constraintEqualToConstant:236].active = YES;
+    coverBox.layer.cornerRadius = 22;
+    coverBox.layer.cornerCurve = kCACornerCurveContinuous;
+    [wrap addSubview:coverBox];
+    [coverBox.leadingAnchor constraintEqualToAnchor:wrap.layoutMarginsGuide.leadingAnchor].active = YES;
+    [coverBox.trailingAnchor constraintEqualToAnchor:wrap.layoutMarginsGuide.trailingAnchor].active = YES;
+    [coverBox.topAnchor constraintEqualToAnchor:wrap.topAnchor].active = YES;
+    [coverBox.bottomAnchor constraintEqualToAnchor:wrap.bottomAnchor].active = YES;
+    [coverBox.heightAnchor constraintEqualToConstant:220].active = YES;
 
     LMVGDetailGradientView *gradient = [LMVGDetailGradientView new];
     gradient.translatesAutoresizingMaskIntoConstraints = NO;
@@ -125,10 +143,6 @@ static UIColor *LMVGAccent(void) {
     cover.clipsToBounds = YES;
     [coverBox addSubview:cover];
     self.cover = cover;
-    // 4.3.5: tapping the header cover plays the material, like the home hero.
-    cover.userInteractionEnabled = YES;
-    UITapGestureRecognizer *play = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(playPreview)];
-    [cover addGestureRecognizer:play];
 
     LMVGDetailGradientView *shade = [LMVGDetailGradientView new];
     shade.translatesAutoresizingMaskIntoConstraints = NO;
@@ -144,12 +158,11 @@ static UIColor *LMVGAccent(void) {
     }
 
     UIButton *back = LMVGRoundButton(@"chevron.left", self, @selector(goBack));
-    back.backgroundColor = [UIColor.whiteColor colorWithAlphaComponent:0.24];
+    back.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.28];
     back.tintColor = UIColor.whiteColor;
     [coverBox addSubview:back];
-    [back.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor constant:14].active = YES;
-    // Anchor to the real safe area: a fixed 52pt sat under the Dynamic Island.
-    [back.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8].active = YES;
+    [back.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor constant:12].active = YES;
+    [back.topAnchor constraintEqualToAnchor:coverBox.topAnchor constant:12].active = YES;
 }
 
 - (void)buildTitle {
@@ -537,15 +550,6 @@ static UIColor *LMVGAccent(void) {
 
 // 4.3.4: the button's primary action is a direct switch (the reported surprise was
 // that it only opened a list). Long-press still reaches the full picker.
-- (void)playPreview {
-    NSString *relative = LMVGSelectedMaterial(self.channelID);
-    if (!relative.length) { return; }
-    LMVGLightHaptic();
-    LMVVideoPreviewController *preview = [[LMVVideoPreviewController alloc] initWithChannelID:self.channelID];
-    preview.modalPresentationStyle = UIModalPresentationFullScreen;
-    preview.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
-    [self presentViewController:preview animated:YES completion:nil];
-}
 - (void)cycleMaterial {
     if (!self.materials.count) { [self importVideos]; return; }
     NSString *current = LMVGSelectedMaterial(self.channelID);

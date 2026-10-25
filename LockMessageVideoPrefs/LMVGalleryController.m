@@ -2,14 +2,14 @@
 #import "LMVGalleryKit.h"
 #import "LMVTuneListController.h"
 #import "LMVMaterialPickerAPI.h"
-#import <AVFoundation/AVFoundation.h>
+#import "../LMVEasterImageSettings.h"
 
 // 4.3.0: the settings page as a picture-led gallery. The classic specifier list is
 // still one tap away from 「更多」, so nothing is lost if a device-specific layout
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.5"
+#define LMVGalleryVersion @"4.3.6"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -36,15 +36,6 @@
 }
 @end
 
-// A UIView whose layer is the player layer, so it follows the card's bounds.
-@interface LMVPlayerHostView : UIView
-- (AVPlayerLayer *)playerLayer;
-@end
-@implementation LMVPlayerHostView
-+ (Class)layerClass { return AVPlayerLayer.class; }
-- (AVPlayerLayer *)playerLayer { return (AVPlayerLayer *)self.layer; }
-@end
-
 @interface LMVGalleryController () <UIScrollViewDelegate, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIStackView *stack;
@@ -58,12 +49,9 @@
 @property(nonatomic,strong) NSArray<NSString *> *featured;
 @property(nonatomic,strong) NSMutableArray<UIView *> *sceneCards;
 @property(nonatomic,strong) NSMutableArray<UIView *> *heroCards;
-// 4.3.5: the big card autoplays the selected material, muted, looped. One player
-// is reused across pages; the host view moves to the current card.
-@property(nonatomic,strong) AVQueuePlayer *heroPlayer;
-@property(nonatomic,strong) AVPlayerLooper *heroLooper;
-@property(nonatomic,strong) LMVPlayerHostView *heroPlayerView;
-@property(nonatomic,copy) NSString *heroRelative;
+// 4.3.6: the hero does NOT play video. It auto-advances to the next channel every
+// few seconds, which is what "自动循环" asked for; tapping opens the channel page.
+@property(nonatomic,strong) NSTimer *heroTimer;
 @end
 
 @implementation LMVGalleryController
@@ -93,15 +81,7 @@
     [self buildFooter];
     [self buildTabBar];
     [self refreshContent];
-    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    [center addObserver:self selector:@selector(applicationDidEnterBackground) name:UIApplicationDidEnterBackgroundNotification object:nil];
-    [center addObserver:self selector:@selector(applicationWillEnterForeground) name:UIApplicationWillEnterForegroundNotification object:nil];
-    [self updateHeroPlayback];
 }
-
-- (void)applicationDidEnterBackground { [self.heroPlayer pause]; }
-- (void)applicationWillEnterForeground { [self updateHeroPlayback]; }
-- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
@@ -111,18 +91,16 @@
     self.navigationController.interactivePopGestureRecognizer.delegate = nil;
     self.navigationController.interactivePopGestureRecognizer.enabled = YES;
     [self refreshContent];
-    [self updateHeroPlayback];
-    [self.heroPlayer play];
+    [self startHeroTimer];
 }
 
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [self.heroPlayer pause];
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self stopHeroTimer];
 }
 
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    if (self.heroPlayerView.superview) self.heroPlayerView.frame = self.heroPlayerView.superview.bounds;
+- (void)dealloc {
+    [_heroTimer invalidate];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -252,10 +230,6 @@
     [page.topAnchor constraintEqualToAnchor:hero.bottomAnchor constant:2].active = YES;
     [page.bottomAnchor constraintEqualToAnchor:box.bottomAnchor].active = YES;
 
-    LMVPlayerHostView *host = [LMVPlayerHostView new];
-    host.userInteractionEnabled = NO;
-    host.playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    self.heroPlayerView = host;
 }
 
 - (UIView *)heroCardForChannel:(NSString *)identifier {
@@ -322,25 +296,9 @@
     [badge.heightAnchor constraintEqualToConstant:20].active = YES;
     [badge.widthAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
 
-    UIButton *edit = [UIButton buttonWithType:UIButtonTypeSystem];
-    edit.translatesAutoresizingMaskIntoConstraints = NO;
-    [edit setImage:[UIImage systemImageNamed:@"slider.horizontal.3"] forState:UIControlStateNormal];
-    edit.tintColor = UIColor.whiteColor;
-    edit.backgroundColor = [UIColor.whiteColor colorWithAlphaComponent:0.22];
-    edit.layer.cornerRadius = 14;
-    edit.layer.cornerCurve = kCACornerCurveContinuous;
-    edit.tag = 1007;
-    [edit addTarget:self action:@selector(editHero:) forControlEvents:UIControlEventTouchUpInside];
-    [card addSubview:edit];
-    [edit.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12].active = YES;
-    [edit.topAnchor constraintEqualToAnchor:card.topAnchor constant:12].active = YES;
-    [edit.widthAnchor constraintEqualToConstant:28].active = YES;
-    [edit.heightAnchor constraintEqualToConstant:28].active = YES;
-
     LMVGAddPressFeedback(card);
-    // 4.3.4: tapping the hero plays the video; the small button above opens the
-    // detail page (material / sound / colour).
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(playHero:)];
+    // 4.3.6: tapping opens the channel page; no full-screen playback anywhere.
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openChannel:)];
     tap.delegate = self;
     [card addGestureRecognizer:tap];
     card.userInteractionEnabled = YES;
@@ -633,41 +591,26 @@
 
 }
 
-#pragma mark - Hero playback
+#pragma mark - Auto-advance
 
-- (void)updateHeroPlayback {
-    [self updateHeroPlaybackForPage:self.pageControl.currentPage];
+- (void)startHeroTimer {
+    [self stopHeroTimer];
+    if (LMVGReduceMotion() || self.featured.count < 2) return;
+    self.heroTimer = [NSTimer scheduledTimerWithTimeInterval:4.5 target:self selector:@selector(advanceHero) userInfo:nil repeats:YES];
 }
 
-- (void)updateHeroPlaybackForPage:(NSInteger)page {
-    if (LMVGReduceMotion()) return;
-    if (page < 0 || page >= (NSInteger)self.featured.count) return;
-    NSString *identifier = self.featured[page];
-    NSString *relative = LMVGSelectedMaterial(identifier);
-    UIView *card = self.heroCards[page];
-    if (!relative.length) {
-        [self.heroPlayer pause];
-        self.heroPlayerView.hidden = YES;
-        return;
-    }
-    if (![self.heroRelative isEqualToString:relative] || !self.heroPlayer.currentItem) {
-        NSURL *url = [NSURL fileURLWithPath:[LMVStorageRootPath stringByAppendingPathComponent:relative]];
-        AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
-        AVQueuePlayer *player = [[AVQueuePlayer alloc] initWithPlayerItem:item];
-        self.heroLooper = [AVPlayerLooper playerLooperWithPlayer:player templateItem:item];
-        player.muted = YES;   // autoplay must never make sound
-        player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-        self.heroPlayer = player;
-        self.heroRelative = relative;
-    }
-    if (self.heroPlayerView.superview != card) {
-        // Index 2: above the cover image, below the shade and labels.
-        [card insertSubview:self.heroPlayerView atIndex:2];
-    }
-    self.heroPlayerView.hidden = NO;
-    self.heroPlayerView.frame = card.bounds;
-    self.heroPlayerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.heroPlayer play];
+- (void)stopHeroTimer {
+    [self.heroTimer invalidate];
+    self.heroTimer = nil;
+}
+
+- (void)advanceHero {
+    if (self.presentedViewController || self.heroScroll.isDragging) return;
+    NSInteger next = (self.pageControl.currentPage + 1) % (NSInteger)self.featured.count;
+    CGFloat step = [self heroStep];
+    if (step <= 0) return;
+    [self.heroScroll setContentOffset:CGPointMake(next * step, 0) animated:YES];
+    self.pageControl.currentPage = next;
 }
 
 #pragma mark - Actions
@@ -676,27 +619,6 @@
     [self.navigationController popViewControllerAnimated:YES];
 }
 
-- (void)playHero:(UITapGestureRecognizer *)gesture {
-    NSString *identifier = gesture.view.accessibilityIdentifier;
-    if (!identifier.length) return;
-    NSString *relative = LMVGSelectedMaterial(identifier);
-    if (!relative.length) {
-        // Nothing to play yet - send the user to the page that can pick one.
-        [self openChannel:gesture];
-        return;
-    }
-    LMVGLightHaptic();
-    LMVVideoPreviewController *preview = [[LMVVideoPreviewController alloc] initWithChannelID:identifier];
-    preview.modalPresentationStyle = UIModalPresentationFullScreen;
-    preview.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
-    [self presentViewController:preview animated:YES completion:nil];
-}
-- (void)editHero:(UIButton *)sender {
-    NSString *identifier = sender.superview.accessibilityIdentifier;
-    if (!identifier.length) return;
-    LMVGLightHaptic();
-    [self.navigationController pushViewController:[[LMVChannelDetailController alloc] initWithChannelID:identifier] animated:YES];
-}
 - (void)openChannel:(UITapGestureRecognizer *)gesture {
     NSString *identifier = gesture.view.accessibilityIdentifier;
     if (!identifier.length) return;
@@ -725,8 +647,11 @@
     [sheet addAction:[UIAlertAction actionWithTitle:@"功能面板参数" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [weakSelf.navigationController pushViewController:[LMVTuneListController new] animated:YES];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"素材库" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [weakSelf openLibrary];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"显示场景与图片旋转" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        LMVEasterImageSettings *panel = [LMVEasterImageSettings new];
+        __weak LMVEasterImageSettings *weakPanel = panel;
+        panel.close = ^{ [weakPanel dismissViewControllerAnimated:YES completion:nil]; };
+        [weakSelf presentViewController:[[UINavigationController alloc] initWithRootViewController:panel] animated:YES completion:nil];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.view;
@@ -754,10 +679,7 @@
     if (step <= 0) return;
     NSInteger page = (NSInteger)lround(scrollView.contentOffset.x / step);
     page = MAX(0, MIN((NSInteger)self.featured.count - 1, page));
-    if (self.pageControl.currentPage != page) {
-        self.pageControl.currentPage = page;
-        [self updateHeroPlayback];
-    }
+    if (self.pageControl.currentPage != page) self.pageControl.currentPage = page;
 
     if (LMVGReduceMotion()) return;
     CGFloat center = scrollView.contentOffset.x + scrollView.bounds.size.width * 0.5;
@@ -779,6 +701,14 @@
     return width > 20 ? width - 18 : 0;
 }
 
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
+    if (scrollView == self.heroScroll) [self stopHeroTimer];
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
+    if (scrollView == self.heroScroll) [self startHeroTimer];
+}
+
 - (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint)velocity targetContentOffset:(inout CGPoint *)targetContentOffset {
     if (scrollView != self.heroScroll) return;
     CGFloat step = [self heroStep];
@@ -788,7 +718,6 @@
     NSInteger page = (NSInteger)lround(proposed / step);
     page = MAX(0, MIN((NSInteger)self.featured.count - 1, page));
     targetContentOffset->x = MIN(maxX, page * step);
-    [self updateHeroPlaybackForPage:page];
 }
 
 @end
