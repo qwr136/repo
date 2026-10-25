@@ -888,24 +888,50 @@ static void LMVLoadPreferences(void) {
     LMVPerfProbe("prefs",probePrefs);
 }
 static BOOL LMVMessageCell(UIView *cell);
+// 4.4.7: this runs once per cell per tick (25 cells x 10 Hz = 250 walks a second).
+// Building an NSString per ancestor level cost more than the check itself, and
+// NSClassFromString was a class-table lookup per level. class_getName returns the
+// runtime's own C string, so the walk now allocates nothing.
+static inline BOOL LMVClassNameContains(Class cls, const char *needle) {
+    if (!cls || !needle) return NO;
+    const char *name = class_getName(cls);
+    return name && strstr(name, needle) != NULL;
+}
 static BOOL LMVNotificationCenterSurface(UIView *view) {
     // Scope is attached model ownership, not a model hidden visibility veto.
     // Exposure (including window/ancestor presentation state) is checked below.
-    if (!view.window || !([view isDescendantOfView:view.window] || view==view.window)) return NO;
-    NSString *attachedWindowName=NSStringFromClass(view.window.class);
-    if ([attachedWindowName containsString:@"ControlCenter"] || [attachedWindowName containsString:@"Secure"]) return NO;
+    UIWindow *window = view.window;
+    if (!window || !([view isDescendantOfView:window] || view==window)) return NO;
+    // 4.4.7: every cell in the same frame sits in the same window, so the window-level
+    // answer is computed once per window per vsync instead of once per cell.
+    static __weak UIWindow *cachedWindow;
+    static CFTimeInterval cachedAt;
+    static BOOL cachedReject, cachedAccept;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (window != cachedWindow || now - cachedAt > 0.016) {
+        cachedWindow = window;
+        cachedAt = now;
+        cachedReject = LMVClassNameContains(window.class, "ControlCenter") ||
+                       LMVClassNameContains(window.class, "Secure");
+        cachedAccept = LMVClassNameContains(window.class, "CoverSheet") ||
+                       LMVClassNameContains(window.class, "NotificationCenter");
+        if (!cachedAccept) {
+            for (UIViewController *c = window.rootViewController; c; c = c.presentedViewController) {
+                if (LMVClassNameContains(c.class, "CoverSheet") ||
+                    LMVClassNameContains(c.class, "NotificationCenter")) { cachedAccept = YES; break; }
+            }
+        }
+    }
+    if (cachedReject) return NO;
+    static Class cardClass;
+    static dispatch_once_t cardOnce;
+    dispatch_once(&cardOnce, ^{ cardClass = NSClassFromString(@"NCNotificationListCell"); });
     for (UIView *node = view; node; node = node.superview) {
-        NSString *name = NSStringFromClass(node.class);
-        Class card=NSClassFromString(@"NCNotificationListCell");
-        if((card && [node isKindOfClass:card]) || [name containsString:@"NotificationCenter"] || [name containsString:@"CoverSheet"]) return YES;
+        if ((cardClass && [node isKindOfClass:cardClass]) ||
+            LMVClassNameContains(node.class, "NotificationCenter") ||
+            LMVClassNameContains(node.class, "CoverSheet")) return YES;
     }
-    NSString *windowName = NSStringFromClass(view.window.class);
-    if ([windowName containsString:@"CoverSheet"] || [windowName containsString:@"NotificationCenter"]) return YES;
-    for (UIViewController *controller = view.window.rootViewController; controller; controller = controller.presentedViewController) {
-        NSString *name = NSStringFromClass(controller.class);
-        if ([name containsString:@"CoverSheet"] || [name containsString:@"NotificationCenter"]) return YES;
-    }
-    return NO;
+    return cachedAccept;
 }
 #import "LMVCardPresentation.h"
 static BOOL LMVVisible(UIView *view) {
