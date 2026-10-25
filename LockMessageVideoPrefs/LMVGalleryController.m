@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"4.3.2"
+#define LMVGalleryVersion @"4.3.3"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -348,7 +348,7 @@
         }
         UIView *card = [self sceneCardForChannel:self.scenes[index]];
         [row addArrangedSubview:card];
-        [card.heightAnchor constraintEqualToConstant:96].active = YES;
+        [card.heightAnchor constraintEqualToConstant:106].active = YES;
         [self.sceneCards addObject:card];
     }
 }
@@ -395,10 +395,17 @@
     UILabel *name = LMVGLabel(LMVGChannelTitle(identifier), LMVGFont(12, UIFontWeightSemibold), UIColor.whiteColor);
     name.shadowColor = [UIColor.blackColor colorWithAlphaComponent:0.35];
     name.shadowOffset = CGSizeMake(0, 1);
+    UILabel *material = LMVGLabel(@"", LMVGFont(9, UIFontWeightRegular), [UIColor.whiteColor colorWithAlphaComponent:0.78]);
+    material.tag = 1006;
+    material.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [card addSubview:name];
+    [card addSubview:material];
     [name.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:22].active = YES;
     [name.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-10].active = YES;
-    [name.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-9].active = YES;
+    [name.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-22].active = YES;
+    [material.leadingAnchor constraintEqualToAnchor:name.leadingAnchor].active = YES;
+    [material.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-10].active = YES;
+    [material.topAnchor constraintEqualToAnchor:name.bottomAnchor constant:1].active = YES;
 
     UIView *dot = [UIView new];
     dot.translatesAutoresizingMaskIntoConstraints = NO;
@@ -552,9 +559,17 @@
                        @[@"square.grid.2x2", @"面板", @"openPanelGrid"],
                        @[@"photo.on.rectangle", @"素材", @"openMaterialLibrary"],
                        @[@"gearshape", @"设置", @"showMore"]];
-    for (NSArray *item in items) {
-        [row addArrangedSubview:[self tabItemSymbol:item[0] title:item[1] action:NSSelectorFromString(item[2])]];
-    }
+    [items enumerateObjectsUsingBlock:^(NSArray *item, NSUInteger index, BOOL *stop) {
+        UIView *tab = [self tabItemSymbol:item[0] title:item[1] action:NSSelectorFromString(item[2])];
+        tab.tag = index;
+        if (index == 0) {
+            for (UIView *subview in tab.subviews) {
+                if ([subview isKindOfClass:UIImageView.class]) ((UIImageView *)subview).tintColor = UIColor.systemBlueColor;
+                if ([subview isKindOfClass:UILabel.class]) ((UILabel *)subview).textColor = UIColor.systemBlueColor;
+            }
+        }
+        [row addArrangedSubview:tab];
+    }];
 
     [bar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:14].active = YES;
     [bar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-14].active = YES;
@@ -596,8 +611,8 @@
 
 - (void)refreshContent {
     NSUInteger enabled = LMVGEnabledCount();
-    self.subtitleLabel.text = [NSString stringWithFormat:@"16 个通道 · %lu 个已启用 · v%@",
-                               (unsigned long)enabled, LMVGalleryVersion];
+    self.subtitleLabel.text = [NSString stringWithFormat:@"%lu 个通道 · %lu 个已启用 · v%@",
+                               (unsigned long)LMVChannelIDs().count, (unsigned long)enabled, LMVGalleryVersion];
 
     for (UIView *card in self.heroCards) {
         NSString *identifier = card.accessibilityIdentifier;
@@ -611,10 +626,17 @@
         badge.text = on ? @"使用中" : @"未启用";
         badge.alpha = on ? 1.0 : 0.75;
         UIImageView *cover = (UIImageView *)[card viewWithTag:1001];
+        // A material change returns here with the old pixels still in place; compare
+        // the path we last painted (kept on accessibilityValue) before reusing it.
+        if (![card.accessibilityValue isEqualToString:relative]) {
+            card.accessibilityValue = relative ?: @"";
+            cover.image = nil;
+        }
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
             LMVGLoadCover(relative, ^(UIImage *image) {
                 if (!image) return;
+                if (LMVGReduceMotion()) { weakCover.image = image; return; }
                 [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
                     weakCover.image = image;
                 } completion:nil];
@@ -628,12 +650,20 @@
         UIView *dot = [card viewWithTag:1004];
         dot.hidden = !on;
         dot.backgroundColor = UIColor.systemGreenColor;
+        NSString *relative = LMVGSelectedMaterial(identifier);
+        UILabel *material = (UILabel *)[card viewWithTag:1006];
+        material.text = relative.length ? LMVGMaterialName(relative) : @"未选择素材";
+        material.textColor = relative.length ? [UIColor.whiteColor colorWithAlphaComponent:0.78] : [UIColor.whiteColor colorWithAlphaComponent:0.5];
         UIImageView *cover = (UIImageView *)[card viewWithTag:1001];
+        if (![card.accessibilityValue isEqualToString:relative]) {
+            card.accessibilityValue = relative ?: @"";
+            cover.image = nil;
+        }
         if (!cover.image) {
-            NSString *relative = LMVGSelectedMaterial(identifier);
             __weak UIImageView *weakCover = cover;
             LMVGLoadCover(relative, ^(UIImage *image) {
                 if (!image) return;
+                if (LMVGReduceMotion()) { weakCover.image = image; return; }
                 [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
                     weakCover.image = image;
                 } completion:nil];
@@ -659,6 +689,7 @@
 - (void)openChannel:(UITapGestureRecognizer *)gesture {
     NSString *identifier = gesture.view.accessibilityIdentifier;
     if (!identifier.length) return;
+    LMVGLightHaptic();
     LMVChannelDetailController *detail = [[LMVChannelDetailController alloc] initWithChannelID:identifier];
     [self.navigationController pushViewController:detail animated:YES];
 }
@@ -709,6 +740,19 @@
     NSInteger page = (NSInteger)lround(scrollView.contentOffset.x / step);
     page = MAX(0, MIN((NSInteger)self.scenes.count - 1, page));
     if (self.pageControl.currentPage != page) self.pageControl.currentPage = page;
+
+    if (LMVGReduceMotion()) return;
+    CGFloat center = scrollView.contentOffset.x + scrollView.bounds.size.width * 0.5;
+    for (UIView *card in self.heroCards) {
+        CGPoint point = [card.superview convertPoint:card.center toView:scrollView];
+        CGFloat delta = point.x - center;
+        UIImageView *cover = (UIImageView *)[card viewWithTag:1001];
+        if (cover.image) {
+            // Slight counter-move; the 1.08 scale keeps the moving edges covered.
+            cover.transform = CGAffineTransformMakeScale(1.08, 1.08);
+            cover.transform = CGAffineTransformTranslate(cover.transform, -delta * 0.05 / 1.08, 0);
+        }
+    }
 }
 
 // Card width is view width - 28 (14pt page margins), plus 10pt spacing.

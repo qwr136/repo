@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"4.3.2"
+#define LMVGalleryVersion @"4.3.3"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -36,6 +36,7 @@ static UIColor *LMVGAccent(void) {
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIStackView *stack;
 @property(nonatomic,strong) UIImageView *cover;
+@property(nonatomic,copy) NSString *coverRelative;
 @property(nonatomic,strong) UILabel *subtitle;
 @property(nonatomic,strong) UISwitch *toggle;
 @property(nonatomic,strong) UISegmentedControl *segments;
@@ -143,7 +144,8 @@ static UIColor *LMVGAccent(void) {
     back.tintColor = UIColor.whiteColor;
     [coverBox addSubview:back];
     [back.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor constant:14].active = YES;
-    [back.topAnchor constraintEqualToAnchor:coverBox.topAnchor constant:52].active = YES;
+    // Anchor to the real safe area: a fixed 52pt sat under the Dynamic Island.
+    [back.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8].active = YES;
 }
 
 - (void)buildTitle {
@@ -215,10 +217,15 @@ static UIColor *LMVGAccent(void) {
     BOOL on = LMVGPrefBool([self.channelID stringByAppendingString:@"BackgroundEnabled"], NO);
     self.toggle.on = on;
     self.subtitle.text = [NSString stringWithFormat:@"%@ · %@", name, on ? @"已启用" : @"未启用"];
+    if (![self.coverRelative isEqualToString:relative]) {
+        self.coverRelative = relative ?: @"";
+        self.cover.image = nil;
+    }
     if (!self.cover.image) {
         __weak typeof(self) weakSelf = self;
         LMVGLoadCover(relative, ^(UIImage *image) {
             if (!image) return;
+            if (LMVGReduceMotion()) { weakSelf.cover.image = image; return; }
             [UIView transitionWithView:weakSelf.cover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
                 weakSelf.cover.image = image;
             } completion:nil];
@@ -489,6 +496,7 @@ static UIColor *LMVGAccent(void) {
 }
 
 - (void)toggled:(UISwitch *)toggle {
+    LMVGLightHaptic();
     NSString *key = [self.channelID stringByAppendingString:@"BackgroundEnabled"];
     LMVGPrefSet(key, @(toggle.on));
     LMVGNotifyChannel(self.channelID);
@@ -513,6 +521,7 @@ static UIColor *LMVGAccent(void) {
 - (void)materialTapped:(UIControl *)control {
     NSString *relative = control.accessibilityIdentifier;
     if (!relative.length) return;
+    LMVGLightHaptic();
     LMVGPrefSet([self.channelID stringByAppendingString:@"Video"], relative);
     LMVGNotifyChannel(self.channelID);
     [self refresh];

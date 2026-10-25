@@ -235,6 +235,12 @@ static inline UIFont *LMVGFont(CGFloat size, UIFontWeight weight) {
 // 4.3.1: shared press feedback (scale on touch down, spring back on release).
 // Implemented in LMVGalleryKit.m so the recogniser class exists once per bundle.
 void LMVGAddPressFeedback(UIView *view);
+static inline BOOL LMVGReduceMotion(void) { return UIAccessibilityIsReduceMotionEnabled(); }
+static inline void LMVGLightHaptic(void) {
+    UIImpactFeedbackGenerator *generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+    [generator prepare];
+    [generator impactOccurred];
+}
 
 static inline UIView *LMVGSpacer(void) {
     UIView *view = [UIView new];

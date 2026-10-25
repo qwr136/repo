@@ -525,16 +525,28 @@
     self.importing = YES;
     __weak typeof(self) weakSelf = self;
     dispatch_group_t group = dispatch_group_create();
+    __block NSUInteger imported = 0;
     for (PHPickerResult *result in videos) {
         dispatch_group_enter(group);
         [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.movie" completionHandler:^(NSURL *url, NSError *error) {
-            if (url && !error) LMVImportMovie(url, &error);
-            dispatch_async(dispatch_get_main_queue(), ^{ dispatch_group_leave(group); });
+            NSString *relative = nil;
+            if (url && !error) relative = LMVImportMovie(url, &error);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (relative.length) imported++;
+                dispatch_group_leave(group);
+            });
         }];
     }
     dispatch_group_notify(group, dispatch_get_main_queue(), ^{
         weakSelf.importing = NO;
         [weakSelf reload];
+        if (imported == 0) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入失败"
+                                                                           message:@"视频没能保存，请重试。"
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]];
+            [weakSelf presentViewController:alert animated:YES completion:nil];
+        }
     });
 }
 

@@ -26,7 +26,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 - (void)handlePress:(UILongPressGestureRecognizer *)recognizer {
     UIView *view = recognizer.view;
-    if (!view) return;
+    if (!view || LMVGReduceMotion()) return;
     if (recognizer.state == UIGestureRecognizerStateBegan || recognizer.state == UIGestureRecognizerStateChanged) {
         [UIView animateWithDuration:0.12 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
             view.transform = CGAffineTransformMakeScale(0.97, 0.97);
