@@ -572,9 +572,7 @@ static BOOL LMVLockVideoScreenAllowed(void) {
     // 4.4.1: a display link cannot go below its own divisor (4 Hz on a 120 Hz
     // panel), so "检测频率 = 1" used to run at 4. The gate below makes the row mean
     // what it says; a screen off/on edge still passes through immediately.
-    BOOL lockNowAllowed=LMVLockVideoScreenAllowed();
-    BOOL lockAllowedChanged=(lockNowAllowed!=self.screenAllowed);
-    self.screenAllowed=lockNowAllowed;[self update];
+    self.screenAllowed=LMVLockVideoScreenAllowed();[self update];
 }
 - (void)suspend {
     [self releasePaint];
@@ -608,12 +606,22 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
             (long)probeHz,(long)link.preferredFramesPerSecond];
         LMVLockVideoLog(cadenceLine);
     }
-    self.screenAllowed=LMVLockVideoScreenAllowed();
+    // 4.4.1: a display link cannot go below its own divisor (4 Hz on a 120 Hz
+    // panel), so "检测频率 = 1" used to run at 4. A screen off/on edge must never
+    // wait for this gate - it is the one state that has to land on the next frame.
+    BOOL lockAllowed=LMVLockVideoScreenAllowed();
+    BOOL lockAllowedChanged=(lockAllowed!=self.screenAllowed);
+    self.screenAllowed=lockAllowed;
     if (CACurrentMediaTime()-self.lastRevisionCheck>=1) {
         self.lastRevisionCheck=CACurrentMediaTime();NSString *revision=LMVLockVideoRevision(self.path);
         if ((revision || self.revision) && ![revision isEqualToString:self.revision]) {
             self.revision=revision;[self.playback selectPath:self.path revision:revision];
         }
+    }
+    if (probeHz>0 && !lockAllowedChanged) {
+        CFTimeInterval gateNow=CACurrentMediaTime();
+        if (gateNow-self.lastFullProbe < 1.0/probeHz) return;
+        self.lastFullProbe=gateNow;
     }
     [self update];
 }
@@ -665,11 +673,6 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     } else if (!diagnostics) self.paintText=nil;
 }
 - (void)update {
-    if (probeHz>0 && !lockAllowedChanged) {
-        CFTimeInterval gateNow=CACurrentMediaTime();
-        if (gateNow-self.lastFullProbe < 1.0/probeHz) return;
-        self.lastFullProbe=gateNow;
-    }
     if (self.updating) return;self.updating=YES;
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
     CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;

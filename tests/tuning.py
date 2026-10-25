@@ -214,7 +214,7 @@ assert 'if (gateNow-self.lastFullProbe < 1.0/probeHz) return;' in lock, \
     'lock screen tick is not gated by the row'
 assert 'probeHz>0 && !lockAllowedChanged' in lock, \
     'lock screen edge is gated away (screen off/on would be late)'
-assert 'lockAllowedChanged=(lockNowAllowed!=self.screenAllowed)' in lock, \
+assert 'lockAllowedChanged=(lockAllowed!=self.screenAllowed)' in lock, \
     'lock screen no longer detects the screen-state edge'
 
 # ---- 8.7) 4.4.1: every channel that claims a cadence must be measurable -------
