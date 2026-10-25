@@ -38,7 +38,7 @@
 
 // A UIView whose layer is the player layer, so it follows the card's bounds.
 @interface LMVPlayerHostView : UIView
-@property(nonatomic,strong) AVPlayerLayer *playerLayer;
+- (AVPlayerLayer *)playerLayer;
 @end
 @implementation LMVPlayerHostView
 + (Class)layerClass { return AVPlayerLayer.class; }
