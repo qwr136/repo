@@ -290,6 +290,7 @@ int main(void) { @autoreleasepool {
  }
  LMVPRootListController *settings=[LMVPRootListController new];
  NSArray *rows=[settings specifiers];
+ fprintf(stderr, "LMV_ROWS_DEBUG=%ld\n", (long)rows.count); fflush(stderr);
  assert(rows.count==87);
  NSInteger switches=0,sliders=0;
  for(NSString *target in targets) {
