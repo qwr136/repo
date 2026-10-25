@@ -41,7 +41,8 @@ assert '_marker.bounds=CGRectMake(0,0,30,30);' in picker
 assert '- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {' in picker
 assert picker.count('- (void)touchesBegan:') == 2, 'one per custom colour view'
 assert 'UIPanGestureRecognizer' not in picker, 'raw touches only - a recogniser lost the drag'
-assert 'dim.tag=0x5A30;' in picker, 'own dimming layer instead of a page sheet'
+assert 'dim.tag=0x5A30;' in picker, 'dim layer kept as an invisible tap-to-dismiss catcher'
+assert 'dim.backgroundColor=UIColor.clearColor;' in picker, 'dim is transparent: no full-screen darkening (4.2.2)'
 assert '[dot.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor]' in prefs
 # 2.46: the swatch is aligned by its RIGHT EDGE with the switch's right edge (16pt in),
 # not centre-to-centre. The swatch is 22pt against the switch's 51pt, so the old -41.5

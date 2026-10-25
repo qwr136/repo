@@ -147,5 +147,5 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.2.1 - 8 panel helpers, 3 hash helpers and 5 store wrappers defined once; '
+print('PASS: 4.2.2 - 8 panel helpers, 3 hash helpers and 5 store wrappers defined once; '
       '13 panels import the shared header; 8 host tags, 3 cache folders, 3 ceilings, one colour-row table')

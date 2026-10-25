@@ -411,29 +411,25 @@ static void LMVGridColorAt(NSInteger x,NSInteger y,CGFloat *r,CGFloat *g,CGFloat
     // The sheet has an explicit X, so nothing is lost.
     self.modalInPresentation=YES;
 
-    // 1.93: our own dimming instead of a system page sheet - a page sheet carries
-    // a dismissal pan, and that pan is what dragged the whole panel while the
-    // spectrum was being scrubbed.
+    // 4.2.2: 遮罩层保留（负责点击卡片外关闭），但背景改为透明——去掉全屏压暗的灰底。
+    // 毛玻璃卡片底不变，modalInPresentation 仍锁住系统下滑消失手势，避免拖拽色块误触关闭。
     UIView *dim=[UIView new];
     dim.tag=0x5A30;
-    dim.backgroundColor=[UIColor colorWithWhite:0 alpha:0.3];
+    dim.backgroundColor=UIColor.clearColor;
     dim.userInteractionEnabled=YES;
     [dim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeTapped:)]];
     [self.view addSubview:dim];
 
     _sheet=[UIView new];
-    // 2.88: 透明化，让设置 App 的视频背景透出来（文字/控件保持原样）
     _sheet.backgroundColor=UIColor.clearColor;
     _sheet.layer.cornerRadius=18;
     _sheet.layer.cornerCurve=kCACornerCurveContinuous;
     _sheet.clipsToBounds=YES;
     [self.view addSubview:_sheet];
 
-    // 4.2.1: a frosted layer under the whole sheet. The 2.88 sheet was fully
-    // transparent so the video background could show through, but the 0.3 dim
-    // was not enough to hide the Settings rows - their labels bled straight
-    // onto the swatches. The blur keeps the background mood and makes the
-    // text unreadable, so the colour grid stays clean.
+    // 4.2.1: 卡片最底层加毛玻璃层，模糊设置页下层文字/控件，避免其穿透到色板。
+    // 取代 2.88 的纯透明设计——当时仅靠 0.3 遮罩压不住下层设置文字，导致字糊在色块上。
+    // 取色器只在设置页弹出（彩蛋面板自 1.84 起已无此行），与视频背景无关。
     UIVisualEffectView *blur=[[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
     blur.tag=0x5A45;
     blur.userInteractionEnabled=NO;
