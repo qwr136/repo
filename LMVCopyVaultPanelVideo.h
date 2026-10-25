@@ -287,6 +287,24 @@ static void LMVCVPanelRestoreTextColor(void) {
 - (void)update;
 @end
 static LMVCopyVaultPanelVideoManager *LMVCopyVaultPanelVideo;
+// 4.4.9 fix: apply the colour when a cell is put on screen, not only on the probe
+// tick. CopyVault rebuilds its table cells while scrolling; with the tick as the
+// only trigger each new cell was drawn in its system colour for up to one
+// interval (200 ms at the default 5 Hz) before the next tick repainted it. The
+// UITableViewCell hook in Tweak.xm calls this from -layoutSubviews and
+// -didMoveToWindow, both of which run before the cell is drawn, so the colour no
+// longer depends on ProbeHz. Only cells inside the panel's own card are touched;
+// every other table view in SpringBoard pays two pointer checks and returns.
+static BOOL LMVCVPanelCellTextColorActive(void) {
+    if(!LMVCopyVaultPanelVideo || !LMVCopyVaultPanelVideo.card)return NO;
+    NSNumber *value=(__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("CVTextColor"),kLMVPrefsID);
+    return [value isKindOfClass:NSNumber.class];
+}
+static void LMVCVPanelApplyTextColorToCell(UIView *cell) {
+    if(!cell || !LMVCVPanelCellTextColorActive())return;
+    if(![cell isDescendantOfView:LMVCopyVaultPanelVideo.card])return;
+    LMVCVPanelApplyTextColor(cell);
+}
 @implementation LMVCopyVaultPanelVideoManager
 - (instancetype)init {
     if(!LMVCVPanelEnvironment())return nil;

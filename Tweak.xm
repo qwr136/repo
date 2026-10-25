@@ -1349,6 +1349,24 @@ static BOOL LMVPrimeMessageCard(UIView *cell) {
     } @finally { priming=NO; }
     return needsBinding;
 }
+// 4.4.9 fix: colour CopyVault's cells as they are laid out. The probe timer used to
+// be the only trigger, so a cell rebuilt while scrolling showed its system colour
+// for up to one tick (200 ms at the default 5 Hz) before being repainted. These
+// two callbacks run before the cell is drawn, which removes the flash at any
+// detection rate. The timer still repaints the whole card as a fallback for the
+// labels that are not inside a cell.
+%hook UITableViewCell
+- (void)didMoveToWindow {
+    %orig;
+    if (!LMVInitialized) return;
+    LMVCVPanelApplyTextColorToCell((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    if (!LMVInitialized) return;
+    LMVCVPanelApplyTextColorToCell((UIView *)self);
+}
+%end
 %hook NCNotificationListCell
 - (void)layoutSubviews {
     %orig;
