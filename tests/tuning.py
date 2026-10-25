@@ -172,6 +172,39 @@ assert 'NSDictionary *names = [self materialNames];' in prefs and 'name = names[
 assert 'self.materialNamesCache = LMVReadMaterialNames();' in prefs, 'the shared copy still comes from the catalog'
 assert '[value lastPathComponent]' not in prefs, 'file name is the last resort only'
 
+# ---- 8.5) 4.4.0: the two poll timers honour a row -----------------------------
+# Both were literals (desktop .2 s = 5 Hz, Control Center .1 s = 10 Hz), so the
+# expensive full probe ran at those rates no matter what the frequency rows said.
+# The rows below exist so the rate can be changed without a rebuild.
+cc = (root / 'LMVControlCenterVideo.h').read_text()
+
+assert 'LMVTuneParam(@"UpdateIntervalMs", @"完整探测间隔 (ms, 0~2000)", 0, 2000, 200)' in tuning, \
+    'desktop full-probe interval row missing (default 200 ms = the old 0.2 s)'
+assert 'LMVTuneParam(@"UpdateIntervalMs", @"完整探测间隔 (ms, 0~2000)", 0, 2000, 100)' in tuning, \
+    'control-centre full-probe interval row missing (default 100 ms = the old 0.1 s)'
+
+# The wake interval stays at the old value on purpose: it is the response floor,
+# the row only decides how often the expensive probe behind it runs.
+assert 'timerWithTimeInterval:.2 repeats:YES' in desktop, 'desktop wake interval changed'
+assert 'timerWithTimeInterval:.1 repeats:YES' in cc, 'control-centre wake interval changed'
+
+# Reading it is not enough - the value must gate the probe, and the gate must be
+# on the path to [update], otherwise the row is decoration.
+assert 'LMVTuneValue(@"Desktop",@"UpdateIntervalMs")' in desktop, 'desktop does not read the row'
+assert 'LMVTuneValue(@"CC",@"UpdateIntervalMs")' in cc, 'control centre does not read the row'
+assert 'if(!forced && now-live.lastFullUpdate < updateMs/1000.0) return;' in desktop, \
+    'desktop probe is not gated by the row'
+assert 'if(now-live.lastFullUpdate < updateMs/1000.0) return;' in cc, \
+    'control-centre probe is not gated by the row'
+
+# A material change must still apply on the tick it arrives, not up to one
+# interval later - the gate may never delay a revision.
+assert 'forced=YES' in desktop, 'desktop material change is gated away'
+
+# The classic list and the gallery page render the same table, so one row reaches
+# both entries; this pins the classic entry that used to be the only one.
+assert 'pushViewController:[LMVTuneListController new]' in prefs, 'classic entry missing'
+
 # ---- 9) 本测试已接入 CI --------------------------------------------------------
 assert 'tests/tuning.py' in workflow
 

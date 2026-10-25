@@ -116,6 +116,11 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
                 // desktop is covered, and it is the 3% CPU seen inside an app; expose it
                 // so the trade (reveal latency vs. idle cost) is the user's call.
                 LMVTuneParam(@"CoverWatchHz", @"遮挡检测频率 (Hz, 1~60)", 1, 60, 60),
+                // 4.4.0: the 0.2 s poll timer was a literal, so the full probe ran
+                // five times a second no matter what the two rows above said. The
+                // timer keeps its 0.2 s wake (that is the response floor), the probe
+                // behind it now honours this row.
+                LMVTuneParam(@"UpdateIntervalMs", @"完整探测间隔 (ms, 0~2000)", 0, 2000, 200),
             ]},
             @{@"title":@"刷新", @"params":@[
                 LMVTuneParam(@"IdleFPS", @"桌面可见刷新率 (Hz, 1~60)", 1, 60, 10),
@@ -129,6 +134,9 @@ static inline NSArray<NSDictionary *> *LMVTuneGroupsForTarget(NSString *target) 
     if ([target isEqualToString:@"CC"]) {
         return @[@{@"title":@"检测", @"params":@[
             LMVTuneParam(@"ProbeHz", @"检测频率 (Hz, 1~60)", 1, 60, 60),
+            // 4.4.0: the 0.1 s poll timer was a literal - ten full probes a second
+            // with no way to slow it down. Default matches the old behaviour.
+            LMVTuneParam(@"UpdateIntervalMs", @"完整探测间隔 (ms, 0~2000)", 0, 2000, 100),
         ]}];
     }
     if ([target isEqualToString:@"LockNC"]) {

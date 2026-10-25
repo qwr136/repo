@@ -164,7 +164,7 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic,strong) NSTimer *timer;
 @property(nonatomic,copy) NSString *path,*revision,*status,*earlyPosterAttempt,*coverage,*windowListStatus;
 @property(nonatomic) BOOL enabled,updating,authenticatedSession,suspended;
-@property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery;
+@property(nonatomic) CFTimeInterval lastRevisionCheck,lastDiscovery,lastFullUpdate;
 // 0.0.97: how long the surface has been held (attached, frozen) through a
 // transient loss of visibility, and how many real teardowns have happened. Both
 // are diagnostics for the "hitches when opening/leaving an app" report.
@@ -823,8 +823,9 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         self.timer=[NSTimer timerWithTimeInterval:.2 repeats:YES block:^(NSTimer *timer){
             LMVDesktopVideoManager *live=weakSelf;if(!live)return;
             CFTimeInterval now=CACurrentMediaTime();
+            BOOL forced=NO;
             if (now-live.lastRevisionCheck>=1) {live.lastRevisionCheck=now;NSString *revision=LMVLockVideoRevision(live.path);
-                if((revision || live.revision) && ![revision isEqualToString:live.revision]) {live.revision=revision;[live.playback selectPath:live.path revision:revision];}}
+                if((revision || live.revision) && ![revision isEqualToString:live.revision]) {live.revision=revision;[live.playback selectPath:live.path revision:revision];forced=YES;}}
             // 1.32: 1 s -> 2 s. This walks every window's whole controller tree
             // (budget 160 nodes) and it is a DISCOVERY pass, not a per-frame
             // signal: the controllers it looks for are created once at Home
@@ -832,6 +833,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
             // walk from the steady state with no effect on the cover decisions,
             // which never read this list.
             if(now-live.lastDiscovery>=2){live.lastDiscovery=now;LMVDesktopDiscover();}
+            // 4.4.0: 完整探测走「完整探测间隔」这一行。定时器仍按 0.2 s 唤醒（那是响应
+            // 下限），但真正昂贵的 update 由这一行决定频率；素材变化（forced）立即执行。
+            NSInteger updateMs=LMVTuneValue(@"Desktop",@"UpdateIntervalMs");
+            LMVTuneReport(@"Desktop",@"UpdateIntervalMs",updateMs);
+            if(!forced && now-live.lastFullUpdate < updateMs/1000.0) return;
+            live.lastFullUpdate=now;
             [live update];
         }];[NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     } else if (!self.enabled || !self.path.length) {[self.timer invalidate];self.timer=nil;}

@@ -341,6 +341,7 @@ static NSHashTable<UIViewController *> *LMVCCControllers;
 @property(nonatomic,weak) UIView *material;
 @property(nonatomic,copy) NSString *darkPath,*lightPath,*path,*revision,*status,*coverage;
 @property(nonatomic) BOOL enabled,updating,suspended,presented;
+@property(nonatomic) CFTimeInterval lastFullUpdate;
 @property(nonatomic) UIUserInterfaceStyle style;
 @property(nonatomic) CFTimeInterval lastRevisionCheck;
 @property(nonatomic,strong) NSTimer *timer;
@@ -605,7 +606,17 @@ static void LMVCCDiscover(void) {
     // now runs whenever the feature is enabled and simply re-resolves everything.
     if(self.enabled && !self.timer) {
         __weak typeof(self) weakSelf=self;
-        self.timer=[NSTimer timerWithTimeInterval:.1 repeats:YES block:^(NSTimer *timer){[weakSelf update];}];
+        // 4.4.0: the 0.1 s wake stays (detection floor), the full probe behind it
+        // now honours 「完整探测间隔」 so ten walks a second is no longer mandatory.
+        self.timer=[NSTimer timerWithTimeInterval:.1 repeats:YES block:^(NSTimer *timer){
+            LMVControlCenterVideoManager *live=weakSelf;if(!live)return;
+            CFTimeInterval now=CACurrentMediaTime();
+            NSInteger updateMs=LMVTuneValue(@"CC",@"UpdateIntervalMs");
+            LMVTuneReport(@"CC",@"UpdateIntervalMs",updateMs);
+            if(now-live.lastFullUpdate < updateMs/1000.0) return;
+            live.lastFullUpdate=now;
+            [live update];
+        }];
         [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     } else if(!self.enabled) {[self.timer invalidate];self.timer=nil;}
     if(!self.enabled && (self.playback.path || self.playback.player || self.playback.loading)) [self.playback clear];
