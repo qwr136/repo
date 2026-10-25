@@ -1,5 +1,6 @@
 #import "LMVGalleryController.h"
 #import "LMVGalleryKit.h"
+#import "LMVImport.h"
 #import "LMVMaterialPicker.h"
 #import "../LMVTextColorPicker.h"
 

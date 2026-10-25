@@ -7,7 +7,6 @@
 #import "LMVMaterialCatalog.h"
 #import "LMVThumbnailDiagnosticLog.h"
 #import "LMVMaterialThumbnail.h"
-#import "LMVImport.h"
 #import "../LMVTextColorPicker.h"
 
 // 4.3.0: shared plumbing for the gallery-style settings pages. Everything the two
