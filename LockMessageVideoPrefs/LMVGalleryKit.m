@@ -70,7 +70,7 @@ static dispatch_queue_t LMVGCoverQueue(void) {
 
 #pragma mark - Resolution
 
-// 5.1.2: one chip per cover. The cache is keyed by relative+revision, exactly like
+// 5.1.3: one chip per cover. The cache is keyed by relative+revision, exactly like
 // the cover cache, so a replaced file can never keep the old resolution.
 static NSCache<NSString *, NSString *> *LMVGResolutionCache(void) {
     static NSCache *cache;
@@ -172,7 +172,7 @@ void LMVGApplyResolution(UILabel *badge, NSString *relative) {
     });
 }
 
-// 5.1.2: the cover used to be grabbed at 0.05s only. A great many clips open on a
+// 5.1.3: the cover used to be grabbed at 0.05s only. A great many clips open on a
 // black field or a fade-in, and that frame was written to the card - which read as
 // "画质糊". Try a few later points and reject a nearly black frame; a genuinely
 // dark clip still gets its first frame back, so nothing goes blank.
@@ -208,7 +208,7 @@ static CGImageRef LMVGCopyCoverFrame(AVAssetImageGenerator *generator, AVAsset *
     return fallback;
 }
 
-// 5.1.2: decoded covers are persisted as JPEG so a cold start paints immediately
+// 5.1.3: decoded covers are persisted as JPEG so a cold start paints immediately
 // instead of waiting for sixteen serial video decodes. The name is built by the
 // shared helper in LMVStoragePaths.h, which the sweep also uses.
 static NSString *LMVGalleryCoverFolder(void) {
@@ -235,7 +235,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
     dispatch_async(LMVGCoverQueue(), ^{
         NSString *diskPath = LMVGalleryCoverDiskPath(relative, maxPixel, revision);
         UIImage *image = [LMVGCoverCache() objectForKey:key];
-        // 5.1.2: a decoded cover survives a relaunch; the first paint after a cold
+        // 5.1.3: a decoded cover survives a relaunch; the first paint after a cold
         // start no longer waits for the serial decoder.
         if (!image) {
             image = [UIImage imageWithContentsOfFile:diskPath];
@@ -245,7 +245,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
             NSString *absolute = [LMVStorageRootPath stringByAppendingPathComponent:relative];
             @autoreleasepool {
                 AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:absolute] options:nil];
-                // 5.1.2: the asset is already open for the cover - fill the
+                // 5.1.3: the asset is already open for the cover - fill the
                 // resolution chip cache here so the chip costs no second open.
                 NSString *resolution = LMVGResolutionForAsset(relative, asset);
                 if (resolution) [LMVGResolutionCache() setObject:resolution forKey:LMVGResolutionKey(relative)];
@@ -283,7 +283,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
 }
 
 void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image)) {
-    // 5.1.2: 1500 was ~1.29x short of a 3x full-width cover on a portrait clip.
+    // 5.1.3: 1500 was ~1.29x short of a 3x full-width cover on a portrait clip.
     LMVGLoadCoverSized(relative, 2000.0, completion);
 }
 

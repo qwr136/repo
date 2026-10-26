@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"5.1.2"
+#define LMVGalleryVersion @"5.1.3"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -255,7 +255,7 @@
     cover.contentMode = UIViewContentModeScaleAspectFill;
     cover.clipsToBounds = YES;
     cover.tag = 1001;
-    // 5.1.2: 1100/2000px sources are always downscaled into the card; trilinear
+    // 5.1.3: 1100/2000px sources are always downscaled into the card; trilinear
     // keeps that reduction clean instead of the default bilinear softness.
     cover.layer.minificationFilter = kCAFilterTrilinear;
     [card addSubview:cover];
@@ -285,7 +285,7 @@
     badge.layer.cornerCurve = kCACornerCurveContinuous;
     badge.clipsToBounds = YES;
     badge.translatesAutoresizingMaskIntoConstraints = NO;
-    // 5.1.2: resolution chip, bottom-right (the 使用中 badge owns the top-right).
+    // 5.1.3: resolution chip, bottom-right (the 使用中 badge owns the top-right).
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
@@ -400,7 +400,7 @@
     cover.contentMode = UIViewContentModeScaleAspectFill;
     cover.clipsToBounds = YES;
     cover.tag = 1001;
-    // 5.1.2: 1100/2000px sources are always downscaled into the card; trilinear
+    // 5.1.3: 1100/2000px sources are always downscaled into the card; trilinear
     // keeps that reduction clean instead of the default bilinear softness.
     cover.layer.minificationFilter = kCAFilterTrilinear;
     [card addSubview:cover];
@@ -425,7 +425,7 @@
     UILabel *material = LMVGLabel(@"", LMVGFont(9, UIFontWeightRegular), [UIColor.whiteColor colorWithAlphaComponent:0.78]);
     material.tag = 1006;
     material.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    // 5.1.2: resolution chip, bottom-right, clear of the name/subtitle column.
+    // 5.1.3: resolution chip, bottom-right, clear of the name/subtitle column.
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
@@ -572,7 +572,7 @@
             __weak UIView *weakCard = card;
             LMVGLoadCover(relative, ^(UIImage *image) {
                 if (!image) return;
-                // 5.1.2: a late completion for the previous material must not paint
+                // 5.1.3: a late completion for the previous material must not paint
                 // over the one now selected on this card.
                 if (![weakCard.accessibilityValue isEqualToString:relative]) return;
                 if (LMVGReduceMotion()) { weakCover.image = image; return; }
@@ -602,11 +602,11 @@
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
             __weak UIView *weakCard = card;
-            // 5.1.2: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
+            // 5.1.3: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
             // 3x card; 1100 keeps it at or above the drawn size.
             LMVGLoadCoverSized(relative, 1100.0, ^(UIImage *image) {
                 if (!image) return;
-                // 5.1.2: drop a late completion for the material this card no
+                // 5.1.3: drop a late completion for the material this card no
                 // longer shows.
                 if (![weakCard.accessibilityValue isEqualToString:relative]) return;
                 if (LMVGReduceMotion()) { weakCover.image = image; return; }

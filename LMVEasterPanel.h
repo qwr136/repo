@@ -17,6 +17,9 @@
 @property(nonatomic, strong) LMVEasterPhotoFlow *photoFlow;
 @property(nonatomic, strong) LMVMaterialPrompt *prompt;
 @property(nonatomic, copy) void (^close)(void);
+// 5.1.3: the overlay no longer steals key on open (Control Center fought it);
+// only a real text input asks for the key window now.
+@property(nonatomic, copy) void (^requestKey)(void);
 - (void)loadNames;
 - (void)showPendingImportPrompt;
 - (void)prepareForClose;
@@ -196,7 +199,20 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated]; CFPreferencesAppSynchronize(LMVEasterPrefs);
-    [self.tableView reloadData]; [self loadNames];
+    // 5.1.3: build the table one runloop later, so opening the panel does not pay
+    // for the first cell pass in the same frame as the tap.
+    CFTimeInterval appearT0=CACurrentMediaTime();
+    __weak typeof(self) weakSelf=self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LMVEasterPanel *panel=weakSelf;
+        if(!panel.isViewLoaded)return;
+        CFTimeInterval reloadT0=CACurrentMediaTime();
+        [panel.tableView reloadData];
+        LMVDiagnostic([NSString stringWithFormat:@"easter-panel-appear reload=%.1fms sections=%ld",
+            (CACurrentMediaTime()-reloadT0)*1000.0,(long)[panel numberOfSectionsInTableView:panel.tableView]]);
+    });
+    [self loadNames];
+    LMVDiagnostic([NSString stringWithFormat:@"easter-panel-appear schedule=%.1fms",(CACurrentMediaTime()-appearT0)*1000.0]);
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated]; self.panelVisible = YES;
@@ -246,6 +262,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     prompt.complete = ^(NSString *text, BOOL accepted) {
         weakSelf.prompt = nil; [weakSelf showPendingImportPrompt];
     };
+    if (self.requestKey) self.requestKey();
     UIViewController *host = navigation ?: self;
     self.prompt = prompt; [host addChildViewController:prompt]; [host.view addSubview:prompt.view];
     prompt.view.frame = host.view.bounds; prompt.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -259,7 +276,14 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         NSDictionary *names = LMVReadMaterialNames();
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!weakSelf || weakSelf.catalogGeneration != generation) return;
-            weakSelf.names = names; [weakSelf.tableView reloadData];
+            // 5.1.3: the deferred appear-pass already refreshed the rows; only pay
+            // for a second reload when the names really changed.
+            if ([weakSelf.names isEqualToDictionary:names]) return;
+            weakSelf.names = names;
+            CFTimeInterval reloadT0=CACurrentMediaTime();
+            [weakSelf.tableView reloadData];
+            LMVDiagnostic([NSString stringWithFormat:@"easter-panel-names reload=%.1fms",
+                (CACurrentMediaTime()-reloadT0)*1000.0]);
         });
     });
 }
@@ -305,8 +329,24 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     double raw = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : 0.55;
     return isfinite(raw) ? MAX(0, MIN(1, raw)) : 0.55;
 }
+// 5.1.3: one reusable row. Every branch below rebuilds its own accessory and
+// content, so the cell object is reused while the per-row setup stays untouched.
+static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
+    static NSString *identifier=@"LMVEasterPanelRow";
+    UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:identifier];
+    if(!cell) cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
+    cell.accessoryView=nil;
+    cell.accessoryType=UITableViewCellAccessoryNone;
+    cell.textLabel.text=nil; cell.detailTextLabel.text=nil;
+    cell.textLabel.numberOfLines=1; cell.detailTextLabel.numberOfLines=1;
+    cell.selectionStyle=UITableViewCellSelectionStyleDefault;
+    cell.userInteractionEnabled=YES;
+    // Copy: removeFromSuperview mutates the array being enumerated.
+    for(UIView *view in [cell.contentView.subviews copy])[view removeFromSuperview];
+    return cell;
+}
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    UITableViewCell *cell = LMVEasterPanelReusableCell(tableView);
     NSString *audioTarget = LMVEasterAudioTarget(index.section, index.row);
     if (audioTarget) {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -636,6 +676,9 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     picker.selected = [current isKindOfClass:NSString.class] ? current : fallback;
     __weak typeof(self) weakSelf = self;
     picker.apply = ^(NSString *relative, NSString *name) { LMVEasterSet(key, relative); [weakSelf.tableView reloadData]; };
+    // The picker can rename (text field), so it is one of the few paths that
+    // still needs the overlay window to be key.
+    if (self.requestKey) self.requestKey();
     [self.navigationController pushViewController:picker animated:YES];
 }
 - (void)importVideo {

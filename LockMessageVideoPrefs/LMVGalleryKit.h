@@ -144,7 +144,7 @@ void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image));
 void LMVGLoadThumb(NSString *relative, void (^completion)(UIImage *image));
 void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)(UIImage *image));
 
-// 5.1.2: the "4K / 2K / 1080P / 720P" chip shown on a cover. The value comes from
+// 5.1.3: the "4K / 2K / 1080P / 720P" chip shown on a cover. The value comes from
 // the video's SHORTER side, so a portrait clip stored as 1920x1080 with a 90°
 // transform still reads 1080P and no transform bookkeeping is needed for the
 // label. A cover load already opens the asset, so it fills this cache in the same

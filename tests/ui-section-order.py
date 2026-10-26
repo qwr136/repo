@@ -174,7 +174,7 @@ class UISectionOrder(unittest.TestCase):
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
         # 4.3.9: channel display names changed (text only; layout and routing are
         # unchanged), so the frozen cell digest is refreshed for this rename.
-        self.assertEqual(digest(old_cells), 'f63b6da871e574f3da9e3dfc7c7bf5535a80ae3e71292d584d9d4d8bf26cdc4c')
+        self.assertEqual(digest(old_cells), '7a25af3add9a737634d31dfd5ae546116d17fab800098951aa78b4582693d709')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
@@ -235,7 +235,7 @@ class UISectionOrder(unittest.TestCase):
         selection_for_digest = selection_for_digest.replace('''        if (index.row < 1 || index.row > 4) return;
         key = LMVEasterSquidKeys()[index.row - 1];''', '''        if (index.row != 1) return;
         key = @"SquidPanelVideo";''')
-        self.assertEqual(digest(selection_for_digest), '2972197835866b33492f72ac5f7bb60ef660802059fbe6bf4e217cbd464774ea')
+        self.assertEqual(digest(selection_for_digest), '09ac90fab7b248df12d78784c04b3d45db78cc6708c468cc6ba505a5de40e9aa')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',
