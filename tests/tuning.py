@@ -55,7 +55,11 @@ assert '@"刷新"' in tuning
 desktop = (root / 'LMVDesktopVideo.h').read_text()
 assert 'LMVTuneValue(@"Desktop",@"IdleFPS")' in desktop
 assert 'LMVTuneValue(@"Desktop",@"CoveredFPS")' in desktop
-assert 'burst?60:LMVDesktopCadence(@"CoveredFPS")' in desktop
+# 5.1.4: the 1 s 60 Hz burst must not override the user's CoveredFPS; the reveal is
+# caught by three one-shot probes instead.
+assert 'burst?60:LMVDesktopCadence(@"CoveredFPS")' not in desktop
+assert 'desktop-keyprobe schedule=0,150,350ms' in desktop
+assert '0.15*NSEC_PER_SEC' in desktop and '0.35*NSEC_PER_SEC' in desktop
 # 2.47: a change of cadence must leave one diagnostic line, so "did my value take
 # effect?" is answerable from a capture instead of from feel.
 assert 'desktop-cadence want=%ld idle=%ld covered=%ld' in desktop
@@ -267,6 +271,14 @@ for fn, short in (('LMVSquidPanelVideo.h','squid'), ('LMVATPanelVideo.h','at'),
                   ('LMVHomeMenuVideo.h','homemenu')):
     body = (root / fn).read_text()
     assert f'LMVPerfSample("{short}"' in body, f'{fn} has no perf sample'
+
+# ---- 8.95) 5.1.4: the panel open/close flag really gates the desktop probe ------
+assert '*LMVEasterPanelQuietFlag() && (self.playback.frozen || self.appAway)' in desktop, \
+    'desktop probe is not skipped while the floating panel is open'
+assert 'desktop-quiet panel-open probes paused' in desktop
+overlay = (root / 'LMVEasterOverlay.h').read_text()
+assert '*LMVEasterPanelQuietFlag() = YES;' in overlay, 'openPanel does not set the quiet flag'
+assert '*LMVEasterPanelQuietFlag() = NO;' in overlay, 'closePanel does not clear the quiet flag'
 
 # ---- 9) 本测试已接入 CI --------------------------------------------------------
 assert 'tests/tuning.py' in workflow

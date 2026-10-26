@@ -87,6 +87,14 @@ static inline NSString *LMVPerfSample(const char *channel, CFTimeInterval second
     return report;
 }
 
+// 5.1.4: the floating "背景视频" panel covers the whole screen while it is open, so
+// the desktop watcher can discover nothing and its 10-13 ms probe is pure cost.
+// One owner (the panel's open/close) writes it, the desktop channel reads it.
+static inline BOOL *LMVEasterPanelQuietFlag(void) {
+    static BOOL quiet = NO;
+    return &quiet;
+}
+
 // A private getter is only safe to call when it takes no arguments and returns an
 // object; anything else would read garbage off the stack.
 static inline BOOL LMVObjectGetterFor(id object, SEL selector) {

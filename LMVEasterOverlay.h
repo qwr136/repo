@@ -1139,6 +1139,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (self.displayScene != LMVEasterDisplayControlCenter && !self.embedHost && !self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
     CFTimeInterval panelT6=CACurrentMediaTime();
     CGSize panelSize=self.panel.view.bounds.size;
+    // 5.1.4: tell the desktop channel to stop probing while the panel is up.
+    *LMVEasterPanelQuietFlag() = YES;
     LMVDiagnostic([NSString stringWithFormat:@"easter-panel-open create=%.1fms nav=%.1fms mount=%.1fms chrome=%.1fms layout=%.1fms key=%.1fms total=%.1fms size=%.0fx%.0f corner=%.0f clips=%d embed=%d",
         (panelT1-panelT0)*1000.0,(panelT2-panelT1)*1000.0,(panelT3-panelT2)*1000.0,
         (panelT4-panelT3)*1000.0,(panelT5-panelT4)*1000.0,(panelT6-panelT5)*1000.0,(panelT6-panelT0)*1000.0,
@@ -1154,6 +1156,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [self.panel willMoveToParentViewController:nil]; [self.panel.view removeFromSuperview];
     [self.panel removeFromParentViewController]; [self.panel endAppearanceTransition];
     self.panel = nil; self.window.panel = nil;
+    // 5.1.4: panel gone, the desktop channel may probe again.
+    *LMVEasterPanelQuietFlag() = NO;
     [self syncRotation];
     // 5.1.3: resume the ball's frame timer that openPanel stopped.
     [self animateFrame];

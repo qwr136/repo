@@ -228,9 +228,9 @@ static void LMVDesktopVideoSuspend(void);
 // 2.07: when the window count was last read. See the gate in -coverWatchTick:.
 @property(nonatomic) CFTimeInterval probeCountAt;
 // 2.08: key-window changes are the one signal every app launch / exit produces.
-// While the desktop is covered the watcher runs at a 10 Hz heartbeat; a key change
-// opens a one second 60 Hz burst so the reveal is caught on the frame it happens.
-@property(nonatomic) CFTimeInterval probeBurstUntil;
+// 5.1.4: the one-second 60 Hz burst that used to live here is gone. It ignored the
+// user's covered-state cadence, cost ~720 ms of main thread per key change, and was
+// retriggered by every tap inside Control Center.
 // 2.54: what the display link ACTUALLY delivers, counted instead of assumed.
 // preferredFramesPerSecond is a request; the callback rate is the answer. Summed per
 // one-second window and reported as MeasuredFPS, so the page can show 设定 20 / 实测 19
@@ -760,9 +760,21 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
 - (void)keyWindowBecameKey:(NSNotification *)note {
     if(!self.coverWatch)return;
     if(!self.playback.frozen && !self.appAway)return;
-    self.probeBurstUntil=CACurrentMediaTime()+1.0;
+    // 5.1.4: three one-shot probes instead of a 1 s 60 Hz burst. The first runs on
+    // the next runloop, so the key-window transition itself is never blocked by a
+    // probe that costs 10-13 ms (and once took 1.3 s).
     self.probeCountAt=0;
-    if(!self.updating && !self.suspended)[self update];
+    __weak typeof(self) weakSelf=self;
+    void (^probe)(void)=^{
+        LMVDesktopVideoManager *manager=weakSelf;
+        if(!manager || manager.updating || manager.suspended)return;
+        [manager update];
+    };
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-keyprobe schedule=0,150,350ms covered=%d",
+        (int)(self.playback.frozen || self.appAway)]);
+    dispatch_async(dispatch_get_main_queue(),probe);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.15*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.35*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
 }
 - (void)syncGeometry {
     // 1.32: the live superview, never `container` - on the Home path the surface
@@ -966,26 +978,20 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // reveal is still caught on the frame it happens. Pure 0 Hz was tempting but a
     // stolen scene (app switcher, Control Center dismissal) does not always change
     // the key window, and a watchdog that can miss that would leave the video off.
-    CFTimeInterval tickNow=CACurrentMediaTime();
-    BOOL burst=tickNow<self.probeBurstUntil;
-    // 2.10: with the key-window edge doing the waking, the heartbeat only has to be a
-    // backstop for transitions that do not change the key window. 5 Hz is enough for
-    // that and costs half of the 10 Hz version.
-    // 2.46: the VISIBLE state was still 60 Hz, which is one main-thread wake per
-    // frame for as long as the desktop video exists - even when the tick returns at
-    // its cheap gate. A reveal can only be late by one interval, and the cross-fade
-    // itself lasts 200-400 ms, so 30 Hz halves that wake traffic with no visible
-    // difference; the 1 s burst after a key-window change stays at 60 Hz to catch the
-    // exact frame the desktop is uncovered.
+    // 5.1.4: the 1 s 60 Hz burst is gone. It overrode the user's CoveredFPS (1 Hz
+    // on the reporting device) for a full second, and each full probe costs
+    // 10-13 ms - opening Control Center blocked the main thread for ~700 ms.
+    // keyWindowBecameKey: now runs three one-shot probes (0/150/350 ms) instead,
+    // which is enough for the 200-400 ms reveal and never touches this cadence.
     NSInteger wantFPS=(self.playback.frozen || self.appAway)?
-        (burst?60:LMVDesktopCadence(@"CoveredFPS")):LMVDesktopCadence(@"IdleFPS");
+        LMVDesktopCadence(@"CoveredFPS"):LMVDesktopCadence(@"IdleFPS");
     // 4.4.4: the gate at the top of the next tick reads this. Single owner: the two
     // rows above, nothing else writes preferredFramesPerSecond on this link.
     self.coverTargetFPS=wantFPS;
-    // 0 = idle (desktop visible), 1 = covered heartbeat, 2 = the 1 s burst that runs
-    // right after a key-window change. Without this the page showed "实际 60" while
-    // the user had set 10 and looked like the setting was ignored.
-    NSInteger wantReason = (self.playback.frozen || self.appAway) ? (burst ? 2 : 1) : 0;
+    // 0 = idle (desktop visible), 1 = covered heartbeat. Reason 2 (the old 1 s burst)
+    // no longer exists, so the page can never report "实际 60" against a user setting
+    // of 1 again.
+    NSInteger wantReason = (self.playback.frozen || self.appAway) ? 1 : 0;
     LMVTuneReport(@"Desktop",@"WantFPS",wantFPS);
     LMVTuneReport(@"Desktop",@"WantReason",wantReason);
     if (!(self.playback.frozen || self.appAway)) {
@@ -1123,6 +1129,16 @@ static NSInteger LMVDesktopCadence(NSString *key) {
 }
 - (void)update {
     if (self.updating || self.suspended) return;self.updating=YES;
+    // 5.1.4: the floating "背景视频" panel covers everything while it is open, and the
+    // desktop is covered by definition. A probe can change nothing then, so skip the
+    // whole 10-13 ms pass; the timer and the user's cadence stay untouched.
+    static BOOL quietLogged;
+    if (*LMVEasterPanelQuietFlag() && (self.playback.frozen || self.appAway)) {
+        self.updating=NO;
+        if(!quietLogged){quietLogged=YES;LMVDiagnostic(@"desktop-quiet panel-open probes paused");}
+        return;
+    }
+    if(quietLogged){quietLogged=NO;LMVDiagnostic(@"desktop-quiet panel-closed probes resume");}
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
     CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;
     uint64_t blank=1,locked=1;
