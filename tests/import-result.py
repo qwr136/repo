@@ -96,6 +96,7 @@ static const NSUInteger UIViewAutoresizingFlexibleWidth=2,UIViewAutoresizingFlex
 @end
 @interface LMVEasterPanel:UIViewController
 @property BOOL panelVisible;
+@property(nonatomic, copy) void (^requestKey)(void);
 @property(strong) LMVMaterialPrompt *prompt;
 @property(strong) TestTable *tableView;
 @property NSUInteger nameLoads;

@@ -235,6 +235,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @end
 @interface LMVEasterPanel : NSObject
 @property BOOL busy,volumeTracking;
+@property(nonatomic, copy) void (^requestKey)(void);
 @property NSInteger imports;
 @property id presentedViewController;
 @property UITableView *tableView;
