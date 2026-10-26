@@ -36,6 +36,7 @@ static UIColor *LMVGAccent(void) {
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIStackView *stack;
 @property(nonatomic,strong) UIImageView *cover;
+@property(nonatomic,strong) UILabel *resolutionBadge;
 @property(nonatomic,copy) NSString *coverRelative;
 @property(nonatomic,strong) NSLayoutConstraint *coverTopInset;
 @property(nonatomic,strong) UIScrollView *materialStrip;
@@ -171,6 +172,13 @@ static UIColor *LMVGAccent(void) {
     [coverBox addSubview:back];
     [back.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor constant:12].active = YES;
     [back.topAnchor constraintEqualToAnchor:coverBox.topAnchor constant:12].active = YES;
+
+    // 5.0.0: resolution chip, bottom-right of the preview.
+    UILabel *resolution = LMVGMakeResolutionBadge();
+    [coverBox addSubview:resolution];
+    self.resolutionBadge = resolution;
+    [resolution.trailingAnchor constraintEqualToAnchor:coverBox.trailingAnchor constant:-12].active = YES;
+    [resolution.bottomAnchor constraintEqualToAnchor:coverBox.bottomAnchor constant:-12].active = YES;
 }
 
 - (void)buildTitle {
@@ -242,6 +250,7 @@ static UIColor *LMVGAccent(void) {
     BOOL on = LMVGPrefBool([self.channelID stringByAppendingString:@"BackgroundEnabled"], NO);
     self.toggle.on = on;
     self.subtitle.text = [NSString stringWithFormat:@"%@ · %@", name, on ? @"已启用" : @"未启用"];
+    LMVGApplyResolution(self.resolutionBadge, relative);
     if (![self.coverRelative isEqualToString:relative]) {
         self.coverRelative = relative ?: @"";
         self.cover.image = nil;

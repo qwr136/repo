@@ -273,6 +273,11 @@
     cover.tag = 1001;
     [card addSubview:cover];
 
+    // 5.0.0: resolution chip inside the cover's bottom-right; the edit buttons
+    // (trash/pencil) live top-right and never collide with it.
+    UILabel *resolution = LMVGMakeResolutionBadge();
+    [card addSubview:resolution];
+
     UILabel *name = LMVGLabel(material[@"name"], LMVGFont(11, UIFontWeightMedium), UIColor.labelColor);
     name.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [card addSubview:name];
@@ -324,6 +329,8 @@
     [name.topAnchor constraintEqualToAnchor:cover.bottomAnchor constant:6].active = YES;
     [badge.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-9].active = YES;
     [badge.centerYAnchor constraintEqualToAnchor:name.centerYAnchor].active = YES;
+    [resolution.trailingAnchor constraintEqualToAnchor:cover.trailingAnchor constant:-6].active = YES;
+    [resolution.bottomAnchor constraintEqualToAnchor:cover.bottomAnchor constant:-6].active = YES;
 
     BOOL used = NO;
     for (NSString *identifier in LMVChannelIDs())
@@ -333,8 +340,10 @@
         badge.hidden = NO;
     }
 
+    LMVGApplyResolution(resolution, material[@"path"]);
     __weak UIImageView *weakCover = cover;
-    LMVGLoadCoverSized(material[@"path"], 800.0, ^(UIImage *image) {
+    // 5.0.0: 800 left a portrait clip ~450px wide on a 3x tile (~510px drawn).
+    LMVGLoadCoverSized(material[@"path"], 1000.0, ^(UIImage *image) {
         if (!image) return;
         [UIView transitionWithView:weakCover duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
             weakCover.image = image;

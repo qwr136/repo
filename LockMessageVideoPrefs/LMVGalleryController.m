@@ -282,19 +282,24 @@
     badge.layer.cornerCurve = kCACornerCurveContinuous;
     badge.clipsToBounds = YES;
     badge.translatesAutoresizingMaskIntoConstraints = NO;
+    // 5.0.0: resolution chip, bottom-right (the 使用中 badge owns the top-right).
+    UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
     [card addSubview:badge];
+    [card addSubview:resolution];
     [name.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14].active = YES;
     [name.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-14].active = YES;
     [material.leadingAnchor constraintEqualToAnchor:name.leadingAnchor].active = YES;
-    [material.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-14].active = YES;
+    [material.trailingAnchor constraintLessThanOrEqualToAnchor:resolution.leadingAnchor constant:-8].active = YES;
     [material.topAnchor constraintEqualToAnchor:name.bottomAnchor constant:2].active = YES;
     [material.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-13].active = YES;
     [badge.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12].active = YES;
     [badge.topAnchor constraintEqualToAnchor:card.topAnchor constant:12].active = YES;
     [badge.heightAnchor constraintEqualToConstant:20].active = YES;
     [badge.widthAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
+    [resolution.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12].active = YES;
+    [resolution.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-13].active = YES;
 
     LMVGAddPressFeedback(card);
     // 4.3.6: tapping opens the channel page; no full-screen playback anywhere.
@@ -414,14 +419,19 @@
     UILabel *material = LMVGLabel(@"", LMVGFont(9, UIFontWeightRegular), [UIColor.whiteColor colorWithAlphaComponent:0.78]);
     material.tag = 1006;
     material.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    // 5.0.0: resolution chip, bottom-right, clear of the name/subtitle column.
+    UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
+    [card addSubview:resolution];
     [name.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:22].active = YES;
     [name.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-10].active = YES;
     [name.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-22].active = YES;
     [material.leadingAnchor constraintEqualToAnchor:name.leadingAnchor].active = YES;
-    [material.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-10].active = YES;
+    [material.trailingAnchor constraintLessThanOrEqualToAnchor:resolution.leadingAnchor constant:-6].active = YES;
     [material.topAnchor constraintEqualToAnchor:name.bottomAnchor constant:1].active = YES;
+    [resolution.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-8].active = YES;
+    [resolution.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8].active = YES;
 
     UIView *dot = [UIView new];
     dot.translatesAutoresizingMaskIntoConstraints = NO;
@@ -543,6 +553,7 @@
         UILabel *badge = (UILabel *)[card viewWithTag:1003];
         badge.text = on ? @"使用中" : @"未启用";
         badge.alpha = on ? 1.0 : 0.75;
+        LMVGApplyResolution((UILabel *)[card viewWithTag:1007], relative);
         UIImageView *cover = (UIImageView *)[card viewWithTag:1001];
         // A material change returns here with the old pixels still in place; compare
         // the path we last painted (kept on accessibilityValue) before reusing it.
@@ -572,6 +583,7 @@
         UILabel *material = (UILabel *)[card viewWithTag:1006];
         material.text = relative.length ? LMVGMaterialName(relative) : @"未选择素材";
         material.textColor = relative.length ? [UIColor.whiteColor colorWithAlphaComponent:0.78] : [UIColor.whiteColor colorWithAlphaComponent:0.5];
+        LMVGApplyResolution((UILabel *)[card viewWithTag:1007], relative);
         UIImageView *cover = (UIImageView *)[card viewWithTag:1001];
         if (![card.accessibilityValue isEqualToString:relative]) {
             card.accessibilityValue = relative ?: @"";
@@ -579,7 +591,9 @@
         }
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
-            LMVGLoadCoverSized(relative, 700.0, ^(UIImage *image) {
+            // 5.0.0: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
+            // 3x card; 1100 keeps it at or above the drawn size.
+            LMVGLoadCoverSized(relative, 1100.0, ^(UIImage *image) {
                 if (!image) return;
                 if (LMVGReduceMotion()) { weakCover.image = image; return; }
                 [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{

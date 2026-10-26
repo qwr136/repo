@@ -144,6 +144,16 @@ void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image));
 void LMVGLoadThumb(NSString *relative, void (^completion)(UIImage *image));
 void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)(UIImage *image));
 
+// 5.0.0: the "4K / 2K / 1080P / 720P" chip shown on a cover. The value comes from
+// the video's SHORTER side, so a portrait clip stored as 1920x1080 with a 90°
+// transform still reads 1080P and no transform bookkeeping is needed for the
+// label. A cover load already opens the asset, so it fills this cache in the same
+// pass; a card that asks first costs one extra track lookup, never a decode.
+NSString *LMVGResolutionText(CGSize pixelSize);
+void LMVGLoadResolution(NSString *relative, void (^completion)(NSString *text));
+UILabel *LMVGMakeResolutionBadge(void);
+void LMVGApplyResolution(UILabel *badge, NSString *relative);
+
 // Same catalog rules as LMVMaterialPicker: legacy files first, then the library
 // folder, deduplicated, live files only, names resolved through the catalog.
 static inline void LMVGLoadMaterials(void (^completion)(NSArray<NSDictionary *> *rows)) {

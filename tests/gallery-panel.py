@@ -128,11 +128,24 @@ check("CGAffineTransformMakeScale(1.08, 1.08)" in gallery, "hero parallax missin
 check("imported == 0" in pages, "import failure has no alert")
 check("UIColor.systemBlueColor" in gallery and "tab.tag = index" in gallery, "tab has no selected state")
 
-# 4.4.9: hero plays, panels merged into scenes, direct material switch, 1500px covers.
+# 5.0.0: hero plays, panels merged into scenes, direct material switch, 2000px covers.
 check("buildPanelSection" not in gallery, "home still has the separate panel strip")
 check("arrayByAddingObjectsFromArray:_panels" in gallery, "panels not merged into the scene grid")
 check("cycleMaterial" in detail and "changeMaterialFromLongPress" in detail, "material button does not switch directly")
-check("1500.0" in kit_impl, "hero covers are not 1500px")
+check("2000.0" in kit_impl, "hero covers are not 2000px")
+
+# 5.0.0: a resolution chip ("4K"/"2K"/"1080P"/"720P"/"480P") sits on every cover.
+check("LMVGResolutionText" in kit_impl and "LMVGMakeResolutionBadge" in kit_impl,
+      "resolution chip is not implemented in the kit")
+check("2160" in kit_impl and "1440" in kit_impl and "1080" in kit_impl and "720" in kit_impl,
+      "resolution thresholds missing")
+check("LMVGPaddedLabel" in kit_impl and "tag = 1007" in kit_impl, "resolution chip has no padding/tag")
+for label, src in (("home", gallery), ("material list", pages), ("detail", detail)):
+    check("LMVGMakeResolutionBadge" in src and "LMVGApplyResolution" in src,
+          f"{label} has no resolution chip")
+# 5.0.0: scene covers 1100 (was 700), material list 1000 (was 800).
+check("1100.0" in gallery, "scene covers are not 1100px")
+check("1000.0" in pages, "material covers are not 1000px")
 
 # 4.4.9
 check("LMVPanelGridController" not in pages and "LMVPanelGridController" not in read(PREFS / "LMVGalleryController.h"),
