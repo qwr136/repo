@@ -1136,7 +1136,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     // 5.1.3: do NOT steal key from Control Center - the two windows fought over it
     // and every frame stuttered. Panels on the lock screen / NC / Home keep the old
     // behaviour; a text prompt asks for the key through panel.requestKey instead.
-    if (self.displayScene != LMVEasterDisplayCC && !self.embedHost && !self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
+    if (self.displayScene != LMVEasterDisplayControlCenter && !self.embedHost && !self.window.isKeyWindow && self.window.canBecomeKeyWindow) [self.window makeKeyWindow];
     CFTimeInterval panelT6=CACurrentMediaTime();
     CGSize panelSize=self.panel.view.bounds.size;
     LMVDiagnostic([NSString stringWithFormat:@"easter-panel-open create=%.1fms nav=%.1fms mount=%.1fms chrome=%.1fms layout=%.1fms key=%.1fms total=%.1fms size=%.0fx%.0f corner=%.0f clips=%d embed=%d",
