@@ -70,7 +70,7 @@ static dispatch_queue_t LMVGCoverQueue(void) {
 
 #pragma mark - Resolution
 
-// 5.0.0: one chip per cover. The cache is keyed by relative+revision, exactly like
+// 5.1.0: one chip per cover. The cache is keyed by relative+revision, exactly like
 // the cover cache, so a replaced file can never keep the old resolution.
 static NSCache<NSString *, NSString *> *LMVGResolutionCache(void) {
     static NSCache *cache;
@@ -191,7 +191,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
             NSString *absolute = [LMVStorageRootPath stringByAppendingPathComponent:relative];
             @autoreleasepool {
                 AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:absolute] options:nil];
-                // 5.0.0: the asset is already open for the cover - fill the
+                // 5.1.0: the asset is already open for the cover - fill the
                 // resolution chip cache here so the chip costs no second open.
                 NSString *resolution = LMVGResolutionForAsset(relative, asset);
                 if (resolution) [LMVGResolutionCache() setObject:resolution forKey:LMVGResolutionKey(relative)];
@@ -218,7 +218,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
 }
 
 void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image)) {
-    // 5.0.0: 1500 was ~1.29x short of a 3x full-width cover on a portrait clip.
+    // 5.1.0: 1500 was ~1.29x short of a 3x full-width cover on a portrait clip.
     LMVGLoadCoverSized(relative, 2000.0, completion);
 }
 

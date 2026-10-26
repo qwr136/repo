@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"5.0.0"
+#define LMVGalleryVersion @"5.1.0"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -282,7 +282,7 @@
     badge.layer.cornerCurve = kCACornerCurveContinuous;
     badge.clipsToBounds = YES;
     badge.translatesAutoresizingMaskIntoConstraints = NO;
-    // 5.0.0: resolution chip, bottom-right (the 使用中 badge owns the top-right).
+    // 5.1.0: resolution chip, bottom-right (the 使用中 badge owns the top-right).
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
@@ -419,7 +419,7 @@
     UILabel *material = LMVGLabel(@"", LMVGFont(9, UIFontWeightRegular), [UIColor.whiteColor colorWithAlphaComponent:0.78]);
     material.tag = 1006;
     material.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    // 5.0.0: resolution chip, bottom-right, clear of the name/subtitle column.
+    // 5.1.0: resolution chip, bottom-right, clear of the name/subtitle column.
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
@@ -591,7 +591,7 @@
         }
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
-            // 5.0.0: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
+            // 5.1.0: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
             // 3x card; 1100 keeps it at or above the drawn size.
             LMVGLoadCoverSized(relative, 1100.0, ^(UIImage *image) {
                 if (!image) return;
