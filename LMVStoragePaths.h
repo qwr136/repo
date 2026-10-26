@@ -41,6 +41,11 @@ static NSString *const LMVPosterCacheFolder = @".background-posters";
 #ifndef LMVFrameCacheFolder
 static NSString *const LMVFrameCacheFolder = @".last-frames";
 #endif
+// 5.1.1: decoded gallery covers (JPEG). One folder, swept by material hash so a
+// deleted/replaced clip cannot leave a stale thumbnail behind.
+#ifndef LMVGalleryCoverCacheFolder
+static NSString *const LMVGalleryCoverCacheFolder = @".gallery-covers";
+#endif
 
 // POSIX calls need C strings; these are the same names, not a second source.
 #define LMV_LIBRARY_NAME "library"
@@ -77,6 +82,22 @@ static inline NSString *LMVStorageHashFileName(NSString *string) {
 static inline NSString *LMVStorageHashPrefix(NSString *string, NSUInteger bytes) {
     NSString *hex = LMVStorageHashName(string);
     return [hex substringToIndex:MIN(bytes * 2, hex.length)];
+}
+// 5.1.1: the gallery cover disk cache. Both the writer (LMVGalleryKit) and the
+// sweep (LMVMaterialCatalog) build the name here, so the two can never drift and
+// leave an unreachable JPEG behind.
+static inline NSArray<NSNumber *> *LMVGalleryCoverPixelSizes(void) {
+    return @[@360, @1000, @1100, @2000];
+}
+// Name layout: <hash(relative)>-<pixels>-<hash(revision) prefix>.jpg. The sweep
+// only needs the FIRST field, so it never has to import the thumbnail header
+// (which would drag AVFoundation into the Foundation-only catalog test).
+static inline NSString *LMVGalleryCoverFilePrefix(NSString *relative) {
+    return LMVStorageHashName(relative ?: @"");
+}
+static inline NSString *LMVGalleryCoverFileName(NSString *relative, CGFloat maxPixel, NSString *revision) {
+    NSString *rev = revision.length ? [LMVStorageHashName(revision) substringToIndex:8] : @"0";
+    return [NSString stringWithFormat:@"%@-%.0f-%@.jpg", LMVGalleryCoverFilePrefix(relative), (double)maxPixel, rev];
 }
 
 // 4.1.0: the three record ceilings, each previously typed at both the read and the

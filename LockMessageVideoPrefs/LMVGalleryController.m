@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"5.1.0"
+#define LMVGalleryVersion @"5.1.1"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -255,6 +255,9 @@
     cover.contentMode = UIViewContentModeScaleAspectFill;
     cover.clipsToBounds = YES;
     cover.tag = 1001;
+    // 5.1.1: 1100/2000px sources are always downscaled into the card; trilinear
+    // keeps that reduction clean instead of the default bilinear softness.
+    cover.layer.minificationFilter = kCAFilterTrilinear;
     [card addSubview:cover];
     [cover.leadingAnchor constraintEqualToAnchor:card.leadingAnchor].active = YES;
     [cover.trailingAnchor constraintEqualToAnchor:card.trailingAnchor].active = YES;
@@ -282,7 +285,7 @@
     badge.layer.cornerCurve = kCACornerCurveContinuous;
     badge.clipsToBounds = YES;
     badge.translatesAutoresizingMaskIntoConstraints = NO;
-    // 5.1.0: resolution chip, bottom-right (the 使用中 badge owns the top-right).
+    // 5.1.1: resolution chip, bottom-right (the 使用中 badge owns the top-right).
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
@@ -397,6 +400,9 @@
     cover.contentMode = UIViewContentModeScaleAspectFill;
     cover.clipsToBounds = YES;
     cover.tag = 1001;
+    // 5.1.1: 1100/2000px sources are always downscaled into the card; trilinear
+    // keeps that reduction clean instead of the default bilinear softness.
+    cover.layer.minificationFilter = kCAFilterTrilinear;
     [card addSubview:cover];
     [cover.leadingAnchor constraintEqualToAnchor:card.leadingAnchor].active = YES;
     [cover.trailingAnchor constraintEqualToAnchor:card.trailingAnchor].active = YES;
@@ -419,7 +425,7 @@
     UILabel *material = LMVGLabel(@"", LMVGFont(9, UIFontWeightRegular), [UIColor.whiteColor colorWithAlphaComponent:0.78]);
     material.tag = 1006;
     material.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    // 5.1.0: resolution chip, bottom-right, clear of the name/subtitle column.
+    // 5.1.1: resolution chip, bottom-right, clear of the name/subtitle column.
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:name];
     [card addSubview:material];
@@ -563,8 +569,12 @@
         }
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
+            __weak UIView *weakCard = card;
             LMVGLoadCover(relative, ^(UIImage *image) {
                 if (!image) return;
+                // 5.1.1: a late completion for the previous material must not paint
+                // over the one now selected on this card.
+                if (![weakCard.accessibilityValue isEqualToString:relative]) return;
                 if (LMVGReduceMotion()) { weakCover.image = image; return; }
                 [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
                     weakCover.image = image;
@@ -591,10 +601,14 @@
         }
         if (!cover.image) {
             __weak UIImageView *weakCover = cover;
-            // 5.1.0: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
+            __weak UIView *weakCard = card;
+            // 5.1.1: 700 left a portrait clip only 394px wide, upscaled 1.35x on a
             // 3x card; 1100 keeps it at or above the drawn size.
             LMVGLoadCoverSized(relative, 1100.0, ^(UIImage *image) {
                 if (!image) return;
+                // 5.1.1: drop a late completion for the material this card no
+                // longer shows.
+                if (![weakCard.accessibilityValue isEqualToString:relative]) return;
                 if (LMVGReduceMotion()) { weakCover.image = image; return; }
                 [UIView transitionWithView:weakCover duration:0.28 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
                     weakCover.image = image;

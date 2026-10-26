@@ -99,9 +99,9 @@ for value, owners in tags.items():
     check(len(owners) == 1, 'tag %s is used by more than one panel: %s' % (value, owners))
 check(len(tags) == 8, 'expected 8 host tags, found %d' % len(tags))
 
-# 5) The three record cache folders are named once. A second copy is how a sweep ends
+# 5) The four record cache folders are named once. A second copy is how a sweep ends
 #    up scanning a folder nobody writes to - no error, just records never collected.
-cache_folders = ['@".material-thumbnails"', '@".background-posters"', '@".last-frames"']
+cache_folders = ['@".material-thumbnails"', '@".background-posters"', '@".last-frames"', '@".gallery-covers"']
 for literal in cache_folders:
     check(literal in storage, literal + ' must be named in LMVStoragePaths.h')
     elsewhere = [str(p.relative_to(root)) for p in sources
@@ -148,4 +148,4 @@ if failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
 print('PASS: 4.2.2 - 8 panel helpers, 3 hash helpers and 5 store wrappers defined once; '
-      '13 panels import the shared header; 8 host tags, 3 cache folders, 3 ceilings, one colour-row table')
+      '13 panels import the shared header; 8 host tags, 4 cache folders, 3 ceilings, one colour-row table')

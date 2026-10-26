@@ -25,6 +25,23 @@ static void LMVSweepCacheDirectory(NSString *root, NSSet<NSString *> *keep) {
         [fm removeItemAtPath:[root stringByAppendingPathComponent:file] error:nil];
     }
 }
+// 5.1.1: gallery covers are JPEGs named <hash(relative)>-<pixels>-<revision>.jpg.
+// Keep every revision of a live material (the read path ignores stale ones) and
+// drop the files of deleted materials; a 30-day age cap bounds replacements.
+static void LMVSweepGalleryCovers(NSString *root, NSArray<NSString *> *liveRelatives) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSMutableSet<NSString *> *keep = [NSMutableSet new];
+    for (NSString *relative in liveRelatives) [keep addObject:LMVGalleryCoverFilePrefix(relative)];
+    NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-30 * 24 * 60 * 60];
+    for (NSString *file in [fm contentsOfDirectoryAtPath:root error:nil]) {
+        if (![file.pathExtension isEqualToString:@"jpg"]) continue;
+        NSString *prefix = [[file componentsSeparatedByString:@"-"] firstObject];
+        NSString *path = [root stringByAppendingPathComponent:file];
+        if (![keep containsObject:prefix]) { [fm removeItemAtPath:path error:nil]; continue; }
+        NSDate *modified = [fm attributesOfItemAtPath:path error:nil][NSFileModificationDate];
+        if (modified && [modified compare:cutoff] == NSOrderedAscending) [fm removeItemAtPath:path error:nil];
+    }
+}
 static void LMVSweepStaleCaches(NSArray<NSString *> *liveRelatives) {
     NSString *catalogRoot = LMV_CATALOG_ROOT;
     NSMutableSet<NSString *> *thumbnails = [NSMutableSet new];
@@ -39,6 +56,7 @@ static void LMVSweepStaleCaches(NSArray<NSString *> *liveRelatives) {
     LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:LMVThumbnailCacheFolder], thumbnails);
     LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:LMVPosterCacheFolder], posters);
     LMVSweepCacheDirectory([catalogRoot stringByAppendingPathComponent:LMVFrameCacheFolder], frames);
+    LMVSweepGalleryCovers([catalogRoot stringByAppendingPathComponent:LMVGalleryCoverCacheFolder], liveRelatives);
 }
 // All catalog reads/writes run on LMVMaterialQueue, shared with import/clear.
 // Keys are stable relative paths. Renaming never mutates a material or preference.

@@ -70,7 +70,7 @@ static dispatch_queue_t LMVGCoverQueue(void) {
 
 #pragma mark - Resolution
 
-// 5.1.0: one chip per cover. The cache is keyed by relative+revision, exactly like
+// 5.1.1: one chip per cover. The cache is keyed by relative+revision, exactly like
 // the cover cache, so a replaced file can never keep the old resolution.
 static NSCache<NSString *, NSString *> *LMVGResolutionCache(void) {
     static NSCache *cache;
@@ -172,6 +172,53 @@ void LMVGApplyResolution(UILabel *badge, NSString *relative) {
     });
 }
 
+// 5.1.1: the cover used to be grabbed at 0.05s only. A great many clips open on a
+// black field or a fade-in, and that frame was written to the card - which read as
+// "画质糊". Try a few later points and reject a nearly black frame; a genuinely
+// dark clip still gets its first frame back, so nothing goes blank.
+static BOOL LMVGImageIsNearlyBlack(CGImageRef image) {
+    if (!image) return YES;
+    uint8_t pixels[8 * 8 * 4] = {0};
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(pixels, 8, 8, 8, 8 * 4, space, kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(space);
+    if (!ctx) return NO;
+    CGContextSetInterpolationQuality(ctx, kCGInterpolationLow);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, 8, 8), image);
+    CGContextRelease(ctx);
+    double sum = 0;
+    for (NSUInteger i = 0; i < 8 * 8; i++)
+        sum += 0.2126 * pixels[i * 4] + 0.7152 * pixels[i * 4 + 1] + 0.0722 * pixels[i * 4 + 2];
+    return (sum / (8 * 8)) < 12.0;
+}
+static CGImageRef LMVGCopyCoverFrame(AVAssetImageGenerator *generator, AVAsset *asset) {
+    double duration = CMTimeGetSeconds(asset.duration);
+    CGImageRef fallback = NULL;
+    for (NSNumber *offset in @[@0.05, @0.5, @1.0]) {
+        double seconds = offset.doubleValue;
+        if (seconds > 0.05 && (!isfinite(duration) || seconds >= duration)) continue;
+        CGImageRef frame = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(seconds, 600) actualTime:NULL error:NULL];
+        if (!frame) continue;
+        if (!LMVGImageIsNearlyBlack(frame)) {
+            if (fallback) CGImageRelease(fallback);
+            return frame;
+        }
+        if (!fallback) fallback = frame; else CGImageRelease(frame);
+    }
+    return fallback;
+}
+
+// 5.1.1: decoded covers are persisted as JPEG so a cold start paints immediately
+// instead of waiting for sixteen serial video decodes. The name is built by the
+// shared helper in LMVStoragePaths.h, which the sweep also uses.
+static NSString *LMVGalleryCoverFolder(void) {
+    return [LMVStorageRootPath stringByAppendingPathComponent:LMVGalleryCoverCacheFolder];
+}
+static NSString *LMVGalleryCoverDiskPath(NSString *relative, CGFloat maxPixel, NSString *revision) {
+    return [LMVGalleryCoverFolder() stringByAppendingPathComponent:
+            LMVGalleryCoverFileName(relative, maxPixel, revision)];
+}
+
 void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)(UIImage *)) {
     if (!completion) return;
     if (![relative isKindOfClass:NSString.class] || !relative.length) {
@@ -186,12 +233,19 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
         return;
     }
     dispatch_async(LMVGCoverQueue(), ^{
+        NSString *diskPath = LMVGalleryCoverDiskPath(relative, maxPixel, revision);
         UIImage *image = [LMVGCoverCache() objectForKey:key];
+        // 5.1.1: a decoded cover survives a relaunch; the first paint after a cold
+        // start no longer waits for the serial decoder.
+        if (!image) {
+            image = [UIImage imageWithContentsOfFile:diskPath];
+            if (image) [LMVGCoverCache() setObject:image forKey:key cost:(NSUInteger)(image.size.width * image.size.height * 4)];
+        }
         if (!image) {
             NSString *absolute = [LMVStorageRootPath stringByAppendingPathComponent:relative];
             @autoreleasepool {
                 AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:absolute] options:nil];
-                // 5.1.0: the asset is already open for the cover - fill the
+                // 5.1.1: the asset is already open for the cover - fill the
                 // resolution chip cache here so the chip costs no second open.
                 NSString *resolution = LMVGResolutionForAsset(relative, asset);
                 if (resolution) [LMVGResolutionCache() setObject:resolution forKey:LMVGResolutionKey(relative)];
@@ -200,8 +254,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
                 generator.maximumSize = CGSizeMake(maxPixel, maxPixel);
                 generator.requestedTimeToleranceBefore = CMTimeMakeWithSeconds(0.10, 600);
                 generator.requestedTimeToleranceAfter = CMTimeMakeWithSeconds(0.10, 600);
-                NSError *error = nil;
-                CGImageRef frame = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(0.05, 600) actualTime:NULL error:&error];
+                CGImageRef frame = LMVGCopyCoverFrame(generator, asset);
                 if (frame) {
                     image = [UIImage imageWithCGImage:frame];
                     CGImageRelease(frame);
@@ -210,7 +263,19 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
             // Very short clips can fail at 0.05s; the old 144px path is the fallback
             // (soft, but better than an empty gradient).
             if (!image && revision) image = LMVEnsureThumbnail(relative, revision);
-            if (image) [LMVGCoverCache() setObject:image forKey:key cost:(NSUInteger)(image.size.width * image.size.height * 4)];
+            if (image) {
+                [LMVGCoverCache() setObject:image forKey:key cost:(NSUInteger)(image.size.width * image.size.height * 4)];
+                // Only sizes a page keeps on screen are persisted; the 2000px hero
+                // would add hundreds of KB per clip for a one-off paint.
+                if (maxPixel <= 1200) {
+                    NSData *jpeg = UIImageJPEGRepresentation(image, 0.86);
+                    if (jpeg.length && jpeg.length <= 512 * 1024) {
+                        [NSFileManager.defaultManager createDirectoryAtPath:LMVGalleryCoverFolder()
+                                              withIntermediateDirectories:YES attributes:nil error:nil];
+                        [jpeg writeToFile:diskPath atomically:YES];
+                    }
+                }
+            }
         }
         UIImage *result = image;
         dispatch_async(dispatch_get_main_queue(), ^{ completion(result); });
@@ -218,7 +283,7 @@ void LMVGLoadCoverSized(NSString *relative, CGFloat maxPixel, void (^completion)
 }
 
 void LMVGLoadCover(NSString *relative, void (^completion)(UIImage *image)) {
-    // 5.1.0: 1500 was ~1.29x short of a 3x full-width cover on a portrait clip.
+    // 5.1.1: 1500 was ~1.29x short of a 3x full-width cover on a portrait clip.
     LMVGLoadCoverSized(relative, 2000.0, completion);
 }
 

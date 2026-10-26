@@ -44,9 +44,9 @@ check("LMVGalleryController.m" in makefile.split("LockMessageVideoPrefs_FILES ="
       "gallery controller outside the prefs bundle file list")
 
 # Version agreement (the receipt compares these three)
-check("LMV_VERSION = 5.1.0" in makefile, "Makefile version not 5.1.0")
-check(re.search(r"^Version: 5\.1\.0$", control, re.M) is not None, "control version not 5.1.0")
-check(plist.count("<string>5.1.0</string>") == 2, "Info.plist versions not 5.1.0")
+check("LMV_VERSION = 5.1.1" in makefile, "Makefile version not 5.1.1")
+check(re.search(r"^Version: 5\.1\.1$", control, re.M) is not None, "control version not 5.1.1")
+check(plist.count("<string>5.1.1</string>") == 2, "Info.plist versions not 5.1.1")
 
 # Entry: the classic list stays intact and the gallery opens exactly once per visit
 check("@implementation LMVPRootListController" in root, "classic root controller removed")
@@ -128,13 +128,13 @@ check("CGAffineTransformMakeScale(1.08, 1.08)" in gallery, "hero parallax missin
 check("imported == 0" in pages, "import failure has no alert")
 check("UIColor.systemBlueColor" in gallery and "tab.tag = index" in gallery, "tab has no selected state")
 
-# 5.1.0: hero plays, panels merged into scenes, direct material switch, 2000px covers.
+# 5.1.1: hero plays, panels merged into scenes, direct material switch, 2000px covers.
 check("buildPanelSection" not in gallery, "home still has the separate panel strip")
 check("arrayByAddingObjectsFromArray:_panels" in gallery, "panels not merged into the scene grid")
 check("cycleMaterial" in detail and "changeMaterialFromLongPress" in detail, "material button does not switch directly")
 check("2000.0" in kit_impl, "hero covers are not 2000px")
 
-# 5.1.0: a resolution chip ("4K"/"2K"/"1080P"/"720P"/"480P") sits on every cover.
+# 5.1.1: a resolution chip ("4K"/"2K"/"1080P"/"720P"/"480P") sits on every cover.
 check("LMVGResolutionText" in kit_impl and "LMVGMakeResolutionBadge" in kit_impl,
       "resolution chip is not implemented in the kit")
 check("2160" in kit_impl and "1440" in kit_impl and "1080" in kit_impl and "720" in kit_impl,
@@ -143,7 +143,7 @@ check("LMVGPaddedLabel" in kit_impl and "tag = 1007" in kit_impl, "resolution ch
 for label, src in (("home", gallery), ("material list", pages), ("detail", detail)):
     check("LMVGMakeResolutionBadge" in src and "LMVGApplyResolution" in src,
           f"{label} has no resolution chip")
-# 5.1.0: scene covers 1100 (was 700), material list 1000 (was 800).
+# 5.1.1: scene covers 1100 (was 700), material list 1000 (was 800).
 check("1100.0" in gallery, "scene covers are not 1100px")
 check("1000.0" in pages, "material covers are not 1000px")
 
