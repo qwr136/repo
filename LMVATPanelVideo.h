@@ -220,7 +220,17 @@ static LMVATPanelVideoManager *LMVATPanelVideo;
        (![self.playback.path isEqualToString:LMVATPanelPath] || ![self.playback.revision isEqualToString:LMVATPanelRevision]))
         [self.playback selectPath:LMVATPanelPath revision:LMVATPanelRevision];
     UIWindow *window=LMVATPanelHomeWindow();
-    UIView *card=window?LMVATPanelCard(window):nil;
+    // 5.1.2: reuse the card while it is still on screen; the old code walked the
+    // window tree on every probe tick.
+    UIView *card=nil;
+    if(window) {
+        UIView *cached=self.card;
+        if(cached && cached.window==window) {
+            CGRect cachedFrame=[cached convertRect:cached.bounds toView:window];
+            if(LMVVisibleArea(cachedFrame,window.bounds)>0) card=cached;
+        }
+        if(!card) card=LMVATPanelCard(window);
+    }
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
     if(card && !self.card) {
         NSTimeInterval show=LMVTuneDelay(@"AT",@"ShowDelayMs");

@@ -274,7 +274,7 @@
     cover.layer.minificationFilter = kCAFilterTrilinear;
     [card addSubview:cover];
 
-    // 5.1.1: resolution chip inside the cover's bottom-right; the edit buttons
+    // 5.1.2: resolution chip inside the cover's bottom-right; the edit buttons
     // (trash/pencil) live top-right and never collide with it.
     UILabel *resolution = LMVGMakeResolutionBadge();
     [card addSubview:resolution];
@@ -343,7 +343,7 @@
 
     LMVGApplyResolution(resolution, material[@"path"]);
     __weak UIImageView *weakCover = cover;
-    // 5.1.1: 800 left a portrait clip ~450px wide on a 3x tile (~510px drawn).
+    // 5.1.2: 800 left a portrait clip ~450px wide on a 3x tile (~510px drawn).
     LMVGLoadCoverSized(material[@"path"], 1000.0, ^(UIImage *image) {
         if (!image) return;
         [UIView transitionWithView:weakCover duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{

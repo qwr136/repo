@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"5.1.1"
+#define LMVGalleryVersion @"5.1.2"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -174,7 +174,7 @@ static UIColor *LMVGAccent(void) {
     [back.leadingAnchor constraintEqualToAnchor:coverBox.leadingAnchor constant:12].active = YES;
     [back.topAnchor constraintEqualToAnchor:coverBox.topAnchor constant:12].active = YES;
 
-    // 5.1.1: resolution chip, bottom-right of the preview.
+    // 5.1.2: resolution chip, bottom-right of the preview.
     UILabel *resolution = LMVGMakeResolutionBadge();
     [coverBox addSubview:resolution];
     self.resolutionBadge = resolution;

@@ -245,6 +245,10 @@ static void LMVCVPanelApplyTextColor(UIView *root) {
         UIView *node=pending.lastObject;[pending removeLastObject];
         for(UIView *child in node.subviews) {
             if(!budget--)break;
+            // 5.1.2: a hidden subtree cannot contribute a visible label; skipping
+            // it (instead of walking every cell behind the visible rect) is what
+            // makes the once-a-second pass cheap.
+            if(child.hidden || child.alpha<.01)continue;
             [pending addObject:child];
             if(![child isKindOfClass:UILabel.class])continue;
             UILabel *label=(UILabel *)child;
@@ -283,6 +287,10 @@ static void LMVCVPanelRestoreTextColor(void) {
 @property(nonatomic) BOOL updating;
 // 2.42: per-channel show/hide delay timestamps.
 @property(nonatomic) NSTimeInterval pendingShow,pendingHide;
+// 5.1.2: the whole-card colour walk used to run on every probe tick. Cells are
+// coloured by the UITableViewCell hook now, so this pass only covers labels that
+// are not inside a cell; once a second is enough.
+@property(nonatomic) NSTimeInterval lastTextColorPass;
 - (void)detach;
 - (void)update;
 @end
@@ -344,7 +352,18 @@ static void LMVCVPanelApplyTextColorToCell(UIView *cell) {
        (![self.playback.path isEqualToString:LMVCVPanelPath] || ![self.playback.revision isEqualToString:LMVCVPanelRevision]))
         [self.playback selectPath:LMVCVPanelPath revision:LMVCVPanelRevision];
     UIWindow *window=LMVCVPanelWindow();
-    UIView *card=window?LMVCVPanelCard(window):nil;
+    // 5.1.2: reuse the card already found while it is still on screen. The old
+    // code walked the window tree (LMVCVPanelVaultView + a 300-node scan) on
+    // every tick just to arrive at the same view.
+    UIView *card=nil;
+    if(window) {
+        UIView *cached=self.card;
+        if(cached && cached.window==window) {
+            CGRect cachedFrame=[cached convertRect:cached.bounds toView:window];
+            if(LMVVisibleArea(cachedFrame,window.bounds)>0) card=cached;
+        }
+        if(!card) card=LMVCVPanelCard(window);
+    }
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
     if(card && !self.card) {
         NSTimeInterval show=LMVTuneDelay(@"CV",@"ShowDelayMs");
@@ -366,7 +385,8 @@ static void LMVCVPanelApplyTextColorToCell(UIView *cell) {
     // whichever way it was found.
     CGRect cardFrame=[card convertRect:card.bounds toView:window];
     if(LMVVisibleArea(cardFrame,window.bounds)<=0) {[self detach];self.updating=NO;return;}
-    if(self.card!=card) {[self.host removeFromSuperview];self.card=card;}
+    BOOL cardChanged=(self.card!=card);
+    if(cardChanged) {[self.host removeFromSuperview];self.card=card;}
     BOOL changed=![self.playback.path isEqualToString:LMVCVPanelPath] ||
         ![self.playback.revision isEqualToString:LMVCVPanelRevision];
     if(changed) {
@@ -428,7 +448,14 @@ static void LMVCVPanelApplyTextColorToCell(UIView *cell) {
     if(!CGRectEqualToRect(self.playback.renderLayer.frame,self.host.bounds))[self.playback layoutInBounds:self.host.bounds];
     [CATransaction commit];
     if(self.host.hidden)self.host.hidden=NO;
-    LMVCVPanelApplyTextColor(card);
+    // 5.1.2: cells are coloured by the UITableViewCell hook now; this whole-card
+    // walk only covers labels outside a cell (headers, hints) and a card that was
+    // just found. Once a second is enough, so a 60 Hz probe no longer pays for a
+    // 300-node walk every tick.
+    if(cardChanged || tuneNow-self.lastTextColorPass>=1.0) {
+        self.lastTextColorPass=tuneNow;
+        LMVCVPanelApplyTextColor(card);
+    }
     if(LMVDiagnosticsEnabled.load()) {
         CGRect bounds=window.bounds;
         NSString *status=[NSString stringWithFormat:@"cv-panel win=%@ %.0fx%.0f mode=%@ why=%@ card=%@@%.0f,%.0f,%.0f,%.0f r%.0f vis=%.0f live=%d host=%.0fx%.0f",

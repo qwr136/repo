@@ -1083,6 +1083,9 @@ static void LMVSquidPanelRestoreTextColor(void) {
 @property(nonatomic) BOOL updating;
 // 2.42: per-channel show/hide delay timestamps.
 @property(nonatomic) NSTimeInterval pendingShow,pendingHide;
+// 5.1.2: this window can host several gesture panels, so a cached card is only
+// trusted for 0.4 s; after that the search runs again.
+@property(nonatomic) NSTimeInterval lastCardSearch;
 // 1.99: the icon scroller is a SIBLING above the host, so any fill colour it
 // carries is painted straight over the picture. Remember it and hand it back.
 @property(nonatomic,weak) UIScrollView *scroller;
@@ -1143,7 +1146,18 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
        (![self.playback.path isEqualToString:LMVSquidPanelSlotPaths[0]] || ![self.playback.revision isEqualToString:LMVSquidPanelSlotRevisions[0]]))
         [self.playback selectPath:LMVSquidPanelSlotPaths[0] revision:LMVSquidPanelSlotRevisions[0]];
     UIWindow *window=LMVSquidPanelWindow();
-    UIView *card=window?LMVSquidPanelCard(window):nil;
+    // 5.1.2: several gesture panels can share this window, so the cached card is
+    // revalidated at least every 0.4 s instead of being trusted indefinitely.
+    UIView *card=nil;
+    NSTimeInterval cardNow=NSProcessInfo.processInfo.systemUptime;
+    if(window) {
+        UIView *cached=self.card;
+        if(cached && cached.window==window && cardNow-self.lastCardSearch<0.4) {
+            CGRect cachedFrame=[cached convertRect:cached.bounds toView:window];
+            if(LMVVisibleArea(cachedFrame,window.bounds)>0) card=cached;
+        }
+        if(!card) { card=LMVSquidPanelCard(window); self.lastCardSearch=cardNow; }
+    }
     NSTimeInterval tuneNow=NSProcessInfo.processInfo.systemUptime;
     if(card && !self.card) {
         NSTimeInterval show=LMVTuneDelay(@"SquidPanel",@"ShowDelayMs");
