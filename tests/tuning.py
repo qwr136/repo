@@ -58,7 +58,11 @@ assert 'LMVTuneValue(@"Desktop",@"CoveredFPS")' in desktop
 # 5.1.4: the 1 s 60 Hz burst must not override the user's CoveredFPS; the reveal is
 # caught by three one-shot probes instead.
 assert 'burst?60:LMVDesktopCadence(@"CoveredFPS")' not in desktop
-assert 'desktop-keyprobe schedule=0,150,350ms' in desktop
+assert 'desktop-keyprobe schedule=0,150,350,700ms edge=%@' in desktop
+# 5.1.6: leaving an app often only RESIGNS key; both edges must schedule the probes.
+assert 'UIWindowDidResignKeyNotification' in desktop, 'app-exit resign edge is not observed'
+assert '[self scheduleRevealProbes:@"resign"]' in desktop
+assert '0.70*NSEC_PER_SEC' in desktop, 'the 700 ms fallback probe is missing'
 assert '0.15*NSEC_PER_SEC' in desktop and '0.35*NSEC_PER_SEC' in desktop
 # 2.47: a change of cadence must leave one diagnostic line, so "did my value take
 # effect?" is answerable from a capture instead of from feel.

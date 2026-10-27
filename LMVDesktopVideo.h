@@ -749,29 +749,40 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         // Registered by name, not by the UIKit constant: the runtime value is the
         // string, and this header is also compiled by fixtures that do not link the
         // symbol.
+        // 5.1.6: leaving an app does NOT always make another window key - very often the
+        // app's own window just resigns key and nobody takes it. Only the "became key"
+        // edge was observed, so on those exits no probe was ever queued and the reveal
+        // had to wait for the covered heartbeat (up to a full second at 1 Hz).
         _keyWindowObserver=YES;
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyWindowBecameKey:)
             name:@"UIWindowDidBecomeKeyNotification" object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyWindowResigned:)
+            name:@"UIWindowDidResignKeyNotification" object:nil];
     }
     return self;
 }
 - (void)dealloc {
-    if(_keyWindowObserver)[NSNotificationCenter.defaultCenter removeObserver:self name:@"UIWindowDidBecomeKeyNotification" object:nil];
+    if(_keyWindowObserver){
+        [NSNotificationCenter.defaultCenter removeObserver:self name:@"UIWindowDidBecomeKeyNotification" object:nil];
+        [NSNotificationCenter.defaultCenter removeObserver:self name:@"UIWindowDidResignKeyNotification" object:nil];
+    }
     [_timer invalidate];[_coverWatch invalidate];[_lease restore];[_host removeFromSuperview];
 }
 // 2.08: the wake-up edge. Only meaningful while the watcher is idling because the
 // desktop is covered; while the video is live the 60 Hz path is already running.
-- (void)keyWindowBecameKey:(NSNotification *)note {
+- (void)keyWindowBecameKey:(NSNotification *)note { [self scheduleRevealProbes:@"become"]; }
+- (void)keyWindowResigned:(NSNotification *)note { [self scheduleRevealProbes:@"resign"]; }
+// 5.1.4: one-shot probes instead of the old 1 s 60 Hz burst - that burst overrode the
+// user's CoveredFPS and cost ~720 ms of main thread per transition.
+// 5.1.5: every transition bumps windowProbeGen, so probes queued by an older edge drop
+// out instead of walking the window tree for a state that no longer exists.
+// 5.1.6: four points (0/150/350/700 ms) instead of three. The reveal animation can take
+// longer than 350 ms; when it did, all three probes landed on a still-covered desktop
+// and the video then waited for the covered heartbeat - up to a full second at 1 Hz.
+- (void)scheduleRevealProbes:(NSString *)edge {
     if(!self.coverWatch)return;
     if(!self.playback.frozen && !self.appAway)return;
-    // 5.1.4: three one-shot probes instead of a 1 s 60 Hz burst. The first runs on
-    // the next runloop, so the key-window transition itself is never blocked by a
-    // probe that costs 10-13 ms (and once took 1.3 s).
     self.probeCountAt=0;
-    // 5.1.5: a newer key-window transition invalidates every probe still queued by an
-    // older one. Without this, switching apps five times inside 350 ms queued fifteen
-    // probes and the stale ones walked the window tree for a state that no longer
-    // existed - the same symptom the 60 Hz burst had, only smaller.
     NSUInteger probeGen=++self.windowProbeGen;
     __weak typeof(self) weakSelf=self;
     void (^probe)(void)=^{
@@ -780,11 +791,12 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if(manager.updating || manager.suspended)return;
         [manager update];
     };
-    LMVDiagnostic([NSString stringWithFormat:@"desktop-keyprobe schedule=0,150,350ms covered=%d gen=%lu",
-        (int)(self.playback.frozen || self.appAway),(unsigned long)probeGen]);
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-keyprobe schedule=0,150,350,700ms edge=%@ covered=%d gen=%lu",
+        edge,(int)(self.playback.frozen || self.appAway),(unsigned long)probeGen]);
     dispatch_async(dispatch_get_main_queue(),probe);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.15*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.35*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.70*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
 }
 - (void)syncGeometry {
     // 1.32: the live superview, never `container` - on the Home path the surface
