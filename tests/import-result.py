@@ -109,6 +109,7 @@ static CFStringRef const LMVEasterPrefs=CFSTR("com.minis.lockvideo");
 static void LMVEasterSet(NSString *key,id value){}
 static void LMVEasterSetTarget(NSString *key,id value,NSString *target){}
 static void LMVEasterSetLocal(NSString *key,id value){}
+static void LMVEasterNotifyTarget(NSString *target){}
 static NSMutableArray<LMVMaterialPrompt *> *LMVEasterPendingImportPrompts;
 static NSString * const LMVEasterImportResultReady=@"LMVEasterImportResultReady";
 static NSUInteger notified;

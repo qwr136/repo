@@ -151,6 +151,7 @@ static void LMVEasterSet(NSString *key, id value) { store[key]=value; lastKey=ke
 // 5.1.7: the panel writes through the scoped helpers; the fixture routes them to the
 // same store so write/notification counting stays meaningful.
 static void LMVEasterSetTarget(NSString *key, id value, NSString *target) { store[key]=value; lastKey=key; writes++; notifications++; lastTarget=target; }
+static void LMVEasterNotifyTarget(NSString *target) { notifications++; lastTarget=target; }
 static void LMVEasterSetLocal(NSString *key, id value) { store[key]=value; lastKey=key; writes++; }
 // 3.06: the production notifier is the REAL LMVNotifyFor now (its body is compiled
 // in with the helpers below), so the POST itself is what has to be counted - a local
