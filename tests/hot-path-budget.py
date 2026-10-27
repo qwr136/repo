@@ -102,6 +102,21 @@ check('volumeNow - LMVEasterLastVolumeNotify >= 0.1' in _panel,
 check('preferencesChanged." stringByAppendingString:target' in _emed,
       'the scoped notification name is not built')
 
+# 5.1.8: one switch must not rebuild the panel; a drag must not relay out the table.
+def _method_body(text, signature):
+    return text.split(signature, 1)[1].split('\n- (', 1)[0]
+
+check('[self.tableView reloadData]' not in _method_body(_panel, '- (void)soundChanged:'),
+      'a sound toggle still reloads all eighteen sections')
+check('[self.tableView reloadData]' not in _method_body(_panel, '- (void)volumeChanged:'),
+      'releasing the volume slider still reloads the panel')
+_overlay = (root / 'LMVEasterOverlay.h').read_text()
+_drag = _method_body(_overlay, '- (void)dragPanel:')
+check('CGAffineTransformMakeTranslation(translation.x, translation.y)' in _drag,
+      'the drag still writes -frame (and relays out the table) on every touch move')
+check('[self layout];' in _drag and _drag.count('[self layout];') == 1,
+      'the drag lays out more than once')
+
 if failures:
     for failure in failures:
         print('FAIL: ' + failure)

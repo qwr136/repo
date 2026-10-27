@@ -612,7 +612,15 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     NSString *target = LMVEasterAudioTargetForTag(toggle.tag);
     if (!target) return;
     LMVEasterSetTarget([target stringByAppendingString:@"SoundEnabled"], @(toggle.on), target);
-    [self.tableView reloadData];
+    // 5.1.8: reloadData rebuilt all eighteen sections - every switch, every slider, every
+    // label - to flip one state. The only row that depends on this flag is the paired
+    // volume slider, so touch just that slider in the visible cells.
+    NSInteger tag = toggle.tag;
+    for (UITableViewCell *cell in self.tableView.visibleCells) {
+        for (UIView *view in cell.contentView.subviews) {
+            if ([view isKindOfClass:UISlider.class] && view.tag == tag) ((UISlider *)view).enabled = toggle.on;
+        }
+    }
 }
 - (void)volumeChanged:(UISlider *)slider {
     NSString *target = LMVEasterAudioTargetForTag(slider.tag);
@@ -635,7 +643,9 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
             ((UITableViewCell *)view).textLabel.text = [@"音量 " stringByAppendingString:slider.accessibilityValue]; break;
         }
     }
-    if (!slider.isTracking) { self.volumeTracking = NO; [self.tableView reloadData]; }
+    // 5.1.8: the label and the accessibility value are already updated above; a full
+    // reloadData on every release rebuilt the whole panel for nothing.
+    if (!slider.isTracking) self.volumeTracking = NO;
 }
 - (void)opacityChanged:(UISlider *)slider {
     self.opacityTracking = slider.isTracking;

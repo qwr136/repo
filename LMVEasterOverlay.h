@@ -68,6 +68,10 @@
 // closing the panel, hiding the egg or respringing all reopen it in the same
 // place. It is re-clamped on every layout so it can never leave the screen.
 @property(nonatomic) CGPoint panelOffset;
+// 5.1.8: where the panel was when the current drag started. Dragging moves the layer
+// with a transform and only folds the result into panelOffset on release, so no frame
+// change (and no table relayout) happens per touch move.
+@property(nonatomic) CGPoint panelDragStart;
 @property(nonatomic) NSUInteger generation, frame, lastHostSignature;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
 // 2.14: cover-sheet exposure origin (began unlocked = Notification Center; began
@@ -1040,17 +1044,27 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (!self.panel) return;
     UIView *space = [self canvas];
     CGPoint translation = [pan translationInView:space];
-    self.panelOffset = CGPointMake(self.panelOffset.x + translation.x, self.panelOffset.y + translation.y);
-    [pan setTranslation:CGPointZero inView:space];
+    // 5.1.8: while the finger is down only the layer transform moves. Writing -frame each
+    // move relays out the navigation controller and the eighteen-section table on every
+    // touch event, which is what made dragging feel heavy. The frame is committed once,
+    // on release, through the normal clamp path.
+    if (pan.state == UIGestureRecognizerStateBegan) {
+        self.panelDragStart = self.panelOffset;
+    }
+    if (pan.state == UIGestureRecognizerStateChanged) {
+        self.panel.view.transform = CGAffineTransformMakeTranslation(translation.x, translation.y);
+        return;
+    }
+    if (pan.state != UIGestureRecognizerStateEnded && pan.state != UIGestureRecognizerStateCancelled) return;
+    self.panel.view.transform = CGAffineTransformIdentity;
+    self.panelOffset = CGPointMake(self.panelDragStart.x + translation.x, self.panelDragStart.y + translation.y);
     [self layout];
     // 1.64: remember where the user dropped the panel. Written on gesture end
     // only, so a drag does not hammer the preferences tree every frame.
-    if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
-        LMVEasterSet(@"EasterPanelOffsetX", @(self.panelOffset.x));
-        LMVEasterSet(@"EasterPanelOffsetY", @(self.panelOffset.y));
-        // 1.65: flush now, so a respring right after the drag still remembers.
-        CFPreferencesAppSynchronize(LMVEasterPrefs);
-    }
+    LMVEasterSet(@"EasterPanelOffsetX", @(self.panelOffset.x));
+    LMVEasterSet(@"EasterPanelOffsetY", @(self.panelOffset.y));
+    // 1.65: flush now, so a respring right after the drag still remembers.
+    CFPreferencesAppSynchronize(LMVEasterPrefs);
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
     UIView *space=[self canvas];
