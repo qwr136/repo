@@ -72,6 +72,16 @@
 // with a transform and only folds the result into panelOffset on release, so no frame
 // change (and no table relayout) happens per touch move.
 @property(nonatomic) CGPoint panelDragStart;
+// 5.1.8: the clamp limits -layout would apply, cached so a drag can clamp LIVE instead
+// of only on release (clamping at the end made the panel snap back when dropped).
+@property(nonatomic) CGFloat panelClampX;
+@property(nonatomic) CGFloat panelClampMinY;
+@property(nonatomic) CGFloat panelClampMaxY;
+@property(nonatomic) CGPoint panelDragTarget;
+// 5.1.8: the centre the panel had when the drag began. The drag moves -center (a pure
+// position write: no bounds change, so no table relayout); -frame is written once on
+// release. A layer transform did NOT move the navigation controller's view at all.
+@property(nonatomic) CGPoint panelDragCenter;
 @property(nonatomic) NSUInteger generation, frame, lastHostSignature;
 @property(nonatomic) BOOL pending, ready, authenticatedSession;
 // 2.14: cover-sheet exposure origin (began unlocked = Notification Center; began
@@ -1020,6 +1030,10 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
         CGFloat maxOffsetX = MAX(0, (bounds.size.width - width) / 2);
         CGFloat minOffsetY = CGRectGetMinY(bounds) - centeredY;
         CGFloat maxOffsetY = CGRectGetMaxY(bounds) - height - centeredY;
+        // Remembered so a live drag can clamp with exactly the same numbers.
+        self.panelClampX = maxOffsetX;
+        self.panelClampMinY = minOffsetY;
+        self.panelClampMaxY = MAX(minOffsetY, maxOffsetY);
         self.panelOffset = CGPointMake(LMVEasterPanelClamp(self.panelOffset.x, -maxOffsetX, maxOffsetX),
             LMVEasterPanelClamp(self.panelOffset.y, minOffsetY, MAX(minOffsetY, maxOffsetY)));
         CGFloat x = centeredX + self.panelOffset.x;
@@ -1044,20 +1058,31 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     if (!self.panel) return;
     UIView *space = [self canvas];
     CGPoint translation = [pan translationInView:space];
-    // 5.1.8: while the finger is down only the layer transform moves. Writing -frame each
-    // move relays out the navigation controller and the eighteen-section table on every
-    // touch event, which is what made dragging feel heavy. The frame is committed once,
-    // on release, through the normal clamp path.
+    // 5.1.8: while the finger is down the panel is moved by -center only. Writing -frame
+    // on every touch event relays out the navigation controller and the eighteen-section
+    // table, which is what made dragging feel heavy; -center is a pure position write.
+    // The clamped offset is folded back in once, on release, through -layout.
     if (pan.state == UIGestureRecognizerStateBegan) {
         self.panelDragStart = self.panelOffset;
+        self.panelDragTarget = self.panelOffset;
+        self.panelDragCenter = self.panel.view.center;
     }
     if (pan.state == UIGestureRecognizerStateChanged) {
-        self.panel.view.transform = CGAffineTransformMakeTranslation(translation.x, translation.y);
+        // Clamp while dragging, not on release: clamping only at the end made the panel
+        // jump back to the edge the moment the finger lifted.
+        CGPoint target = CGPointMake(self.panelDragStart.x + translation.x, self.panelDragStart.y + translation.y);
+        target.x = LMVEasterPanelClamp(target.x, -self.panelClampX, self.panelClampX);
+        target.y = LMVEasterPanelClamp(target.y, self.panelClampMinY, MAX(self.panelClampMinY, self.panelClampMaxY));
+        self.panelDragTarget = target;
+        // -center follows the finger immediately and, unlike -frame with a changed size,
+        // does not relayout the table.
+        self.panel.view.center = CGPointMake(self.panelDragCenter.x + target.x - self.panelDragStart.x,
+            self.panelDragCenter.y + target.y - self.panelDragStart.y);
         return;
     }
     if (pan.state != UIGestureRecognizerStateEnded && pan.state != UIGestureRecognizerStateCancelled) return;
-    self.panel.view.transform = CGAffineTransformIdentity;
-    self.panelOffset = CGPointMake(self.panelDragStart.x + translation.x, self.panelDragStart.y + translation.y);
+    // Already clamped, so -layout lands on the exact frame the finger left behind.
+    self.panelOffset = self.panelDragTarget;
     [self layout];
     // 1.64: remember where the user dropped the panel. Written on gesture end
     // only, so a drag does not hammer the preferences tree every frame.

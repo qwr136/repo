@@ -114,8 +114,10 @@ check('[self.tableView reloadData]' not in _method_body(_panel, '- (void)volumeC
       'releasing the volume slider still reloads the panel')
 _overlay = (root / 'LMVEasterOverlay.h').read_text()
 _drag = _method_body(_overlay, '- (void)dragPanel:')
-check('CGAffineTransformMakeTranslation(translation.x, translation.y)' in _drag,
-      'the drag still writes -frame (and relays out the table) on every touch move')
+check('self.panel.view.center = CGPointMake(' in _drag,
+      'the drag does not move the panel while the finger is down')
+check('self.panel.view.frame =' not in _drag,
+      'the drag writes -frame again, which relays out the table on every touch move')
 check('[self layout];' in _drag and _drag.count('[self layout];') == 1,
       'the drag lays out more than once')
 

@@ -44,9 +44,11 @@ assert '[self.panel.navigationBar addGestureRecognizer:panelDrag];' in overlay
 assert 'panelDrag.maximumNumberOfTouches = 1;' in overlay
 # 5.1.8: the drag moves the layer and folds the result in on release, so the offset
 # is built from the start point than from the live frame each move.
-assert 'self.panelOffset = CGPointMake(self.panelDragStart.x + translation.x, self.panelDragStart.y + translation.y);' in overlay
-assert 'CGAffineTransformMakeTranslation(translation.x, translation.y)' in overlay, \
-    'the drag does not move the layer, so every touch move relays out the table'
+# 5.1.8: the drag moves the panel by -center (position only) and folds the clamped
+# offset in once, on release.
+assert 'self.panelOffset = self.panelDragTarget;' in overlay
+assert 'self.panel.view.center = CGPointMake(' in overlay, \
+    'the drag does not move the panel while the finger is down'
 assert 'maxOffsetX' in overlay and 'minOffsetY' in overlay and 'maxOffsetY' in overlay, \
     'dragging is re-clamped so the panel can never leave the screen'
 assert 'self.panelOffset = CGPointZero' not in overlay, \
