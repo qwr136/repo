@@ -622,7 +622,7 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     // 5.1.7: a drag fires this every frame, and every frame used to post the GLOBAL
     // notification - i.e. a full thirteen-channel refresh per frame. One notification
     // per 100 ms still tracks the thumb, and the release always flushes the final value.
-    CFTimeInterval volumeNow = CACurrentMediaTime();
+    CFTimeInterval volumeNow = NSDate.date.timeIntervalSince1970;
     if (!slider.isTracking || volumeNow - LMVEasterLastVolumeNotify >= 0.1) {
         LMVEasterLastVolumeNotify = volumeNow;
         LMVEasterSetTarget([target stringByAppendingString:@"Volume"], @(volume), target);

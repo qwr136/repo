@@ -144,7 +144,12 @@ static NSInteger writes, notifications;
 static NSString *lastKey;
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
 static id LMVEasterRead(NSString *key) { return store[key]; }
+static NSString *lastTarget = nil;
 static void LMVEasterSet(NSString *key, id value) { store[key]=value; lastKey=key; writes++; notifications++; }
+// 5.1.7: the panel writes through the scoped helpers; the fixture routes them to the
+// same store so write/notification counting stays meaningful.
+static void LMVEasterSetTarget(NSString *key, id value, NSString *target) { store[key]=value; lastKey=key; writes++; notifications++; lastTarget=target; }
+static void LMVEasterSetLocal(NSString *key, id value) { store[key]=value; lastKey=key; writes++; }
 // 3.06: the production notifier is the REAL LMVNotifyFor now (its body is compiled
 // in with the helpers below), so the POST itself is what has to be counted - a local
 // LMVNotify stub would never be called by the setter and the count assertion failed.
