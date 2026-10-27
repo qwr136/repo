@@ -56,8 +56,37 @@ check('LMVCardStateVisible(cell,state,target)' not in tick,
       'tick still calls the per-target variant that walks the tree again')
 check('static BOOL LMVCardStateVisibleInScope(' in tweak, 'the scoped variant must exist')
 
+# 5.1.5: five hot-path clean-ups, each pinned so a later edit cannot silently undo it.
+_media = (root / 'LMVMediaAudio.h').read_text()
+_playback = (root / 'LMVLockVideoPlayback.h').read_text()
+_desktop = (root / 'LMVDesktopVideo.h').read_text()
+
+# (a) one channel notification reloads one channel, not sixteen
+check('static void LMVAudioReloadTarget(NSString *only)' in _media,
+      'audio reload is not scoped to a single channel')
+check('reloadTargets = only.length ? @[only] : LMVAudioTargets()' in _media,
+      'scoped audio reload still walks every target')
+check('LMVPreferencesScope' in tweak and 'LMVLoadPreferencesTarget(target)' in tweak,
+      'the per-channel path does not scope the preference load')
+check('LMVReloadAudioControlsFor(target)' in tweak,
+      'the per-channel path still reloads every channel')
+# (b) the playing asset must not ask for frame-accurate timing
+check(_playback.count('AVURLAssetPreferPreciseDurationAndTimingKey') >= 2,
+      'the playing asset still scans the whole sample table')
+check('options:nil];' not in _playback.split('- (void)selectPath')[1].split('loadValuesAsynchronouslyForKeys')[0],
+      'selectPath still builds its asset with options:nil')
+# (c) frame 0 is decoded once when a poster is already on screen
+check('posterReady' in _playback, 'the duplicate 1280 poster decode is back')
+# (d) stale key-window probes are dropped
+check('windowProbeGen' in _desktop and 'manager.windowProbeGen!=probeGen' in _desktop,
+      'queued key-window probes have no epoch guard')
+# (e) the unreachable rate!=1.0 branch stays deleted
+check('rate!=1.0' not in _media, 'the dead manual-loop branch is back')
+check('AVPlayerLooper playerLooperWithPlayer' in _media, 'the looper path disappeared')
+
 if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 4.1.1 - one catalog parse per refresh, one prefs load per switch, one ancestry walk per cell per frame')
+print('PASS: 4.1.1 - one catalog parse per refresh, one prefs load per switch, one ancestry walk per cell per frame; '
+      '5.1.5 - scoped reload, non-precise asset, one poster decode, epoch-guarded probes, no dead loop branch')

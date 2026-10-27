@@ -49,9 +49,13 @@ static BOOL LMVAudioActivateMixing(void) {
     if(ok)ok=[session setActive:YES error:&error];
     LMVAudioSessionReady=ok;return ok;
 }
-static void LMVAudioReload(void) {
+// 5.1.5: a per-channel notification names the ONE switch that changed, so reloading
+// all sixteen targets (two CFPreferences reads each) was 32 synchronous disk reads for
+// a single tap. `only` empty keeps the old full sweep for global writes.
+static void LMVAudioReloadTarget(NSString *only) {
     if(!LMVAudioChannels)LMVAudioChannels=[NSMutableDictionary new];
-    for(NSString *target in LMVAudioTargets()) {
+    NSArray<NSString *> *reloadTargets = only.length ? @[only] : LMVAudioTargets();
+    for(NSString *target in reloadTargets) {
         LMVAudioChannel *c=LMVAudioChannels[target];if(!c){c=[LMVAudioChannel new];LMVAudioChannels[target]=c;}
         NSString *key=[target stringByAppendingString:@"SoundEnabled"];
         id enabled=(__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)key,kLMVPrefsID);
@@ -61,6 +65,7 @@ static void LMVAudioReload(void) {
         if(!c.enabled || c.volume<=0)[c clear];else c.player.volume=c.volume;
     }
 }
+static void LMVAudioReload(void) { LMVAudioReloadTarget(nil); }
 static BOOL LMVAudioAnyEnabled(void) {
     for(LMVAudioChannel *c in LMVAudioChannels.allValues)if(c.enabled && c.volume>0)return YES;
     return NO;
@@ -144,23 +149,10 @@ static void LMVAudioConsume(NSString *target,NSString *path,NSString *revision,B
                 item.audioTimePitchAlgorithm=AVAudioTimePitchAlgorithmTimeDomain;
                 live.player=[AVQueuePlayer queuePlayerWithItems:@[]];live.player.volume=live.volume;
                 live.player.automaticallyWaitsToMinimizeStalling=NO;live.player.allowsExternalPlayback=NO;
-                CGFloat rate=LMVAudioRate(target);
-                if(rate!=1.0) {
-                    // 2.42: AVPlayerLooper re-seeks on every lap; at 0.5x that seek is
-                    // what the user hears as choppy sound. Manual replay instead.
-                    live.player.actionAtItemEnd=AVPlayerActionAtItemEndPause;
-                    [live.player insertItem:item afterItem:nil];
-                    __weak LMVAudioChannel *loopChannel=live;
-                    [NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
-                        object:item queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
-                        LMVAudioChannel *cur=loopChannel;
-                        if(!cur || cur.generation!=epoch || !cur.player) return;
-                        [cur.player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-                        [cur.player playImmediatelyAtRate:LMVAudioRate(target)];
-                    }];
-                } else {
-                    live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:item];
-                }
+                // 5.1.5: the manual-replay branch that used to sit here was unreachable -
+                // LMVAudioRate() has returned 1.0 since 2.44 - and its did-play-to-end
+                // observer was never removed by -clear. Only the looper path is left.
+                live.looper=[AVPlayerLooper playerLooperWithPlayer:live.player templateItem:item];
                 if(live.visible && live.volume>0 && LMVAudioActivateMixing()) {
                     [live.player seekToTime:live.desiredTime toleranceBefore:CMTimeMakeWithSeconds(.1,600) toleranceAfter:CMTimeMakeWithSeconds(.1,600)];
                     [live.player playImmediatelyAtRate:LMVAudioRate(target)];live.lastSync=CACurrentMediaTime();

@@ -227,6 +227,10 @@ static void LMVDesktopVideoSuspend(void);
 @property(nonatomic) CFTimeInterval probeFullAt;
 // 2.07: when the window count was last read. See the gate in -coverWatchTick:.
 @property(nonatomic) CFTimeInterval probeCountAt;
+// 5.1.5: bumped by every key-window change. Each of the three queued probes carries
+// the epoch it was scheduled under and drops out when a newer transition has already
+// happened, so rapid app switching cannot stack stale 10-13 ms probes.
+@property(nonatomic) NSUInteger windowProbeGen;
 // 2.08: key-window changes are the one signal every app launch / exit produces.
 // 5.1.4: the one-second 60 Hz burst that used to live here is gone. It ignored the
 // user's covered-state cadence, cost ~720 ms of main thread per key change, and was
@@ -764,14 +768,20 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // the next runloop, so the key-window transition itself is never blocked by a
     // probe that costs 10-13 ms (and once took 1.3 s).
     self.probeCountAt=0;
+    // 5.1.5: a newer key-window transition invalidates every probe still queued by an
+    // older one. Without this, switching apps five times inside 350 ms queued fifteen
+    // probes and the stale ones walked the window tree for a state that no longer
+    // existed - the same symptom the 60 Hz burst had, only smaller.
+    NSUInteger probeGen=++self.windowProbeGen;
     __weak typeof(self) weakSelf=self;
     void (^probe)(void)=^{
         LMVDesktopVideoManager *manager=weakSelf;
-        if(!manager || manager.updating || manager.suspended)return;
+        if(!manager || manager.windowProbeGen!=probeGen)return;
+        if(manager.updating || manager.suspended)return;
         [manager update];
     };
-    LMVDiagnostic([NSString stringWithFormat:@"desktop-keyprobe schedule=0,150,350ms covered=%d",
-        (int)(self.playback.frozen || self.appAway)]);
+    LMVDiagnostic([NSString stringWithFormat:@"desktop-keyprobe schedule=0,150,350ms covered=%d gen=%lu",
+        (int)(self.playback.frozen || self.appAway),(unsigned long)probeGen]);
     dispatch_async(dispatch_get_main_queue(),probe);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.15*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.35*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);

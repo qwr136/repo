@@ -838,6 +838,10 @@ static void LMVPrepareAssets(void) {
         }];
     }
 }
+// 5.1.5: the one channel a per-channel notification named. Set only around the call
+// below (main thread, never nested), so this function keeps ONE body and the full
+// path is byte-for-byte what it was.
+static NSString *LMVPreferencesScope;
 static void LMVLoadPreferences(void) {
     CFTimeInterval probePrefs=CACurrentMediaTime();
     CFPreferencesAppSynchronize(kLMVPrefsID);
@@ -848,17 +852,22 @@ static void LMVLoadPreferences(void) {
         LMVDiagnosticEpoch.fetch_add(1);
         LMVDiagnostic([NSString stringWithFormat:@"version=%@ diagnostics-enabled",LMV_VERSION_STRING]);
     }
-    LMVPaths = [NSMutableDictionary new];
-    // These are semantic source names, kept independent from UIKit private class names.
-    LMVMaterialSources = LMVCardLegacyDefaults();
-    LMVEnabled = [NSMutableDictionary new];
+    BOOL full=LMVPreferencesScope.length==0;
+    if (full || !LMVPaths || !LMVEnabled) {
+        LMVPaths = [NSMutableDictionary new];
+        // These are semantic source names, kept independent from UIKit private class names.
+        LMVMaterialSources = LMVCardLegacyDefaults();
+        LMVEnabled = [NSMutableDictionary new];
+    }
     // 0.0.123: master switch for the whole tweak, read inline so sliced test
     // fixtures need no extra symbol. Absent or non-number means ENABLED, so an
     // upgrade never changes an existing configuration; only an explicit NO
     // stops every channel.
     id globalValue = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("GlobalEnabled"), kLMVPrefsID);
     BOOL globalOn = ![globalValue isKindOfClass:NSNumber.class] || [globalValue boolValue];
-    for (NSString *target in LMVCardTargets()) {
+    NSArray<NSString *> *loadTargets = LMVCardTargets();
+    if (!full) loadTargets = [loadTargets containsObject:LMVPreferencesScope] ? @[LMVPreferencesScope] : @[];
+    for (NSString *target in loadTargets) {
         NSString *enabledKey = [target stringByAppendingString:@"BackgroundEnabled"];
         NSNumber *enabled = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue((__bridge CFStringRef)enabledKey, kLMVPrefsID);
         LMVEnabled[target] = @(globalOn && [enabled respondsToSelector:@selector(boolValue)] && enabled.boolValue);
@@ -886,6 +895,10 @@ static void LMVLoadPreferences(void) {
     LMVOpacity = [opacity respondsToSelector:@selector(floatValue)] ? MAX(0.0, MIN(1.0, opacity.floatValue)) : 0.55;
     LMVPrepareAssets();
     LMVPerfProbe("prefs",probePrefs);
+}
+static void LMVLoadPreferencesTarget(NSString *only) {
+    if (!only.length) { LMVLoadPreferences(); return; }
+    LMVPreferencesScope=only; LMVLoadPreferences(); LMVPreferencesScope=nil;
 }
 static BOOL LMVMessageCell(UIView *cell);
 // 4.4.7: this runs once per cell per tick (25 cells x 10 Hz = 250 walks a second).
@@ -1547,8 +1560,9 @@ static void LMVSyncAudioVisibility(void) {
         LMVAudioLayerExposed(cvPanel.renderLayer,LMVCopyVaultPanelVideo.host.window);
     LMVAudioConsume(@"CV",cvPanel.path,cvPanel.revision,cvPanelVisible,cvPanel.player.currentTime);
 }
-static void LMVReloadAudioControls(void) {
-    LMVAudioReload();
+// 5.1.5: `only` reloads a single channel's sound switch/volume; nil keeps the sweep.
+static void LMVReloadAudioControlsFor(NSString *only) {
+    if (only.length) LMVAudioReloadTarget(only); else LMVAudioReload();
     if(LMVAudioAnyEnabled() && !LMVAudioTimer) {
         // 1.32: 10 Hz -> 4 Hz. This timer is the STEADY-STATE audio sync: it walks
         // every target, then every cell for every target, and touches AVPlayer
@@ -1562,6 +1576,7 @@ static void LMVReloadAudioControls(void) {
         [NSRunLoop.mainRunLoop addTimer:LMVAudioTimer forMode:NSRunLoopCommonModes];
     } else if(!LMVAudioAnyEnabled()) {[LMVAudioTimer invalidate];LMVAudioTimer=nil;LMVAudioPauseAll();}
 }
+static void LMVReloadAudioControls(void) { LMVReloadAudioControlsFor(nil); }
 static void LMVReleaseAllPlayers(void) {
     // Keep one paused player/time and one last decoded CGImage per file, not per card.
     [LMVLink invalidate]; LMVLink=nil;
@@ -1623,7 +1638,8 @@ static void LMVRefresh(BOOL reload) {
 // full refresh, so a name that is not mapped here can never go stale.
 static void LMVRefreshChannel(NSString *target, BOOL reload) {
     if (!LMVInitialized || !LMVLaunchReady || !NSThread.isMainThread) return;
-    if (reload) { LMVLoadPreferences(); LMVReloadAudioControls(); }
+    // 5.1.5: the notification already named the channel - reload only that one.
+    if (reload) { LMVLoadPreferencesTarget(target); LMVReloadAudioControlsFor(target); }
     if ([target isEqualToString:@"LockNC"] || [target isEqualToString:@"LockScreen"]) LMVLockVideoRefresh(reload);
     else if ([target isEqualToString:@"Desktop"]) LMVDesktopVideoRefresh(reload);
     else if ([target isEqualToString:@"CC"] || [target isEqualToString:@"ControlCenterDark"] || [target isEqualToString:@"ControlCenterLight"]) LMVCCRefresh(reload);

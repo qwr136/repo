@@ -316,7 +316,11 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
         [self applyPreparedPoster:prepared path:path revision:revision];CGImageRelease(prepared);
     } else [self preparePosterForPath:path revision:revision];
     NSUInteger generation=self.generation;__weak typeof(self) weakSelf=self;
-    AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
+    // 5.1.5: the poster asset already asked for non-precise timing; the playing asset
+    // did not, so AVFoundation scanned the whole sample table for frame-accurate
+    // seeks this channel never uses (pendingSeek tolerance is already +/-0.2 s).
+    AVURLAsset *asset=[AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path]
+        options:@{AVURLAssetPreferPreciseDurationAndTimingKey:@NO}];
     [asset loadValuesAsynchronouslyForKeys:@[@"tracks",@"playable"] completionHandler:^{
         NSError *error=nil;
         BOOL loaded=[asset statusOfValueForKey:@"tracks" error:&error]==AVKeyValueStatusLoaded &&
@@ -356,6 +360,14 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
                 current.error=note.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey] ?: [NSError errorWithDomain:@"com.minis.lockmessagevideo.lock" code:5 userInfo:nil];
                 [current.player pause];[current updatePresentation];
             }];
+            // 5.1.5: a poster for this very revision may already be on screen - either the
+            // cached still applied in -selectPath: or the 1440px one -preparePosterForPath:
+            // decoded and wrote. Decoding frame 0 again at 1280px then repeats the same
+            // decode and REPLACES a sharper image with a softer one.
+            BOOL posterReady=live.preparedImage && [live.preparedPath isEqualToString:path] &&
+                [live.preparedRevision isEqualToString:revision] && live.posterLayer.contents!=NULL;
+            if (posterReady) { live.generator=nil; }
+            else {
             AVAssetImageGenerator *generator=[[AVAssetImageGenerator alloc] initWithAsset:composition];
             generator.appliesPreferredTrackTransform=YES;generator.maximumSize=CGSizeMake(1280,1280);
             live.generator=generator;
@@ -379,6 +391,7 @@ static char LMVLockLayerReadyContext,LMVLockPlayerStatusContext,LMVLockPlayerTim
                     if (held) CGImageRelease(held);
                 });
             }];
+            }
             [live setVisible:live.wantsPlayback];
             LMVLockVideoLog(@"lock-video player-built independent=1 video-only=1 muted=1");
         });
