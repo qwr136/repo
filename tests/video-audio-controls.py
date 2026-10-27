@@ -188,6 +188,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @end
 @interface UIView : NSObject
 @property UIView *superview;
+@property NSArray *subviews;
 @end
 @implementation UIView @end
 @interface UILabel : UIView
@@ -196,6 +197,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @implementation UILabel @end
 @interface UITableViewCell : UIView
 @property UILabel *textLabel;
+@property UIView *contentView;
 @end
 @implementation UITableViewCell @end
 @interface UISwitch : NSObject
@@ -204,6 +206,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @end
 @implementation UISwitch @end
 @interface UISlider : UIView
+@property BOOL enabled;
 @property NSInteger tag;
 @property float value;
 @property(getter=isTracking) BOOL tracking;
@@ -212,6 +215,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @implementation UISlider @end
 @interface UITableView : NSObject
 @property NSInteger reloads;
+@property NSArray *visibleCells;
 - (void)reloadData;
 - (void)deselectRowAtIndexPath:(NSIndexPath *)p animated:(BOOL)a;
 @end

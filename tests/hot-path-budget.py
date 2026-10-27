@@ -106,6 +106,8 @@ check('preferencesChanged." stringByAppendingString:target' in _emed,
 def _method_body(text, signature):
     return text.split(signature, 1)[1].split('\n- (', 1)[0]
 
+check('cell.imageView.image=nil;' in _panel,
+      'a reused cell keeps the import row icon on unrelated rows')
 check('[self.tableView reloadData]' not in _method_body(_panel, '- (void)soundChanged:'),
       'a sound toggle still reloads all eighteen sections')
 check('[self.tableView reloadData]' not in _method_body(_panel, '- (void)volumeChanged:'),

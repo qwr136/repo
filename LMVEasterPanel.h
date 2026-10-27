@@ -352,6 +352,9 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     cell.accessoryView=nil;
     cell.accessoryType=UITableViewCellAccessoryNone;
     cell.textLabel.text=nil; cell.detailTextLabel.text=nil;
+    // 5.1.8: the import row is the only one that sets an image, and reuse carried that
+    // download icon onto every later row (sound switches, material rows) - a visible bug.
+    cell.imageView.image=nil;
     cell.textLabel.numberOfLines=1; cell.detailTextLabel.numberOfLines=1;
     cell.selectionStyle=UITableViewCellSelectionStyleDefault;
     cell.userInteractionEnabled=YES;
@@ -618,7 +621,9 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     NSInteger tag = toggle.tag;
     for (UITableViewCell *cell in self.tableView.visibleCells) {
         for (UIView *view in cell.contentView.subviews) {
-            if ([view isKindOfClass:UISlider.class] && view.tag == tag) ((UISlider *)view).enabled = toggle.on;
+            if (![view isKindOfClass:UISlider.class]) continue;
+            UISlider *slider = (UISlider *)view;
+            if (slider.tag == tag) slider.enabled = toggle.on;
         }
     }
 }
