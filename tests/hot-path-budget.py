@@ -84,6 +84,20 @@ check('windowProbeGen' in _desktop and 'manager.windowProbeGen!=probeGen' in _de
 check('rate!=1.0' not in _media, 'the dead manual-loop branch is back')
 check('AVPlayerLooper playerLooperWithPlayer' in _media, 'the looper path disappeared')
 
+# 5.1.7: panel writes must be scoped to one channel, never the global sweep.
+_panel = (root / 'LMVEasterPanel.h').read_text()
+_emed = (root / 'LMVEasterMedia.h').read_text()
+check('LMVEasterSetTarget(key, relative, LMVEasterRefreshTargetForKey(key))' in _panel,
+      'a material switch still posts the global notification')
+check(_panel.count('LMVEasterSetTarget(') >= 3,
+      'sound / volume writes are not scoped to their channel')
+check('LMVEasterSetLocal(@"EasterPanelScrollY"' in _panel,
+      'saving the scroll position still fires a refresh')
+check('volumeNow - LMVEasterLastVolumeNotify >= 0.1' in _panel,
+      'the volume slider notifies on every frame again')
+check('preferencesChanged." stringByAppendingString:target' in _emed,
+      'the scoped notification name is not built')
+
 if failures:
     for failure in failures:
         print('FAIL: ' + failure)

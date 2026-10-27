@@ -67,6 +67,20 @@ static NSString *LMVEasterControlCenterKey(NSInteger row) {
 static NSArray *LMVEasterAudioTargets(void) {
     return @[@"Message", @"Options", @"Clear", @"LockScreen", @"Desktop", @"ControlCenterDark", @"ControlCenterLight", @"HomeMenu", @"SquidPanel", @"AT", @"CV", @"Myrtle", @"PA", @"GS", @"CCBorder", @"CopyLogX"];
 }
+// 5.1.7: turn "<channel>Video" / "<channel>SoundEnabled" / "<channel>Volume" into the
+// channel name the refresh router understands. The panel and the settings page call
+// the Control Center channel "ControlCenter"; the router knows it as "CC".
+// 5.1.7: throttle for the volume slider, which otherwise notifies on every frame.
+static CFTimeInterval LMVEasterLastVolumeNotify;
+
+static NSString *LMVEasterRefreshTargetForKey(NSString *key) {
+    NSString *channel = key;
+    for (NSString *suffix in @[@"BackgroundEnabled", @"SoundEnabled", @"Volume", @"Video"]) {
+        if ([channel hasSuffix:suffix]) { channel = [channel substringToIndex:channel.length - suffix.length]; break; }
+    }
+    return [channel isEqualToString:@"ControlCenter"] ? @"CC" : channel;
+}
+
 // 1.63: the four SquidGesturePro panels (right/left, swipe-up / swipe-up-twice) share
 // ONE material - the user picks a single "切换视频" and every panel plays it.
 
@@ -147,7 +161,7 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     // jumping back to 启用/选择素材. Written here because every close path goes
     // through prepareForClose before the table is torn down.
     if (self.isViewLoaded) {
-        LMVEasterSet(@"EasterPanelScrollY", @(self.tableView.contentOffset.y));
+        LMVEasterSetLocal(@"EasterPanelScrollY", @(self.tableView.contentOffset.y));
         CFPreferencesAppSynchronize(LMVEasterPrefs);
     }
     if (!self.prompt) return;
@@ -597,7 +611,7 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
 - (void)soundChanged:(UISwitch *)toggle {
     NSString *target = LMVEasterAudioTargetForTag(toggle.tag);
     if (!target) return;
-    LMVEasterSet([target stringByAppendingString:@"SoundEnabled"], @(toggle.on));
+    LMVEasterSetTarget([target stringByAppendingString:@"SoundEnabled"], @(toggle.on), target);
     [self.tableView reloadData];
 }
 - (void)volumeChanged:(UISlider *)slider {
@@ -605,7 +619,14 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     if (!target) return;
     double volume = LMVEasterAudioVolume(@(slider.value));
     self.volumeTracking = slider.isTracking;
-    LMVEasterSet([target stringByAppendingString:@"Volume"], @(volume));
+    // 5.1.7: a drag fires this every frame, and every frame used to post the GLOBAL
+    // notification - i.e. a full thirteen-channel refresh per frame. One notification
+    // per 100 ms still tracks the thumb, and the release always flushes the final value.
+    CFTimeInterval volumeNow = CACurrentMediaTime();
+    if (!slider.isTracking || volumeNow - LMVEasterLastVolumeNotify >= 0.1) {
+        LMVEasterLastVolumeNotify = volumeNow;
+        LMVEasterSetTarget([target stringByAppendingString:@"Volume"], @(volume), target);
+    }
     slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
     for (UIView *view = slider.superview; view; view = view.superview) {
         if ([view isKindOfClass:UITableViewCell.class]) {
@@ -675,7 +696,12 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     id current = LMVEasterRead(key);
     picker.selected = [current isKindOfClass:NSString.class] ? current : fallback;
     __weak typeof(self) weakSelf = self;
-    picker.apply = ^(NSString *relative, NSString *name) { LMVEasterSet(key, relative); [weakSelf.tableView reloadData]; };
+    // 5.1.7: this used to post the unsuffixed name, so one tap reloaded every channel's
+    // preferences and refreshed all thirteen - the panel stuttered for a whole frame.
+    picker.apply = ^(NSString *relative, NSString *name) {
+        LMVEasterSetTarget(key, relative, LMVEasterRefreshTargetForKey(key));
+        [weakSelf.tableView reloadData];
+    };
     // The picker can rename (text field), so it is one of the few paths that
     // still needs the overlay window to be key.
     if (self.requestKey) self.requestKey();

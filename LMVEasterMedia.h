@@ -31,6 +31,27 @@ static void LMVEasterSet(NSString *key, id value) {
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, LMVEasterPrefs);
     LMVEasterNotify();
 }
+// 5.1.7: a write that concerns exactly ONE channel must not trigger the global sweep.
+// The unsuffixed name makes SpringBoard reload every channel's preferences (~70 disk
+// reads) and refresh all thirteen channels - for a single material tap or one volume
+// frame. `target` empty keeps the old global behaviour.
+static void LMVEasterNotifyTarget(NSString *target) {
+    CFPreferencesAppSynchronize(LMVEasterPrefs);
+    NSString *name = target.length
+        ? [@"com.minis.lockmessagevideo/preferencesChanged." stringByAppendingString:target]
+        : @"com.minis.lockmessagevideo/preferencesChanged";
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+        (__bridge CFStringRef)name, NULL, NULL, YES);
+}
+static void LMVEasterSetTarget(NSString *key, id value, NSString *target) {
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, LMVEasterPrefs);
+    LMVEasterNotifyTarget(target);
+}
+// Panel-local state (scroll position, remembered offsets): write it, tell nobody.
+static void LMVEasterSetLocal(NSString *key, id value) {
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, LMVEasterPrefs);
+    CFPreferencesAppSynchronize(LMVEasterPrefs);
+}
 // Geometry only: changing size never changes the bounded image decode key.
 static CGFloat LMVEasterSize(void) {
     id value = LMVEasterRead(@"EasterEggSize");

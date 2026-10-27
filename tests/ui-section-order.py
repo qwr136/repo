@@ -235,11 +235,11 @@ class UISectionOrder(unittest.TestCase):
         selection_for_digest = selection_for_digest.replace('''        if (index.row < 1 || index.row > 4) return;
         key = LMVEasterSquidKeys()[index.row - 1];''', '''        if (index.row != 1) return;
         key = @"SquidPanelVideo";''')
-        self.assertEqual(digest(selection_for_digest), '09ac90fab7b248df12d78784c04b3d45db78cc6708c468cc6ba505a5de40e9aa')
+        self.assertEqual(digest(selection_for_digest), '364bd15f4487f242d2771d112c700d49b83cccad4e5e17bf48126f6392078cd9')
         self.assertIn('row == 1 ? @"ControlCenterDarkVideo" : (row == 4 ? @"ControlCenterLightVideo" : nil)', PANEL)
         for text in ['key = LMVEasterControlCenterKey(index.row);', 'if (!key) return;',
                      'if (index.row != 1) return;\n        key = @"HomeMenuVideo";',
-                     'picker.apply = ^(NSString *relative, NSString *name) { LMVEasterSet(key, relative);',
+                     'LMVEasterSetTarget(key, relative, LMVEasterRefreshTargetForKey(key));',
                      'if (index.section == LMVEasterImportSection()) { if (index.row == 0) [self importVideo]; return; }',
                      'if (index.section == LMVEasterDisplaySection()) {\n        if (index.row != 0) return;']:
             self.assertIn(text, selection)
