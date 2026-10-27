@@ -89,8 +89,12 @@ _panel = (root / 'LMVEasterPanel.h').read_text()
 _emed = (root / 'LMVEasterMedia.h').read_text()
 check('LMVEasterSetTarget(key, relative, LMVEasterRefreshTargetForKey(key))' in _panel,
       'a material switch still posts the global notification')
-check(_panel.count('LMVEasterSetTarget(') >= 3,
-      'sound / volume writes are not scoped to their channel')
+check(_panel.count('LMVEasterSetTarget(') >= 2,
+      'the material / sound writes are not scoped to their channel')
+check('LMVEasterSetLocal([target stringByAppendingString:@"Volume"]' in _panel,
+      'the volume write no longer happens on every frame')
+check('LMVEasterNotifyTarget(target);' in _panel,
+      'the throttled volume announcement is missing')
 check('LMVEasterSetLocal(@"EasterPanelScrollY"' in _panel,
       'saving the scroll position still fires a refresh')
 check('volumeNow - LMVEasterLastVolumeNotify >= 0.1' in _panel,

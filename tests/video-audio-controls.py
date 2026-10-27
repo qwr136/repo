@@ -62,7 +62,9 @@ volume_change = body(panel, '- (void)volumeChanged:')
 for method, suffix in ((sound, 'SoundEnabled'), (volume_change, 'Volume')):
     assert 'LMVEasterAudioTargetForTag(' in method and 'if (!target) return;' in method
     # 5.1.7: the write is scoped to the channel now, but still exactly one write.
-    assert method.count('LMVEasterSet(') + method.count('LMVEasterSetTarget(') == 1
+    # 5.1.7: writes go through the scoped/local helpers now; still exactly one write.
+    assert (method.count('LMVEasterSet(') + method.count('LMVEasterSetTarget(')
+            + method.count('LMVEasterSetLocal(')) == 1
     assert f'[target stringByAppendingString:@"{suffix}"]' in method
 assert 'LMVEasterAudioVolume(@(slider.value))' in volume_change
 assert 'self.volumeTracking = slider.isTracking;' in volume_change

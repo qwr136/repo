@@ -619,13 +619,15 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     if (!target) return;
     double volume = LMVEasterAudioVolume(@(slider.value));
     self.volumeTracking = slider.isTracking;
-    // 5.1.7: a drag fires this every frame, and every frame used to post the GLOBAL
-    // notification - i.e. a full thirteen-channel refresh per frame. One notification
-    // per 100 ms still tracks the thumb, and the release always flushes the final value.
+    // 5.1.7: the WRITE is cheap and always happens, so the stored value follows the
+    // thumb exactly. The ANNOUNCEMENT is what costs - it used to be the global name,
+    // i.e. a thirteen-channel refresh per frame. One scoped announcement per 100 ms
+    // still tracks the thumb, and the release always flushes.
+    LMVEasterSetLocal([target stringByAppendingString:@"Volume"], @(volume));
     CFTimeInterval volumeNow = NSDate.date.timeIntervalSince1970;
     if (!slider.isTracking || volumeNow - LMVEasterLastVolumeNotify >= 0.1) {
         LMVEasterLastVolumeNotify = volumeNow;
-        LMVEasterSetTarget([target stringByAppendingString:@"Volume"], @(volume), target);
+        LMVEasterNotifyTarget(target);
     }
     slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
     for (UIView *view = slider.superview; view; view = view.superview) {
