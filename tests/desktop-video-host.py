@@ -969,6 +969,11 @@ int main(void){@autoreleasepool {
  // policy pass. The lightweight repair only writes when geometry actually moves.
  LMVDesktopLifecycle(controller,1);[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
  LMVDesktopExplicitWallpaper=wall;[LMVDesktopVideo update];assert(LMVDesktopVideo.container==wall);
+ // 5.1.7: drain everything ALREADY queued before taking the snapshot. Coalesced update
+ // requests and the key-window probes scheduled by the calls above used to land inside
+ // the runloop window below and be counted as work caused by the 500 layout passes -
+ // that race failed CI three times with the same assertion.
+ for(int drain=0;drain<4;drain++)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.22]];
  NSUInteger beforePolicy=fullDesktopPolicies,beforeGlobal=requests,beforeLayout=LMVDesktopVideo.playback.layoutCalls;
  for(int n=0;n<500;n++){[controller viewDidLayoutSubviews];[wall layoutSubviews];}
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
