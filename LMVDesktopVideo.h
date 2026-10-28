@@ -1413,19 +1413,23 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // branch to take, there is nothing here but the secure-window mount.
         if (content && content.superview==container) {
             NSUInteger back=[container.subviews indexOfObjectIdenticalTo:content],own=[container.subviews indexOfObjectIdenticalTo:self.host];
-            if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:content];}
+            // 5.2.0: an exception escaping a display-link callback aborts SpringBoard.
+            if(self.host.superview!=container || own!=back+1){[self.host removeFromSuperview];
+                @try{[container insertSubview:self.host aboveSubview:content];}@catch(NSException *ignored){[self.host removeFromSuperview];}}
         } else if (poster && container==poster.viewIfLoaded) {
             // This exact Home variant contains only background pixels, including
             // scene hosts and snapshot replicas. Put our UIView above them while
             // preserving the system order and attachment of every original view.
             if(self.host.superview!=container || container.subviews.lastObject!=self.host) {
-                [self.host removeFromSuperview];[container addSubview:self.host];
+                [self.host removeFromSuperview];
+                @try{[container addSubview:self.host];}@catch(NSException *ignored){[self.host removeFromSuperview];}
             }
         } else {
             UIView *anchor=LMVLockVideoBackgroundAnchor(container,self.host);
             NSUInteger expected=anchor?[container.subviews indexOfObjectIdenticalTo:anchor]+1:0;
             NSUInteger own=[container.subviews indexOfObjectIdenticalTo:self.host];
-            if(self.host.superview!=container || own!=expected){[self.host removeFromSuperview];[container insertSubview:self.host atIndex:expected];}
+            if(self.host.superview!=container || own!=expected){[self.host removeFromSuperview];
+                @try{[container insertSubview:self.host atIndex:expected];}@catch(NSException *ignored){[self.host removeFromSuperview];}}
         }
         // 1.25: the long-press context menu can hide the whole wallpaper branch,
         // and our layer goes with it - the menu then shows its own empty
@@ -1442,7 +1446,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
             if(self.host.superview!=hostParent ||
                [hostParent.subviews indexOfObjectIdenticalTo:self.host]!=0) {
                 [self.host removeFromSuperview];
-                [hostParent insertSubview:self.host atIndex:0];
+                @try{[hostParent insertSubview:self.host atIndex:0];}@catch(NSException *ignored){[self.host removeFromSuperview];}
             }
         }
         UIView *geometryTarget=container;

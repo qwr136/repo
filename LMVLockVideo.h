@@ -756,17 +756,21 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
         [CATransaction begin];[CATransaction setDisableActions:YES];
         NSArray *children=renderParent.subviews;
         NSUInteger own=[children indexOfObjectIdenticalTo:self.host];
+        // 5.2.0: a UIVisualEffectView refuses direct subviews and raises. Both mounts
+        // below run from the display-link tick, so an escaping exception aborted
+        // SpringBoard - catch it here instead of trusting the container.
         if(renderParent==container) {
             NSUInteger back=[children indexOfObjectIdenticalTo:anchor];
             if(self.host.superview!=container || own!=back+1) {
-                [self.host removeFromSuperview];[container insertSubview:self.host aboveSubview:anchor];
+                [self.host removeFromSuperview];
+                @try{[container insertSubview:self.host aboveSubview:anchor];}@catch(NSException *ignored){[self.host removeFromSuperview];}
             }
         } else {
             NSUInteger front=[children indexOfObjectIdenticalTo:foreground];
             if(self.host.superview!=renderParent || own==NSNotFound || front!=own+1) {
                 [self.host removeFromSuperview];
                 front=[renderParent.subviews indexOfObjectIdenticalTo:foreground];
-                [renderParent insertSubview:self.host atIndex:front];
+                @try{[renderParent insertSubview:self.host atIndex:front];}@catch(NSException *ignored){[self.host removeFromSuperview];}
             }
         }
         self.host.frame=hostFrame;self.host.alpha=1;self.host.autoresizingMask=panelAttached?0:UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;

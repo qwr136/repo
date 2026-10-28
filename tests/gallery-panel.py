@@ -44,9 +44,9 @@ check("LMVGalleryController.m" in makefile.split("LockMessageVideoPrefs_FILES ="
       "gallery controller outside the prefs bundle file list")
 
 # Version agreement (the receipt compares these three)
-check("LMV_VERSION = 5.1.9" in makefile, "Makefile version not 5.1.9")
-check(re.search(r"^Version: 5\.1\.9$", control, re.M) is not None, "control version not 5.1.9")
-check(plist.count("<string>5.1.9</string>") == 2, "Info.plist versions not 5.1.9")
+check("LMV_VERSION = 5.2.0" in makefile, "Makefile version not 5.2.0")
+check(re.search(r"^Version: 5\.2\.0$", control, re.M) is not None, "control version not 5.2.0")
+check(plist.count("<string>5.2.0</string>") == 2, "Info.plist versions not 5.2.0")
 
 # Entry: the classic list stays intact and the gallery opens exactly once per visit
 check("@implementation LMVPRootListController" in root, "classic root controller removed")

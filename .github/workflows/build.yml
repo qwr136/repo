@@ -52,6 +52,7 @@ jobs:
           check() { "$@" || failures=$((failures + 1)); }
           check python3 tests/roothide-package.py
           check python3 tests/shared-render-regression.py
+          check python3 tests/effect-view-guard.py
           check python3 tests/material-thumbnail.py
           check python3 tests/preview-diagnostics.py
           check python3 tests/message-sources.py

@@ -325,10 +325,12 @@ static __weak UIView *LMVHomeMenuObservedList;
     BOOL live=self.playback.player && !self.playback.error;
     if(!live) {[self.lease restore];self.lease=nil;[self.host removeFromSuperview];self.host.hidden=YES;self.updating=NO;return;}
     UIView *parent=material.superview;
-    if(self.host.superview!=parent)[parent insertSubview:self.host aboveSubview:material];
-    else {
+    // 5.2.0: a UIVisualEffectView raises on direct subviews; never let that escape.
+    if(self.host.superview!=parent){
+        @try{[parent insertSubview:self.host aboveSubview:material];}@catch(NSException *ignored){[self.host removeFromSuperview];}
+    } else {
         NSUInteger own=[parent.subviews indexOfObjectIdenticalTo:self.host],back=[parent.subviews indexOfObjectIdenticalTo:material];
-        if(own!=back+1)[parent insertSubview:self.host aboveSubview:material];
+        if(own!=back+1){@try{[parent insertSubview:self.host aboveSubview:material];}@catch(NSException *ignored){[self.host removeFromSuperview];}}
     }
     [self syncGeometry];
     if(!self.lease) {

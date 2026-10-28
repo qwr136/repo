@@ -1275,10 +1275,31 @@ static void LMVUpdate(UIView *cell) {
         state.host = host;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        if (state.overlay.superview != host || state.anchor != anchor) {
-            if (material) [host insertSubview:state.overlay aboveSubview:anchor];
-            else [host insertSubview:state.overlay atIndex:0];
+        // 5.2.0: on iOS 16 the 「选项 / 清除」action buttons sit inside a
+        // UIVisualEffectView, and adding a subview to one of those RAISES. This ran from
+        // the display-link tick during the reveal animation, so the exception escaped a
+        // run-loop callback and aborted SpringBoard (safe mode, four consecutive
+        // crashes). Insert into -contentView instead, and never let an exception out.
+        UIView *insertionParent = host;
+        Class effectClass = NSClassFromString(@"UIVisualEffectView");
+        if (effectClass && [host isKindOfClass:effectClass]) {
+            @try { insertionParent = [host valueForKey:@"contentView"]; }
+            @catch (NSException *ignored) { insertionParent = nil; }
+        }
+        if (!insertionParent) {
+            [state.overlay removeFromSuperview];
             state.anchor = anchor;
+        } else {
+            // Compared against the view the overlay actually lives in, so a contentView
+            // host does not make this re-insert on every single tick.
+            if (state.overlay.superview != insertionParent || state.anchor != anchor) {
+                @try {
+                    if (material && anchor.superview == insertionParent) [insertionParent insertSubview:state.overlay aboveSubview:anchor];
+                    else [insertionParent insertSubview:state.overlay atIndex:0];
+                }
+                @catch (NSException *exception) { [state.overlay removeFromSuperview]; }
+                state.anchor = anchor;
+            }
         }
         LMVLayoutCardSurface(state,anchor,host);
         [CATransaction commit];
