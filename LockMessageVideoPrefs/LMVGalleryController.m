@@ -8,7 +8,7 @@
 // problem shows up. This page only reads/writes the same preference keys and posts
 // the same per-channel notifications as the list, so the tweak cannot tell them apart.
 
-#define LMVGalleryVersion @"5.2.0"
+#define LMVGalleryVersion @"5.2.1"
 
 // A view whose layer is the gradient itself, so it tracks Auto Layout instead of
 // keeping the frame it was born with. Used for both the cover placeholder palette
@@ -553,7 +553,9 @@
         if (!identifier.length) continue;
         NSString *relative = LMVGSelectedMaterial(identifier);
         NSString *name = relative.length ? LMVGMaterialName(relative) : @"未选择素材";
-        BOOL on = LMVGPrefBool([identifier stringByAppendingString:@"BackgroundEnabled"], NO);
+        // 5.2.1: Control Center's two frames share one switch, so the key comes from the
+        // helper instead of being built from the id.
+        BOOL on = LMVGPrefBool(LMVGEnableKey(identifier), NO);
         UILabel *material = (UILabel *)[card viewWithTag:1002];
         material.text = [NSString stringWithFormat:@"%@ · %@", name, on ? @"使用中" : @"未启用"];
         UILabel *badge = (UILabel *)[card viewWithTag:1003];
@@ -585,7 +587,9 @@
 
     for (UIView *card in self.sceneCards) {
         NSString *identifier = card.accessibilityIdentifier;
-        BOOL on = LMVGPrefBool([identifier stringByAppendingString:@"BackgroundEnabled"], NO);
+        // 5.2.1: Control Center's two frames share one switch, so the key comes from the
+        // helper instead of being built from the id.
+        BOOL on = LMVGPrefBool(LMVGEnableKey(identifier), NO);
         UIView *dot = [card viewWithTag:1004];
         dot.hidden = !on;
         dot.backgroundColor = UIColor.systemGreenColor;

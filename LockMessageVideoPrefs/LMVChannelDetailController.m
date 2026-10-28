@@ -4,7 +4,7 @@
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"5.2.0"
+#define LMVGalleryVersion @"5.2.1"
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
@@ -248,7 +248,7 @@ static UIColor *LMVGAccent(void) {
 - (void)refresh {
     NSString *relative = LMVGSelectedMaterial(self.channelID);
     NSString *name = relative.length ? LMVGMaterialName(relative) : @"未选择素材";
-    BOOL on = LMVGPrefBool([self.channelID stringByAppendingString:@"BackgroundEnabled"], NO);
+    BOOL on = LMVGPrefBool(LMVGEnableKey(self.channelID), NO);
     self.toggle.on = on;
     self.subtitle.text = [NSString stringWithFormat:@"%@ · %@", name, on ? @"已启用" : @"未启用"];
     LMVGApplyResolution(self.resolutionBadge, relative);
@@ -545,7 +545,10 @@ static UIColor *LMVGAccent(void) {
 
 - (void)toggled:(UISwitch *)toggle {
     LMVGLightHaptic();
-    NSString *key = [self.channelID stringByAppendingString:@"BackgroundEnabled"];
+    // 5.2.1: Control Center's two frames share ONE switch - writing
+    // "ControlCenterDarkBackgroundEnabled" here changed a key the tweak never reads,
+    // so the toggle did nothing on that page.
+    NSString *key = LMVGEnableKey(self.channelID);
     LMVGPrefSet(key, @(toggle.on));
     LMVGNotifyChannel(self.channelID);
     [self refresh];

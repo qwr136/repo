@@ -54,8 +54,23 @@ static inline NSDictionary *LMVGChannelRow(NSString *identifier) {
 static inline NSString *LMVGChannelTitle(NSString *identifier) {
     return LMVGChannelRow(identifier)[@"title"] ?: identifier;
 }
+// 5.2.1: the Control Center halves are ONE channel with two frames - the settings page
+// has a single switch ("ControlCenterBackgroundEnabled") and one video key per half.
+// Everything that derives an enable key from the id must go through here, otherwise a
+// Control Center card reads a key nothing ever writes and always looks disabled.
+static inline NSString *LMVGEnableKey(NSString *identifier) {
+    if ([identifier hasPrefix:@"ControlCenter"]) return @"ControlCenterBackgroundEnabled";
+    return [identifier stringByAppendingString:@"BackgroundEnabled"];
+}
+// 5.2.1: the gallery borrowed the settings "fixed section" list, and Control Center is
+// not one of those five (it has its own split section), so BOTH halves were missing -
+// the page said 16 channels while drawing 14 cards. The gallery shows them as two
+// scenes, one per frame, which is also how the user thinks about them.
 static inline NSArray<NSString *> *LMVGSceneIDs(void) {
-    return LMVSectionChannelIDs();
+    NSMutableArray<NSString *> *ids = [LMVSectionChannelIDs() mutableCopy];
+    for (NSString *identifier in @[@"ControlCenterDark", @"ControlCenterLight"])
+        if (LMVGChannelRow(identifier)) [ids addObject:identifier];
+    return ids;
 }
 static inline NSArray<NSString *> *LMVGPanelIDs(void) {
     NSMutableArray *ids = [NSMutableArray new];
@@ -66,7 +81,7 @@ static inline NSArray<NSString *> *LMVGPanelIDs(void) {
 static inline NSUInteger LMVGEnabledCount(void) {
     NSUInteger count = 0;
     for (NSString *identifier in LMVChannelIDs())
-        if (LMVGPrefBool([identifier stringByAppendingString:@"BackgroundEnabled"], NO)) count++;
+        if (LMVGPrefBool(LMVGEnableKey(identifier), NO)) count++;
     return count;
 }
 
