@@ -115,5 +115,20 @@ static NSArray<UIWindow *> *LMVProbeVisibleWindowsFast(void) {
     return cache;
 }
 
+#if __has_include("LMVProbeCommon.h")
 #import "LMVProbeCommon.h"
+#else
+// Standalone fixtures compile this header in a temp directory without the shared
+// header. The tweak build always takes the branch above, so this copy is never
+// compiled into the product.
+static inline NSString *LMVProbeClassName(UIView *view) {
+    if (!view) return @"";
+    static char kLMVProbeClassNameKey;
+    NSString *cached = objc_getAssociatedObject(view, &kLMVProbeClassNameKey);
+    if (cached) return cached;
+    cached = NSStringFromClass(view.class) ?: @"";
+    objc_setAssociatedObject(view, &kLMVProbeClassNameKey, cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return cached;
+}
+#endif
 
