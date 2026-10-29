@@ -51,12 +51,6 @@ static NSString *const LMVGalleryCoverCacheFolder = @".gallery-covers";
 #define LMV_LIBRARY_NAME "library"
 #define LMV_MATERIAL_NAMES_FILE "material-names.plist"
 
-static inline NSString *LMVLibraryPath(void) {
-    return [LMVStorageRootPath stringByAppendingPathComponent:LMVLibrarySubfolder];
-}
-static inline NSString *LMVImagesPath(void) {
-    return [LMVStorageRootPath stringByAppendingPathComponent:LMVImagesSubfolder];
-}
 static inline NSString *LMVEasterPath(void) {
     return [LMVStorageRootPath stringByAppendingPathComponent:LMVEasterSubfolder];
 }

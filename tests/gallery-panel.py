@@ -44,9 +44,9 @@ check("LMVGalleryController.m" in makefile.split("LockMessageVideoPrefs_FILES ="
       "gallery controller outside the prefs bundle file list")
 
 # Version agreement (the receipt compares these three)
-check("LMV_VERSION = 5.2.1" in makefile, "Makefile version not 5.2.1")
-check(re.search(r"^Version: 5\.2\.1$", control, re.M) is not None, "control version not 5.2.1")
-check(plist.count("<string>5.2.1</string>") == 2, "Info.plist versions not 5.2.1")
+check("LMV_VERSION = 5.22" in makefile, "Makefile version not 5.22")
+check(re.search(r"^Version: 5\.22$", control, re.M) is not None, "control version not 5.22")
+check(plist.count("<string>5.22</string>") == 2, "Info.plist versions not 5.22")
 
 # Entry: the classic list stays intact and the gallery opens exactly once per visit
 check("@implementation LMVPRootListController" in root, "classic root controller removed")
@@ -65,7 +65,7 @@ for page, text in (("gallery", gallery), ("detail", detail)):
           f"{page} hardcodes a channel preference key")
 
 # Same keys as the classic list, written per channel
-# 5.2.1: Control Center's two frames share one switch, so the enable key comes from
+# 5.22: Control Center's two frames share one switch, so the enable key comes from
 # LMVGEnableKey() instead of being built from the id here.
 check('LMVGEnableKey(self.channelID)' in detail, 'enable key not derived from the shared helper')
 check('LMVGEnableKey(identifier)' in gallery, 'gallery enable state ignores the shared helper')

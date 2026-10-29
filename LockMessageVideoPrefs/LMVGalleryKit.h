@@ -79,10 +79,14 @@ static inline NSArray<NSString *> *LMVGPanelIDs(void) {
     return ids;
 }
 static inline NSUInteger LMVGEnabledCount(void) {
-    NSUInteger count = 0;
-    for (NSString *identifier in LMVChannelIDs())
-        if (LMVGPrefBool(LMVGEnableKey(identifier), NO)) count++;
-    return count;
+    // 5.22: the Control Center halves share one switch, so counting per channel
+    // reported one more enabled channel than the settings page can actually show.
+    NSMutableSet<NSString *> *enabled = [NSMutableSet set];
+    for (NSString *identifier in LMVChannelIDs()) {
+        NSString *key = LMVGEnableKey(identifier);
+        if (LMVGPrefBool(key, NO)) [enabled addObject:key];
+    }
+    return enabled.count;
 }
 
 // The preference stores the relative path; pre-1.x installs may only have the
@@ -103,27 +107,6 @@ static inline NSString *LMVGMaterialName(NSString *relative) {
     return LMVMaterialDisplayName(relative, names, attributes, 0);
 }
 
-static inline NSString *LMVGSymbolForChannel(NSString *identifier) {
-    static NSDictionary *symbols;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        symbols = @{
-            @"Message": @"message.fill", @"Options": @"list.bullet",
-            @"Clear": @"xmark.circle", @"LockScreen": @"lock.fill",
-            @"Desktop": @"desktopcomputer", @"ControlCenterDark": @"slider.horizontal.3",
-            @"ControlCenterLight": @"slider.horizontal.3", @"HomeMenu": @"hand.tap",
-            @"SquidPanel": @"square.grid.2x2", @"AT": @"phone.badge.waveform",
-            @"CV": @"doc.on.clipboard", @"Myrtle": @"rectangle.stack",
-            @"PA": @"phone.fill", @"GS": @"square.stack.3d.up",
-            @"CCBorder": @"rectangle.on.rectangle", @"CopyLogX": @"doc.on.doc",
-        };
-    });
-    NSString *name = symbols[identifier] ?: @"square.fill";
-    // hand.tap needs iOS 14; the bundle targets 15, but keep a defensive fallback
-    // for symbols that a future build drops.
-    if (![UIImage systemImageNamed:name]) name = @"square.fill";
-    return name;
-}
 
 static inline NSArray<UIColor *> *LMVGPalette(NSString *identifier) {
     static NSArray<NSArray<UIColor *> *> *palettes;

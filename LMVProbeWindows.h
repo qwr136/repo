@@ -115,16 +115,5 @@ static NSArray<UIWindow *> *LMVProbeVisibleWindowsFast(void) {
     return cache;
 }
 
-// 3.10.3: every walk compares class names per node, and NSStringFromClass runs for
-// each node on each walk - nine channels x ~300 nodes x 1-2 Hz. A view's class never
-// changes, so compute the name once and keep it on the view. Pure reuse, no semantic
-// change: the same string, just not rebuilt.
-static inline NSString *LMVProbeClassName(UIView *view) {
-    if (!view) return @"";
-    static char kLMVProbeClassNameKey;
-    NSString *cached = objc_getAssociatedObject(view, &kLMVProbeClassNameKey);
-    if (cached) return cached;
-    cached = NSStringFromClass(view.class) ?: @"";
-    objc_setAssociatedObject(view, &kLMVProbeClassNameKey, cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return cached;
-}
+#import "LMVProbeCommon.h"
+

@@ -10,10 +10,8 @@
 #if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
 #else
-// Standalone fixture: compile this header alone, no shared probe available.
-static inline NSString *LMVProbeClassName(UIView *view) {
-    return view ? (NSStringFromClass(view.class) ?: @"") : @"";
-}
+#import "LMVProbeCommon.h"
+
 static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL mounted) {
     (void)mounted; return want;
 }

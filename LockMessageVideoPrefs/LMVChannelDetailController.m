@@ -1,10 +1,11 @@
 #import "LMVGalleryController.h"
 #import "LMVGalleryKit.h"
+#import "../LMVPaths.h"
 #import "LMVImport.h"
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
 
-#define LMVGalleryVersion @"5.2.1"
+#define LMVGalleryVersion LMV_VERSION_STRING
 
 static UIColor *LMVGAccent(void) {
     return [UIColor colorWithRed:0.23 green:0.43 blue:0.96 alpha:1.0];
