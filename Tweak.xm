@@ -1,3 +1,8 @@
+// 5.23: the product build owns these; fixture-only stubs must never compile here.
+#define LMV_STANDALONE_STUBS
+#define LMV_HAS_SCHEDULER 1
+#define LMV_HAS_TUNE_CACHE 1
+
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
@@ -185,9 +190,6 @@ static void LMVDiagnostic(NSString *event) {
     });
 }
 
-#define LMV_STANDALONE_STUBS 1
-#define LMV_HAS_SCHEDULER 1
-#define LMV_HAS_TUNE_CACHE 1
 #import "LMVScheduler.h"
 #import "LMVLockVideo.h"
 // 2.55: the shared visible-window snapshot every panel channel probes through.
