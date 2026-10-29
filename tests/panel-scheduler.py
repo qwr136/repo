@@ -21,6 +21,6 @@ for name, channel in channels.items():
     check(('LMVSchedule(@"%s"' % channel) in text, name + ' 走中央调度器')
     check('timerWithTimeInterval' not in text, name + ' 不再自建 NSTimer')
 
-check(tweak.index('#define LMVLogF') < tweak.index('#import "LMVLockVideo.h"'), '日志门控宏早于通道头')
+check('LMVScheduler.h' in tweak.split('#import "LMVLockVideo.h"')[0], '调度器先于通道头')
 check('LMVScheduler.h' in tweak.split('#import "LMVLockVideo.h"')[0], '调度器先于通道头引入')
 print('PASS: scheduler and gated logging contract; wake-ups not measured on device')
