@@ -24,6 +24,18 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
 }
 #endif
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 // 2.04: the PHONE-ASSIST pop-up background (电话助手背景).
 //
 // This is the sheet the phone-assistant tweak presents over the home screen. It is
@@ -462,15 +474,15 @@ static void LMVPhoneAssistRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVPhoneAssistVideo.host.superview!=nil);
     if(LMVPhoneAssistTimer && fabs(LMVPhoneAssistTimer.timeInterval-want)<.001)return;
     [LMVPhoneAssistTimer invalidate];
-    LMVPhoneAssistTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+    LMVPhoneAssistTimer=nil;
+    LMVSchedule(@"PA", want, ^{
         // 4.4.2: every panel channel now reports its own call count and cost, so
         // "检测频率 = N" can be checked against the log instead of trusted.
         CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
         LMVPhoneAssistVideoRefresh(NO);
         NSString *lmvPanelPerf=LMVPerfSample("pa",CACurrentMediaTime()-lmvPanelPerf0);
         if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
-    }];
-    [NSRunLoop.mainRunLoop addTimer:LMVPhoneAssistTimer forMode:NSRunLoopCommonModes];
+    });
 }
 static void LMVPhoneAssistVideoRefresh(BOOL reload) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;

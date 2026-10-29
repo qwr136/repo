@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommon.h"
 #if __has_include("LMVPanelTuning.h")
 #import "LMVPanelTuning.h"
@@ -6,6 +18,7 @@
 // Standalone fixtures compile this header on its own and do not copy the tuning
 // table with it, so the two readers fall back to the shipped defaults (60 Hz).
 static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
+static inline NSInteger LMVTuneCachedValue(NSString *target, NSString *key, NSInteger *slot, NSTimeInterval *stamp) { (void)slot; (void)stamp; return LMVTuneValue(target, key); }
 static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
 #endif
 // Independent from Desktop/Lock/message players; no Control Center module or
@@ -501,18 +514,19 @@ static void LMVCCDiscover(void) {
 }
 - (void)geometryTick:(CADisplayLink *)link {
     // 2.97: apply a settings change on the next frame instead of at the next open.
-    NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
+    static NSInteger tuneHzSlot=-1; static NSTimeInterval tuneHzAt=0;
+    NSInteger probeHz=LMVTuneCachedValue(@"CC",@"ProbeHz",&tuneHzSlot,&tuneHzAt);
     // 4.4.5: this link follows the card's geometry; slowing it down made the video
     // lag behind the panel. The row now gates the DETECTION instead (see the poll
     // timer below), and the link always runs at the panel rate.
     if(link.preferredFramesPerSecond!=60)link.preferredFramesPerSecond=60;
-    LMVTuneReport(@"CC",@"ProbeHz",probeHz);
     // 2.98: one line per change, same reason as the lock channel.
     static NSInteger appliedHz=-1;
     if(appliedHz!=probeHz) {
         appliedHz=probeHz;
-        LMVDiagnostic([NSString stringWithFormat:@"cc-cadence setting=%ld link=%ld",
-            (long)probeHz,(long)link.preferredFramesPerSecond]);
+        LMVTuneReport(@"CC",@"ProbeHz",probeHz);
+        LMVLogF(@"cc-cadence setting=%ld link=%ld",
+            (long)probeHz,(long)link.preferredFramesPerSecond);
     }
     [self syncGeometry];
 }
@@ -600,7 +614,7 @@ static void LMVCCDiscover(void) {
         NSInteger probeHz=LMVTuneValue(@"CC",@"ProbeHz");
         self.geometryLink.preferredFramesPerSecond=60;
         LMVTuneReport(@"CC",@"ProbeHz",probeHz);
-        LMVDiagnostic([NSString stringWithFormat:@"cc-cadence created hz=%ld",(long)probeHz]);
+        LMVLogF(@"cc-cadence created hz=%ld",(long)probeHz);
         [self.geometryLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     } else if(!visible) {[self.geometryLink invalidate];self.geometryLink=nil;}
     // 0.0.79 fix: the poll timer used to require a resolved controller AND an open
@@ -614,12 +628,14 @@ static void LMVCCDiscover(void) {
         self.timer=[NSTimer timerWithTimeInterval:.1 repeats:YES block:^(NSTimer *timer){
             LMVControlCenterVideoManager *live=weakSelf;if(!live)return;
             CFTimeInterval now=CACurrentMediaTime();
-            NSInteger updateMs=LMVTuneValue(@"CC",@"UpdateIntervalMs");
+            static NSInteger updateSlot=-1; static NSTimeInterval updateAt=0;
+            NSInteger updateMs=LMVTuneCachedValue(@"CC",@"UpdateIntervalMs",&updateSlot,&updateAt);
             LMVTuneReport(@"CC",@"UpdateIntervalMs",updateMs);
             // 4.4.5: 「检测频率」 and 「完整探测间隔」 both describe how often the
             // panel is inspected. Taking the slower of the two keeps them from
             // fighting, the same rule the desktop uses.
-            NSInteger ccHz=LMVTuneValue(@"CC",@"ProbeHz");
+            static NSInteger ccHzSlot=-1; static NSTimeInterval ccHzAt=0;
+            NSInteger ccHz=LMVTuneCachedValue(@"CC",@"ProbeHz",&ccHzSlot,&ccHzAt);
             LMVTuneReport(@"CC",@"ProbeHz",ccHz);
             NSTimeInterval ccInterval=1.0/(NSTimeInterval)MAX((NSInteger)1,ccHz);
             if (ccInterval < updateMs/1000.0) ccInterval = updateMs/1000.0;
@@ -654,10 +670,10 @@ static void LMVCCDiscover(void) {
         NSString *coverKey=[NSString stringWithFormat:@"a=%d r=%.0f t=%.0f b=%.0f",(int)attached,floor(revealedHeight/20.0)*20.0,floor(coverGapTop/20.0)*20.0,floor(coverGapBottom/20.0)*20.0];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
-            LMVDiagnostic([NSString stringWithFormat:@"cc-cover attached=%d revealed=%.1f gapTop=%.1f gapBottom=%.1f visible=%d material=%@ window=%@",
+            LMVLogF(@"cc-cover attached=%d revealed=%.1f gapTop=%.1f gapBottom=%.1f visible=%d material=%@ window=%@",
                 (int)attached,revealedHeight,coverGapTop,coverGapBottom,visible,
                 coverSurface?NSStringFromClass(coverSurface.class):@"none",
-                coverWindow?NSStringFromClass(coverWindow.class):@"none"]);
+                coverWindow?NSStringFromClass(coverWindow.class):@"none");
         }
     }
     NSString *coverPerf=LMVPerfSample("cc",CACurrentMediaTime()-coverPerf0);

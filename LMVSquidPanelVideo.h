@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommonUI.h"
 // 1.25: the SquidGesturePro panel background (SquidGesture Pro背景).
 //
@@ -669,7 +681,7 @@ static void LMVSquidPanelScanGesturePrefs(void) {
             [report appendFormat:@" %@=%@(%lu)%@",pair[0],name,(unsigned long)keys.count,peek];
         }
     }
-    LMVDiagnostic([NSString stringWithFormat:@"squid-gesture-prefs%@",report.length?report:@" none-found"]);
+    LMVLogF(@"squid-gesture-prefs%@",report.length?report:@" none-found");
 }
 // 1.62: WHERE the plugin keeps its data. The 1.60/1.61 scans proved the gesture config is
 // NOT a plist in Preferences (com.lclrc.squidgesturepro.plist is not there - it would sort
@@ -715,7 +727,7 @@ static void LMVSquidPanelListPaths(void) {
             [report appendFormat:@" %@=%@",entry[0],[sorted componentsJoinedByString:@","]];
         }
     }
-    LMVDiagnostic([NSString stringWithFormat:@"squid-paths%@",report.length?report:@" none-found"]);
+    LMVLogF(@"squid-paths%@",report.length?report:@" none-found");
 }
 // 1.62: the plugin's OWN image and every class in it. The 1.61 prefix listing proved the
 // prefix idea useless: SG is shared with Apple's Mail intelligence classes (SGSuggestions*,
@@ -756,8 +768,8 @@ static void LMVSquidPanelListPluginClasses(void) {
         }
         free(classes);
     }
-    LMVDiagnostic([NSString stringWithFormat:@"squid-plugin image=%@ classes(%lu):%@",
-        image,(unsigned long)own.count,own.count?[own componentsJoinedByString:@","]:@"none"]);
+    LMVLogF(@"squid-plugin image=%@ classes(%lu):%@",
+        image,(unsigned long)own.count,own.count?[own componentsJoinedByString:@","]:@"none");
 }
 // case-insensitive substring search over a raw byte run - the pre-filter, so no string is
 // built for the thousands of runs in a binary that hold nothing interesting.
@@ -819,10 +831,10 @@ static void LMVSquidPanelPluginStrings(void) {
         }
         run=0;
     }
-    LMVDiagnostic([NSString stringWithFormat:@"squid-plugin-strings paths(%lu):%@",
-        (unsigned long)paths.count,[paths componentsJoinedByString:@" ~ "]]);
-    LMVDiagnostic([NSString stringWithFormat:@"squid-plugin-keys(%lu):%@",
-        (unsigned long)keys.count,[keys componentsJoinedByString:@" ~ "]]);
+    LMVLogF(@"squid-plugin-strings paths(%lu):%@",
+        (unsigned long)paths.count,[paths componentsJoinedByString:@" ~ "]);
+    LMVLogF(@"squid-plugin-keys(%lu):%@",
+        (unsigned long)keys.count,[keys componentsJoinedByString:@" ~ "]);
 }
 // 1.57: what the panel's own objects say about themselves.
 //
@@ -1226,9 +1238,9 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                 }
                 NSMutableString *tree=[NSMutableString new];NSUInteger nodes=0;
                 if(window)LMVSquidPanelDumpTree(window,4,tree,&nodes);
-                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-nocard window=%@ hunt=%@ tree=%@ windows=%@",
+                LMVLogF(@"squid-panel-nocard window=%@ hunt=%@ tree=%@ windows=%@",
                     window?LMVProbeClassName(window):@"none",hunt.length?hunt:@"none",
-                    tree.length?tree:@"none",LMVWindowReportSnapshot()]);
+                    tree.length?tree:@"none",LMVWindowReportSnapshot());
             }
         }
         [self detach];self.updating=NO;return;
@@ -1325,8 +1337,8 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             if(LMVDiagnosticsEnabled.load()) {
                 CGFloat r=0,g=0,b=0,a=0;
                 if(scroller.backgroundColor)[scroller.backgroundColor getRed:&r green:&g blue:&b alpha:&a];
-                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-scroller before bg=%.2f,%.2f,%.2f,%.2f opaque=%d size=%.0fx%.0f",
-                    r,g,b,a,(int)scroller.opaque,scroller.bounds.size.width,scroller.bounds.size.height]);
+                LMVLogF(@"squid-panel-scroller before bg=%.2f,%.2f,%.2f,%.2f opaque=%d size=%.0fx%.0f",
+                    r,g,b,a,(int)scroller.opaque,scroller.bounds.size.width,scroller.bounds.size.height);
             }
         }
         if(scroller.backgroundColor && CGColorGetAlpha(scroller.backgroundColor.CGColor)>0.001) {
@@ -1348,8 +1360,8 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
                 saidAfter=YES;
                 CGFloat ar=0,ag=0,ab=0,aa=0;
                 if(scroller.backgroundColor)[scroller.backgroundColor getRed:&ar green:&ag blue:&ab alpha:&aa];
-                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-scroller after opaque=%d layerOpaque=%d bg=%.2f,%.2f,%.2f,%.2f",
-                    (int)scroller.opaque,(int)scroller.layer.opaque,ar,ag,ab,aa]);
+                LMVLogF(@"squid-panel-scroller after opaque=%d layerOpaque=%d bg=%.2f,%.2f,%.2f,%.2f",
+                    (int)scroller.opaque,(int)scroller.layer.opaque,ar,ag,ab,aa);
             }
         }
     }
@@ -1438,16 +1450,16 @@ static LMVSquidPanelVideoManager *LMVSquidPanelVideo;
             lastTreeCard=self.card;
             NSMutableString *tree=[NSMutableString new];NSUInteger nodes=0;
             LMVSquidPanelIdentityTree(self.card,0,tree,&nodes);
-            LMVDiagnostic([NSString stringWithFormat:@"squid-panel-tree ptr=%p chain=%@ %@",
-                (void *)self.card,LMVSquidPanelCardChain(self.card,window),tree]);
+            LMVLogF(@"squid-panel-tree ptr=%p chain=%@ %@",
+                (void *)self.card,LMVSquidPanelCardChain(self.card,window),tree);
             // 1.57: the same chain, asked what it calls itself - see above.
             NSMutableString *identity=[NSMutableString new];
             NSUInteger level=0;
             for(UIView *node=self.card;node && node!=window && level<4;node=node.superview,level++)
                 LMVSquidPanelDescribeIdentity(node,identity);
             LMVSquidPanelDescribeSiblings(self.card,window,identity);
-            LMVDiagnostic([NSString stringWithFormat:@"squid-panel-identity ptr=%p%@",
-                (void *)self.card,identity]);
+            LMVLogF(@"squid-panel-identity ptr=%p%@",
+                (void *)self.card,identity);
         }
         NSString *status=[NSString stringWithFormat:@"squid-panel win=%@ %.0fx%.0f slot=%d gesture=%@ play=%@ why=%@ sig=%@ pc=%d dots=%.0f pair=%.0f/%.0f slots=%d%d%d%d seen=%.0fs mode=%@ card=%@@%.0f,%.0f,%.0f,%.0f ptr=%p vis=%.0f live=%d host=%.0fx%.0f",
             LMVProbeClassName(window),bounds.size.width,bounds.size.height,
@@ -1474,15 +1486,15 @@ static void LMVSquidPanelRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVSquidPanelVideo.host.superview!=nil);
     if(LMVSquidPanelTimer && fabs(LMVSquidPanelTimer.timeInterval-want)<.001)return;
     [LMVSquidPanelTimer invalidate];
-    LMVSquidPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+    LMVSquidPanelTimer=nil;
+    LMVSchedule(@"SquidPanel", want, ^{
         // 4.4.2: every panel channel now reports its own call count and cost, so
         // "检测频率 = N" can be checked against the log instead of trusted.
         CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
         LMVSquidPanelVideoRefresh(NO);
         NSString *lmvPanelPerf=LMVPerfSample("squid",CACurrentMediaTime()-lmvPanelPerf0);
         if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
-    }];
-    [NSRunLoop.mainRunLoop addTimer:LMVSquidPanelTimer forMode:NSRunLoopCommonModes];
+    });
 }
 static void LMVSquidPanelVideoRefresh(BOOL reload) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;
@@ -1558,7 +1570,7 @@ static void LMVSquidPanelVideoRefresh(BOOL reload) {
             CFPreferencesSetAppValue(CFSTR("SquidPanelLearnVersion"),(__bridge CFNumberRef)@(LMVSquidPanelLearnGeneration),kLMVPrefsID);
             LMVSquidPanelForgetAll();
             if(LMVDiagnosticsEnabled.load())
-                LMVDiagnostic([NSString stringWithFormat:@"squid-panel-migrate slots=4 (rule v%d: a slot remembers every signature it was seen as, so editing a layout keeps the panel)",(int)LMVSquidPanelLearnGeneration]);
+                LMVLogF(@"squid-panel-migrate slots=4 (rule v%d: a slot remembers every signature it was seen as, so editing a layout keeps the panel)",(int)LMVSquidPanelLearnGeneration);
         }
         NSArray *heightKeys=LMVSquidPanelSlotHeightKeys();
         for(NSInteger i=0;i<LMVSquidPanelSlotCount;i++) {

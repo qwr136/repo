@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommon.h"
 #import "LMVPanelTuning.h"
 // Included after LMVLockVideo.h: use its proven video-only playback class as a
@@ -712,7 +724,7 @@ static void LMVDesktopStage(const char *name,CFTimeInterval started) {
     if (!LMVDiagnosticsEnabled.load()) return;
     CFTimeInterval ms=(CACurrentMediaTime()-started)*1000.0;
     if (ms<50.0) return;
-    LMVDiagnostic([NSString stringWithFormat:@"desktop-stage %s %.0fms",name,ms]);
+    LMVLogF(@"desktop-stage %s %.0fms",name,ms);
 }
 // Retention is not discovery: only an exact, still-attached Home ownership
 // acquired while visible may survive a lifecycle/geometry transition.
@@ -791,8 +803,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
         if(manager.updating || manager.suspended)return;
         [manager update];
     };
-    LMVDiagnostic([NSString stringWithFormat:@"desktop-keyprobe schedule=0,150,350,700ms edge=%@ covered=%d gen=%lu",
-        edge,(int)(self.playback.frozen || self.appAway),(unsigned long)probeGen]);
+    LMVLogF(@"desktop-keyprobe schedule=0,150,350,700ms edge=%@ covered=%d gen=%lu",
+        edge,(int)(self.playback.frozen || self.appAway),(unsigned long)probeGen);
     dispatch_async(dispatch_get_main_queue(),probe);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.15*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.35*NSEC_PER_SEC)),dispatch_get_main_queue(),probe);
@@ -932,8 +944,8 @@ static BOOL LMVDesktopOwnedAttachment(LMVDesktopVideoManager *manager) {
     // never had any effect. The watcher now always runs at the panel rate and the
     // cadence is a gate inside the tick, owned by those two rows alone.
     self.coverWatch.preferredFramesPerSecond=60;
-    LMVDiagnostic([NSString stringWithFormat:@"desktop-coverwatch link=%ld gate=%ld",
-        (long)self.coverWatch.preferredFramesPerSecond,(long)self.coverTargetFPS]);
+    LMVLogF(@"desktop-coverwatch link=%ld gate=%ld",
+        (long)self.coverWatch.preferredFramesPerSecond,(long)self.coverTargetFPS);
     [self.coverWatch addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 - (void)stopCoverWatch {
@@ -1033,9 +1045,9 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         // 2.47: one line per CHANGE, so a tuning edit can be confirmed from a single
         // capture instead of guessing from smoothness. It only fires when the value
         // changes, so the steady state stays silent.
-        LMVDiagnostic([NSString stringWithFormat:@"desktop-cadence want=%ld idle=%ld covered=%ld frozen=%d away=%d",
+        LMVLogF(@"desktop-cadence want=%ld idle=%ld covered=%ld frozen=%d away=%d",
             (long)wantFPS,(long)LMVDesktopCadence(@"IdleFPS"),(long)LMVDesktopCadence(@"CoveredFPS"),
-            (int)self.playback.frozen,(int)self.appAway]);
+            (int)self.playback.frozen,(int)self.appAway);
     }
     // 1.32: the CHEAP GATE, before anything expensive. This tick used to run the
     // full cover measurement - window enumeration, a class match per window, a
@@ -1121,8 +1133,8 @@ static NSInteger LMVDesktopCadence(NSString *key) {
             // One line per release (the flag never comes back to YES without a new
             // app), so "did leaving the app actually hand the desktop back?" is
             // answerable from a capture instead of from the frame rate.
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
-                (long)fg,(int)appSurfaceUp,appNow-self.appLeftAt]);
+            LMVLogF(@"desktop-away-release fg=%ld appCover=%d after=%.2f",
+                (long)fg,(int)appSurfaceUp,appNow-self.appLeftAt);
         }
         if ((appReleaseWindow || !appSurfaceUp) && (appSurfaceUp || switcherCover)) {
             fullyCovered=NO;
@@ -1236,8 +1248,8 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         if (!appReleaseWindow && (foreground==1 || appSurfaceUp)) {
             self.appAway=NO;
             self.exitSettledAt=appNow;
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-away-release fg=%ld appCover=%d after=%.2f",
-                (long)foreground,(int)appSurfaceUp,appNow-self.appLeftAt]);
+            LMVLogF(@"desktop-away-release fg=%ld appCover=%d after=%.2f",
+                (long)foreground,(int)appSurfaceUp,appNow-self.appLeftAt);
         }
         // The release only has something to release when the app surface or the
         // remnant switcher shell is actually there - otherwise it must not touch
@@ -1886,7 +1898,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         static NSString *lastMeta=nil;
         if (meta.length && ![meta isEqualToString:lastMeta]) {
             lastMeta=[meta copy];
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-window-meta %@",meta]);
+            LMVLogF(@"desktop-window-meta %@",meta);
             // 1.65: attribute every panel/suspect class to the dylib that
             // defines it. An obfuscated window class (VLBYCK) and its
             // controller (BBTTIO) can then be named as CopyLogX or cleared,
@@ -1900,7 +1912,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
                 NSString *imageName=image?[NSString stringWithUTF8String:image].lastPathComponent:@"?";
                 [owners appendFormat:@"%@=%@ ",name,imageName];
             }
-            LMVDiagnostic([NSString stringWithFormat:@"window-owner %@",owners]);
+            LMVLogF(@"window-owner %@",owners);
         }
     }
     // 1.69: CopyLogX never appears as a window we can name, and the panel is
@@ -1928,7 +1940,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
                 if (owned.length>2400) {[owned appendString:@"…"];break;}
             }
             free(classes);
-            LMVDiagnostic([NSString stringWithFormat:@"copylog-classes %@",owned.length?owned:@"none"]);
+            LMVLogF(@"copylog-classes %@",owned.length?owned:@"none");
         });
     }
     // 1.42: the deep subtree of every panel-like window (see LMVDesktopPanelName).
@@ -1970,7 +1982,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         static NSString *lastTrees=nil;
         if (trees.length && ![trees isEqualToString:lastTrees]) {
             lastTrees=[trees copy];
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-panel-tree %@",trees]);
+            LMVLogF(@"desktop-panel-tree %@",trees);
         }
     }
     // 1.66: CopyLogX is injected into SpringBoard (its Filter names
@@ -2004,7 +2016,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         static NSString *lastKeyboard=nil;
         if (trees.length && ![trees isEqualToString:lastKeyboard]) {
             lastKeyboard=[trees copy];
-            LMVDiagnostic([NSString stringWithFormat:@"keyboard-tree %@",trees]);
+            LMVLogF(@"keyboard-tree %@",trees);
         }
     }
     // 1.67: name the Control Centre overlay EXACTLY as presented. Pulled down
@@ -2033,7 +2045,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
             static NSString *lastCoverCC=nil;
             if (cc.length && ![cc isEqualToString:lastCoverCC]) {
                 lastCoverCC=[cc copy];
-                LMVDiagnostic([NSString stringWithFormat:@"cc-over-nc-tree %@",cc]);
+                LMVLogF(@"cc-over-nc-tree %@",cc);
             }
         }
     }
@@ -2096,7 +2108,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         static NSString *lastOwners=nil;
         if (owners.length && ![owners isEqualToString:lastOwners]) {
             lastOwners=[owners copy];
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-cover-owner %@",owners]);
+            LMVLogF(@"desktop-cover-owner %@",owners);
         }
     }
     // 1.25: which FULL-SCREEN windows the cover probe deliberately skips - the
@@ -2123,7 +2135,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         static NSString *lastSkipped=nil;
         if (skipped.length && ![skipped isEqualToString:lastSkipped]) {
             lastSkipped=[skipped copy];
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-windows-skipped %@",skipped]);
+            LMVLogF(@"desktop-windows-skipped %@",skipped);
         }
     }
     // 0.0.129: which windows are on screen (class names, changes-only) - the
@@ -2141,7 +2153,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         }
         if (![windowList isEqualToString:self.windowListStatus]) {
             self.windowListStatus=windowList;
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-windows %@",windowList]);
+            LMVLogF(@"desktop-windows %@",windowList);
         }
     }
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
@@ -2160,9 +2172,9 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         NSString *coverKey=[NSString stringWithFormat:@"a=%d r=%.0f t=%.0f b=%.0f",(int)attached,floor(revealedHeight/20.0)*20.0,floor(coverGapTop/20.0)*20.0,floor(coverGapBottom/20.0)*20.0];
         if (![coverKey isEqualToString:self.coverage]) {
             self.coverage=coverKey;
-            LMVDiagnostic([NSString stringWithFormat:@"desktop-cover attached=%d revealed=%.1f gapTop=%.1f gapBottom=%.1f visible=%d frozen=%d hostHidden=%d container=%@",
+            LMVLogF(@"desktop-cover attached=%d revealed=%.1f gapTop=%.1f gapBottom=%.1f visible=%d frozen=%d hostHidden=%d container=%@",
                 (int)attached,revealedHeight,coverGapTop,coverGapBottom,visible,(int)appForeground,(int)self.host.hidden,
-                self.container?NSStringFromClass(self.container.class):@"none"]);
+                self.container?NSStringFromClass(self.container.class):@"none");
         }
     }
     NSString *coverPerf=LMVPerfSample("desktop",CACurrentMediaTime()-coverPerf0);

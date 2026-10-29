@@ -199,7 +199,7 @@ assert 'timerWithTimeInterval:.1 repeats:YES' in cc, 'control-centre wake interv
 # Reading it is not enough - the value must gate the probe, and the gate must be
 # on the path to [update], otherwise the row is decoration.
 assert 'LMVTuneValue(@"Desktop",@"UpdateIntervalMs")' in desktop, 'desktop does not read the row'
-assert 'LMVTuneValue(@"CC",@"UpdateIntervalMs")' in cc, 'control centre does not read the row'
+assert 'LMVTuneCachedValue(@"CC",@"UpdateIntervalMs"' in cc, 'control centre does not read the row'
 # 4.4.2: the timer and the cover watcher both drive the desktop, so the effective
 # rate is the SLOWER of 「可见刷新率」 and 「完整探测间隔」 - that is what makes the
 # FPS row mean what it says instead of being overridden by the interval row.

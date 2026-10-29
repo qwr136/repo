@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommon.h"
 // 1.28: the AppTools (AT) pop-up background (AppTools背景).
 //
@@ -325,15 +337,15 @@ static void LMVATPanelRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVATPanelVideo.host.superview!=nil);
     if(LMVATPanelTimer && fabs(LMVATPanelTimer.timeInterval-want)<.001)return;
     [LMVATPanelTimer invalidate];
-    LMVATPanelTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+    LMVATPanelTimer=nil;
+    LMVSchedule(@"AT", want, ^{
         // 4.4.2: every panel channel now reports its own call count and cost, so
         // "检测频率 = N" can be checked against the log instead of trusted.
         CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
         LMVATPanelVideoRefresh(NO);
         NSString *lmvPanelPerf=LMVPerfSample("at",CACurrentMediaTime()-lmvPanelPerf0);
         if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
-    }];
-    [NSRunLoop.mainRunLoop addTimer:LMVATPanelTimer forMode:NSRunLoopCommonModes];
+    });
 }
 static void LMVATPanelVideoRefresh(BOOL reload) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;

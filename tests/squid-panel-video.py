@@ -287,7 +287,7 @@ assert 'if(view.accessibilityIdentifier.length)[out appendFormat:@"aid=%@",view.
 assert 'if(view.restorationIdentifier.length)[out appendFormat:@"rid=%@",view.restorationIdentifier];' in module
 assert 'if([view respondsToSelector:NSSelectorFromString(@"text")]) {' in module
 assert 'static NSString *LMVSquidPanelCardChain(UIView *card,UIWindow *window) {' in module
-assert 'LMVDiagnostic([NSString stringWithFormat:@"squid-panel-tree ptr=%p chain=%@ %@",' in module
+assert 'LMVLogF(@"squid-panel-tree ptr=%p chain=%@ %@",' in module
 # ...and `text` is not a UIView property, so it is only asked for where it exists.
 reader = module[module.index('static void LMVSquidPanelIdentityTree'):module.index('// 1.57: what the panel')]
 assert reader.count('respondsToSelector') == 1 and 'performSelector' not in reader and '@try' not in reader

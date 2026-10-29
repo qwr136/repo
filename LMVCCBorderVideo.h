@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommonUI.h"
 #if __has_include("LMVProbeWindows.h")
 #import "LMVProbeWindows.h"
@@ -420,15 +432,15 @@ static void LMVCCBorderRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVCCBorderVideo.host.superview!=nil);
     if(LMVCCBorderTimer && fabs(LMVCCBorderTimer.timeInterval-want)<.001)return;
     [LMVCCBorderTimer invalidate];
-    LMVCCBorderTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+    LMVCCBorderTimer=nil;
+    LMVSchedule(@"CCBorder", want, ^{
         // 4.4.2: every panel channel now reports its own call count and cost, so
         // "检测频率 = N" can be checked against the log instead of trusted.
         CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
         LMVCCBorderVideoRefresh(NO);
         NSString *lmvPanelPerf=LMVPerfSample("ccb",CACurrentMediaTime()-lmvPanelPerf0);
         if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
-    }];
-    [NSRunLoop.mainRunLoop addTimer:LMVCCBorderTimer forMode:NSRunLoopCommonModes];
+    });
 }
 static void LMVCCBorderVideoRefresh(BOOL reload) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady)return;

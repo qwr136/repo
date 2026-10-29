@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
 #import "LMVEasterPhotoFlow.h"
@@ -222,11 +234,11 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
         if(!panel.isViewLoaded)return;
         CFTimeInterval reloadT0=CACurrentMediaTime();
         [panel.tableView reloadData];
-        LMVDiagnostic([NSString stringWithFormat:@"easter-panel-appear reload=%.1fms sections=%ld",
-            (CACurrentMediaTime()-reloadT0)*1000.0,(long)[panel numberOfSectionsInTableView:panel.tableView]]);
+        LMVLogF(@"easter-panel-appear reload=%.1fms sections=%ld",
+            (CACurrentMediaTime()-reloadT0)*1000.0,(long)[panel numberOfSectionsInTableView:panel.tableView]);
     });
     [self loadNames];
-    LMVDiagnostic([NSString stringWithFormat:@"easter-panel-appear schedule=%.1fms",(CACurrentMediaTime()-appearT0)*1000.0]);
+    LMVLogF(@"easter-panel-appear schedule=%.1fms",(CACurrentMediaTime()-appearT0)*1000.0);
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated]; self.panelVisible = YES;
@@ -296,8 +308,8 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
             weakSelf.names = names;
             CFTimeInterval reloadT0=CACurrentMediaTime();
             [weakSelf.tableView reloadData];
-            LMVDiagnostic([NSString stringWithFormat:@"easter-panel-names reload=%.1fms",
-                (CACurrentMediaTime()-reloadT0)*1000.0]);
+            LMVLogF(@"easter-panel-names reload=%.1fms",
+                (CACurrentMediaTime()-reloadT0)*1000.0);
         });
     });
 }

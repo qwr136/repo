@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommon.h"
 // Import after Lock/Desktop/CC. Independent of EasterEnabled/bubble visibility.
 // iOS 16.0 (20A5303f) classdump evidence (not claims about other OS builds):
@@ -375,16 +387,16 @@ static void LMVHomeMenuRetune(void) {
     want=LMVTuneFallbackInterval(want, LMVHomeMenuVideo.host.superview!=nil);
     if(LMVHomeMenuTimer && fabs(LMVHomeMenuTimer.timeInterval-want)<.001)return;
     [LMVHomeMenuTimer invalidate];
-    LMVHomeMenuTimer=[NSTimer timerWithTimeInterval:want repeats:YES block:^(NSTimer *timer){
+    LMVHomeMenuTimer=nil;
+    LMVSchedule(@"HomeMenu", want, ^{
         // 4.4.2: every panel channel now reports its own call count and cost, so
         // "检测频率 = N" can be checked against the log instead of trusted.
         CFTimeInterval lmvPanelPerf0=CACurrentMediaTime();
         LMVHomeMenuVideoRefresh(NO);
         NSString *lmvPanelPerf=LMVPerfSample("homemenu",CACurrentMediaTime()-lmvPanelPerf0);
         if (lmvPanelPerf) LMVDiagnostic(lmvPanelPerf);
-    }];
+    });
     LMVHomeMenuTimer.tolerance=want*.3;
-    [NSRunLoop.mainRunLoop addTimer:LMVHomeMenuTimer forMode:NSRunLoopCommonModes];
 }
 static void LMVHomeMenuRequestUpdate(void) {
     if(!NSThread.isMainThread || !LMVInitialized || !LMVLaunchReady || LMVHomeMenuPending)return;

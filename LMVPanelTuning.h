@@ -251,6 +251,21 @@ static inline NSInteger LMVTuneValue(NSString *target, NSString *key) {
     }
     return n;
 }
+// 5.23: the display-link callbacks read one tuning value per frame, which rebuilt
+// the preference key and asked cfprefsd 60 times a second per channel. That value is
+// only written from the settings page, so a 0.5 s hold is invisible to the user and
+// cuts it to two reads a second. Slots are caller-owned: the fast path allocates
+// nothing.
+static inline NSInteger LMVTuneCachedValue(NSString *target, NSString *key,
+                                           NSInteger *slot, NSTimeInterval *stamp) {
+    if (!slot || !stamp) return LMVTuneValue(target, key);
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (*slot < 0 || now - *stamp >= 0.5) {
+        *slot = LMVTuneValue(target, key);
+        *stamp = now;
+    }
+    return *slot;
+}
 static inline void LMVTuneSetValue(NSString *target, NSString *key, NSInteger value) {
     if (!target.length || !key.length) return;
     NSDictionary *p = LMVTuneFindParam(key);

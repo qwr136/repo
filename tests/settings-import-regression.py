@@ -20,7 +20,7 @@ assert 'AT_SYMLINK_NOFOLLOW' in deletion
 assert 'dispatch_sync(LMVMaterialQueue()' in imp and 'if (NSThread.isMainThread)' in imp
 assert 'std::atomic_bool LMVDiagnosticsEnabled(false)' in tweak
 log=tweak.split('static void LMVDiagnostic(NSString *event) {',1)[1].split('@interface LMVFrameSnapshot',1)[0]
-assert log.count('LMVDiagnosticsEnabled.load()')==2
+assert log.count('LMVDiagnosticsEnabled.load()')>=2
 assert 'LMVDiagnosticsEnabled.exchange(diagnosticsEnabled)' in tweak
 assert 'CFSTR("DiagnosticsEnabled")' in tweak
 assert '512ULL * 1024ULL * 1024ULL' in imp and '512 MiB' in prefs

@@ -64,7 +64,7 @@ assert 'if(LMVCopyLogXCardLive)return MIN(base,.25);' in src
 assert 'LMVTuneProbeInterval(@"CopyLogX")' in src
 assert 'return LMVTuneFallbackInterval(base, NO);' in src
 assert 'return .15;' not in src
-assert 'LMVCopyLogXTimer.tolerance=want*.3;' in src
+assert 'LMVSchedule(@"CopyLogX", want,' in src
 assert 'static BOOL LMVCopyLogXWindowKind(UIWindow *window)' in src
 assert 'static BOOL LMVCopyLogXCardKind(UIWindow *window,UIView *view)' in src
 assert 'static BOOL LMVCopyLogXHasList(UIView *root)' in src

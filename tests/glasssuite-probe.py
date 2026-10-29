@@ -68,7 +68,7 @@ assert 'if(LMVGlassSuiteCardRef)return MIN(base,.25);' in src
 assert 'LMVTuneProbeInterval(@"GS")' in src
 assert 'return LMVTuneFallbackInterval(base, NO);' in src
 assert 'return .75;' not in src
-assert 'LMVGlassSuiteTimer.tolerance=want*.3;' in src
+assert 'LMVSchedule(@"GS", want,' in src
 # 0.1 秒的旧节拍不能再出现
 assert 'LMVGlassSuiteEnabled?.1:.5' not in src
 # 刷新入口不再提前 retune，命中状态确定后才定档

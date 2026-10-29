@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommon.h"
 #import "LMVPanelTuning.h"
 #import "LMVEasterPanel.h"
@@ -658,8 +670,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     static NSInteger appliedTickHz=-1;
     if(appliedTickHz!=tickHz) {
         appliedTickHz=tickHz;
-        LMVDiagnostic([NSString stringWithFormat:@"bubble-cadence setting=%ld visible=%.3fs%s",
-            (long)tickHz,shown,hidden?" hidden=1Hz":""]);
+        LMVLogF(@"bubble-cadence setting=%ld visible=%.3fs%s",
+            (long)tickHz,shown,hidden?" hidden=1Hz":"");
     }
     if (fabs(self.visibilityTimer.timeInterval-want)<0.001) return;
     [self.visibilityTimer invalidate];
@@ -668,8 +680,8 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     [NSRunLoop.mainRunLoop addTimer:self.visibilityTimer forMode:NSRunLoopCommonModes];
     // 3.01: logged where the timer is actually (re)built, not only on a value change,
     // so "the channel never ran" and "the value did not land" are distinguishable.
-    LMVDiagnostic([NSString stringWithFormat:@"bubble-cadence timer interval=%.3fs hz=%ld",
-        want,(long)tickHz]);
+    LMVLogF(@"bubble-cadence timer interval=%.3fs hz=%ld",
+        want,(long)tickHz);
 }
 - (void)visibilityTick {
     if (!self.ready || self.pending) return;
@@ -698,7 +710,7 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
             if (CACurrentMediaTime() - autoTouched > (NSTimeInterval)autoSec) {
                 autoHidden = YES;
                 [self hide];
-                LMVDiagnostic([NSString stringWithFormat:@"bubble-autohide sec=%ld",(long)autoSec]);
+                LMVLogF(@"bubble-autohide sec=%ld",(long)autoSec);
                 return;
             }
         }
@@ -1180,11 +1192,11 @@ static void LMVEasterDarwin(CFNotificationCenterRef center, void *observer, CFSt
     CGSize panelSize=self.panel.view.bounds.size;
     // 5.1.4: tell the desktop channel to stop probing while the panel is up.
     *LMVEasterPanelQuietFlag() = YES;
-    LMVDiagnostic([NSString stringWithFormat:@"easter-panel-open create=%.1fms nav=%.1fms mount=%.1fms chrome=%.1fms layout=%.1fms key=%.1fms total=%.1fms size=%.0fx%.0f corner=%.0f clips=%d embed=%d",
+    LMVLogF(@"easter-panel-open create=%.1fms nav=%.1fms mount=%.1fms chrome=%.1fms layout=%.1fms key=%.1fms total=%.1fms size=%.0fx%.0f corner=%.0f clips=%d embed=%d",
         (panelT1-panelT0)*1000.0,(panelT2-panelT1)*1000.0,(panelT3-panelT2)*1000.0,
         (panelT4-panelT3)*1000.0,(panelT5-panelT4)*1000.0,(panelT6-panelT5)*1000.0,(panelT6-panelT0)*1000.0,
         panelSize.width,panelSize.height,self.panel.view.layer.cornerRadius,(int)self.panel.view.clipsToBounds,
-        (int)(self.embedHost!=nil)]);
+        (int)(self.embedHost!=nil));
 }
 - (void)closePanel {
     if (!self.panel) return;

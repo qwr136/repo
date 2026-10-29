@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import "LMVPanelCommon.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -586,23 +598,26 @@ static BOOL LMVLockVideoScreenAllowed(void) {
 // Standalone fixtures compile this header on its own and do not copy the tuning
 // table with it, so the two readers fall back to the shipped defaults (60 Hz).
 static inline NSInteger LMVTuneValue(NSString *target, NSString *key) { (void)target; (void)key; return 60; }
+static inline NSInteger LMVTuneCachedValue(NSString *target, NSString *key, NSInteger *slot, NSTimeInterval *stamp) { (void)slot; (void)stamp; return LMVTuneValue(target, key); }
 static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger value) { (void)target; (void)key; (void)value; }
 #endif
 - (void)tick:(CADisplayLink *)link {
     // 2.97: a settings change must land without waiting for the CoverSheet to close
     // and reopen. The read is a cached CFPreferences lookup and the write inside
     // LMVTuneReport only happens when the number changes.
-    NSInteger probeHz=LMVTuneValue(@"LockNC",@"ProbeHz");
+    static NSInteger tuneHzSlot=-1; static NSTimeInterval tuneHzAt=0;
+    NSInteger probeHz=LMVTuneCachedValue(@"LockNC",@"ProbeHz",&tuneHzSlot,&tuneHzAt);
     // 4.4.5: fixed panel rate; the row is a gate later in this method. A link cannot
     // run slower than its own divisor, and it cannot run faster than what the system
     // grants either - the gate is the only place that can honour both ends.
     if(link.preferredFramesPerSecond!=60)link.preferredFramesPerSecond=60;
-    LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
+
     // 2.98: one line per change so "did the number I typed reach the display link?"
     // is answerable from a capture. The steady state stays silent.
     static NSInteger appliedHz=-1;
     if(appliedHz!=probeHz) {
         appliedHz=probeHz;
+        LMVTuneReport(@"LockNC",@"ProbeHz",probeHz);
         // Assembled first: LMVLockVideoLog() is a one-argument macro in the native
         // fixture, and a stringWithFormat: call with commas would split its args.
         NSString *cadenceLine=[NSString stringWithFormat:@"lock-cadence setting=%ld link=%ld",

@@ -1,4 +1,16 @@
 #pragma once
+#ifndef LMVLogF
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
+#ifndef LMV_STANDALONE_STUBS
+#define LMV_STANDALONE_STUBS
+#import <Foundation/Foundation.h>
+#ifndef LMV_HAS_SCHEDULER
+static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^body)(void)) {
+    (void)name; (void)interval; (void)body;
+}
+#endif
+#endif
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
@@ -19,7 +31,7 @@ static inline CFTimeInterval LMVProbeSnapshotTTL(void) {
     static NSInteger appliedMs=-1;
     if(appliedMs!=ms) {
         appliedMs=ms;
-        LMVDiagnostic([NSString stringWithFormat:@"probe-snapshot ttl=%ldms",(long)ms]);
+        LMVLogF(@"probe-snapshot ttl=%ldms",(long)ms);
     }
     LMVTuneReport(@"Global",@"SnapshotMs",ms);
     return ms/1000.0;

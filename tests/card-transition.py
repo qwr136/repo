@@ -689,7 +689,10 @@ fragments += [actual_update, function('static void LMVReconcileCardSources(UIVie
 with tempfile.TemporaryDirectory(prefix='lmv-card-transition-') as temporary:
     source = Path(temporary) / 'card-transition.mm'
     binary = Path(temporary) / 'card-transition'
-    source.write_text('\n\n'.join(fragments))
+    body = '\n\n'.join(fragments)
+    if 'LMVLogF' in body and '#define LMVLogF' not in body:
+        body = ('#ifndef LMVLogF\n#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])\n#endif\n' + body)
+    source.write_text(body)
     subprocess.run(['xcrun', 'clang++', '-std=c++17', '-fobjc-arc', '-fblocks',
                     '-Werror=implicit-function-declaration', '-I', str(ROOT),
                     '-framework', 'Foundation', '-framework', 'QuartzCore',
