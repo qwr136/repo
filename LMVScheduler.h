@@ -55,4 +55,3 @@ static void LMVSchedule(NSString *name, CFTimeInterval interval, void (^body)(vo
     gLMVSchedCount++;
     LMVSchedulerArm(interval);
 }
-static NSUInteger LMVScheduledCount(void) { return gLMVSchedCount; }
