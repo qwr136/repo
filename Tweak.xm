@@ -179,13 +179,13 @@ static void LMVDiagnostic(NSString *event) {
                 [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
             }
             if (![fm fileExistsAtPath:path]) [fm createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
-            NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
-            @try {
-                [handle seekToEndOfFile];
-                NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%lu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event];
-                [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            static NSFileHandle *sharedHandle;
+            if (!sharedHandle) sharedHandle=[NSFileHandle fileHandleForWritingAtPath:path];
+            [sharedHandle seekToEndOfFile];
+            NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%lu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event];
+            [sharedHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
             } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
-            @finally { [handle closeFile]; }
+            @finally {}
         }
     });
 }

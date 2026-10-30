@@ -420,7 +420,7 @@ static void LMVCCDiscover(void) {
     // resume. The tracked records know when the CC content has actually slid
     // away, regardless of whether its own background is on.
     if (LMVCCControllers.count == 0) return NO;
-    for (UIViewController *controller in LMVCCControllers.allObjects) {
+    for (UIViewController *controller in LMVCCControllers.objectEnumerator) {
         LMVCCRecord *record = objc_getAssociatedObject(controller, &LMVCCRecordKey);
         if (record && record.known && record.visible && !record.closing) return NO;
     }
@@ -535,7 +535,7 @@ static void LMVCCDiscover(void) {
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
     CFTimeInterval now=CACurrentMediaTime(),coverPerf0=diagnostics?now:0;
     UIViewController *best=nil;UIView *material=nil;
-    if(self.enabled && LMVLockVideoScreenAllowed())for(UIViewController *candidate in LMVCCControllers.allObjects) {
+    if(self.enabled && LMVLockVideoScreenAllowed())for(UIViewController *candidate in LMVCCControllers.objectEnumerator) {
         LMVCCRecord *record=objc_getAssociatedObject(candidate,&LMVCCRecordKey);
         if(!record || !record.known)continue;
         UIView *root=candidate.viewIfLoaded;

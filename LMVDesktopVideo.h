@@ -1180,7 +1180,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
     if (!screenKnown || blank || !lockKnown) self.authenticatedSession=NO;
     UIView *homeRoot=nil;UIViewController *poster=nil,*homeOwner=nil;BOOL homeConfirmed=NO;
-    for (UIViewController *controller in LMVDesktopControllers.allObjects) {
+    for (UIViewController *controller in LMVDesktopControllers.objectEnumerator) {
         if (!LMVDesktopControllerEligible(controller))continue;
         if (LMVLockVideoClass(controller,@"PBUIPosterHomeViewController")) {poster=controller;continue;}
         LMVDesktopControllerRecord *record=objc_getAssociatedObject(controller,&LMVDesktopControllerRecordKey);

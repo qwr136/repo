@@ -696,7 +696,7 @@ static inline void LMVTuneReport(NSString *target, NSString *key, NSInteger valu
     CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;
     UIViewController *best=nil;UIView *content=nil;CGFloat area=0;
     if (self.enabled && self.path.length && self.revision.length && self.screenAllowed) {
-        for (UIViewController *candidate in LMVLockControllers.allObjects) {
+        for (UIViewController *candidate in LMVLockControllers.objectEnumerator) {
             UIView *root=candidate.viewIfLoaded;UIWindow *window=root.window;
             if (!root || !LMVLockVideoClass(window,@"SBCoverSheetWindow") || window.screen!=UIScreen.mainScreen) continue;
             LMVLockControllerRecord *record=objc_getAssociatedObject(candidate,&LMVLockControllerRecordKey);

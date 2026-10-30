@@ -336,10 +336,12 @@ static inline void LMVTuneTouch(NSString *target, NSString *key) {
     if (previous && now - previous.doubleValue < 2.0) return;
     lastTouch[identity] = @(now);
     NSString *stamp = [NSString stringWithFormat:@"Runtime.%@.%@.At", target, key];
-    CFPreferencesSetAppValue((__bridge CFStringRef)stamp,
-                             (__bridge CFNumberRef)@(now),
-                             (__bridge CFStringRef)LMVTuneRuntimeDomain);
-    CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneRuntimeDomain);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        CFPreferencesSetAppValue((__bridge CFStringRef)stamp,
+                                 (__bridge CFNumberRef)@(now),
+                                 (__bridge CFStringRef)LMVTuneRuntimeDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)LMVTuneRuntimeDomain);
+    });
 }
 // Reads come from Settings, writes from SpringBoard, so the runtime domain is
 // synchronised here too - throttled, because the page reads once a second anyway.
