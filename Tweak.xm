@@ -144,6 +144,8 @@ static void LMVPerfProbe(const char *label, CFTimeInterval started) {
 }
 static void LMVDiagnostic(NSString *event) {
     static unsigned long records = 0; static unsigned long long epoch = 0;
+    if (!LMVDiagnosticsEnabled.load()) return;
+    if (epoch != LMVDiagnosticEpoch.load()) epoch = LMVDiagnosticEpoch.load();
     dispatch_async(LMVDiagnosticQueue, ^{
         if (!LMVDiagnosticsEnabled.load()) return;
         if (!event.length) return;
