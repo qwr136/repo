@@ -2,6 +2,9 @@
 #define LMV_STANDALONE_STUBS
 #define LMV_HAS_SCHEDULER 1
 #define LMV_HAS_TUNE_CACHE 1
+// 5.25: the panel headers ship a plain LMVLogF for fixture builds; the product
+// build wants the call-site gate, which needs this flag before they are included.
+#define LMV_DIAG_GATED_LOG 1
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
@@ -80,6 +83,11 @@ static int LMVLockToken = -1;
 // Launch readiness is independent: a system initializer must never run policy.
 static BOOL LMVInitialized, LMVLaunchReady, LMVSafeUpdatePending, LMVSafeUpdateApplying;
 static BOOL LMVPreferencesDirty = YES;
+// 5.25: declared before any panel header is imported, because LMVLogF now tests
+// this flag at the call site and the panel headers are included from here (line
+// 86) long before the diagnostics implementation further down.
+static std::atomic_bool LMVDiagnosticsEnabled(false);
+static std::atomic<unsigned long> LMVDiagnosticEpoch(0);
 static void LMVDiagnostic(NSString *event);
 static void LMVPanelPresenceStart(void);
 #define LMVEasterWindowDiagnostic(reason) LMVDiagnostic([@"easter-window " stringByAppendingString:(reason)])
@@ -131,8 +139,6 @@ static BOOL LMVAlreadyLaunched(UIApplication *app) {
 
 // Diagnostics intentionally contain no notification text, labels or filenames.
 static dispatch_queue_t LMVDiagnosticQueue;
-static std::atomic_bool LMVDiagnosticsEnabled(false);
-static std::atomic<unsigned long> LMVDiagnosticEpoch(0);
 // 1.76.2: main-thread stopwatch. Only a call that exceeds the threshold is
 // written, and it is exempt from the record budget. Two CACurrentMediaTime()
 // calls cost nothing even on the per-frame path, so this can stay in.

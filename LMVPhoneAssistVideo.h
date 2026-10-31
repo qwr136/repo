@@ -25,7 +25,13 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
 #endif
 #pragma once
 #ifndef LMVLogF
+// 5.25: format only when diagnostics are on. Fixture builds compile these headers
+// without the flag, so they keep the plain form and still link.
+#if defined(LMV_DIAG_GATED_LOG)
 #define LMVLogF(...) do { if (LMVDiagnosticsEnabled.load()) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__]); } while (0)
+#else
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#endif
 #endif
 #ifndef LMV_STANDALONE_STUBS
 #define LMV_STANDALONE_STUBS
