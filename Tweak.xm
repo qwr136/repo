@@ -167,7 +167,7 @@ static void LMVDiagnostic(NSString *event) {
         static NSFileHandle *sharedHandle;
         if (!sharedHandle) sharedHandle=[NSFileHandle fileHandleForWritingAtPath:path];
         [sharedHandle seekToEndOfFile];
-        NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%lu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event];
+        NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%lu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,(unsigned long long)epoch,getpid(),event];
         [sharedHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
     });
 }
