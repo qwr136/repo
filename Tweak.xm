@@ -207,6 +207,12 @@ static void LMVDiagnostic(NSString *event) {
             CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event],priority);
     });
 }
+// 5.25: the same guarded macro the headers use. Declared here as well because
+// this file logs before the headers are imported (and because the regression
+// harness compiles Tweak.xm on its own, without those headers).
+#ifndef LMVLogF
+#define LMVLogF(...) do { if (LMVDiagnosticsEnabled.load()) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__]); } while (0)
+#endif
 
 #import "LMVScheduler.h"
 #import "LMVLockVideo.h"

@@ -51,7 +51,11 @@ d=(root/'LMVDesktopVideo.h').read_text()
 assert 'static void LMVDesktopStage(const char *name,CFTimeInterval started) {' in d
 assert 'LMVDesktopStage("find",coverPerf0);' in d
 assert 'LMVDesktopStage("cover",stageCover);' in d
-assert 'LMVDesktopStage("rest",stageCover);' in d
+# 5.25: "rest" no longer starts at stageCover - that start point counted the
+# cover scan a second time, so a slow pass could never be attributed. The four
+# buckets are now disjoint and named on one line.
+assert 'LMVDesktopStage("rest",coordsEnd);' in d
+assert 'desktop-stages scan=%.0f tree=%.0f coords=%.0f rest=%.0f total=%.0f' in d
 assert '@finally { if (workBuffer) CVPixelBufferRelease(workBuffer); }' in s
 assert 'state.layer.contents=(__bridge id)image' in s
 assert 'CGRect desiredFrame=[anchor convertRect:anchor.bounds toView:host]' in s
