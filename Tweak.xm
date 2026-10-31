@@ -142,8 +142,52 @@ static void LMVPerfProbe(const char *label, CFTimeInterval started) {
     if (ms<50.0) return;
     LMVDiagnostic([NSString stringWithFormat:@"perf-long %s %.1fms",label,ms]);
 }
+// 5.25: one record used to be ~7 syscalls (mkdir/stat/access/lseek/write plus
+// open/close), and the cached handle still pointed at the renamed inode after a
+// rotation. Lines now collect in a 16 KB buffer that flushes on size, on the
+// 0.5 s timer, or immediately for the decisive prefixes - so a crash still
+// leaves the last important lines on disk.
+static NSMutableData *LMVDiagBuffer;      // touched only on LMVDiagnosticQueue
+static NSFileHandle *LMVDiagHandle;       // same
+static NSTimeInterval LMVDiagFlushAt;     // same
+static BOOL LMVDiagFlushScheduled;        // same
+static void LMVDiagFlush(void) {
+    if (!LMVDiagBuffer.length) return;
+    NSFileManager *fm=NSFileManager.defaultManager;
+    [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *path=[LMVDirectory stringByAppendingPathComponent:@"shared-render.log"];
+    if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>2097152) {
+        NSString *old=[path stringByAppendingString:@".1"];
+        [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
+        // The rename moves the inode: a cached handle would keep appending to .1
+        // while the fresh log stayed empty for the rest of the process.
+        [LMVDiagHandle closeFile]; LMVDiagHandle=nil;
+    }
+    if (!LMVDiagHandle) {
+        if (![fm fileExistsAtPath:path]) [fm createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
+        LMVDiagHandle=[NSFileHandle fileHandleForWritingAtPath:path];
+        [LMVDiagHandle seekToEndOfFile];
+    }
+    @try { [LMVDiagHandle writeData:LMVDiagBuffer]; }
+    @catch (NSException *exception) { [LMVDiagHandle closeFile]; LMVDiagHandle=nil; }
+    [LMVDiagBuffer setLength:0];
+    LMVDiagFlushAt=NSDate.date.timeIntervalSince1970+0.5;
+}
+static void LMVDiagAppend(NSString *line, BOOL priority) {
+    if (!LMVDiagBuffer) LMVDiagBuffer=[NSMutableData new];
+    [LMVDiagBuffer appendData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    if (priority || LMVDiagBuffer.length>=16384 || NSDate.date.timeIntervalSince1970>=LMVDiagFlushAt) {
+        LMVDiagFlush(); return;
+    }
+    if (LMVDiagFlushScheduled) return;
+    LMVDiagFlushScheduled=YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)),LMVDiagnosticQueue,^{
+        LMVDiagFlushScheduled=NO;
+        LMVDiagFlush();
+    });
+}
 static void LMVDiagnostic(NSString *event) {
-    static unsigned long records = 0; static unsigned long long epoch = 0;
+    static unsigned long records = 0; static unsigned long long epoch = 0, budgetEpoch = 0;
     if (!LMVDiagnosticsEnabled.load()) return;
     if (epoch != LMVDiagnosticEpoch.load()) epoch = LMVDiagnosticEpoch.load();
     dispatch_async(LMVDiagnosticQueue, ^{
@@ -155,20 +199,12 @@ static void LMVDiagnostic(NSString *event) {
             [event hasPrefix:@"squid-"] || [event hasPrefix:@"cv-panel "] || [event hasPrefix:@"desktop-panel"] ||
             [event hasPrefix:@"window-owner "] || [event hasPrefix:@"frame-gate-timeout"] ||
             [event hasPrefix:@"desktop-stage "];
+        // 5.25: 5.2.1 reset the budget on every epoch change; 5.24 dropped that,
+        // so a second diagnostics session stayed silent after the first 1200.
+        if (budgetEpoch != epoch) { records = 0; budgetEpoch = epoch; }
         if (!priority && ++records > 1200) return;
-        NSFileManager *fm=NSFileManager.defaultManager;
-        [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *path=[LMVDirectory stringByAppendingPathComponent:@"shared-render.log"];
-        if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>2097152) {
-            NSString *old=[path stringByAppendingString:@".1"];
-            [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
-        }
-        if (![fm fileExistsAtPath:path]) [fm createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
-        static NSFileHandle *sharedHandle;
-        if (!sharedHandle) sharedHandle=[NSFileHandle fileHandleForWritingAtPath:path];
-        [sharedHandle seekToEndOfFile];
-        NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%llu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event];
-        [sharedHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        LMVDiagAppend([NSString stringWithFormat:@"%.3f version=%@ session=%llu pid=%d %@\n",
+            CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event],priority);
     });
 }
 
@@ -237,7 +273,7 @@ static void LMVPreparePreview(NSString *path, NSString *revision, AVAsset *asset
                 [LMVPreviewPending removeObject:key];
                 if ([LMVRevisions[path] isEqualToString:revision]) {
                     if (image) LMVCacheFrame(path,revision,image,actual,NO);
-                    LMVDiagnostic([NSString stringWithFormat:@"cold-preview=%d errorcode=%ld",image!=NULL,(long)error.code]);
+                    LMVLogF(@"cold-preview=%d errorcode=%ld",image!=NULL,(long)error.code);
                     for (UIView *cell in LMVCells.allObjects) LMVUpdate(cell);
                 }
                 if (image) CGImageRelease(image);
@@ -305,7 +341,7 @@ static void LMVRequestSyncDisplayLink(void);
 - (void)outputMediaDataWillChange:(AVPlayerItemOutput *)output {
     if (output!=_output) return;
     _outputAwake=YES;
-    LMVDiagnostic([NSString stringWithFormat:@"source=%lu output-ready requested=%d",(unsigned long)_identifier,_playing]);
+    LMVLogF(@"source=%lu output-ready requested=%d",(unsigned long)_identifier,_playing);
     // Delegate queue is main; no UIKit work is performed by the decoding queue.
     LMVRequestSyncDisplayLink();
 }
@@ -458,7 +494,7 @@ static LMVSharedSource *LMVSourceForTarget(NSString *path, NSString *target) {
     LMVSharedSources[registryKey]=source;
     [output setDelegate:source queue:dispatch_get_main_queue()];
     [output requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
-    LMVDiagnostic([NSString stringWithFormat:@"loadsource=%lu owner=%@ currentItem=%d tracks=%lu",(unsigned long)source.identifier,source.ownerTarget,player.currentItem!=nil,(unsigned long)[source.asset tracksWithMediaType:AVMediaTypeVideo].count]);
+    LMVLogF(@"loadsource=%lu owner=%@ currentItem=%d tracks=%lu",(unsigned long)source.identifier,source.ownerTarget,player.currentItem!=nil,(unsigned long)[source.asset tracksWithMediaType:AVMediaTypeVideo].count);
     __weak LMVSharedSource *weakSource=source;
     source.endObserver=[NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:item queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
         LMVSharedSource *live=weakSource;
@@ -500,10 +536,10 @@ static CVPixelBufferRef LMVReadSharedBuffer(LMVSharedSource *source, CMTime *dis
         AVAssetTrack *track=[[source.asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
         AVAssetReaderTrackOutput *output=track ? [[AVAssetReaderTrackOutput alloc] initWithTrack:track outputSettings:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}] : nil;
         output.alwaysCopiesSampleData=NO;
-        if (!reader || !output || ![reader canAddOutput:output]) { source.readerRetryAt=now+2; LMVDiagnostic([NSString stringWithFormat:@"source=%lu reader-create-failed code=%ld",(unsigned long)source.identifier,(long)error.code]); return NULL; }
+        if (!reader || !output || ![reader canAddOutput:output]) { source.readerRetryAt=now+2; LMVLogF(@"source=%lu reader-create-failed code=%ld",(unsigned long)source.identifier,(long)error.code); return NULL; }
         [reader addOutput:output];
         reader.timeRange=CMTimeRangeMake(target,CMTimeSubtract(duration,target));
-        if (![reader startReading]) { source.readerRetryAt=now+2; LMVDiagnostic([NSString stringWithFormat:@"source=%lu reader-start-failed code=%ld",(unsigned long)source.identifier,(long)reader.error.code]); return NULL; }
+        if (![reader startReading]) { source.readerRetryAt=now+2; LMVLogF(@"source=%lu reader-start-failed code=%ld",(unsigned long)source.identifier,(long)reader.error.code); return NULL; }
         source.reader=reader; source.readerOutput=output;
     }
     CMSampleBufferRef selected=NULL;
@@ -531,7 +567,7 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
         CFTimeInterval held=CACurrentMediaTime()-LMVFrameBusySince;
         if (held<2.0) return;
         // 1.76.4: evict only the conversion that overran.
-        LMVDiagnostic([NSString stringWithFormat:@"frame-gate-timeout held=%.0fms",held*1000.0]);
+        LMVLogF(@"frame-gate-timeout held=%.0fms",held*1000.0);
         LMVFrameBusyToken++;
         LMVFrameBusy=NO; LMVFrameBusySince=0;
     }
@@ -604,10 +640,10 @@ static void LMVPublishFrame(LMVSharedSource *source, CMTime time) {
                         for (LMVVideoState *state in states.allValues) if (state.source==source) state.layer.contents=(__bridge id)image;
                     }
                     [CATransaction commit];
-                    if (source.published==1) LMVDiagnostic([NSString stringWithFormat:@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image)]);
+                    if (source.published==1) LMVLogF(@"source=%lu first-published mode=%@ size=%zux%zu",(unsigned long)source.identifier,readerMode?@"shared-reader":@"shared-output",CGImageGetWidth(image),CGImageGetHeight(image));
                 } else if (image) {
                     CGImageRelease(image); source.drops++;
-                    if (source.drops<=8) LMVDiagnostic([NSString stringWithFormat:@"source=%lu discard=%@",(unsigned long)source.identifier,drop]);
+                    if (source.drops<=8) LMVLogF(@"source=%lu discard=%@",(unsigned long)source.identifier,drop);
                 }
             });
         }
@@ -636,7 +672,7 @@ static void LMVStartSource(LMVSharedSource *source) {
             source.player.currentItem.status==AVPlayerItemStatusReadyToPlay) source.playing=NO;
         else return;
     }
-    if (!source.player.currentItem && !source.readerMode) { LMVDiagnostic([NSString stringWithFormat:@"source=%lu start=no-currentItem",(unsigned long)source.identifier]); return; }
+    if (!source.player.currentItem && !source.readerMode) { LMVLogF(@"source=%lu start=no-currentItem",(unsigned long)source.identifier); return; }
     source.playing=YES; source.startedAt=CACurrentMediaTime(); source.lastProgressAt=source.startedAt; source.lastRequestAt=0;
     if (source.readerMode) {
         // Keep the existing reader/pending sample on ordinary hide/show. Move
@@ -812,7 +848,7 @@ static void LMVPrepareAssets(void) {
                 }
             }
             // No fallback to an audio-bearing asset, even if preparation fails.
-            LMVDiagnostic([NSString stringWithFormat:@"asset-ready=%d videoTracks=%lu errorcode=%ld",ready,(unsigned long)videoTrackCount,(long)error.code]);
+            LMVLogF(@"asset-ready=%d videoTracks=%lu errorcode=%ld",ready,(unsigned long)videoTrackCount,(long)error.code);
             AVAsset *playbackAsset = ready ? [video copy] : nil;
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (LMVSources[path] != asset || !ready) return;
@@ -838,7 +874,7 @@ static void LMVLoadPreferences(void) {
     BOOL wasEnabled = LMVDiagnosticsEnabled.exchange(diagnosticsEnabled);
     if (diagnosticsEnabled && !wasEnabled) {
         LMVDiagnosticEpoch.fetch_add(1);
-        LMVDiagnostic([NSString stringWithFormat:@"version=%@ diagnostics-enabled",LMV_VERSION_STRING]);
+        LMVLogF(@"version=%@ diagnostics-enabled",LMV_VERSION_STRING);
     }
     BOOL full=LMVPreferencesScope.length==0;
     if (full || !LMVPaths || !LMVEnabled) {
@@ -999,12 +1035,18 @@ static void LMVCardPipelineAudit(UIView *owner,LMVVideoState *state,NSString *ta
     NSString *key=[target stringByAppendingString:stage];CFTimeInterval now=CACurrentMediaTime();
     unsigned long epoch=LMVDiagnosticEpoch.load();NSArray *old=records[key];
     if(old && [old[0] unsignedLongValue]==epoch && now-[old[1] doubleValue]<.5)return;
-    records[key]=@[@(epoch),@(now)];UIView *surface=state.overlay;UIWindow *window=owner.window;
+    UIView *surface=state.overlay;UIWindow *window=owner.window;
     uint64_t blank=1;int blankStatus=LMVBlankToken<0?-1:notify_get_state(LMVBlankToken,&blank);
     BOOL ownerModel=LMVCardExposureInTree(owner,window,NO),surfaceModel=LMVCardExposureInTree(surface,window,NO);
     BOOL surfaceShown=LMVCardExposureInTree(surface,window,YES);
     NSString *line=[NSString stringWithFormat:@"card-pipeline target=%@ stage=%@ owner=%p anchor=%p state=%d scope=%d gate=%d blankStatus=%d blank=%llu alphaEnabled=%d alpha=%.3f ownerVisible=%d ownerCAWindow=%d ownerModel=%d ownerShown=%d anchorParent=%d attached=%d surfaceModel=%d surfaceShown=%d surfaceVisible=%d surfaceCAWindow=%d surfaceHidden=%d surfaceOpacity=%.3f surfaceSize=%.1fx%.1f active=%d source=%lu requested=%d published=%lu",
         target,stage,(__bridge void *)owner,(__bridge void *)anchor,state!=nil,LMVNotificationCenterSurface(owner),LMVPlaybackAllowed(),blankStatus,(unsigned long long)blank,LMVOpacityEnabled,LMVOpacity,LMVVisible(owner),LMVCardLayerAttached(owner.layer,window.layer),ownerModel,LMVCardExposureInTree(owner,window,YES),anchor.superview!=nil,LMVCardStateAttached(owner,state),surfaceModel,surfaceShown,LMVVisible(surface),LMVCardLayerAttached(surface.layer,window.layer),surface.hidden,surface.alpha,surface.bounds.size.width,surface.bounds.size.height,state.active,(unsigned long)state.source.identifier,state.source.playing,(unsigned long)state.source.published];
+    // 5.25: the half-second window alone still repeated an identical line every
+    // half second for a card that never changed. Keep the last line per key and
+    // write only a real transition; the timestamp still advances so the next
+    // 0.5 s stays quiet. Diagnostics only - video and card behaviour untouched.
+    if(old.count>2 && [old[2] isEqual:line]) { records[key]=@[@(epoch),@(now),old[2]]; return; }
+    records[key]=@[@(epoch),@(now),line];
     LMVDiagnostic(line);
 }
 static BOOL LMVActionBranch(UIView *view) {
@@ -1312,7 +1354,7 @@ static void LMVUpdate(UIView *cell) {
         if (anchorVisible) state.lastVisible = now;
         // Owned content, geometry, opacity and corners are assigned before startup.
         if (!state.source && state.active) { state.source=LMVSourceForTarget(path,target); reportGeometry=state.source!=nil; }
-        if (reportGeometry) LMVDiagnostic([NSString stringWithFormat:@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height]);
+        if (reportGeometry) LMVLogF(@"bind source=%lu target=%@ visible=%d active=%d anchor=%.1fx%.1f overlay=%.1fx%.1f",(unsigned long)state.source.identifier,target,anchorVisible,state.active,anchor.bounds.size.width,anchor.bounds.size.height,state.overlay.bounds.size.width,state.overlay.bounds.size.height);
         // Use this category's retained live frame, not another category's latest
         // same-file cache position, whenever a card joins its shared source.
         if(state.source.lastImage && state.layer.contents!=(__bridge id)state.source.lastImage) {
@@ -1725,7 +1767,7 @@ static void LMVSyncDisplayLink(void) {
     unsigned long epoch=LMVDiagnosticEpoch.load();
     if (lastNeeded!=(NSInteger)needed || (LMVDiagnosticsEnabled.load() && lastAuditEpoch!=epoch)) {
         lastNeeded=needed;lastAuditEpoch=epoch;
-        LMVDiagnostic([NSString stringWithFormat:@"displaylink-needed=%d cells=%lu alpha-enabled=%d alpha=%.3f link=%d",needed,(unsigned long)LMVCells.count,LMVOpacityEnabled,LMVOpacity,LMVLink!=nil]);
+        LMVLogF(@"displaylink-needed=%d cells=%lu alpha-enabled=%d alpha=%.3f link=%d",needed,(unsigned long)LMVCells.count,LMVOpacityEnabled,LMVOpacity,LMVLink!=nil);
     }
     if (!needed) {
         // Stopping frame scheduling pauses sources and retains exact displayed frames.
@@ -1743,8 +1785,8 @@ static void LMVSyncDisplayLink(void) {
     // in -tick:. Setting 45 here was rounded down to 30 by the system, and a gate can
     // only slow a link down - never speed it back up.
     LMVLink.preferredFramesPerSecond=60;
-    LMVDiagnostic([NSString stringWithFormat:@"cards-cadence setting=%ld link=%ld",
-        (long)cardFPS,(long)LMVLink.preferredFramesPerSecond]);
+    LMVLogF(@"cards-cadence setting=%ld link=%ld",
+        (long)cardFPS,(long)LMVLink.preferredFramesPerSecond);
     [LMVLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 #import "LMVCardMaintenance.h"
@@ -1818,7 +1860,7 @@ static void LMVSyncDisplayLink(void) {
     }
     static NSUInteger lastSources=NSUIntegerMax,lastConsumers=NSUIntegerMax,nextSource=0;
     if (lastSources!=visible.count || lastConsumers!=consumers) {
-        LMVDiagnostic([NSString stringWithFormat:@"sourcecounts total=%lu visible=%lu consumers=%lu",(unsigned long)LMVSharedSources.count,(unsigned long)visible.count,(unsigned long)consumers]);
+        LMVLogF(@"sourcecounts total=%lu visible=%lu consumers=%lu",(unsigned long)LMVSharedSources.count,(unsigned long)visible.count,(unsigned long)consumers);
         lastSources=visible.count; lastConsumers=consumers;
     }
     NSArray *sources=visible.allObjects;
@@ -1845,7 +1887,7 @@ static void LMVSyncDisplayLink(void) {
             source.readerMode=YES; [source.player pause]; source.generation++;
             CMTime resume=CMTIME_IS_NUMERIC(source.lastTime)?source.lastTime:kCMTimeZero;
             dispatch_async(LMVFrameQueue, ^{ source.readerClock=CACurrentMediaTime(); source.readerOffset=resume; source.readerLastTarget=kCMTimeInvalid; });
-            LMVDiagnostic([NSString stringWithFormat:@"source=%lu fallback=shared-reader reason=%@",(unsigned long)source.identifier,item.status==AVPlayerItemStatusFailed?@"item-failed":(source.published?@"no-progress-3s":@"cold-no-frame-0.75s")]);
+            LMVLogF(@"source=%lu fallback=shared-reader reason=%@",(unsigned long)source.identifier,item.status==AVPlayerItemStatusFailed?@"item-failed":(source.published?@"no-progress-3s":@"cold-no-frame-0.75s"));
         }
         CFTimeInterval hostTime=link.targetTimestamp>0 ? link.targetTimestamp : link.timestamp+link.duration;
         CMTime time=[source.output itemTimeForHostTime:hostTime];
@@ -1861,7 +1903,7 @@ static void LMVSyncDisplayLink(void) {
         BOOL transition=![source.diagnosticState isEqualToString:phase];
         if (transition || (now-source.lastDiagnosticAt>=2 && now-source.startedAt<30)) {
             source.diagnosticState=phase; source.lastDiagnosticAt=now;
-            LMVDiagnostic([NSString stringWithFormat:@"source=%lu %@ newframes=%lu buffers=%lu conversion=%lu conversionerrors=%lu published=%lu discard=%lu errorcode=%ld",(unsigned long)source.identifier,phase,(unsigned long)source.newFrames,(unsigned long)source.buffers,(unsigned long)source.conversions,(unsigned long)source.conversionErrors,(unsigned long)source.published,(unsigned long)source.drops,(long)item.error.code]);
+            LMVLogF(@"source=%lu %@ newframes=%lu buffers=%lu conversion=%lu conversionerrors=%lu published=%lu discard=%lu errorcode=%ld",(unsigned long)source.identifier,phase,(unsigned long)source.newFrames,(unsigned long)source.buffers,(unsigned long)source.conversions,(unsigned long)source.conversionErrors,(unsigned long)source.published,(unsigned long)source.drops,(long)item.error.code);
         }
         }
     }
@@ -2056,10 +2098,10 @@ static void LMVCPUSnapshotTick(NSTimer *timer) {
         if (source.player) players++;
         if (source.readerMode) readers++;
     }
-    LMVDiagnostic([NSString stringWithFormat:@"cpu-snapshot sources=%lu playing=%lu players=%lu reader=%lu presence_ms=%.2f presence_hz=%ld cells=%lu",
+    LMVLogF(@"cpu-snapshot sources=%lu playing=%lu players=%lu reader=%lu presence_ms=%.2f presence_hz=%ld cells=%lu",
         (unsigned long)total, (unsigned long)playing, (unsigned long)players, (unsigned long)readers,
         LMVPresenceTickMs, (long)(LMVPanelPresenceLink ? LMVPanelPresenceLink.preferredFramesPerSecond : 0),
-        (unsigned long)LMVCells.count]);
+        (unsigned long)LMVCells.count);
 }
 static void LMVCPUSnapshotStart(void) {
     if (LMVCPUSnapshotTimer || !NSThread.isMainThread) return;
@@ -2107,6 +2149,7 @@ static BOOL LMVSettingsAppProcess(void) {
         NSNumber *diagnostics = (__bridge_transfer NSNumber *)CFPreferencesCopyAppValue(CFSTR("DiagnosticsEnabled"), kLMVPrefsID);
         LMVDiagnosticsEnabled.store([diagnostics respondsToSelector:@selector(boolValue)] && diagnostics.boolValue);
         if (LMVDiagnosticsEnabled.load()) LMVDiagnosticEpoch.fetch_add(1);
+        else dispatch_async(LMVDiagnosticQueue, ^{ LMVDiagFlush(); });  // 5.25: flush the tail when diagnostics are switched off.
         notify_register_check("com.apple.springboard.hasBlankedScreen", &LMVBlankToken);
         notify_register_check("com.apple.springboard.lockstate", &LMVLockToken);
         LMVDesktopPrimeEarly();

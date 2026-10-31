@@ -1,6 +1,6 @@
 #pragma once
 #ifndef LMVLogF
-#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#define LMVLogF(...) do { if (LMVDiagnosticsEnabled.load()) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__]); } while (0)
 #endif
 #ifndef LMV_STANDALONE_STUBS
 #define LMV_STANDALONE_STUBS
@@ -1175,6 +1175,11 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     if(quietLogged){quietLogged=NO;LMVDiagnostic(@"desktop-quiet panel-closed probes resume");}
     BOOL diagnostics=LMVDiagnosticsEnabled.load();
     CFTimeInterval coverPerf0=diagnostics?CACurrentMediaTime():0;
+    // 5.25: one total is not an answer - a 1.5 s pass has to say which part of it
+    // was the window scan, which was the view-tree hunt, which was layer geometry
+    // and which was everything else. Marks are only taken while diagnostics are
+    // on, so the timing itself costs nothing in normal use.
+    CFTimeInterval markScanEnd=0,markTreeEnd=0,markCoordsEnd=0,markCoordsStart=0;
     uint64_t blank=1,locked=1;
     BOOL screenKnown=LMVBlankToken>=0 && notify_get_state(LMVBlankToken,&blank)==NOTIFY_STATUS_OK;
     BOOL lockKnown=LMVLockToken>=0 && notify_get_state(LMVLockToken,&locked)==NOTIFY_STATUS_OK;
@@ -1187,6 +1192,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
         if (record.known && record.visible) homeConfirmed=YES;
         if (!homeRoot || LMVLockVideoClass(controller,@"SBHomeScreenViewController")) {homeRoot=controller.viewIfLoaded;homeOwner=controller;}
     }
+    if (diagnostics) markScanEnd=CACurrentMediaTime();
     UIView *wallpaper=LMVDesktopExplicitWallpaper;
     BOOL displacedWallpaper=wallpaper && wallpaper==self.explicitSource && wallpaper.window!=self.explicitWindow &&
         !LMVDesktopHomeWindow(wallpaper.window);
@@ -1195,6 +1201,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     BOOL wallpaperValid=content!=nil;
     if (LMVLockVideoClass(wallpaper.window,@"SBCoverSheetWindow")) {wallpaperValid=NO;content=nil;}
     UIView *container=wallpaperValid?wallpaper:(homeRoot ?: poster.viewIfLoaded);
+    if (diagnostics) markTreeEnd=CACurrentMediaTime();
     LMVDesktopStage("find",coverPerf0);
     // Exact PBUIPosterHome identity is a PaperBoard-compatible alternative to
     // legacy SBFWallpaperView, with the same background-only scope requirement.
@@ -1784,7 +1791,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // This line therefore walks EVERY scene, prints each visible window's shape THREE
     // levels deep, marks which scene a window belongs to, and lists only the windows
     // that belong to no scene at all. Diagnostics only, change-only.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *scenes=[NSMutableString new];
         NSMutableArray *allSceneWins=[NSMutableArray new];
         NSInteger sceneIdx=0;
@@ -1839,7 +1846,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // not fill the screen), so a video background behind it has to be laid out to
     // that exact rect - a class-name list cannot show it. Change-only: every
     // panel-like window three levels deep WITH FRAMES, plus our own layer.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *panels=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -1883,7 +1890,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // belongs to, nor whether a brand-new window appeared for it. Hidden windows
     // are listed ON PURPOSE - a window that exists only while its panel is open is
     // precisely what has to be visible here.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *meta=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -1920,7 +1927,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // though, so enumerate the classes that image defines - the window/view
     // class names are then known without ever catching the panel open. Runs
     // ONCE per process: objc_getClassList walks every class in SpringBoard.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             int total=objc_getClassList(NULL,0);
@@ -1947,7 +1954,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // Six levels, including windows that are not currently visible, so the shape of
     // a clipboard panel is captured even when the shallow three-level geometry only
     // shows an empty shell.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *trees=[NSMutableString new];
         NSMutableArray<UIWindow *> *panelWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -1990,7 +1997,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // above the keyboard, inside UITextEffectsWindow / SBMedusaHostedKeyboardWindow.
     // The window list can never name it, so dump those subtrees whenever they
     // change: the panel class and its user-set height appear right here.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *trees=[NSMutableString new];
         NSMutableArray<UIWindow *> *keyboardWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -2022,7 +2029,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // 1.67: name the Control Centre overlay EXACTLY as presented. Pulled down
     // over Notification Centre it can carry a different layer name than the one
     // the floating egg looks for, which is why the ball stayed hidden there.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         BOOL coverUp=NO;
         NSMutableArray<UIWindow *> *ccWindows=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -2056,7 +2063,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // walks EVERY window (scene-borne AND legacy), finds the presentation
     // containers and prints their whole shape with frames, corner radii, alpha and
     // hidden state, so the mount level can be decided from the log alone.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableArray<UIWindow *> *everyWindow=[NSMutableArray new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -2090,7 +2097,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // 1.25: WHICH whitelisted surface currently holds the cover, with its content
     // coverage - so an app-exit log names the window instead of leaving it to
     // inference (the 1.25 log carried an unexplained switcher window).
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *owners=[NSMutableString new];
         UIWindow *target=container?container.window:nil;
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -2115,7 +2122,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // discovery aid for an app window whose class name is not in the whitelist
     // (device log: an unexplained SBWindow and appc=0 throughout, i.e. the
     // desktop never saw the application at all).
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *skipped=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -2141,7 +2148,7 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     // 0.0.129: which windows are on screen (class names, changes-only) - the
     // discovery aid for sheet presenters (e.g. the search pull-down) whose host
     // window class the cover probe does not know yet.
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
         NSMutableString *windowList=[NSMutableString new];
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -2158,13 +2165,16 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     }
     // 0.0.95 diagnostics: how much of the visible screen the Desktop surface covers
     // and where the uncovered band is ("background dropped / leaked").
-    {
+    if (shapeDump) {  // 5.25: collection itself was running every frame; only the print was gated.
+        CFTimeInterval coordsStart=diagnostics?CACurrentMediaTime():0;
         UIWindow *coverWindow=self.host.window;
         CGRect coverViewport=LMVVideoWindowViewport(coverWindow);
         BOOL attached=self.host.superview!=nil && coverWindow!=nil;
         CALayer *coverRoot=coverWindow.layer.presentationLayer ?: coverWindow.layer;
         CALayer *coverSpace=self.host.layer.presentationLayer ?: self.host.layer;
         CGRect hostInWindow=attached?[coverSpace convertRect:coverSpace.bounds toLayer:coverRoot]:CGRectZero;
+        if (diagnostics && !markCoordsEnd) markCoordsEnd=CACurrentMediaTime();
+        if (diagnostics) markCoordsStart=coordsStart;
         CGRect revealed=CGRectIsEmpty(coverViewport)?CGRectZero:CGRectIntersection(hostInWindow,coverViewport);
         CGFloat revealedHeight=CGRectIsEmpty(revealed)?0.0:revealed.size.height;
         CGFloat coverGapTop=CGRectIsEmpty(coverViewport)?0.0:MAX(0.0,hostInWindow.origin.y-coverViewport.origin.y);
@@ -2180,7 +2190,23 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     NSString *coverPerf=LMVPerfSample("desktop",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
     }
-    LMVDesktopStage("rest",stageCover);
+    // 5.25: a slow pass now names its own bucket. The four are disjoint - the old
+    // "rest" started before the cover scan and counted it a second time, which is
+    // why a 1.5 s pass could never be attributed to a single part.
+    CFTimeInterval coordsEnd=markCoordsEnd?markCoordsEnd:stageCover;
+    if (diagnostics && markScanEnd && markTreeEnd) {
+        CFTimeInterval end=CACurrentMediaTime();
+        double totalMs=(end-coverPerf0)*1000.0;
+        if (totalMs>=50.0) {
+            double coordsMs=markCoordsEnd?(markCoordsEnd-markCoordsStart)*1000.0:0.0;
+            LMVLogF(@"desktop-stages scan=%.0f tree=%.0f coords=%.0f rest=%.0f total=%.0f",
+                ((markScanEnd-coverPerf0)+(stageCover-markTreeEnd))*1000.0,
+                (markTreeEnd-markScanEnd)*1000.0,
+                coordsMs,
+                (end-stageCover)*1000.0-coordsMs,totalMs);
+        }
+    }
+    LMVDesktopStage("rest",coordsEnd);
     self.updating=NO;
 }
 @end

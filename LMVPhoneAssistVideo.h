@@ -25,7 +25,7 @@ static inline NSTimeInterval LMVTuneFallbackInterval(NSTimeInterval want, BOOL m
 #endif
 #pragma once
 #ifndef LMVLogF
-#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
+#define LMVLogF(...) do { if (LMVDiagnosticsEnabled.load()) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__]); } while (0)
 #endif
 #ifndef LMV_STANDALONE_STUBS
 #define LMV_STANDALONE_STUBS
