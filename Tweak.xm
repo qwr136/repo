@@ -143,50 +143,30 @@ static void LMVPerfProbe(const char *label, CFTimeInterval started) {
     LMVDiagnostic([NSString stringWithFormat:@"perf-long %s %.1fms",label,ms]);
 }
 static void LMVDiagnostic(NSString *event) {
-    if (!LMVDiagnosticsEnabled.load() || !event.length || !LMVDiagnosticQueue) return;
-    unsigned long epoch = LMVDiagnosticEpoch.load();
+    static unsigned long records = 0; static unsigned long long epoch = 0;
     dispatch_async(LMVDiagnosticQueue, ^{
-        @autoreleasepool {
-            // Drop queued records after the switch is turned off, too.
-            if (!LMVDiagnosticsEnabled.load() || epoch != LMVDiagnosticEpoch.load()) return;
-            static NSUInteger records=0;
-            static unsigned long lastEpoch=0;
-            if (lastEpoch != epoch) { records=0; lastEpoch=epoch; }
-            // 0.0.123: the card and lock channels emit ~10-150 records per second,
-            // so a fixed per-epoch budget silently dropped the rare floating-ball
-            // decisions (no easter-window line ever reached the log, which made
-            // "the ball disappeared" undiagnosable). Easter decisions are tiny and
-            // rate limited by their own change detection: never count them here.
-            // 1.76.2: switch-time events are rare and decisive; a 1200-record
-            // budget must not swallow them (the last two captures lost every
-            // loadsource= line exactly when the freeze happened).
-            // 1.76.7: every per-channel state line is exempt from the 1200-record
-            // budget. The Squid panel capture contained 797 card-pipeline and 198
-            // card-exposure lines and ZERO squid-* lines - the panel's own log was
-            // pushed out by the notification cards, so the report had no evidence at
-            // all. A bug report about one channel must never lose that channel's lines.
-            BOOL priority = [event hasPrefix:@"easter-window "] || [event hasPrefix:@"perf-long "] ||
-                [event hasPrefix:@"loadsource="] || [event hasPrefix:@"asset-ready="] ||
-                [event hasPrefix:@"squid-"] || [event hasPrefix:@"cv-panel "] || [event hasPrefix:@"desktop-panel"] ||
-                [event hasPrefix:@"window-owner "] || [event hasPrefix:@"frame-gate-timeout"] ||
-                [event hasPrefix:@"desktop-stage "];
-            if (!priority && ++records > 1200) return;
-            NSFileManager *fm=NSFileManager.defaultManager;
-            [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
-            NSString *path=[LMVDirectory stringByAppendingPathComponent:@"shared-render.log"];
-            if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>2097152) {
-                NSString *old=[path stringByAppendingString:@".1"];
-                [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
-            }
-            if (![fm fileExistsAtPath:path]) [fm createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
-            static NSFileHandle *sharedHandle;
-            if (!sharedHandle) sharedHandle=[NSFileHandle fileHandleForWritingAtPath:path];
-            [sharedHandle seekToEndOfFile];
-            NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%lu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event];
-            [sharedHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-            } @catch (NSException *exception) { /* Diagnostics must never affect playback. */ }
-            @finally {}
+        if (!LMVDiagnosticsEnabled.load()) return;
+        if (!event.length) return;
+        if (epoch == 0) epoch = (unsigned long long)NSDate.date.timeIntervalSince1970;
+        BOOL priority = [event hasPrefix:@"easter-window "] || [event hasPrefix:@"perf-long "] ||
+            [event hasPrefix:@"loadsource="] || [event hasPrefix:@"asset-ready="] ||
+            [event hasPrefix:@"squid-"] || [event hasPrefix:@"cv-panel "] || [event hasPrefix:@"desktop-panel"] ||
+            [event hasPrefix:@"window-owner "] || [event hasPrefix:@"frame-gate-timeout"] ||
+            [event hasPrefix:@"desktop-stage "];
+        if (!priority && ++records > 1200) return;
+        NSFileManager *fm=NSFileManager.defaultManager;
+        [fm createDirectoryAtPath:LMVDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *path=[LMVDirectory stringByAppendingPathComponent:@"shared-render.log"];
+        if ([[fm attributesOfItemAtPath:path error:nil][NSFileSize] unsignedLongLongValue]>2097152) {
+            NSString *old=[path stringByAppendingString:@".1"];
+            [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:path toPath:old error:nil];
         }
+        if (![fm fileExistsAtPath:path]) [fm createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
+        static NSFileHandle *sharedHandle;
+        if (!sharedHandle) sharedHandle=[NSFileHandle fileHandleForWritingAtPath:path];
+        [sharedHandle seekToEndOfFile];
+        NSString *line=[NSString stringWithFormat:@"%.3f version=%@ session=%lu pid=%d %@\n",CACurrentMediaTime(),LMV_VERSION_STRING,epoch,getpid(),event];
+        [sharedHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
     });
 }
 
