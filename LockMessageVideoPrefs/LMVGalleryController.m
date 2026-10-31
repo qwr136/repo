@@ -677,6 +677,17 @@
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
     BOOL easterOn = LMVGPrefBool(@"EasterEggEnabled", NO);
+    // 5.26: the master switch lives here as well, so it can be flipped without
+    // leaving the gallery. Absent key reads as ON, exactly like the tweak's own
+    // reader, so an upgrade never looks like "everything turned itself off".
+    BOOL globalOn = LMVGPrefBool(@"GlobalEnabled", YES);
+    [sheet addAction:[UIAlertAction actionWithTitle:(globalOn ? @"关闭全局开关" : @"启用全局开关")
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+        LMVGPrefSet(@"GlobalEnabled", @(!globalOn));
+        LMVGNotifyChannel(nil);
+        LMVGLightHaptic();
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:(easterOn ? @"关闭小彩蛋" : @"启用小彩蛋")
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {

@@ -204,7 +204,11 @@ static void LMVDiagnostic(NSString *event) {
             [event hasPrefix:@"loadsource="] || [event hasPrefix:@"asset-ready="] ||
             [event hasPrefix:@"squid-"] || [event hasPrefix:@"cv-panel "] || [event hasPrefix:@"desktop-panel"] ||
             [event hasPrefix:@"window-owner "] || [event hasPrefix:@"frame-gate-timeout"] ||
-            [event hasPrefix:@"desktop-stage "];
+            // 5.26: "desktop-stage " does NOT match "desktop-stages scan=..." - the
+            // 14th character is "s", not the space. The summary line is the one that
+            // explains a slow pass, so it has to be exempt from the budget and hit
+            // the disk immediately, exactly like the per-stage lines.
+            [event hasPrefix:@"desktop-stage "] || [event hasPrefix:@"desktop-stages "];
         // 5.25: 5.2.1 reset the budget on every epoch change; 5.24 dropped that,
         // so a second diagnostics session stayed silent after the first 1200.
         if (budgetEpoch != epoch) { records = 0; budgetEpoch = epoch; }
@@ -1057,7 +1061,10 @@ static void LMVCardPipelineAudit(UIView *owner,LMVVideoState *state,NSString *ta
     // half second for a card that never changed. Keep the last line per key and
     // write only a real transition; the timestamp still advances so the next
     // 0.5 s stays quiet. Diagnostics only - video and card behaviour untouched.
-    if(old.count>2 && [old[2] isEqual:line]) { records[key]=@[@(epoch),@(now),old[2]]; return; }
+    // 5.26: compare only within the same diagnostics session. Reusing the old
+    // line across an epoch change swallowed the first card-pipeline of the new
+    // session whenever the state happened to be identical to the previous run.
+    if(old.count>2 && [old[0] unsignedLongValue]==epoch && [old[2] isEqual:line]) { records[key]=@[@(epoch),@(now),old[2]]; return; }
     records[key]=@[@(epoch),@(now),line];
     LMVDiagnostic(line);
 }

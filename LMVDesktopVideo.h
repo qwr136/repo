@@ -1224,6 +1224,10 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     CFTimeInterval stageCover=CACurrentMediaTime();
     BOOL unknownCover=NO;CGRect cover=container?LMVDesktopCoverRect(container.window,&unknownCover,&appWindowCover,&switcherCover,&ccCover,&sheetCover,&sheetFullCover):CGRectZero;
     LMVDesktopStage("cover",stageCover);
+    // 5.26: the cover probe is its own bucket in the desktop-stages summary, so
+    // its end has to survive past this line. Without it, rest covered the probe
+    // as well and the two numbers could not be added up.
+    CFTimeInterval markCoverEnd=diagnostics?CACurrentMediaTime():0;
     // 1.25: ZERO delay on an app exit. The frontmost probe is the earliest true
     // signal - it flips the moment the app stops being frontmost, while its
     // surface (and the switcher shell behind it) stay on screen for the whole
@@ -2196,23 +2200,34 @@ static NSInteger LMVDesktopCadence(NSString *key) {
     NSString *coverPerf=LMVPerfSample("desktop",CACurrentMediaTime()-coverPerf0);
     if (coverPerf) LMVDiagnostic(coverPerf);
     }
-    // 5.25: a slow pass now names its own bucket. The four are disjoint - the old
-    // "rest" started before the cover scan and counted it a second time, which is
-    // why a 1.5 s pass could never be attributed to a single part.
-    CFTimeInterval coordsEnd=markCoordsEnd?markCoordsEnd:stageCover;
+    // 5.26: a slow pass now names five disjoint buckets, each sampled every frame.
+    // The old four mixed two things: "rest" started at stageCover, so it already
+    // contained the cover probe that desktop-stage cover reported again; and
+    // "coords" only ever had a value on a shapeDump pass - once every 10 s - so a
+    // normal slow frame printed coords=0 and quietly charged that time to rest.
     if (diagnostics && markScanEnd && markTreeEnd) {
         CFTimeInterval end=CACurrentMediaTime();
         double totalMs=(end-coverPerf0)*1000.0;
         if (totalMs>=50.0) {
+            double coverMs=markCoverEnd?(markCoverEnd-stageCover)*1000.0:0.0;
             double coordsMs=markCoordsEnd?(markCoordsEnd-markCoordsStart)*1000.0:0.0;
-            LMVLogF(@"desktop-stages scan=%.0f tree=%.0f coords=%.0f rest=%.0f total=%.0f",
-                ((markScanEnd-coverPerf0)+(stageCover-markTreeEnd))*1000.0,
-                (markTreeEnd-markScanEnd)*1000.0,
-                coordsMs,
-                (end-stageCover)*1000.0-coordsMs,totalMs);
+            // rest is measured from markTreeEnd (not stageCover) so the tree bucket
+            // is never counted twice; cover and coords are subtracted because they
+            // are reported on their own.
+            double restMs=(end-markTreeEnd)*1000.0-coverMs-coordsMs;
+            if (coordsMs>0.0) {
+                LMVLogF(@"desktop-stages scan=%.0f tree=%.0f cover=%.0f coords=%.0f rest=%.0f total=%.0f",
+                    (markScanEnd-coverPerf0)*1000.0,(markTreeEnd-markScanEnd)*1000.0,
+                    coverMs,coordsMs,restMs,totalMs);
+            } else {
+                // coords is only sampled on a shapeDump pass; printing 0 on every
+                // other frame would read as "layout conversion is free".
+                LMVLogF(@"desktop-stages scan=%.0f tree=%.0f cover=%.0f rest=%.0f total=%.0f",
+                    (markScanEnd-coverPerf0)*1000.0,(markTreeEnd-markScanEnd)*1000.0,
+                    coverMs,restMs,totalMs);
+            }
         }
     }
-    LMVDesktopStage("rest",coordsEnd);
     self.updating=NO;
 }
 @end
