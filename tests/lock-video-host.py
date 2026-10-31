@@ -206,6 +206,7 @@ static int notify_get_state(int token,uint64_t *state){*state=screenBlank;return
 static NSUInteger requests;
 static void LMVRequestSafeUpdate(void){if(LMVInitialized && LMVLaunchReady)requests++;}
 static void LMVDiagnostic(NSString *message){}
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
 static void MSHookMessageEx(Class cls,SEL selector,IMP replacement,IMP *original){Method m=class_getInstanceMethod(cls,selector);*original=method_getImplementation(m);class_replaceMethod(cls,selector,replacement,method_getTypeEncoding(m));}
 '''
 production=h[h.index('static BOOL LMVLockVideoRectValid'):]

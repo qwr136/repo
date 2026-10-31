@@ -86,6 +86,7 @@ static NSUInteger checkpoints;
 static void LMVSyncDisplayLink(void) {}
 static void LMVRequestSyncDisplayLink(void) { LMVSyncDisplayLink(); }
 static void LMVDiagnostic(NSString *event) {}
+#define LMVLogF(...) LMVDiagnostic([NSString stringWithFormat:__VA_ARGS__])
 static void LMVCheckpointFrame(NSString *path, NSString *revision) { checkpoints++; }
 '''
 snapshot = s.split('@interface LMVFrameSnapshot : NSObject', 1)[1].split('static NSString *LMVFrameKey', 1)[0]
