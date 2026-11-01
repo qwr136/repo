@@ -114,6 +114,9 @@ static BOOL LMVATPanelSystemMenu(UIView *view) {
     // alert kept the video for as long as it stayed up.
     if([name containsString:@"Alert"])return YES;
     if([name containsString:@"PhoneTVMac"])return YES;
+    // 5.27: the app-open / app-switch container. Device log 5.26 showed the AT clip
+    // mounting on UIDropShadowView@0,126,430,806 while the home screen was idle.
+    if([name containsString:@"DropShadow"])return YES;
     return NO;
 }
 // Every UITransitionView at or below `view`. 1.27 learned the hard way that
@@ -156,6 +159,17 @@ static UIView *LMVATPanelCard(UIWindow *window) {
                 CGRect frame=[child convertRect:child.bounds toView:window];
                 if(frame.size.width>=bounds.size.width-1 && frame.size.height>=bounds.size.height-1)continue;
                 if(frame.size.width<bounds.size.width*.5 || frame.size.height<bounds.size.height*.08)continue;
+                // 5.27: THE DESKTOP IS NOT A PRESENTATION. AppTools' own background and the
+                // app-switch UIDropShadowView both sit in the home window's TransitionView
+                // subtree and pass "half width, 8% tall", so the AT video mounted on them -
+                // device log 5.26: card=UIDropShadowView@0,126,430,806, which is the clip
+                // seen playing in the search-bar area. A real AT panel is a BOTTOM CARD: it
+                // stops short of the window top, ends at the window bottom, and covers at
+                // most two thirds of the screen (measured 0,345,430,587 on 430x932, against
+                // 806/932 = 86% for the drop shadow container).
+                if(frame.size.height>bounds.size.height*.80)continue;
+                if(frame.origin.y<bounds.size.height*.12)continue;
+                if(CGRectGetMaxY(frame)>CGRectGetMaxY(bounds)+6)continue;
                 CGFloat visible=LMVVisibleArea(frame,bounds);
                 if(visible<=0)continue;
                 if(visible>bestArea){bestArea=visible;best=child;}

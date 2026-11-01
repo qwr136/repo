@@ -171,6 +171,24 @@ assert 'if(LMVATPanelSystemMenu(child))continue;\n                [pending addOb
 assert 'if(LMVATPanelSystemMenu(view))return;' in module, 'menu subtrees are never AT transition roots'
 assert 'if(LMVATPanelSystemMenu(child))continue;' in module, 'a *_ContextMenu* view is never the AT card'
 
+# ---- 5.27: the DESKTOP is not a presentation --------------------------------
+# Device log 5.26, home screen idle with AppTools' background on:
+#   at-panel card=UIDropShadowView@0,126,430,806 r30 vis=346580 live=1 host=364x170
+# The app-open container is 86% of the screen tall and sits in the same
+# TransitionView subtree, so it won the area contest and the clip played in the
+# search-bar area. The real panel that same log measured is 0,345,430,587 (63%).
+# A card is now a BOTTOM card: short of the top, ending at the bottom, <=80% tall.
+assert 'if([name containsString:@"DropShadow"])return YES;' in module
+assert 'if(frame.size.height>bounds.size.height*.80)continue;' in module
+assert 'if(frame.origin.y<bounds.size.height*.12)continue;' in module
+assert 'if(CGRectGetMaxY(frame)>CGRectGetMaxY(bounds)+6)continue;' in module
+# the real card still passes all four: 587 <= 745, 345 >= 111, 932 <= 938
+assert 587 <= 932 * 0.80 and 345 >= 932 * 0.12 and 345 + 587 <= 932 + 6
+# and the two false cards from the log are rejected by geometry alone
+assert 806 > 932 * 0.80, 'UIDropShadowView is too tall to be the panel'
+assert 795 + 179 > 932 + 6, 'the bottom-anchored 179pt card overflows the window'
+
+
 
 def has(text, token, message):
     assert token in text, message
