@@ -1,4 +1,5 @@
 #pragma once
+#import "LMVSliderControl.h"
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
 // 0.0.122: shared corner-radius / panel-size rules (also used by the overlay).
@@ -173,7 +174,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             // 1.84.1: row 1 is the CORNER slider. It used to set the height label,
             // percentage and accessibility text before the branch checked which
             // row it was, so the row under "悬浮窗圆角" read "悬浮窗高度 71%".
-            UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
+            LMVSliderControl *slider = [[LMVSliderControl alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
             slider.tag = index.row;
             if (index.row == 1) {
                 CGFloat corner = LMVEasterPanelCornerValue(LMVEasterRead(@"EasterPanelCorner"));
@@ -207,7 +208,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             [toggle addTarget:self action:@selector(rotationChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
             cell.textLabel.text = @"旋转速度"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f 度/秒", LMVEasterImageRotationSpeed()];
-            UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
+            LMVSliderControl *slider = [[LMVSliderControl alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
             slider.minimumValue = 5; slider.maximumValue = 720; slider.value = LMVEasterImageRotationSpeed();
             slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO); slider.accessibilityLabel = @"彩蛋图片旋转速度（度/秒）";
             [slider addTarget:self action:@selector(rotationSpeedChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
@@ -244,7 +245,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入图片 / GIF"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.userInteractionEnabled = !self.busy;
     } else {
         cell.textLabel.text = @"悬浮图标大小"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", LMVEasterSize()]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
+        LMVSliderControl *slider = [[LMVSliderControl alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
         slider.minimumValue = 12; slider.maximumValue = 128; slider.value = LMVEasterSize(); slider.accessibilityLabel = @"悬浮图标大小";
         [slider addTarget:self action:@selector(sizeChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
     }

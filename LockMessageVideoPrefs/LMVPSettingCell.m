@@ -4,6 +4,7 @@
 #import <objc/message.h>
 
 #import "LMVPPanelStyle.h"
+#import "../LMVSliderControl.h"
 
 static NSString *const kLMVPPanelSubtitleKey = @"subtitle";
 static NSString *const kLMVPPanelKindKey = @"panelKind";
@@ -27,7 +28,7 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
 @property(nonatomic,strong) UILabel *panelSubtitle;
 @property(nonatomic,strong) UILabel *panelValue;
 @property(nonatomic,strong) UISwitch *panelSwitch;
-@property(nonatomic,strong) UISlider *panelSlider;
+@property(nonatomic,strong) LMVSliderControl *panelSlider;
 @property(nonatomic,strong) UILabel *panelChevron;
 @property(nonatomic) LMVPPanelControl panelControl;
 @end
@@ -107,7 +108,7 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     [_panelSwitch addTarget:self action:@selector(lmvp_switchChanged:) forControlEvents:UIControlEventValueChanged];
     [self.contentView addSubview:_panelSwitch];
 
-    _panelSlider = [UISlider new];
+    _panelSlider = [LMVSliderControl new];
     _panelSlider.hidden = YES;
     [_panelSlider addTarget:self action:@selector(lmvp_sliderChanged:) forControlEvents:UIControlEventValueChanged];
     [self.contentView addSubview:_panelSlider];

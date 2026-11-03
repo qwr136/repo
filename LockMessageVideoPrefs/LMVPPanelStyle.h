@@ -22,6 +22,10 @@ static const CGFloat LMVPPanelSubtitleHeight = 18.0;
 static const CGFloat LMVPSliderTrackTop = 58.0;
 static const CGFloat LMVPSliderTrackHeight = 31.0;
 
+// 5.30: 滑条换成细轨道 + 竖纹胶囊手柄，尺寸和技能模板保持一致。
+static const CGFloat LMVPSliderThumbWidth = 14.0;
+static const CGFloat LMVPSliderThumbHeight = 26.0;
+
 static inline UIFont *LMVPPanelTitleFont(void) {
     return [UIFont systemFontOfSize:17.0 weight:UIFontWeightRegular];
 }
@@ -31,5 +35,5 @@ static inline UIFont *LMVPPanelSubtitleFont(void) {
 }
 
 static inline UIFont *LMVPPanelValueFont(void) {
-    return [UIFont monospacedDigitSystemFontOfSize:15.0 weight:UIFontWeightRegular];
+    return [UIFont monospacedDigitSystemFontOfSize:17.0 weight:UIFontWeightRegular];
 }

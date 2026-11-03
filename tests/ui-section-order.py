@@ -174,7 +174,10 @@ class UISectionOrder(unittest.TestCase):
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
         # 4.3.9: channel display names changed (text only; layout and routing are
         # unchanged), so the frozen cell digest is refreshed for this rename.
-        self.assertEqual(digest(old_cells), '7a25af3add9a737634d31dfd5ae546116d17fab800098951aa78b4582693d709')
+        # 5.30: the volume and opacity sliders now use LMVSliderControl instead of
+        # UISlider. Only the class name on those two lines changed - every label,
+        # default value and routing branch still hashes to the same shape.
+        self.assertEqual(digest(old_cells), 'bfb080009387299e12e333c78d435a4d299a2ed632e67567397332324f35aaf8')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;

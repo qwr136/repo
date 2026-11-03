@@ -21,6 +21,7 @@ static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^b
 #import "LMVEasterMedia.h"
 #import "LMVEasterPhotoFlow.h"
 #import "LMVEasterImageSettings.h"
+#import "LMVSliderControl.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
 #import "LockMessageVideoPrefs/LMVChannels.h"
 #import "LMVTextColorPicker.h"
@@ -391,7 +392,7 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
             UISwitch *toggle = [UISwitch new]; toggle.tag = tag; toggle.on = LMVEasterAudioEnabled(audioTarget);
             [toggle addTarget:self action:@selector(soundChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            UISlider *slider = [UISlider new]; slider.tag = tag;
+            LMVSliderControl *slider = [LMVSliderControl new]; slider.tag = tag;
             slider.minimumValue = 0; slider.maximumValue = 1;
             slider.value = LMVEasterAudioVolume(LMVEasterRead([audioTarget stringByAppendingString:@"Volume"]));
             slider.enabled = LMVEasterAudioEnabled(audioTarget);
@@ -583,7 +584,7 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
             toggle.on = enabled ? [enabled boolValue] : YES;
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            UISlider *slider = [UISlider new]; slider.minimumValue = 0; slider.maximumValue = 1; slider.value = [self opacity];
+            LMVSliderControl *slider = [LMVSliderControl new]; slider.minimumValue = 0; slider.maximumValue = 1; slider.value = [self opacity];
             slider.accessibilityLabel = @"视频透明度";
             [slider addTarget:self action:@selector(opacityChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
             slider.translatesAutoresizingMaskIntoConstraints = NO; [cell.contentView addSubview:slider];
