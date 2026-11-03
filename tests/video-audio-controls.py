@@ -261,9 +261,15 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @interface LMVPRootListController : NSObject { NSMutableArray *_specifiers; }
 @property NSInteger reloads;
 - (id)enabled:(PSSpecifier *)s;
+// 5.28: -specifiers ends with the presentation pass, which only stamps cellClass,
+// panelKind and subtitle onto rows that already exist. The fixture compiles the
+// real -specifiers body, so the selector is declared and stubbed here - the
+// routing this test guards is unchanged.
+- (void)applyPanelAppearance;
 @end
 @implementation LMVPRootListController
 - (void)reloadSpecifier:(id)s animated:(BOOL)a {self.reloads++;}
+- (void)applyPanelAppearance {}
 - (void)switchTarget:(NSString *)t {}
 @BUTTONS@
 @PREFS_METHODS@
