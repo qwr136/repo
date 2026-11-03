@@ -189,6 +189,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @interface UIView : NSObject
 @property UIView *superview;
 @property NSArray *subviews;
+@property NSInteger tag;
 @end
 @implementation UIView @end
 @interface UILabel : UIView
@@ -198,6 +199,7 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @interface UITableViewCell : UIView
 @property UILabel *textLabel;
 @property UIView *contentView;
+@property UIView *accessoryView;
 @end
 @implementation UITableViewCell @end
 @interface UISwitch : NSObject
@@ -207,11 +209,18 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @implementation UISwitch @end
 @interface LMVStepperControl : UIView
 @property BOOL enabled;
-@property NSInteger tag;
 @property double value;
+@property double minimumValue;
+@property double maximumValue;
+@property double stepValue;
 @property(copy) NSString *accessibilityValue;
+- (void)addTarget:(id)target action:(SEL)action forControlEvents:(NSUInteger)events;
+- (void)sendActionsForControlEvents:(NSUInteger)events;
 @end
-@implementation LMVStepperControl @end
+@implementation LMVStepperControl
+- (void)addTarget:(id)target action:(SEL)action forControlEvents:(NSUInteger)events {}
+- (void)sendActionsForControlEvents:(NSUInteger)events {}
+@end
 @interface UITableView : NSObject
 @property NSInteger reloads;
 @property NSArray *visibleCells;
