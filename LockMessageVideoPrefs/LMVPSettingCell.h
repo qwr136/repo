@@ -31,4 +31,12 @@ typedef NS_ENUM(NSInteger, LMVPPanelControl) {
 // cannot run underneath it.
 - (CGFloat)lmvp_trailingReservedWidth;
 
+// PSSwitchTableCell and PSSliderTableCell both answer -value / -setValue: /
+// -control, and Preferences reaches for those three on rows of those types. This
+// class is a plain PSTableCell, so it has to answer them itself - an unguarded
+// send to a cell that does not implement one aborts the whole Preferences app.
+- (id)value;
+- (void)setValue:(id)value;
+- (UIControl *)control;
+
 @end

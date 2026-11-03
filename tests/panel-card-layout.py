@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""5.28: the settings list is a two-line card list.
+"""5.28/5.29: the settings list is a two-line card list.
 
 The redesign is presentation only, and this test pins that claim down:
 
-  * every row that is not a group gets a cell class, a control kind and (where
-    it makes sense) a subtitle - there is no row left on the stock 44pt cell;
+  * every row that is not a group gets a control kind and (where it makes
+    sense) a subtitle - there is no row left on the stock 44pt cell;
+  * the row is built by the controller's own data source, not by handing a
+    cellClass to PSListController: Preferences sends -setValue: / -control to
+    switch and slider rows, and an unguarded send to a plain PSTableCell
+    subclass aborts the Preferences process (5.28 crashed exactly there);
   * the row height is a pure function of the specifier, so the table cannot
     disagree with the cell about how tall a row is;
   * the controller still owns every write: the same setters and getters, the
@@ -50,8 +54,8 @@ check('[self applyPanelAppearance];' in controller, 'specifiers must run the pre
 apply_body = controller[controller.index('- (void)applyPanelAppearance {'):]
 apply_body = apply_body[:apply_body.index('\n}\n')]
 check('if (row.cellType == PSGroupCell) continue;' in apply_body, 'group cells must be skipped')
-check('[row setProperty:@"LMVPSettingCell" forKey:@"cellClass"];' in apply_body,
-      'every row must be handed to the card cell')
+check('forKey:@"cellClass"' not in apply_body,
+      'cellClass must stay out of the specifier - PSListController would then set the row up itself')
 check('forKey:@"panelKind"' in apply_body, 'every row must declare its control kind')
 check('forKey:@"subtitle"' in apply_body, 'rows must carry the subtitle the layout reserves space for')
 
@@ -93,6 +97,20 @@ check('performSetterWithValue:' in cell_m, 'the switch and slider must write thr
 check('performGetter' in cell_m, 'the switch and slider must read the stored value')
 check('lmvp_applyEnabled' in cell_m, 'an enabled=NO row must grey out its control')
 
+# 6b) 5.29: the cell answers what Preferences sends at a switch/slider row, and
+# the controller builds those rows itself. Both halves are required: with either
+# one missing the page crashes on open instead of rendering.
+for selector in ('- (id)value {', '- (void)setValue:(id)value {', '- (UIControl *)control {'):
+    check(selector in cell_m, 'the card cell must implement ' + selector.strip())
+for fragment in ('tableView:(UITableView *)tableView cellForRowAtIndexPath:',
+                 '[cell setSpecifier:row];', '[cell setValue:[row performGetter]];',
+                 'cell.type = row.cellType;'):
+    check(fragment in controller, 'the data source must build the card row: ' + fragment)
+check('dequeueReusableCellWithIdentifier:kLMVPPanelCellIdentifier' in controller,
+      'card rows must be dequeued, not allocated per scroll')
+check('return [super tableView:tableView cellForRowAtIndexPath:indexPath];' in controller,
+      'rows that are not card rows must fall through to Preferences')
+
 # 7) the colour row keeps its swatch column, the callout row keeps its name
 check('lmvp_trailingReservedWidth' in cell_h, 'the cell must report its reserved column')
 check('LMVPPanelColorWidth' in cell_m and 'textWidth = 82.0' in cell_m,
@@ -114,4 +132,4 @@ if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 5.28 - every row is a card row, heights are a pure function, routing and keys unchanged')
+print('PASS: 5.29 - card rows built by the data source, cell answers value/setValue/control, routing and keys unchanged')

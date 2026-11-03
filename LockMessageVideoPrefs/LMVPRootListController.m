@@ -21,6 +21,9 @@
 #import "../LMVTextColorPicker.h"
 #define LMVDirectory LMVUserStorageRoot()
 static CFStringRef const kLMVPrefsID = CFSTR("com.minis.lockmessagevideo");
+// 5.29: the reuse identifier for the rows this controller builds itself, see
+// -tableView:cellForRowAtIndexPath:.
+static NSString *const kLMVPPanelCellIdentifier = @"LMVPPanelCell";
 // 4.0.7: the five fixed sections are a projection of the channel table; the
 // previous LMVTargets() name meant "three cards" in the tweak and "five sections"
 // here, which invited the wrong list being edited.
@@ -502,10 +505,41 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         NSString *kind = [self panelControlKindForSpecifier:row];
         if (!kind) continue;
         [row setProperty:kind forKey:@"panelKind"];
-        [row setProperty:@"LMVPSettingCell" forKey:@"cellClass"];
         NSString *subtitle = [self panelSubtitleForSpecifier:row];
         if (subtitle.length) [row setProperty:subtitle forKey:@"subtitle"];
     }
+}
+// 5.29: the rows are built here rather than through the specifier's cellClass
+// key. With cellClass set, PSListController still ran its own cell setup for the
+// stock type (it sends -setValue: / -control to switch and slider rows) against a
+// class that is a plain PSTableCell, and that unguarded send killed the
+// Preferences process as soon as the page opened. Building the row in the data
+// source keeps Preferences out of the path entirely: the specifier still carries
+// the same key, target, setter and getter, this only decides which view draws it.
+- (BOOL)lmvp_usesPanelCell:(PSSpecifier *)row {
+    if (!row) return NO;
+    if (row.cellType == PSGroupCell) return NO;
+    return [row propertyForKey:@"panelKind"] != nil;
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    PSSpecifier *row = [self specifierAtIndexPath:indexPath];
+    if ([self lmvp_usesPanelCell:row]) {
+        LMVPSettingCell *cell = (LMVPSettingCell *)[tableView dequeueReusableCellWithIdentifier:kLMVPPanelCellIdentifier];
+        if (![cell isKindOfClass:LMVPSettingCell.class]) {
+            cell = [[LMVPSettingCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                          reuseIdentifier:kLMVPPanelCellIdentifier
+                                                specifier:row];
+        }
+        cell.type = row.cellType;
+        [cell setSpecifier:row];
+        // Only switch and slider rows carry a value; asking the rest for one
+        // would call a NULL getter on a button specifier.
+        if (row.cellType == PSSwitchCell || row.cellType == PSSliderCell) {
+            [cell setValue:[row performGetter]];
+        }
+        return cell;
+    }
+    return [super tableView:tableView cellForRowAtIndexPath:indexPath];
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *row = [self specifierAtIndexPath:indexPath];

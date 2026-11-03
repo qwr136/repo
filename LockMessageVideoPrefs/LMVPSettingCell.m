@@ -193,10 +193,44 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     else self.panelValue.text = [NSString stringWithFormat:@"%.2f", self.panelSlider.value];
 }
 
+// Preferences drives switch and slider rows through these three methods: it sets
+// the value when the row scrolls in and reads the control back when the row is
+// reloaded. PSSwitchTableCell and PSSliderTableCell implement them; a custom
+// PSTableCell subclass does not inherit them, and the send is not guarded by
+// -respondsToSelector:, so a missing one aborts the Preferences process before
+// the row ever appears. They only move the drawn control - every write still
+// goes through the specifier's setter.
+- (UIControl *)control {
+    if (self.panelControl == LMVPPanelControlSwitch) return self.panelSwitch;
+    if (self.panelControl == LMVPPanelControlSlider) return self.panelSlider;
+    return nil;
+}
+
+- (id)value {
+    if (self.panelControl == LMVPPanelControlSwitch) return @(self.panelSwitch.isOn);
+    if (self.panelControl == LMVPPanelControlSlider) return @(self.panelSlider.value);
+    return nil;
+}
+
+- (void)setValue:(id)value {
+    if (self.panelControl == LMVPPanelControlSwitch) {
+        if (![value respondsToSelector:@selector(boolValue)]) value = [self.specifier propertyForKey:@"default"];
+        self.panelSwitch.on = [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : NO;
+        return;
+    }
+    if (self.panelControl == LMVPPanelControlSlider) {
+        double number = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue]
+                                                                         : self.panelSlider.minimumValue;
+        if (!isfinite(number)) number = self.panelSlider.minimumValue;
+        self.panelSlider.value = (float)MAX(self.panelSlider.minimumValue,
+                                            MIN(self.panelSlider.maximumValue, number));
+        [self lmvp_refreshValueText];
+    }
+}
+
 - (void)lmvp_switchChanged:(UISwitch *)sender {
     LMVPPanelWriteValue(self.specifier, @(sender.isOn));
 }
-
 - (void)lmvp_sliderChanged:(UISlider *)sender {
     LMVPPanelWriteValue(self.specifier, @(sender.value));
     [self lmvp_refreshValueText];
