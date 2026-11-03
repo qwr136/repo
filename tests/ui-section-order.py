@@ -438,6 +438,14 @@ class UISectionOrder(unittest.TestCase):
         # 4.3.6: -openEaster: now delegates to -presentDisplaySettings so the gallery
         # can ask the pane to present the same page without a second header include.
         # Behaviour is unchanged; only the entry point moved.
+        # 5.28: the settings list switched to a two-line card cell. The presentation
+        # pass (-applyPanelAppearance: cellClass / panelKind / subtitle), the row
+        # height function and the header font hook are new code and touch no
+        # handler, so they are stripped here; the frozen digest keeps guarding the
+        # routing that predates the redesign.
+        style_start = old_handlers.index('// 5.28: the settings list is a card list now')
+        style_end = old_handlers.index('- (void)paintMaterialName:', style_start)
+        old_handlers = old_handlers[:style_start] + old_handlers[style_end:]
         self.assertEqual(digest(old_handlers), '5c178495950542402f58ced1293bfd0698cfcaaf70ea16cba33d7ebed9312e22')
         # 4.2.0: the six per-channel wrappers are one shared method that reads the
         # target from the row id, so there is no per-channel handler to assert any more.

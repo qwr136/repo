@@ -14,6 +14,7 @@
 #import "LMVTuneController.h"
 #import "LMVTuneListController.h"
 #import "LMVGalleryController.h"
+#import "LMVPSettingCell.h"
 #import "../LMVPanelTuning.h"
 #import "../LMVEasterImageSettings.h"
 #import "../LMVPaths.h"
@@ -359,6 +360,10 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
             [row removePropertyForKey:key];
         NSAssert(row.buttonAction && [self respondsToSelector:row.buttonAction], @"Invalid settings button: %@", row.name);
     }
+    // 5.28: presentation only. Every row above keeps its name, key, target,
+    // setter and getter exactly as before; this pass adds the cell class, the
+    // subtitle and the control kind the new row layout needs.
+    [self applyPanelAppearance];
     return _specifiers;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -447,6 +452,71 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         return @{@"key": row[@"key"], @"dot": @(base), @"value": @(base + 1)};
     }
     return nil;
+}
+// 5.28: the settings list is a card list now - two-line rows, 66pt tall, the
+// control on the right. The rows themselves are untouched: this pass only
+// stamps three presentation properties onto specifiers that already exist.
+// Keeping it out of -specifiers means the row order, the row count and every
+// routing assertion in tests/ui-section-order.py still describe the same list.
+- (NSString *)panelControlKindForSpecifier:(PSSpecifier *)row {
+    if (row.cellType == PSSwitchCell) return @"switch";
+    if (row.cellType == PSSliderCell) return @"slider";
+    if (row.cellType != PSButtonCell) return nil;
+    NSString *identifier = [row propertyForKey:@"id"];
+    if ([identifier isKindOfClass:NSString.class]) {
+        for (NSDictionary *colourRow in LMVTextColorRows())
+            if ([colourRow[@"id"] isEqual:identifier]) return @"color";
+    }
+    return @"link";
+}
+- (NSString *)panelSubtitleForSpecifier:(PSSpecifier *)row {
+    NSString *key = [row propertyForKey:@"key"];
+    NSString *identifier = [row propertyForKey:@"id"];
+    if (row.cellType == PSSwitchCell) {
+        if ([key isEqualToString:@"GlobalEnabled"]) return @"关闭后所有通道与悬浮球立即停止";
+        if ([key hasSuffix:@"BackgroundEnabled"]) return @"开启后使用所选素材";
+        if ([key hasSuffix:@"SoundEnabled"]) return @"播放视频自带的音轨";
+        if ([key isEqualToString:@"VideoOpacityEnabled"]) return @"关闭后视频按原样显示";
+        if ([key isEqualToString:@"EasterEggEnabled"]) return @"锁屏上的悬浮小彩蛋";
+        if ([key isEqualToString:@"DiagnosticsEnabled"]) return @"写入 shared-render.log，仅供排查";
+        return nil;
+    }
+    if (row.cellType == PSSliderCell) {
+        if ([key isEqualToString:@"VideoOpacity"]) return @"拖动调整视频不透明度";
+        return @"拖动调整音量，松手保存";
+    }
+    if (identifier.length) {
+        if ([identifier hasSuffix:@"Material"]) return @"点击选择要使用的视频";
+        if ([identifier isEqualToString:@"TuneList"]) return @"检测频率 / 出现延迟 / 钩子节流";
+        if ([identifier isEqualToString:@"EasterEggImageSettings"]) return @"显示场景与图片旋转";
+        if ([identifier isEqualToString:@"ImportVideo"]) return @"支持 MOV、MP4、M4V，单个不超过 512 MiB";
+        if ([identifier isEqualToString:@"VideoOpacitySlider"]) return nil;
+    }
+    if ([row.name isEqualToString:@"打开素材路径"]) return @"在文件 App 中查看已导入的视频";
+    if ([row.name isEqualToString:@"文字颜色"]) return @"调整文字颜色";
+    return nil;
+}
+- (void)applyPanelAppearance {
+    for (PSSpecifier *row in _specifiers) {
+        if (row.cellType == PSGroupCell) continue;
+        NSString *kind = [self panelControlKindForSpecifier:row];
+        if (!kind) continue;
+        [row setProperty:kind forKey:@"panelKind"];
+        [row setProperty:@"LMVPSettingCell" forKey:@"cellClass"];
+        NSString *subtitle = [self panelSubtitleForSpecifier:row];
+        if (subtitle.length) [row setProperty:subtitle forKey:@"subtitle"];
+    }
+}
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    PSSpecifier *row = [self specifierAtIndexPath:indexPath];
+    if (!row) return UITableViewAutomaticDimension;
+    return [LMVPSettingCell lmvp_heightForSpecifier:row];
+}
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
+    if (![view isKindOfClass:UITableViewHeaderFooterView.class]) return;
+    UITableViewHeaderFooterView *header = (UITableViewHeaderFooterView *)view;
+    header.textLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
+    header.textLabel.textColor = UIColor.secondaryLabelColor;
 }
 - (void)paintMaterialName:(NSString *)materialID inCell:(UITableViewCell *)cell {
     // 2.42: the material rows are all called 切换素材 now; the chosen file is shown
