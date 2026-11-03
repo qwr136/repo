@@ -8,7 +8,7 @@ assert 'index.section != LMVEasterImageSection() || index.row != 1' in ui
 assert 'LMVEasterReplaceImage(url, expectedOld, current, &error)' in ui
 assert 'dispatch_async(LMVMaterialQueue()' in ui and 'generation != page.previewGeneration' in ui
 assert 'previewVisible' in ui and 'previewCellVisible' in ui and 'stopPreview' in ui
-assert 'slider.maximumValue = 720' in ui and 'MIN(720.0, round(raw))' in ui
+assert 'stepper.maximumValue = 720' in ui and 'MIN(720.0, round(raw))' in ui
 code=m[m.index('static void LMVEasterDeleteReplacedImage'):m.index('static NSString *LMVEasterImportWithPublication')]
 assert code.index('BOOL persisted')<code.index('LMVEasterDeleteReplacedImage(old, relative)')
 assert 'AT_SYMLINK_NOFOLLOW' in code and 'O_NOFOLLOW' in code

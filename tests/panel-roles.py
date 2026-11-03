@@ -25,12 +25,12 @@ assert 'loadPreview' not in image and 'UIImage *preview' not in image
 # them on one utility queue with an NSCache, remembers failures and only
 # touches visible rows, so a large library never blocks scrolling.
 assert 'picker.showsThumbnails = YES' in video
-assert 'slider.minimumValue = 12; slider.maximumValue = 128' in image
+assert 'stepper.minimumValue = 12; stepper.maximumValue = 128' in image
 assert 'constraintEqualToConstant:LMVEasterSize()' in image and 'previewSizeConstraints' in image
 assert 'if (self.close) self.close();' in image
 assert 'self.navigationController.viewControllers.count > 1' in image and 'popViewControllerAnimated:YES' in image
 assert 'else [self dismissViewControllerAnimated:YES completion:nil];' in image
-assert 'VideoOpacityEnabled' in video and 'slider.minimumValue = 0; slider.maximumValue = 1' in video
+assert 'VideoOpacityEnabled' in video and 'stepper.minimumValue = 0; stepper.maximumValue = 100' in video
 channels = (Path(__file__).resolve().parents[1] / 'LockMessageVideoPrefs/LMVChannels.h').read_text()
 targets = re.findall(r'@"id": @"([^"]+)".*?@"section": @YES', channels)
 assert targets == ['Message', 'Options', 'Clear', 'LockScreen', 'Desktop']

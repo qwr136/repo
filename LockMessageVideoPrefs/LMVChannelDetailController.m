@@ -4,6 +4,8 @@
 #import "LMVImport.h"
 #import "LMVMaterialPickerAPI.h"
 #import "../LMVTextColorPicker.h"
+#import "../LMVStepperControl.h"
+#import "LMVPPanelStyle.h"
 
 #define LMVGalleryVersion LMV_VERSION_STRING
 
@@ -457,32 +459,31 @@ static UIColor *LMVGAccent(void) {
     [row.heightAnchor constraintEqualToConstant:52].active = YES;
     [self.panel addArrangedSubview:row];
 
+    // 5.31: the channel volume is a -/+ stepper, same control as the settings
+    // page. The value rides in the label, so the row keeps its 48pt height.
     UIView *volumeRow = [UIView new];
     volumeRow.translatesAutoresizingMaskIntoConstraints = NO;
-    UILabel *volumeLabel = LMVGLabel(@"音量", LMVGFont(13, UIFontWeightMedium), UIColor.labelColor);
-    UISlider *slider = [UISlider new];
-    slider.translatesAutoresizingMaskIntoConstraints = NO;
-    slider.minimumValue = 0;
-    slider.maximumValue = 100;
-    slider.value = LMVGPrefDouble(volumeKey, 0.5) * 100.0;
-    slider.minimumTrackTintColor = LMVGAccent();
-    slider.tag = 3002;
-    [slider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
-    UILabel *value = LMVGLabel([NSString stringWithFormat:@"%.0f", slider.value], LMVGFont(11, UIFontWeightRegular), UIColor.secondaryLabelColor);
-    value.tag = 3003;
-    value.textAlignment = NSTextAlignmentRight;
+    double volumePercent = LMVGPrefDouble(volumeKey, 0.5) * 100.0;
+    UILabel *volumeLabel = LMVGLabel([NSString stringWithFormat:@"音量 (%.0f%%)", volumePercent],
+                                     LMVGFont(13, UIFontWeightMedium), UIColor.labelColor);
+    volumeLabel.tag = 3003;
+    LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:CGRectZero];
+    stepper.translatesAutoresizingMaskIntoConstraints = NO;
+    stepper.minimumValue = 0;
+    stepper.maximumValue = 100;
+    stepper.stepValue = 1;
+    stepper.value = volumePercent;
+    stepper.tag = 3002;
+    [stepper addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
     [volumeRow addSubview:volumeLabel];
-    [volumeRow addSubview:slider];
-    [volumeRow addSubview:value];
+    [volumeRow addSubview:stepper];
     [volumeLabel.leadingAnchor constraintEqualToAnchor:volumeRow.leadingAnchor].active = YES;
     [volumeLabel.centerYAnchor constraintEqualToAnchor:volumeRow.centerYAnchor].active = YES;
-    [volumeLabel.widthAnchor constraintEqualToConstant:44].active = YES;
-    [slider.leadingAnchor constraintEqualToAnchor:volumeLabel.trailingAnchor constant:6].active = YES;
-    [slider.centerYAnchor constraintEqualToAnchor:volumeRow.centerYAnchor].active = YES;
-    [value.leadingAnchor constraintEqualToAnchor:slider.trailingAnchor constant:6].active = YES;
-    [value.trailingAnchor constraintEqualToAnchor:volumeRow.trailingAnchor].active = YES;
-    [value.centerYAnchor constraintEqualToAnchor:volumeRow.centerYAnchor].active = YES;
-    [value.widthAnchor constraintEqualToConstant:30].active = YES;
+    [volumeLabel.trailingAnchor constraintLessThanOrEqualToAnchor:stepper.leadingAnchor constant:-8].active = YES;
+    [stepper.trailingAnchor constraintEqualToAnchor:volumeRow.trailingAnchor].active = YES;
+    [stepper.centerYAnchor constraintEqualToAnchor:volumeRow.centerYAnchor].active = YES;
+    [stepper.widthAnchor constraintEqualToConstant:LMVPStepperWidth].active = YES;
+    [stepper.heightAnchor constraintEqualToConstant:LMVPStepperHeight].active = YES;
     [volumeRow.heightAnchor constraintEqualToConstant:48].active = YES;
     [self.panel addArrangedSubview:volumeRow];
 
@@ -561,13 +562,13 @@ static UIColor *LMVGAccent(void) {
     LMVGNotifyChannel(self.channelID);
 }
 
-- (void)volumeChanged:(UISlider *)slider {
+- (void)volumeChanged:(LMVStepperControl *)stepper {
     NSString *key = [self.channelID stringByAppendingString:@"Volume"];
-    double value = MAX(0.0, MIN(1.0, slider.value / 100.0));
+    double value = MAX(0.0, MIN(1.0, stepper.value / 100.0));
     LMVGPrefSet(key, @(value));
     LMVGNotifyChannel(self.channelID);
     UILabel *label = (UILabel *)[self.panel viewWithTag:3003];
-    label.text = [NSString stringWithFormat:@"%.0f", slider.value];
+    label.text = [NSString stringWithFormat:@"音量 (%.0f%%)", stepper.value];
 }
 
 - (void)materialTapped:(UIControl *)control {

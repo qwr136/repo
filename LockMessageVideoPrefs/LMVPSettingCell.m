@@ -4,7 +4,7 @@
 #import <objc/message.h>
 
 #import "LMVPPanelStyle.h"
-#import "../LMVSliderControl.h"
+#import "../LMVStepperControl.h"
 
 static NSString *const kLMVPPanelSubtitleKey = @"subtitle";
 static NSString *const kLMVPPanelKindKey = @"panelKind";
@@ -26,9 +26,8 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
 @interface LMVPSettingCell ()
 @property(nonatomic,strong) UILabel *panelTitle;
 @property(nonatomic,strong) UILabel *panelSubtitle;
-@property(nonatomic,strong) UILabel *panelValue;
 @property(nonatomic,strong) UISwitch *panelSwitch;
-@property(nonatomic,strong) LMVSliderControl *panelSlider;
+@property(nonatomic,strong) LMVStepperControl *panelStepper;
 @property(nonatomic,strong) UILabel *panelChevron;
 @property(nonatomic) LMVPPanelControl panelControl;
 @end
@@ -41,13 +40,13 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
         if ([kind isEqualToString:@"switch"]) return LMVPPanelControlSwitch;
         if ([kind isEqualToString:@"link"]) return LMVPPanelControlLink;
         if ([kind isEqualToString:@"color"]) return LMVPPanelControlColor;
-        if ([kind isEqualToString:@"slider"]) return LMVPPanelControlSlider;
+        if ([kind isEqualToString:@"stepper"]) return LMVPPanelControlStepper;
         return LMVPPanelControlNone;
     }
     // Fallback for rows that were never annotated: the stock cell type still
     // says what the row does, so the layout stays correct either way.
     if (specifier.cellType == PSSwitchCell) return LMVPPanelControlSwitch;
-    if (specifier.cellType == PSSliderCell) return LMVPPanelControlSlider;
+    if (specifier.cellType == PSSliderCell) return LMVPPanelControlStepper;
     if (specifier.cellType == PSButtonCell) return LMVPPanelControlLink;
     return LMVPPanelControlNone;
 }
@@ -56,10 +55,9 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     LMVPPanelControl control = [self lmvp_controlForSpecifier:specifier];
     id subtitle = [specifier propertyForKey:kLMVPPanelSubtitleKey];
     BOOL tall = [subtitle isKindOfClass:NSString.class] && [subtitle length] > 0;
-    // A slider always sits at y=58 with a 31pt control, so its row needs the
-    // 96pt height whether or not it carries a subtitle; 88 would clip the thumb
-    // by one point at the bottom edge.
-    if (control == LMVPPanelControlSlider) return LMVPPanelSliderTallRowHeight;
+    // 5.31: the stepper sits on the title line, so a numeric row is exactly as
+    // tall as any other row - no separate 88/96 case any more.
+    (void)control;
     return tall ? LMVPPanelTallRowHeight : LMVPPanelRowHeight;
 }
 
@@ -96,22 +94,15 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     _panelSubtitle.lineBreakMode = NSLineBreakByTruncatingTail;
     [self.contentView addSubview:_panelSubtitle];
 
-    _panelValue = [UILabel new];
-    _panelValue.font = LMVPPanelValueFont();
-    _panelValue.textColor = UIColor.secondaryLabelColor;
-    _panelValue.textAlignment = NSTextAlignmentRight;
-    _panelValue.hidden = YES;
-    [self.contentView addSubview:_panelValue];
-
     _panelSwitch = [UISwitch new];
     _panelSwitch.hidden = YES;
     [_panelSwitch addTarget:self action:@selector(lmvp_switchChanged:) forControlEvents:UIControlEventValueChanged];
     [self.contentView addSubview:_panelSwitch];
 
-    _panelSlider = [LMVSliderControl new];
-    _panelSlider.hidden = YES;
-    [_panelSlider addTarget:self action:@selector(lmvp_sliderChanged:) forControlEvents:UIControlEventValueChanged];
-    [self.contentView addSubview:_panelSlider];
+    _panelStepper = [LMVStepperControl new];
+    _panelStepper.hidden = YES;
+    [_panelStepper addTarget:self action:@selector(lmvp_stepperChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.contentView addSubview:_panelStepper];
 
     _panelChevron = [UILabel new];
     _panelChevron.text = @"\u203A";
@@ -143,26 +134,22 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     self.panelSubtitle.hidden = (self.panelSubtitle.text.length == 0);
 
     self.panelSwitch.hidden = (self.panelControl != LMVPPanelControlSwitch);
-    self.panelSlider.hidden = (self.panelControl != LMVPPanelControlSlider);
+    self.panelStepper.hidden = (self.panelControl != LMVPPanelControlStepper);
     // A material row carries its value as an accessory view (painted by the
     // controller); the row already shows the name, so the chevron stays out.
     self.panelChevron.hidden = (self.panelControl != LMVPPanelControlLink) || (self.accessoryView != nil);
-    self.panelValue.hidden = (self.panelControl != LMVPPanelControlSlider);
 
     if (self.panelControl == LMVPPanelControlSwitch) {
         id value = LMVPPanelReadValue(specifier);
         if (![value respondsToSelector:@selector(boolValue)]) value = [specifier propertyForKey:@"default"];
         self.panelSwitch.on = [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : NO;
-    } else if (self.panelControl == LMVPPanelControlSlider) {
-        NSNumber *low = [specifier propertyForKey:@"min"];
-        NSNumber *high = [specifier propertyForKey:@"max"];
-        self.panelSlider.minimumValue = low ? low.floatValue : 0.0;
-        self.panelSlider.maximumValue = high ? high.floatValue : 1.0;
+    } else if (self.panelControl == LMVPPanelControlStepper) {
+        [self lmvp_configureStepper];
         id value = LMVPPanelReadValue(specifier);
         double number = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue]
-                                                                          : self.panelSlider.minimumValue;
-        if (!isfinite(number)) number = self.panelSlider.minimumValue;
-        self.panelSlider.value = (float)MAX(self.panelSlider.minimumValue, MIN(self.panelSlider.maximumValue, number));
+                                                                          : self.panelStepper.minimumValue;
+        if (!isfinite(number)) number = self.panelStepper.minimumValue;
+        self.panelStepper.value = number;
         [self lmvp_refreshValueText];
     }
 
@@ -176,22 +163,55 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     NSNumber *enabled = [self.specifier propertyForKey:@"enabled"];
     BOOL on = enabled ? enabled.boolValue : YES;
     self.panelSwitch.enabled = on;
-    self.panelSlider.enabled = on;
+    self.panelStepper.enabled = on;
     self.panelChevron.alpha = on ? 1.0 : 0.4;
     CGFloat alpha = on ? 1.0 : 0.45;
     self.panelTitle.alpha = alpha;
     self.panelSubtitle.alpha = alpha;
-    self.panelValue.alpha = alpha;
     self.userInteractionEnabled = on;
 }
 
-- (void)lmvp_refreshValueText {
+- (void)lmvp_configureStepper {
+    PSSpecifier *specifier = self.specifier;
+    NSNumber *low = [specifier propertyForKey:@"min"];
+    NSNumber *high = [specifier propertyForKey:@"max"];
+    double minimum = low ? low.doubleValue : 0.0;
+    double maximum = high ? high.doubleValue : 1.0;
+    if (!isfinite(minimum)) minimum = 0.0;
+    if (!isfinite(maximum) || maximum <= minimum) maximum = minimum + 1.0;
+    // The step is a presentation decision, not a stored one: a 0-100 volume
+    // moves a point at a time, a 0-1 ratio (opacity) moves a percent.
+    NSNumber *step = [specifier propertyForKey:@"step"];
+    double stride = step ? step.doubleValue : (maximum <= 1.0 + DBL_EPSILON ? 0.01 : 1.0);
+    if (!isfinite(stride) || stride <= 0.0) stride = 1.0;
+    self.panelStepper.minimumValue = minimum;
+    self.panelStepper.maximumValue = maximum;
+    self.panelStepper.stepValue = stride;
+}
+
+// Percent rows ("声音音量（%）" 0-100) read as integers; the 0-1 rows are ratios
+// and read as percentages too, which is how the panel has always described
+// opacity. Anything else keeps one decimal.
+- (NSString *)lmvp_valueTextForNumber:(double)value {
     NSNumber *high = [self.specifier propertyForKey:@"max"];
     double upper = high ? high.doubleValue : 1.0;
-    // Percent rows ("声音音量（%）" 0-100) read as integers; the 0-1 rows keep two
-    // decimals, which is what the tweak stores.
-    if (upper >= 10.0) self.panelValue.text = [NSString stringWithFormat:@"%.0f%%", self.panelSlider.value];
-    else self.panelValue.text = [NSString stringWithFormat:@"%.2f", self.panelSlider.value];
+    if (upper <= 1.0 + DBL_EPSILON) return [NSString stringWithFormat:@"%.0f%%", value * 100.0];
+    if (upper >= 10.0) return [NSString stringWithFormat:@"%.0f%%", value];
+    return [NSString stringWithFormat:@"%.1f", value];
+}
+
+// The value lives in the title, matching the card style the panel uses
+// elsewhere: "显示大小 (28 pt)". A trailing unit already baked into the
+// specifier name is dropped so the row never reads "音量（%）(50%)".
+- (void)lmvp_refreshValueText {
+    if (self.panelControl != LMVPPanelControlStepper) return;
+    NSString *name = self.specifier.name ?: @"";
+    for (NSString *suffix in @[@"（%）", @"(%)", @"（%)", @"(%）"]) {
+        if ([name hasSuffix:suffix]) { name = [name substringToIndex:name.length - suffix.length]; break; }
+    }
+    NSString *value = [self lmvp_valueTextForNumber:self.panelStepper.value];
+    self.panelTitle.text = [NSString stringWithFormat:@"%@ (%@)", name, value];
+    self.panelStepper.accessibilityValue = value;
 }
 
 // Preferences drives switch and slider rows through these three methods: it sets
@@ -203,13 +223,13 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
 // goes through the specifier's setter.
 - (UIControl *)control {
     if (self.panelControl == LMVPPanelControlSwitch) return self.panelSwitch;
-    if (self.panelControl == LMVPPanelControlSlider) return self.panelSlider;
+    if (self.panelControl == LMVPPanelControlStepper) return self.panelStepper;
     return nil;
 }
 
 - (id)value {
     if (self.panelControl == LMVPPanelControlSwitch) return @(self.panelSwitch.isOn);
-    if (self.panelControl == LMVPPanelControlSlider) return @(self.panelSlider.value);
+    if (self.panelControl == LMVPPanelControlStepper) return @(self.panelStepper.value);
     return nil;
 }
 
@@ -219,12 +239,11 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
         self.panelSwitch.on = [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : NO;
         return;
     }
-    if (self.panelControl == LMVPPanelControlSlider) {
+    if (self.panelControl == LMVPPanelControlStepper) {
         double number = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue]
-                                                                         : self.panelSlider.minimumValue;
-        if (!isfinite(number)) number = self.panelSlider.minimumValue;
-        self.panelSlider.value = (float)MAX(self.panelSlider.minimumValue,
-                                            MIN(self.panelSlider.maximumValue, number));
+                                                                         : self.panelStepper.minimumValue;
+        if (!isfinite(number)) number = self.panelStepper.minimumValue;
+        self.panelStepper.value = number;
         [self lmvp_refreshValueText];
     }
 }
@@ -232,9 +251,9 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
 - (void)lmvp_switchChanged:(UISwitch *)sender {
     LMVPPanelWriteValue(self.specifier, @(sender.isOn));
 }
-- (void)lmvp_sliderChanged:(UISlider *)sender {
-    LMVPPanelWriteValue(self.specifier, @(sender.value));
+- (void)lmvp_stepperChanged:(LMVStepperControl *)sender {
     [self lmvp_refreshValueText];
+    LMVPPanelWriteValue(self.specifier, @(sender.value));
 }
 
 - (CGFloat)lmvp_trailingReservedWidth {
@@ -242,6 +261,7 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
         case LMVPPanelControlSwitch: return LMVPPanelSwitchWidth;
         case LMVPPanelControlLink: return LMVPPanelChevronWidth;
         case LMVPPanelControlColor: return LMVPPanelColorWidth;
+        case LMVPPanelControlStepper: return LMVPStepperWidth;
         default: return 0.0;
     }
 }
@@ -288,10 +308,10 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
                                                  (height - 22.0) / 2.0,
                                                  LMVPPanelChevronWidth, 22.0);
             break;
-        case LMVPPanelControlSlider:
-            self.panelValue.frame = CGRectMake(width - side - 64.0, LMVPPanelTitleTop, 64.0, LMVPPanelTitleHeight);
-            self.panelSlider.frame = CGRectMake(side, LMVPSliderTrackTop,
-                                                MAX(0.0, width - side * 2.0), LMVPSliderTrackHeight);
+        case LMVPPanelControlStepper:
+            self.panelStepper.frame = CGRectMake(width - side - LMVPStepperWidth,
+                                                 (height - LMVPStepperHeight) / 2.0,
+                                                 LMVPStepperWidth, LMVPStepperHeight);
             break;
         default:
             break;
@@ -303,7 +323,6 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     // The controller paints the swatch and the material name per row; a recycled
     // cell must not carry either into an unrelated row.
     self.accessoryView = nil;
-    self.panelValue.text = nil;
 }
 
 @end

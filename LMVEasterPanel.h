@@ -21,7 +21,8 @@ static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^b
 #import "LMVEasterMedia.h"
 #import "LMVEasterPhotoFlow.h"
 #import "LMVEasterImageSettings.h"
-#import "LMVSliderControl.h"
+#import "LMVStepperControl.h"
+#import "LockMessageVideoPrefs/LMVPPanelStyle.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
 #import "LockMessageVideoPrefs/LMVChannels.h"
 #import "LMVTextColorPicker.h"
@@ -335,7 +336,17 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     if (section == LMVEasterCopyLogXSection()) return 4;
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index { return index.row > 0 ? 60 : 44; }
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {
+    // 5.31: the egg panel now uses the same two-line row grid as the settings
+    // page: 66 with a subtitle line, 52 without.
+    return index.row > 0 ? LMVPPanelTallRowHeight : LMVPPanelRowHeight;
+}
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
+    if (![view isKindOfClass:UITableViewHeaderFooterView.class]) return;
+    UITableViewHeaderFooterView *header = (UITableViewHeaderFooterView *)view;
+    header.textLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
+    header.textLabel.textColor = UIColor.secondaryLabelColor;
+}
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section < LMVEasterTargets().count) return LMVEasterTitles()[section];
     if (section == LMVEasterControlCenterSection()) return @"控制中心背景";
@@ -375,6 +386,12 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     // download icon onto every later row (sound switches, material rows) - a visible bug.
     cell.imageView.image=nil;
     cell.textLabel.numberOfLines=1; cell.detailTextLabel.numberOfLines=1;
+    // 5.31: 17pt title over a 13pt grey subtitle, split 16pt in - the same type
+    // and separator grid the settings page uses.
+    cell.textLabel.font=LMVPPanelTitleFont();
+    cell.detailTextLabel.font=LMVPPanelSubtitleFont();
+    cell.detailTextLabel.textColor=UIColor.secondaryLabelColor;
+    cell.separatorInset=UIEdgeInsetsMake(0, LMVPPanelSideInset, 0, 0);
     cell.selectionStyle=UITableViewCellSelectionStyleDefault;
     cell.userInteractionEnabled=YES;
     // Copy: removeFromSuperview mutates the array being enumerated.
@@ -392,20 +409,22 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
             UISwitch *toggle = [UISwitch new]; toggle.tag = tag; toggle.on = LMVEasterAudioEnabled(audioTarget);
             [toggle addTarget:self action:@selector(soundChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            LMVSliderControl *slider = [LMVSliderControl new]; slider.tag = tag;
-            slider.minimumValue = 0; slider.maximumValue = 1;
-            slider.value = LMVEasterAudioVolume(LMVEasterRead([audioTarget stringByAppendingString:@"Volume"]));
-            slider.enabled = LMVEasterAudioEnabled(audioTarget);
-            slider.accessibilityLabel = @"声音音量";
-            slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", slider.value * 100.0];
-            cell.textLabel.text = [@"音量 " stringByAppendingString:slider.accessibilityValue];
-            [slider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-            slider.translatesAutoresizingMaskIntoConstraints = NO; [cell.contentView addSubview:slider];
-            [NSLayoutConstraint activateConstraints:@[
-                [slider.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:120],
-                [slider.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
-                [slider.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor]
-            ]];
+            // 5.31: the volume row is a -/+ stepper. The value is part of the
+            // title ("音量 (50%)"), so the row reads the same as the settings
+            // page instead of carrying a bare slider track.
+            double volume = LMVEasterAudioVolume(LMVEasterRead([audioTarget stringByAppendingString:@"Volume"]));
+            LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:
+                CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
+            stepper.tag = tag;
+            stepper.minimumValue = 0; stepper.maximumValue = 100; stepper.stepValue = 1;
+            stepper.value = volume * 100.0;
+            stepper.enabled = LMVEasterAudioEnabled(audioTarget);
+            stepper.accessibilityLabel = @"声音音量";
+            stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
+            cell.textLabel.text = [NSString stringWithFormat:@"音量 (%@)", stepper.accessibilityValue];
+            cell.detailTextLabel.text = @"点按加减，按住连续调整";
+            [stepper addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = stepper;
         }
         return cell;
     }
@@ -584,15 +603,17 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
             toggle.on = enabled ? [enabled boolValue] : YES;
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            LMVSliderControl *slider = [LMVSliderControl new]; slider.minimumValue = 0; slider.maximumValue = 1; slider.value = [self opacity];
-            slider.accessibilityLabel = @"视频透明度";
-            [slider addTarget:self action:@selector(opacityChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-            slider.translatesAutoresizingMaskIntoConstraints = NO; [cell.contentView addSubview:slider];
-            [NSLayoutConstraint activateConstraints:@[
-                [slider.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
-                [slider.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
-                [slider.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor]
-            ]];
+            double opacity = [self opacity];
+            LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:
+                CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
+            stepper.minimumValue = 0; stepper.maximumValue = 100; stepper.stepValue = 1;
+            stepper.value = opacity * 100.0;
+            stepper.accessibilityLabel = @"视频透明度";
+            stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", opacity * 100.0];
+            cell.textLabel.text = [NSString stringWithFormat:@"视频透明度 (%@)", stepper.accessibilityValue];
+            cell.detailTextLabel.text = @"0 为全透明，100% 保持原样";
+            [stepper addTarget:self action:@selector(opacityChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = stepper;
         }
         return cell;
     }
@@ -639,42 +660,46 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     // volume slider, so touch just that slider in the visible cells.
     NSInteger tag = toggle.tag;
     for (UITableViewCell *cell in self.tableView.visibleCells) {
-        for (UIView *view in cell.contentView.subviews) {
-            if (![view isKindOfClass:UISlider.class]) continue;
-            UISlider *slider = (UISlider *)view;
-            if (slider.tag == tag) slider.enabled = toggle.on;
-        }
+        UIView *accessory = cell.accessoryView;
+        if ([accessory isKindOfClass:LMVStepperControl.class] && accessory.tag == tag)
+            ((LMVStepperControl *)accessory).enabled = toggle.on;
     }
 }
-- (void)volumeChanged:(UISlider *)slider {
-    NSString *target = LMVEasterAudioTargetForTag(slider.tag);
+- (void)volumeChanged:(LMVStepperControl *)stepper {
+    NSString *target = LMVEasterAudioTargetForTag(stepper.tag);
     if (!target) return;
-    double volume = LMVEasterAudioVolume(@(slider.value));
-    self.volumeTracking = slider.isTracking;
-    // 5.1.7: the WRITE is cheap and always happens, so the stored value follows the
-    // thumb exactly. The ANNOUNCEMENT is what costs - it used to be the global name,
-    // i.e. a thirteen-channel refresh per frame. One scoped announcement per 100 ms
-    // still tracks the thumb, and the release always flushes.
+    double volume = LMVEasterAudioVolume(@(stepper.value / 100.0));
+    // 5.1.7: the WRITE is cheap and always happens. The ANNOUNCEMENT is what
+    // costs - it used to be the global name, i.e. a thirteen-channel refresh per
+    // frame. One scoped announcement per 100 ms is plenty for a held button too.
     LMVEasterSetLocal([target stringByAppendingString:@"Volume"], @(volume));
     CFTimeInterval volumeNow = NSDate.date.timeIntervalSince1970;
-    if (!slider.isTracking || volumeNow - LMVEasterLastVolumeNotify >= 0.1) {
+    if (volumeNow - LMVEasterLastVolumeNotify >= 0.1) {
         LMVEasterLastVolumeNotify = volumeNow;
         LMVEasterNotifyTarget(target);
     }
-    slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
-    for (UIView *view = slider.superview; view; view = view.superview) {
+    stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
+    for (UIView *view = stepper.superview; view; view = view.superview) {
         if ([view isKindOfClass:UITableViewCell.class]) {
-            ((UITableViewCell *)view).textLabel.text = [@"音量 " stringByAppendingString:slider.accessibilityValue]; break;
+            ((UITableViewCell *)view).textLabel.text =
+                [NSString stringWithFormat:@"音量 (%@)", stepper.accessibilityValue];
+            break;
         }
     }
-    // 5.1.8: the label and the accessibility value are already updated above; a full
-    // reloadData on every release rebuilt the whole panel for nothing.
-    if (!slider.isTracking) self.volumeTracking = NO;
 }
-- (void)opacityChanged:(UISlider *)slider {
-    self.opacityTracking = slider.isTracking;
-    LMVEasterSet(@"VideoOpacity", @(MAX(0, MIN(1, slider.value))));
-    if (!slider.isTracking) { self.opacityTracking = NO; [self.tableView reloadData]; }
+- (void)opacityChanged:(LMVStepperControl *)stepper {
+    double opacity = MAX(0, MIN(1, stepper.value / 100.0));
+    LMVEasterSet(@"VideoOpacity", @(opacity));
+    // 5.31: no reload - the row repaints its own title, and reloading here would
+    // rebuild eighteen sections under the finger that is still holding the button.
+    stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", opacity * 100.0];
+    for (UIView *view = stepper.superview; view; view = view.superview) {
+        if ([view isKindOfClass:UITableViewCell.class]) {
+            ((UITableViewCell *)view).textLabel.text =
+                [NSString stringWithFormat:@"视频透明度 (%@)", stepper.accessibilityValue];
+            break;
+        }
+    }
 }
 // 1.63: 鱿鱼四个手势面板共用一个视频素材，已删除「重置面板识别」与「对调上滑/上上滑素材」。
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {

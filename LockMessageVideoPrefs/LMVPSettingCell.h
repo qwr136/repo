@@ -8,21 +8,24 @@
 // so the page was a single-line list of 44pt rows with the control jammed on the
 // right. Every row now goes through this one class: a 17pt title, a 13pt grey
 // subtitle underneath, and the control (switch / chevron / colour swatch /
-// slider) laid out on the same vertical grid. Row behaviour is unchanged - the
+// stepper) laid out on the same vertical grid. Row behaviour is unchanged - the
 // specifier still carries the same key, target, setter and getter, and the
 // controller still owns every write.
+// 5.31: the numeric control is a -/+ stepper, not a slider. The value rides in
+// the title ("显示大小 (28 pt)"), so the row stays one line tall.
 typedef NS_ENUM(NSInteger, LMVPPanelControl) {
     LMVPPanelControlNone = 0,
     LMVPPanelControlSwitch,
     LMVPPanelControlLink,
     LMVPPanelControlColor,
-    LMVPPanelControlSlider,
+    LMVPPanelControlStepper,
 };
 
 @interface LMVPSettingCell : PSTableCell
 
-// Height is a pure function of the specifier: subtitle present -> 66, slider
-// rows 88/96, everything else 52. No runtime guesswork in -layoutSubviews.
+// Height is a pure function of the specifier: subtitle present -> 66,
+// everything else 52. The stepper sits on the title line, so it never grows the
+// row. No runtime guesswork in -layoutSubviews.
 + (CGFloat)lmvp_heightForSpecifier:(PSSpecifier *)specifier;
 + (LMVPPanelControl)lmvp_controlForSpecifier:(PSSpecifier *)specifier;
 

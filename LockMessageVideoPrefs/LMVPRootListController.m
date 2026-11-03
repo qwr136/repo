@@ -463,7 +463,7 @@ static NSString *LMVTextColorSummary(UIColor *color) {
 // routing assertion in tests/ui-section-order.py still describe the same list.
 - (NSString *)panelControlKindForSpecifier:(PSSpecifier *)row {
     if (row.cellType == PSSwitchCell) return @"switch";
-    if (row.cellType == PSSliderCell) return @"slider";
+    if (row.cellType == PSSliderCell) return @"stepper";
     if (row.cellType != PSButtonCell) return nil;
     NSString *identifier = [row propertyForKey:@"id"];
     if ([identifier isKindOfClass:NSString.class]) {
@@ -485,8 +485,10 @@ static NSString *LMVTextColorSummary(UIColor *color) {
         return nil;
     }
     if (row.cellType == PSSliderCell) {
-        if ([key isEqualToString:@"VideoOpacity"]) return @"拖动调整视频不透明度";
-        return @"拖动调整音量，松手保存";
+        // 5.31: the control is a -/+ stepper now, so the hint no longer talks
+        // about dragging. The value rides in the title.
+        if ([key isEqualToString:@"VideoOpacity"]) return @"0 为全透明，100% 保持原样";
+        return @"点按加减，按住连续调整";
     }
     if (identifier.length) {
         if ([identifier hasSuffix:@"Material"]) return @"点击选择要使用的视频";

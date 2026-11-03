@@ -133,7 +133,7 @@ assert '在锁屏显示小彩蛋' not in image
 assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
 assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
 assert 'index.section != LMVEasterImageSection() || index.row != 1' in image
-assert 'slider.minimumValue = 12; slider.maximumValue = 128' in image
+assert 'stepper.minimumValue = 12; stepper.maximumValue = 128' in image
 # 0.0.117: the live preview is drawn at the real bubble size and both of its
 # size constraints are updated by the slider.
 assert 'previewWidth' in image and 'previewHeight' in image
@@ -150,7 +150,7 @@ assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return
 assert 'return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;' in image
 assert 'toggle.on = LMVEasterImageBool(key, LMVEasterImageDisplayDefaults()[index.row].boolValue);' in image
 assert 'LMVEasterImageBool(@"EasterEggRotationEnabled", NO)' in image
-assert 'slider.minimumValue = 5; slider.maximumValue = 720; slider.value = LMVEasterImageRotationSpeed();' in image
+assert 'stepper.minimumValue = 5; stepper.maximumValue = 720; stepper.stepValue = 5;' in image
 assert '[value isKindOfClass:NSNumber.class] ? [value doubleValue] : 45.0' in image
 assert 'isfinite(speed) ? MAX(5.0, MIN(720.0, speed)) : 45.0' in image
 assert 'CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(720.0, round(raw))) : 45.0;' in image
@@ -160,7 +160,7 @@ assert 'CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFProperty
 assert 'CFSTR("com.minis.lockmessagevideo")' in media and 'preferencesChanged' in media
 assert 'CFNotificationCenterPostNotification' in media and 'LMVEasterNotify();' in media
 assert 'toggle.tag < 0 || toggle.tag >= LMVEasterImageDisplayKeys().count' in image
-assert 'slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);' in image
+assert 'stepper.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);' in image
 assert 'HomeMenuVideo' in panel and 'HomeMenuBackgroundEnabled' in prefs + panel
 assert 'SquidPanelVideo' in panel and 'SquidPanelBackgroundEnabled' in prefs + panel
 assert 'ATVideo' in panel and 'ATBackgroundEnabled' in prefs + panel

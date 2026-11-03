@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""5.28/5.29: the settings list is a two-line card list.
+"""5.28/5.29/5.31: the settings list is a two-line card list.
 
 The redesign is presentation only, and this test pins that claim down:
 
@@ -45,8 +45,10 @@ check('lmvp_heightForSpecifier:' in cell_h, 'row height must be published as a p
 # 2) height is a function of the specifier alone - no cell instance, no table
 height_body = cell_m[cell_m.index('+ (CGFloat)lmvp_heightForSpecifier:'):]
 height_body = height_body[:height_body.index('\n}')]
-check('LMVPPanelSliderTallRowHeight' in height_body and 'LMVPPanelTallRowHeight' in height_body,
-      'height must switch between the tall and slider constants')
+check('LMVPPanelTallRowHeight' in height_body and 'LMVPPanelRowHeight' in height_body,
+      'height must switch between the tall and the plain row constant')
+check('LMVPPanelSliderTallRowHeight' not in height_body,
+      'a stepper row is the same height as any other row')
 check('self.' not in height_body.replace('+ (CGFloat)', ''), 'height must not read an instance')
 
 # 3) the presentation pass covers every row and stamps all three properties
@@ -91,10 +93,11 @@ for key in ('@"GlobalEnabled"', '"BackgroundEnabled"', '"Volume"', '"VideoOpacit
 check('row.cellType == PSButtonCell' in controller, 'button rows must still route through cellType')
 
 # 6) the cell builds the controls and writes through the specifier
-for control in ('UISwitch', 'UISlider'):
+for control in ('UISwitch', 'LMVStepperControl'):
     check(control in cell_m, control + ' missing from the card cell')
-check('performSetterWithValue:' in cell_m, 'the switch and slider must write through the specifier')
-check('performGetter' in cell_m, 'the switch and slider must read the stored value')
+check('UISlider' not in cell_m, 'the numeric row must be a stepper, not a slider')
+check('performSetterWithValue:' in cell_m, 'the switch and stepper must write through the specifier')
+check('performGetter' in cell_m, 'the switch and stepper must read the stored value')
 check('lmvp_applyEnabled' in cell_m, 'an enabled=NO row must grey out its control')
 
 # 6b) 5.29: the cell answers what Preferences sends at a switch/slider row, and
@@ -120,16 +123,15 @@ check('(self.accessoryView != nil)' in cell_m,
 
 # 8) geometry lives in one header
 for constant in ('LMVPPanelTallRowHeight', 'LMVPPanelRowHeight',
-                 'LMVPPanelSliderRowHeight', 'LMVPPanelSliderTallRowHeight'):
+                 'LMVPStepperWidth', 'LMVPStepperHeight'):
     check(constant in style, 'geometry constant missing: ' + constant)
-check(re.search(r'LMVPPanelTallRowHeight = 66',
-
-                style) is not None, 'tall rows are 66pt')
-check(re.search(r'LMVPPanelSliderTallRowHeight = 96', style) is not None,
-      'slider rows with a subtitle are 96pt')
+check(re.search(r'LMVPPanelTallRowHeight = 66', style) is not None, 'tall rows are 66pt')
+check(re.search(r'LMVPStepperWidth = 132', style) is not None, 'the stepper column is 132pt')
+check(re.search(r'LMVPStepperHeight = 32', style) is not None, 'the stepper is 32pt tall')
+check('LMVPPanelSliderTallRowHeight' not in style, 'the slider row heights must be gone')
 
 if failures:
     for failure in failures:
         print('FAIL: ' + failure)
     raise SystemExit(1)
-print('PASS: 5.29 - card rows built by the data source, cell answers value/setValue/control, routing and keys unchanged')
+print('PASS: 5.31 - card rows built by the data source, cell answers value/setValue/control, numeric rows are steppers')

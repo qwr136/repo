@@ -54,8 +54,8 @@ assert '[value isKindOfClass:NSNumber.class] ? [value boolValue] : NO' in helper
 cells = body(panel, '- (UITableViewCell *)tableView:')
 assert cells.index('LMVEasterAudioTarget(index.section, index.row)') < cells.index('LMVEasterHomeMenuSection()')
 for exact in ('[LMVEasterAudioTargets() indexOfObject:audioTarget]', '@selector(soundChanged:)', '@selector(volumeChanged:)',
-              'slider.enabled = LMVEasterAudioEnabled(audioTarget);', 'slider.maximumValue = 1;',
-              'slider.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", slider.value * 100.0];'):
+              'stepper.enabled = LMVEasterAudioEnabled(audioTarget);', 'stepper.maximumValue = 100;',
+              'stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];'):
     assert exact in cells, exact
 sound = body(panel, '- (void)soundChanged:')
 volume_change = body(panel, '- (void)volumeChanged:')
@@ -66,8 +66,8 @@ for method, suffix in ((sound, 'SoundEnabled'), (volume_change, 'Volume')):
     assert (method.count('LMVEasterSet(') + method.count('LMVEasterSetTarget(')
             + method.count('LMVEasterSetLocal(')) == 1
     assert f'[target stringByAppendingString:@"{suffix}"]' in method
-assert 'LMVEasterAudioVolume(@(slider.value))' in volume_change
-assert 'self.volumeTracking = slider.isTracking;' in volume_change
+assert 'LMVEasterAudioVolume(@(stepper.value / 100.0))' in volume_change
+assert 'slider.isTracking' not in volume_change, 'a stepper has no drag state to track'
 assert '!panel.opacityTracking && !panel.volumeTracking' in panel
 selection = body(panel, '- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:')
 # 1.83: the CopyVault colour branch presents a UIKit picker; the fixture links
@@ -132,7 +132,7 @@ for method in (getter, setter):
     assert '[specifier propertyForKey:@"key"]' in method and 'VideoOpacity' not in method
 assert 'return @(volume * 100.0);' in getter and '[value doubleValue] / 100.0' in setter
 assert setter.count('CFPreferencesSetAppValue(') == 1 and 'LMVNotifyFor(LMVTargetForPrefKey(' in setter
-print('PASS: actual source nine-target-plus-AT audio mapping, isolated keys/defaults, percent conversion, finite clamp, CC material rows 1/4, disabled sliders and per-channel notification on write')
+print('PASS: actual source nine-target-plus-AT audio mapping, isolated keys/defaults, percent conversion, finite clamp, CC material rows 1/4, disabled steppers and per-channel notification on write')
 
 if platform.system() == 'Darwin':
     # Use the exact production helpers, row builder and handlers below, not a copied model.
@@ -205,14 +205,13 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 @property BOOL on;
 @end
 @implementation UISwitch @end
-@interface UISlider : UIView
+@interface LMVStepperControl : UIView
 @property BOOL enabled;
 @property NSInteger tag;
-@property float value;
-@property(getter=isTracking) BOOL tracking;
+@property double value;
 @property(copy) NSString *accessibilityValue;
 @end
-@implementation UISlider @end
+@implementation LMVStepperControl @end
 @interface UITableView : NSObject
 @property NSInteger reloads;
 @property NSArray *visibleCells;
@@ -343,17 +342,17 @@ int main(void) { @autoreleasepool {
  }
  assert(switches==16&&sliders==16);
  LMVEasterPanel *p=[LMVEasterPanel new];p.tableView=[UITableView new];p.navigationController=[Navigation new];
- UISwitch *toggle=[UISwitch new];UISlider *slider=[UISlider new];
+ UISwitch *toggle=[UISwitch new];LMVStepperControl *stepper=[LMVStepperControl new];
  for(NSInteger tag=0;tag<14;tag++) {
   NSString *target=targets[tag];toggle.tag=tag;toggle.on=YES;
   NSInteger before=writes;[p soundChanged:toggle];
   assert(writes==before+1&&[lastKey isEqual:[target stringByAppendingString:@"SoundEnabled"]]);
-  slider.tag=tag;slider.value=0.75;slider.tracking=YES;[p volumeChanged:slider];
-  assert(p.volumeTracking&&[lastKey isEqual:[target stringByAppendingString:@"Volume"]]);
-  assert([store[lastKey] doubleValue]==0.75&&[slider.accessibilityValue isEqual:@"75%"]);
-  slider.tracking=NO;slider.value=NAN;[p volumeChanged:slider];assert(!p.volumeTracking&&[store[lastKey] doubleValue]==0.5);
+  stepper.tag=tag;stepper.value=75;[p volumeChanged:stepper];
+  assert([lastKey isEqual:[target stringByAppendingString:@"Volume"]]);
+  assert([store[lastKey] doubleValue]==0.75&&[stepper.accessibilityValue isEqual:@"75%"]);
+  stepper.value=NAN;[p volumeChanged:stepper];assert([store[lastKey] doubleValue]==0.5);
  }
- for(NSNumber *tag in @[@(-1),@16,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;slider.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:slider];assert(writes==before);}
+ for(NSNumber *tag in @[@(-1),@16,@99]) {NSInteger before=writes;toggle.tag=tag.integerValue;stepper.tag=tag.integerValue;[p soundChanged:toggle];[p volumeChanged:stepper];assert(writes==before);}
  for(NSInteger section=0;section<18;section++)for(NSInteger row=0;row<10;row++) {
   NSInteger before=p.navigationController.pushes,imports=p.imports;
   NSString *expected=nil;

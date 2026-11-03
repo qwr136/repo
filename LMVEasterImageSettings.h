@@ -1,5 +1,6 @@
 #pragma once
-#import "LMVSliderControl.h"
+#import "LMVStepperControl.h"
+#import "LockMessageVideoPrefs/LMVPPanelStyle.h"
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
 // 0.0.122: shared corner-radius / panel-size rules (also used by the overlay).
@@ -141,9 +142,10 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     return section == LMVEasterImagePanelSection() ? @"拖动悬浮窗顶部标题栏即可移动窗口；窗口始终被限制在屏幕内。关闭「自定义悬浮窗大小」时按屏幕自动计算。" : nil;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {
-    if (index.section == LMVEasterImageSection()) return index.row == 0 ? 184 : (index.row == 2 ? 80 : 44);
-    if (index.section == LMVEasterImagePanelSection()) return (index.row % 2) ? 80 : 44;
-    return index.section == LMVEasterImageRotationSection() && index.row == 1 ? 80 : 44;
+    // 5.31: every row is the two-line card grid now - a stepper rides the title
+    // line instead of needing an 80pt track row underneath it.
+    if (index.section == LMVEasterImageSection() && index.row == 0) return 184;
+    return LMVPPanelTallRowHeight;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
@@ -174,28 +176,31 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             // 1.84.1: row 1 is the CORNER slider. It used to set the height label,
             // percentage and accessibility text before the branch checked which
             // row it was, so the row under "悬浮窗圆角" read "悬浮窗高度 71%".
-            LMVSliderControl *slider = [[LMVSliderControl alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
-            slider.tag = index.row;
+            LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:
+                CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
+            stepper.tag = index.row;
             if (index.row == 1) {
                 CGFloat corner = LMVEasterPanelCornerValue(LMVEasterRead(@"EasterPanelCorner"));
-                cell.textLabel.text = @"窗口圆角";
-                cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", corner];
-                slider.minimumValue = LMVEasterPanelCornerMin; slider.maximumValue = LMVEasterPanelCornerMax;
-                slider.value = corner;
-                slider.enabled = cornerOn; slider.accessibilityLabel = @"窗口圆角";
-                [slider addTarget:self action:@selector(panelCornerChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+                cell.textLabel.text = [NSString stringWithFormat:@"窗口圆角 (%.0f pt)", corner];
+                cell.detailTextLabel.text = @"调整悬浮窗四角弧度";
+                stepper.minimumValue = LMVEasterPanelCornerMin; stepper.maximumValue = LMVEasterPanelCornerMax;
+                stepper.stepValue = 1.0;
+                stepper.value = corner;
+                stepper.enabled = cornerOn; stepper.accessibilityLabel = @"窗口圆角";
+                [stepper addTarget:self action:@selector(panelCornerChanged:) forControlEvents:UIControlEventValueChanged];
             } else {
                 BOOL width = index.row == 3;
                 NSString *key = width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale";
                 CGFloat scale = LMVEasterPanelScaleValue(LMVEasterRead(key));
-                cell.textLabel.text = width ? @"悬浮窗宽度" : @"悬浮窗高度";
-                cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
-                slider.minimumValue = LMVEasterPanelScaleMin; slider.maximumValue = LMVEasterPanelScaleMax;
-                slider.value = scale;
-                slider.enabled = sizeOn; slider.accessibilityLabel = width ? @"悬浮窗宽度" : @"悬浮窗高度";
-                [slider addTarget:self action:@selector(panelScaleChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+                cell.textLabel.text = [NSString stringWithFormat:@"%@ (%.0f%%)", width ? @"悬浮窗宽度" : @"悬浮窗高度", scale * 100.0];
+                cell.detailTextLabel.text = @"按屏幕对应边长计算";
+                stepper.minimumValue = LMVEasterPanelScaleMin; stepper.maximumValue = LMVEasterPanelScaleMax;
+                stepper.stepValue = 0.01;
+                stepper.value = scale;
+                stepper.enabled = sizeOn; stepper.accessibilityLabel = width ? @"悬浮窗宽度" : @"悬浮窗高度";
+                [stepper addTarget:self action:@selector(panelScaleChanged:) forControlEvents:UIControlEventValueChanged];
             }
-            cell.accessoryView = slider;
+            cell.accessoryView = stepper;
         }
         return cell;
     }
@@ -207,11 +212,16 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             toggle.accessibilityLabel = cell.textLabel.text;
             [toggle addTarget:self action:@selector(rotationChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"旋转速度"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f 度/秒", LMVEasterImageRotationSpeed()];
-            LMVSliderControl *slider = [[LMVSliderControl alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
-            slider.minimumValue = 5; slider.maximumValue = 720; slider.value = LMVEasterImageRotationSpeed();
-            slider.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO); slider.accessibilityLabel = @"彩蛋图片旋转速度（度/秒）";
-            [slider addTarget:self action:@selector(rotationSpeedChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
+            cell.textLabel.text = [NSString stringWithFormat:@"旋转速度 (%.0f 度/秒)", LMVEasterImageRotationSpeed()];
+            cell.detailTextLabel.text = @"调整旋转速度";
+            LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:
+                CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
+            stepper.minimumValue = 5; stepper.maximumValue = 720; stepper.stepValue = 5;
+            stepper.value = LMVEasterImageRotationSpeed();
+            stepper.enabled = LMVEasterImageBool(@"EasterEggRotationEnabled", NO);
+            stepper.accessibilityLabel = @"彩蛋图片旋转速度（度/秒）";
+            [stepper addTarget:self action:@selector(rotationSpeedChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = stepper;
         }
         return cell;
     }
@@ -244,10 +254,15 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     if (index.row == 1) {
         cell.textLabel.text = self.busy ? @"正在保存…" : @"从相册导入图片 / GIF"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.userInteractionEnabled = !self.busy;
     } else {
-        cell.textLabel.text = @"悬浮图标大小"; cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", LMVEasterSize()]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        LMVSliderControl *slider = [[LMVSliderControl alloc] initWithFrame:CGRectMake(0, 0, 140, 32)];
-        slider.minimumValue = 12; slider.maximumValue = 128; slider.value = LMVEasterSize(); slider.accessibilityLabel = @"悬浮图标大小";
-        [slider addTarget:self action:@selector(sizeChanged:) forControlEvents:UIControlEventValueChanged | UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel]; cell.accessoryView = slider;
+        cell.textLabel.text = [NSString stringWithFormat:@"显示大小 (%.0f pt)", LMVEasterSize()];
+        cell.detailTextLabel.text = @"调整显示尺寸";
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:
+            CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
+        stepper.minimumValue = 12; stepper.maximumValue = 128; stepper.stepValue = 2;
+        stepper.value = LMVEasterSize(); stepper.accessibilityLabel = @"悬浮图标大小";
+        [stepper addTarget:self action:@selector(sizeChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = stepper;
     }
     return cell;
 }
@@ -264,24 +279,20 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 - (void)rotationChanged:(UISwitch *)toggle {
     LMVEasterSet(@"EasterEggRotationEnabled", @(toggle.on)); [self.tableView reloadData];
 }
-- (void)rotationSpeedChanged:(UISlider *)slider {
-    self.settingsTracking = slider.isTracking;
-    double raw = slider.value;
+- (void)rotationSpeedChanged:(LMVStepperControl *)stepper {
+    double raw = stepper.value;
     CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(720.0, round(raw))) : 45.0;
     LMVEasterSet(@"EasterEggRotationSpeed", @(speed));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImageRotationSection()]];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f 度/秒", speed];
-    if (!slider.isTracking) [self.tableView reloadData];
+    cell.textLabel.text = [NSString stringWithFormat:@"旋转速度 (%.0f 度/秒)", speed];
 }
-- (void)sizeChanged:(UISlider *)slider {
-    self.settingsTracking = slider.isTracking;
-    CGFloat size = MAX(12, MIN(128, round(slider.value))); LMVEasterSet(@"EasterEggSize", @(size));
+- (void)sizeChanged:(LMVStepperControl *)stepper {
+    CGFloat size = MAX(12, MIN(128, round(stepper.value))); LMVEasterSet(@"EasterEggSize", @(size));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:2 inSection:LMVEasterImageSection()]];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", size];
-    // 0.0.117: resize the live preview with the slider, without rebuilding the cell
-    // (a reload mid-drag would drop the slider's tracking state).
+    cell.textLabel.text = [NSString stringWithFormat:@"显示大小 (%.0f pt)", size];
+    // 0.0.117: resize the live preview with the control, without rebuilding the
+    // cell. 5.31: a stepper has no drag state, so no reload is needed at all.
     for (NSLayoutConstraint *constraint in self.previewSizeConstraints) constraint.constant = size;
-    if (!self.settingsTracking) [self.tableView reloadData];
 }
 // 0.0.122: floating-panel appearance. Values are clamped by the shared rules, and
 // every change notifies SpringBoard, which re-lays the open panel immediately.
@@ -291,25 +302,22 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 - (void)panelSizeToggled:(UISwitch *)toggle {
     LMVEasterSet(@"EasterPanelSizeEnabled", @(toggle.on)); [self.tableView reloadData];
 }
-- (void)panelCornerChanged:(UISlider *)slider {
-    self.settingsTracking = slider.isTracking;
-    CGFloat corner = LMVEasterPanelCornerValue(@(slider.value)); LMVEasterSet(@"EasterPanelCorner", @(corner));
+- (void)panelCornerChanged:(LMVStepperControl *)stepper {
+    CGFloat corner = LMVEasterPanelCornerValue(@(stepper.value));
+    LMVEasterSet(@"EasterPanelCorner", @(corner));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImagePanelSection()]];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f pt", corner];
-    if (!slider.isTracking) [self.tableView reloadData];
+    cell.textLabel.text = [NSString stringWithFormat:@"窗口圆角 (%.0f pt)", corner];
 }
-- (void)panelScaleChanged:(UISlider *)slider {
-    self.settingsTracking = slider.isTracking;
-    BOOL width = slider.tag == 3;
-    CGFloat scale = LMVEasterPanelScaleValue(@(slider.value));
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:slider.tag inSection:LMVEasterImagePanelSection()]];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%.0f%%", scale * 100.0];
-    // 1.84: dragging must only move the number. Writing the preference on every
-    // value change resized the floating panel mid-drag, which is what made the
-    // slider feel like it was fighting the window. Commit on release only.
-    if (slider.isTracking) return;
+- (void)panelScaleChanged:(LMVStepperControl *)stepper {
+    BOOL width = stepper.tag == 3;
+    CGFloat scale = LMVEasterPanelScaleValue(@(stepper.value));
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:stepper.tag inSection:LMVEasterImagePanelSection()]];
+    NSString *name = width ? @"悬浮窗宽度" : @"悬浮窗高度";
+    cell.textLabel.text = [NSString stringWithFormat:@"%@ (%.0f%%)", name, scale * 100.0];
+    // 1.84: a drag must not resize the floating panel mid-gesture. A stepper has
+    // no in-flight gesture - one press is one committed value - so it writes
+    // straight away and the open window re-lays itself once per tap.
     LMVEasterSet(width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale", @(scale));
-    [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {
     [tableView deselectRowAtIndexPath:index animated:YES]; if (index.section != LMVEasterImageSection() || index.row != 1 || self.busy || self.presentedViewController) return;
