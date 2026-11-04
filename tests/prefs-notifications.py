@@ -17,6 +17,7 @@ import re
 root = Path(__file__).resolve().parents[1]
 tweak = (root / 'Tweak.xm').read_text()
 page = (root / 'LockMessageVideoPrefs/LMVPRootListController.m').read_text()
+gallery = (root / 'LockMessageVideoPrefs/LMVGalleryController.m').read_text()
 
 failures = []
 
@@ -50,6 +51,17 @@ for target in sorted(targets):
 # Unknown names must not be dropped on the floor.
 check('else { LMVRefresh(NO); return; }' in tweak,
       'an unregistered channel name must fall back to the full refresh')
+
+# 5.34: the three "switch it off" entrances must also post a state-free silence
+# notification. The settings master switch, a channel background switch, a sound
+# switch and the gallery master switch all leaked ~1s because the regular
+# notification makes the tweak read the switch back across processes.
+check('@"com.minis.lockmessagevideo/silence"' in tweak,
+      'the tweak does not handle the state-free silence notification')
+check('LMVAudioPauseAll();' in tweak, 'the silence notification does not pause everything')
+check('LMVPostSilence(nil);' in page, 'the settings master switch does not post silence')
+check('LMVPostSilence(target);' in page, 'a channel background/sound switch does not post silence')
+check('LMVGSilence(nil);' in gallery, 'the gallery master switch does not post silence')
 
 if failures:
     for failure in failures:

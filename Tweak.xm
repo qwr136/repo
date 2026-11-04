@@ -1955,11 +1955,34 @@ static void LMVSyncDisplayLink(void) {
     }
 }
 @end
+static NSString *const LMVSilenceNotification = @"com.minis.lockmessagevideo/silence";
+static NSString *const LMVSilencePrefix = @"com.minis.lockmessagevideo/silence.";
 static void LMVDarwinNotification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     // 3.05: a suffixed name means "only this channel changed". The unsuffixed one is a
     // genuinely global write and still refreshes everything. videoChanged has no
     // channel in its name (it is the shared import path) and keeps the full refresh.
     NSString *note=name ? (__bridge NSString *)name : @"";
+    // 5.34: the three "switch it off" entrances (desktop background, the settings
+    // master switch, the gallery's master switch) each leaked about a second of
+    // sound. preferencesChanged has to read the switch back ACROSS PROCESSES, and
+    // cfprefsd can still be handing SpringBoard the old "still on" value when the
+    // callback runs - so the pause was skipped and the sound only stopped on the
+    // next 0.25 s audio beat (a second, once the queue is busy). This notification
+    // carries no state and reads nothing: it is posted only when something is being
+    // turned OFF, and it silences unconditionally.
+    if ([note isEqualToString:LMVSilenceNotification]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (LMVInitialized) LMVAudioPauseAll();
+        });
+        return;
+    }
+    if ([note hasPrefix:LMVSilencePrefix]) {
+        NSString *silentTarget=[note substringFromIndex:LMVSilencePrefix.length];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (LMVInitialized && silentTarget.length) LMVAudioPauseTarget(silentTarget);
+        });
+        return;
+    }
     NSString *channelPrefix=@"com.minis.lockmessagevideo/preferencesChanged.";
     NSString *changedTarget=[note hasPrefix:channelPrefix] ? [note substringFromIndex:channelPrefix.length] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -2253,12 +2276,15 @@ static BOOL LMVSettingsAppProcess(void) {
         // playing and nothing rebind until a respring.
         NSMutableArray<NSString *> *notes=[NSMutableArray arrayWithObject:@"com.minis.lockmessagevideo/videoChanged"];
         [notes addObject:@"com.minis.lockmessagevideo/preferencesChanged"];
+        // 5.34: the unconditional "stop the sound now" names (see the handler).
+        [notes addObject:LMVSilenceNotification];
         // 4.0.7: user channels come from the table; only the four alias names that
         // are not channels (LockNC, CC, Bubble, Cards) stay explicit.
         NSMutableArray<NSString *> *channels=[NSMutableArray arrayWithArray:LMVChannelIDs()];
         [channels addObjectsFromArray:@[@"LockNC",@"CC",@"Bubble",@"Cards"]];
         for (NSString *channel in channels) {
             [notes addObject:[NSString stringWithFormat:@"com.minis.lockmessagevideo/preferencesChanged.%@",channel]];
+            [notes addObject:[NSString stringWithFormat:@"%@%@",LMVSilencePrefix,channel]];
         }
         for (NSString *name in notes) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LMVDarwinNotification, (__bridge CFStringRef)name, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);

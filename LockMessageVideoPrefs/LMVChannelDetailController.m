@@ -552,6 +552,15 @@ static UIColor *LMVGAccent(void) {
     // so the toggle did nothing on that page.
     NSString *key = LMVGEnableKey(self.channelID);
     LMVGPrefSet(key, @(toggle.on));
+    // 5.34: switching this background off has to cut its audio in the same turn;
+    // the state-carrying notification alone left about a second of sound.
+    if (!toggle.on) {
+        if ([self.channelID hasPrefix:@"ControlCenter"]) {
+            LMVGSilence(@"ControlCenterDark"); LMVGSilence(@"ControlCenterLight");
+        } else {
+            LMVGSilence(self.channelID);
+        }
+    }
     LMVGNotifyChannel(self.channelID);
     [self refresh];
 }
@@ -559,6 +568,13 @@ static UIColor *LMVGAccent(void) {
 - (void)soundToggled:(UISwitch *)toggle {
     NSString *key = [self.channelID stringByAppendingString:@"SoundEnabled"];
     LMVGPrefSet(key, @(toggle.on));
+    if (!toggle.on) {
+        if ([self.channelID hasPrefix:@"ControlCenter"]) {
+            LMVGSilence(@"ControlCenterDark"); LMVGSilence(@"ControlCenterLight");
+        } else {
+            LMVGSilence(self.channelID);
+        }
+    }
     LMVGNotifyChannel(self.channelID);
 }
 

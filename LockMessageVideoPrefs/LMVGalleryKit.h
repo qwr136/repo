@@ -45,6 +45,16 @@ static inline void LMVGNotifyChannel(NSString *target) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
                                          (__bridge CFStringRef)name, NULL, NULL, YES);
 }
+// 5.34: state-free "stop the sound now" for the gallery's own switches. The
+// preferencesChanged path reads the switch back across processes, which can still
+// see the old value and let ~1s of audio through when something is turned off.
+static inline void LMVGSilence(NSString *target) {
+    NSString *name = target.length
+        ? [NSString stringWithFormat:@"com.minis.lockmessagevideo/silence.%@", target]
+        : @"com.minis.lockmessagevideo/silence";
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         (__bridge CFStringRef)name, NULL, NULL, YES);
+}
 
 static inline NSDictionary *LMVGChannelRow(NSString *identifier) {
     for (NSDictionary *row in LMVChannelTable())

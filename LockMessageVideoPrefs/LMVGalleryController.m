@@ -685,6 +685,9 @@
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
         LMVGPrefSet(@"GlobalEnabled", @(!globalOn));
+        // 5.34: turning the master switch off must cut every channel's audio on
+        // this run-loop turn, not after the cross-process read catches up.
+        if (globalOn) LMVGSilence(nil);
         LMVGNotifyChannel(nil);
         LMVGLightHaptic();
     }]];

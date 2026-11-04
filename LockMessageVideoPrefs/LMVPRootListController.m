@@ -52,6 +52,17 @@ static void LMVNotifyFor(NSString *target) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)name, NULL, NULL, YES);
 }
 static void LMVNotify(void) { LMVNotifyFor(nil); }
+// 5.34: a state-free "stop the sound now". The regular notification makes the tweak
+// read the switch back across processes, and cfprefsd may not have delivered the
+// new value yet, so the pause was skipped for up to a second. This one is only ever
+// posted while turning something OFF, so the receiver can silence without asking.
+static void LMVPostSilence(NSString *target) {
+    NSString *name = target.length
+        ? [@"com.minis.lockmessagevideo/silence." stringByAppendingString:target]
+        : @"com.minis.lockmessagevideo/silence";
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         (__bridge CFStringRef)name, NULL, NULL, YES);
+}
 // A switch/slider row carries a key like "GSBackgroundEnabled"; the channel id is the
 // prefix. Anything that does not match falls back to the global write, which is always
 // safe - it just costs the full sweep.
@@ -764,9 +775,16 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)setEnabled:(id)value specifier:(PSSpecifier *)specifier {
-    CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
-    LMVNotifyFor(LMVTargetForPrefKey([specifier propertyForKey:@"key"]));
+    BOOL on = [value boolValue];
     NSString *key = [specifier propertyForKey:@"key"];
+    NSString *target = LMVTargetForPrefKey(key);
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)@(on), kLMVPrefsID);
+    LMVNotifyFor(target);
+    // 5.34: switching a channel, its sound or the master switch OFF must cut the
+    // audio in the same run-loop turn; the state-carrying notification alone left a
+    // ~1s tail. Posted after the write + synchronize so it can never race.
+    if (!on && [key isEqualToString:@"GlobalEnabled"]) LMVPostSilence(nil);
+    else if (!on && ([key hasSuffix:@"BackgroundEnabled"] || [key hasSuffix:@"SoundEnabled"])) LMVPostSilence(target);
     // 5.32: the channel switch also decides which rows exist, so the list has to
     // be rebuilt - a row cannot be shown or hidden without it.
     if ([key hasSuffix:@"BackgroundEnabled"]) {

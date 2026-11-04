@@ -447,10 +447,13 @@ class UISectionOrder(unittest.TestCase):
         # height function and the header font hook are new code and touch no
         # handler, so they are stripped here; the frozen digest keeps guarding the
         # routing that predates the redesign.
+        # 5.34: -setEnabled: now posts a state-free silence notification before the
+        # row rebuild (helper added above it). Same keys, same routing, one extra
+        # Darwin post; the digest is refreshed for that intentional addition only.
         style_start = old_handlers.index('// 5.28: the settings list is a card list now')
         style_end = old_handlers.index('- (void)paintMaterialName:', style_start)
         old_handlers = old_handlers[:style_start] + old_handlers[style_end:]
-        self.assertEqual(digest(old_handlers), 'dd90968e91f4cab1f5155d2091144e33d30866e45b7a8befd9b08294c04ea74b')
+        self.assertEqual(digest(old_handlers), '4e72236227fc2d6544b885c642bafac8259485ef3bff18793aa380496e527d4c')
         # 4.2.0: the six per-channel wrappers are one shared method that reads the
         # target from the row id, so there is no per-channel handler to assert any more.
         self.assertIn('- (void)switchTargetFromRow:(PSSpecifier *)specifier {', SETTINGS)
