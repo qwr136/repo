@@ -55,7 +55,7 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
-          make THEOS="$HOME/theos" THEOS_MAKE_PATH="$HOME/theos/makefiles" FINALPACKAGE=1
+          make THEOS="$HOME/theos" THEOS_MAKE_PATH="$HOME/theos/makefiles" FINALPACKAGE=1 package
           find . -name "*.deb" -print
 
       - name: Upload
