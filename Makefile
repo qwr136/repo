@@ -25,3 +25,11 @@ LockMessageVideoPrefs_PRIVATE_FRAMEWORKS = Preferences
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk
+
+# 5.34: Linux Theos writes cpusubtype 0x2 for arm64e while the code it emits is
+# already ptrauth ABI v1; dyld then rejects the slice on A12+. Restore the bit
+# before packaging. Idempotent, and a no-op on the macOS toolchain.
+before-package::
+	@python3 tools/fix-arm64e.py \
+		"$(THEOS_STAGING_DIR)/Library/MobileSubstrate/DynamicLibraries/LockMessageVideo.dylib" \
+		"$(THEOS_STAGING_DIR)/Library/PreferenceBundles/LockMessageVideoPrefs.bundle/LockMessageVideoPrefs"
