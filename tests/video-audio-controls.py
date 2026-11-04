@@ -274,6 +274,11 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 // real -specifiers body, so the selector is declared and stubbed here - the
 // routing this test guards is unchanged.
 - (void)applyPanelAppearance;
+// 5.32: the list is rebuilt in place when a channel switch changes, and the
+// fixture compiles the builder body rather than -specifiers itself.
+- (NSArray *)specifiers;
+- (void)lmvp_buildSpecifiers;
+- (void)lmvp_rebuildSpecifiers;
 @end
 @implementation LMVPRootListController
 - (void)reloadSpecifier:(id)s animated:(BOOL)a {self.reloads++;}
