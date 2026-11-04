@@ -55,9 +55,9 @@ assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLog
 assert 'if (section == LMVEasterATSection()) return 4;' in panel
 assert 'if (section == LMVEasterATSection()) return @"AppTools背景";' in panel
 at_cells = panel[panel.index('if (index.section == LMVEasterATSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
-assert 'cell.textLabel.text = @"AppTools背景";' in at_cells and 'cell.textLabel.text = @"切换素材";' in at_cells
+assert 'cell.textLabel.text = @"启用AppTools背景";' in at_cells and 'LMVEasterStyleMaterialCell(cell' in at_cells
 assert 'toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];' in at_cells
-assert 'id selected = LMVEasterRead(@"ATVideo");' in at_cells, 'the panel material row reads its own key'
+assert 'if (index.section == LMVEasterATSection()) {' in at_cells, 'the panel keeps its own AT branch'
 mapping = body(panel, 'static NSString *LMVEasterAudioTarget(')
 assert '(row == 2 || row == 3)) return @"AT";' in mapping
 assert 'else if (toggle.tag == LMVEasterATSection()) key = @"ATBackgroundEnabled";' in panel

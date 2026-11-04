@@ -153,9 +153,9 @@ assert 'static NSInteger LMVEasterDisplaySection(void) { return LMVEasterCopyLog
 assert 'if (section == LMVEasterCVSection()) return 4;' in panel
 assert 'if (section == LMVEasterCVSection()) return @"CopyVault背景";' in panel
 cv_cells = panel[panel.index('if (index.section == LMVEasterCVSection()) {'):panel.index('if (index.section == LMVEasterControlCenterSection()) {')]
-assert 'cell.textLabel.text = @"CopyVault背景";' in cv_cells and 'cell.textLabel.text = @"切换素材";' in cv_cells
+assert 'cell.textLabel.text = @"启用CopyVault背景";' in cv_cells and 'LMVEasterStyleMaterialCell(cell' in cv_cells
 assert 'toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];' in cv_cells
-assert 'id selected = LMVEasterRead(@"CVVideo");' in cv_cells, 'the panel material row reads its own key'
+assert 'if (index.section == LMVEasterCVSection()) {' in cv_cells, 'the panel keeps its own CV branch'
 assert '(row == 2 || row == 3)) return @"CV";' in panel
 assert 'else if (toggle.tag == LMVEasterCVSection()) key = @"CVBackgroundEnabled";' in panel
 selection = panel[panel.index('- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:'):]

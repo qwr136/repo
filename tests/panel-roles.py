@@ -42,7 +42,7 @@ assert len(targets) + 5 == 10  # Existing eight sections + HomeMenu + image disp
 assert re.search(r'numberOfSectionsInTableView:.*?return LMVEasterImportSection\(\) \+ 1;', video) is not None
 assert 'LMVEasterControlCenterSection() + 1' in video and 'LMVEasterOpacitySection() + 1' in video
 assert 'LMVEasterImportSection() + 1' in video and 'LMVEasterHomeMenuSection() + 1' in video
-assert 'section >= 0 && section < LMVEasterTargets().count) return 4' in video
+assert 'section >= 0 && section < (NSInteger)LMVEasterTargets().count) return 4' in video
 assert 'section == LMVEasterControlCenterSection()) return 7' in video
 assert 'section == LMVEasterHomeMenuSection()) return 4' in video
 assert 'LMVEasterAudioTarget(index.section, index.row)' in video
@@ -57,7 +57,7 @@ assert 'toggle.tag > LMVEasterOpacitySection()' in video
 assert 'else if (toggle.tag == LMVEasterHomeMenuSection()) key = @"HomeMenuBackgroundEnabled";' in video
 assert 'else if (toggle.tag < LMVEasterTargets().count)' in video and 'else return;' in video
 assert 'toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];' in video
-assert 'id selected = LMVEasterRead(@"HomeMenuVideo");' in video
+assert 'if (index.section == LMVEasterHomeMenuSection()) {' in video
 assert 'key = @"HomeMenuVideo";' in video and '切换素材' in video
 assert 'toggle.tag == LMVEasterControlCenterSection()' in video
 assert 'if (index.section == LMVEasterImportSection())' in video

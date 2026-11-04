@@ -22,6 +22,7 @@ static inline void LMVSchedule(NSString *name, NSTimeInterval interval, void (^b
 #import "LMVEasterPhotoFlow.h"
 #import "LMVEasterImageSettings.h"
 #import "LMVStepperControl.h"
+#import "LMVPanelRowCell.h"
 #import "LockMessageVideoPrefs/LMVPPanelStyle.h"
 #import "LockMessageVideoPrefs/LMVMaterialPicker.h"
 #import "LockMessageVideoPrefs/LMVChannels.h"
@@ -221,6 +222,8 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     [super viewDidLoad]; self.title = @"背景视频";
     self.tableView.sectionHeaderHeight = 26;
     self.tableView.sectionFooterHeight = 6;
+    // 5.32: the settings page groups rows by whitespace, not by hairlines.
+    self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     [self pinBarInset:YES];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(finish)];
@@ -323,7 +326,9 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return LMVEasterImportSection() + 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section >= 0 && section < LMVEasterTargets().count) return 4;
+    // 5.32: disabled channel -> only the enable row stays.
+    if (LMVEasterSectionEnableKey(section) && !LMVEasterSectionExpanded(section)) return 1;
+    if (section >= 0 && section < (NSInteger)LMVEasterTargets().count) return 4;
     if (section == LMVEasterControlCenterSection()) return 7;
     if (section == LMVEasterHomeMenuSection()) return 4;
     if (section == LMVEasterSquidPanelSection()) return 4;
@@ -337,9 +342,12 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
     return section == LMVEasterImportSection() || section == LMVEasterDisplaySection() ? 1 : 2;
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)index {
-    // 5.31: the egg panel now uses the same two-line row grid as the settings
-    // page: 66 with a subtitle line, 52 without.
-    return index.row > 0 ? LMVPPanelTallRowHeight : LMVPPanelRowHeight;
+    // 5.32: every channel row now carries a subtitle line (enable / material /
+    // sound / volume), so the whole group is on the 66pt grid. Sections without a
+    // subtitle (display, import) stay at 52.
+    NSString *key = LMVEasterSectionEnableKey(index.section);
+    if (key) return LMVPPanelTallRowHeight;
+    return LMVPPanelRowHeight;
 }
 - (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
     if (![view isKindOfClass:UITableViewHeaderFooterView.class]) return;
@@ -375,28 +383,65 @@ static void LMVEasterPanelChanged(CFNotificationCenterRef center, void *observer
 }
 // 5.1.3: one reusable row. Every branch below rebuilds its own accessory and
 // content, so the cell object is reused while the per-row setup stays untouched.
+// 5.32: the panel rows now use the same skeleton as the settings page
+// (LMVPanelRowCell) instead of a stock subtitle cell, so the title and the
+// subtitle sit together and the control lines up with the title.
 static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     static NSString *identifier=@"LMVEasterPanelRow";
     UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:identifier];
-    if(!cell) cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
+    if(![cell isKindOfClass:LMVPanelRowCell.class])
+        cell=[[LMVPanelRowCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
     cell.accessoryView=nil;
     cell.accessoryType=UITableViewCellAccessoryNone;
     cell.textLabel.text=nil; cell.detailTextLabel.text=nil;
     // 5.1.8: the import row is the only one that sets an image, and reuse carried that
     // download icon onto every later row (sound switches, material rows) - a visible bug.
     cell.imageView.image=nil;
-    cell.textLabel.numberOfLines=1; cell.detailTextLabel.numberOfLines=1;
-    // 5.31: 17pt title over a 13pt grey subtitle, split 16pt in - the same type
-    // and separator grid the settings page uses.
-    cell.textLabel.font=LMVPPanelTitleFont();
-    cell.detailTextLabel.font=LMVPPanelSubtitleFont();
-    cell.detailTextLabel.textColor=UIColor.secondaryLabelColor;
-    cell.separatorInset=UIEdgeInsetsMake(0, LMVPPanelSideInset, 0, 0);
     cell.selectionStyle=UITableViewCellSelectionStyleDefault;
     cell.userInteractionEnabled=YES;
     // Copy: removeFromSuperview mutates the array being enumerated.
     for(UIView *view in [cell.contentView.subviews copy])[view removeFromSuperview];
     return cell;
+}
+
+// 5.32: a channel group only shows its children while that channel is enabled.
+// The rows below "启用 XXX" (material / sound / volume) are meaningless when the
+// video background itself is off, so they collapse to the single switch row.
+static NSString *LMVEasterSectionEnableKey(NSInteger section) {
+    if (section >= 0 && section < (NSInteger)LMVEasterTargets().count)
+        return [LMVEasterTargets()[section] stringByAppendingString:@"BackgroundEnabled"];
+    if (section == LMVEasterControlCenterSection()) return @"ControlCenterBackgroundEnabled";
+    if (section == LMVEasterHomeMenuSection()) return @"HomeMenuBackgroundEnabled";
+    if (section == LMVEasterSquidPanelSection()) return @"SquidPanelBackgroundEnabled";
+    if (section == LMVEasterATSection()) return @"ATBackgroundEnabled";
+    if (section == LMVEasterCVSection()) return @"CVBackgroundEnabled";
+    if (section == LMVEasterMyrtleSection()) return @"MyrtleBackgroundEnabled";
+    if (section == LMVEasterPhoneAssistSection()) return @"PABackgroundEnabled";
+    if (section == LMVEasterGlassSuiteSection()) return @"GSBackgroundEnabled";
+    if (section == LMVEasterCCBorderSection()) return @"CCBorderBackgroundEnabled";
+    if (section == LMVEasterCopyLogXSection()) return @"CopyLogXBackgroundEnabled";
+    return nil;
+}
+// 5.32: 素材行和设置面板同文案同排版：标题「切换素材」，副标题是操作提示，
+// 右侧放素材数量，不摆箭头。
+static void LMVEasterStyleMaterialCell(UITableViewCell *cell, NSUInteger count) {
+    cell.textLabel.text = @"切换素材";
+    cell.detailTextLabel.text = @"点击选择要使用的视频";
+    cell.accessoryType = UITableViewCellAccessoryNone;
+    if (count == 0) { cell.accessoryView = nil; return; }
+    UILabel *badge = [UILabel new];
+    badge.font = LMVPPanelTitleFont();
+    badge.textColor = UIColor.secondaryLabelColor;
+    badge.text = [NSString stringWithFormat:@"%lu", (unsigned long)count];
+    [badge sizeToFit];
+    cell.accessoryView = badge;
+}
+
+static BOOL LMVEasterSectionExpanded(NSInteger section) {
+    NSString *key = LMVEasterSectionEnableKey(section);
+    if (!key) return YES;   // display / opacity / import carry no enable switch
+    id value = LMVEasterRead(key);
+    return [value isKindOfClass:NSNumber.class] ? [value boolValue] : NO;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
     UITableViewCell *cell = LMVEasterPanelReusableCell(tableView);
@@ -406,6 +451,7 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
         NSInteger tag = [LMVEasterAudioTargets() indexOfObject:audioTarget];
         if (!LMVEasterAudioVolumeRow(index.section, index.row)) {
             cell.textLabel.text = @"播放声音";
+            cell.detailTextLabel.text = @"播放视频自带的音轨";
             UISwitch *toggle = [UISwitch new]; toggle.tag = tag; toggle.on = LMVEasterAudioEnabled(audioTarget);
             [toggle addTarget:self action:@selector(soundChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
@@ -421,7 +467,7 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
             stepper.enabled = LMVEasterAudioEnabled(audioTarget);
             stepper.accessibilityLabel = @"声音音量";
             stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
-            cell.textLabel.text = [NSString stringWithFormat:@"音量 (%@)", stepper.accessibilityValue];
+            cell.textLabel.text = [NSString stringWithFormat:@"声音音量 (%@)", stepper.accessibilityValue];
             cell.detailTextLabel.text = @"点按加减，按住连续调整";
             [stepper addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = stepper;
@@ -439,124 +485,108 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     }
     if (index.section == LMVEasterHomeMenuSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"长按菜单背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用长按菜单背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterHomeMenuSection();
             toggle.on = [LMVEasterRead(@"HomeMenuBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"HomeMenuVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     if (index.section == LMVEasterSquidPanelSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"SquidGesture Pro背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用SquidGesture Pro背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterSquidPanelSection();
             toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
             // 1.63: 四个手势面板（右一/右二/左一/左二）共用同一个视频素材
-            cell.textLabel.text = @"切换视频"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"SquidPanelVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     if (index.section == LMVEasterATSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"AppTools背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用AppTools背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterATSection();
             toggle.on = [LMVEasterRead(@"ATBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"ATVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     if (index.section == LMVEasterCVSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"CopyVault背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用CopyVault背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCVSection();
             toggle.on = [LMVEasterRead(@"CVBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; cell.accessoryView = nil;
-            id selected = LMVEasterRead(@"CVVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     if (index.section == LMVEasterMyrtleSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"Myrtle背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用Myrtle背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterMyrtleSection();
             toggle.on = [LMVEasterRead(@"MyrtleBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"MyrtleVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     if (index.section == LMVEasterPhoneAssistSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"电话助手背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用电话助手背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterPhoneAssistSection();
             toggle.on = [LMVEasterRead(@"PABackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"PAVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     // 2.30: CCBorder section - switch / material / sound / volume / debug size.
     if (index.section == LMVEasterCCBorderSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"CCBorder背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用CCBorder背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCCBorderSection();
             toggle.on = [LMVEasterRead(@"CCBorderBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"CCBorderVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     // 2.32: CopyLogX section - switch / material / sound / volume.
     if (index.section == LMVEasterCopyLogXSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"CopyLogX背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用CopyLogX背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterCopyLogXSection();
             toggle.on = [LMVEasterRead(@"CopyLogXBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"CopyLogXVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
@@ -564,33 +594,27 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     // No text-colour row here: that one stays in Settings, as the user asked.
     if (index.section == LMVEasterGlassSuiteSection()) {
         if (index.row == 0) {
-            cell.textLabel.text = @"GlassSuiteX背景"; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cell.textLabel.text = @"启用GlassSuiteX背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterGlassSuiteSection();
             toggle.on = [LMVEasterRead(@"GSBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else if (index.row == 1) {
-            cell.textLabel.text = @"切换素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(@"GSVideo");
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+            LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
     if (index.section == LMVEasterControlCenterSection()) {
         if (index.row == 0) {
             cell.textLabel.text = @"启用控制中心背景";
+            cell.detailTextLabel.text = @"开启后使用所选素材";
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = [UISwitch new]; toggle.tag = LMVEasterControlCenterSection();
             toggle.on = [LMVEasterRead(@"ControlCenterBackgroundEnabled") boolValue];
             [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = index.row == 1 ? @"切换素材" : @"切换素材";
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            id selected = LMVEasterRead(LMVEasterControlCenterKey(index.row));
-            NSString *relative = [selected isKindOfClass:NSString.class] ? selected : @"";
-            cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.row == 1 ? 0 : 1) : @"未选择";
-            cell.detailTextLabel.numberOfLines = 2;
+LMVEasterStyleMaterialCell(cell, self.names.count);
         }
         return cell;
     }
@@ -619,17 +643,13 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     }
     NSString *target = LMVEasterTargets()[index.section];
     if (index.row == 0) {
-        cell.textLabel.text = @"启用";
+        cell.textLabel.text = [NSString stringWithFormat:@"启用%@", LMVEasterTitles()[index.section]];
+        cell.detailTextLabel.text = @"开启后使用所选素材";
         UISwitch *toggle = [UISwitch new]; toggle.tag = index.section;
         toggle.on = [LMVEasterRead([target stringByAppendingString:@"BackgroundEnabled"]) boolValue];
         [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
     } else {
-        cell.textLabel.text = @"选择素材"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        id selected = LMVEasterRead([target stringByAppendingString:@"Video"]);
-        NSDictionary *legacy = LMVChannelLegacyDefaults();
-        NSString *relative = [selected isKindOfClass:NSString.class] ? selected : legacy[target];
-        cell.detailTextLabel.text = relative.length ? LMVMaterialDisplayName(relative, self.names ?: @{}, @{}, index.section) : @"未选择";
-        cell.detailTextLabel.numberOfLines = 2;
+        LMVEasterStyleMaterialCell(cell, self.names.count);
     }
     return cell;
 }
@@ -650,6 +670,11 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
+    // 5.32: expand or collapse the rest of the group under the switch.
+    if ([key hasSuffix:@"BackgroundEnabled"]) {
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:toggle.tag]
+                      withRowAnimation:UITableViewRowAnimationFade];
+    }
 }
 - (void)soundChanged:(UISwitch *)toggle {
     NSString *target = LMVEasterAudioTargetForTag(toggle.tag);

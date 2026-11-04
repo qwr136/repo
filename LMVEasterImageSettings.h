@@ -1,5 +1,6 @@
 #pragma once
 #import "LMVStepperControl.h"
+#import "LMVPanelRowCell.h"
 #import "LockMessageVideoPrefs/LMVPPanelStyle.h"
 #import <PhotosUI/PhotosUI.h>
 #import "LMVEasterMedia.h"
@@ -148,7 +149,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     return LMVPPanelTallRowHeight;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    UITableViewCell *cell = [[LMVPanelRowCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     if (index.section == LMVEasterImageDisplaySection()) {
         NSString *key = LMVEasterImageDisplayKeys()[index.row];
         cell.textLabel.text = LMVEasterImageDisplayTitles()[index.row]; cell.selectionStyle = UITableViewCellSelectionStyleNone;

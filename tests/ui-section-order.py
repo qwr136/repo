@@ -38,7 +38,7 @@ class UISectionOrder(unittest.TestCase):
         self.assertEqual(actual, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])
         total = re.search(r'numberOfSectionsInTableView:.*?\{ return (LMVEaster\w+Section)\(\) \+ 1;', PANEL).group(1)
         self.assertEqual(section(total) + 1, 18)
-        for line in ['if (section >= 0 && section < LMVEasterTargets().count) return 4;',
+        for line in ['if (section >= 0 && section < (NSInteger)LMVEasterTargets().count) return 4;',
                      'if (section == LMVEasterControlCenterSection()) return 7;',
                      'if (section == LMVEasterHomeMenuSection()) return 4;',
                      'if (section == LMVEasterSquidPanelSection()) return 4;',
@@ -174,11 +174,11 @@ class UISectionOrder(unittest.TestCase):
         old_cells = old_cells.replace('index.row == 1 ? 0 : 1)', 'index.row - 1)')
         # 4.3.9: channel display names changed (text only; layout and routing are
         # unchanged), so the frozen cell digest is refreshed for this rename.
-        # 5.31: the opacity row is a -/+ stepper now, so its cell text changed
-        # (title carries the value, subtitle explains the range). The block is
-        # inside the hashed window because it is an original cell; every other
-        # cell and every routing branch still hashes to the same shape.
-        self.assertEqual(digest(old_cells), 'bb0f7335137b52e3eee359e61b51efee0a0e0ee1296718005b30689d307de1dd')
+        # 5.32: every channel row now follows the settings page wording (启用XXX背景 /
+        # 声音音量 / 点击选择要使用的视频) and material rows go through one helper.
+        # Text and layout only - no key, tag or route moved, which the routing hash
+        # below still proves.
+        self.assertEqual(digest(old_cells), 'd5b8467f6bedfd359a31da8833c397fe848e853e1936cceaebd3379e7b33de3a')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;
@@ -450,7 +450,7 @@ class UISectionOrder(unittest.TestCase):
         style_start = old_handlers.index('// 5.28: the settings list is a card list now')
         style_end = old_handlers.index('- (void)paintMaterialName:', style_start)
         old_handlers = old_handlers[:style_start] + old_handlers[style_end:]
-        self.assertEqual(digest(old_handlers), '5c178495950542402f58ced1293bfd0698cfcaaf70ea16cba33d7ebed9312e22')
+        self.assertEqual(digest(old_handlers), 'dd90968e91f4cab1f5155d2091144e33d30866e45b7a8befd9b08294c04ea74b')
         # 4.2.0: the six per-channel wrappers are one shared method that reads the
         # target from the row id, so there is no per-channel handler to assert any more.
         self.assertIn('- (void)switchTargetFromRow:(PSSpecifier *)specifier {', SETTINGS)

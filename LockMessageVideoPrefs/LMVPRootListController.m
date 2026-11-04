@@ -230,8 +230,23 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     [_specifiers addObject:volume];
 }
 - (NSArray *)specifiers {
-    if (_specifiers) return _specifiers;
-    _specifiers = [NSMutableArray new];
+    if (!_specifiers) {
+        _specifiers = [NSMutableArray new];
+        [self lmvp_buildSpecifiers];
+    }
+    return _specifiers;
+}
+
+// 5.32: the channel switch decides which rows exist, so the list is rebuilt in
+// place. removeAllObjects keeps the same array object alive - PSListController
+// holds a reference to it, and replacing the pointer would leave it dangling.
+- (void)lmvp_rebuildSpecifiers {
+    [_specifiers removeAllObjects];
+    [self lmvp_buildSpecifiers];
+    [self reloadSpecifiers];
+}
+
+- (void)lmvp_buildSpecifiers {
     // 0.0.114: the master switch sits at the very top. It gates every channel
     // (five targets, control centre, desktop, home-menu and the floating egg).
     // Its stored default is ON and an absent key reads as ON in the tweak, so
@@ -250,6 +265,9 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
         [enabled setProperty:[LMVSectionTargets()[i] stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
         [enabled setProperty:@NO forKey:@"default"];
         [_specifiers addObject:enabled];
+        // 5.32: a disabled channel keeps only its switch - material, sound and
+        // volume have nothing to act on while the background itself is off.
+        if (![[self enabled:enabled] boolValue]) continue;
         PSSpecifier *choose = [PSSpecifier preferenceSpecifierNamed:titles[i] target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
         choose.buttonAction = @selector(switchTargetFromRow:);
         // 2.47: these five rows and the two control-centre rows never carried an id, so
@@ -268,6 +286,8 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     [controlCenterEnabled setProperty:@"ControlCenterBackgroundEnabled" forKey:@"key"];
     [controlCenterEnabled setProperty:@NO forKey:@"default"];
     [_specifiers addObject:controlCenterEnabled];
+    BOOL controlCenterOn = [[self enabled:controlCenterEnabled] boolValue];
+    if (controlCenterOn) {
     PSSpecifier *controlCenterDark = [PSSpecifier preferenceSpecifierNamed:@"切换素材" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
     controlCenterDark.buttonAction = @selector(switchTargetFromRow:);
     [controlCenterDark setProperty:@"ControlCenterDarkMaterial" forKey:@"id"];
@@ -278,6 +298,7 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     [controlCenterLight setProperty:@"ControlCenterLightMaterial" forKey:@"id"];
     [_specifiers addObject:controlCenterLight];
     [self appendAudioForTarget:@"ControlCenterLight" title:@"浅色模式"];
+    }
     // 4.2.0: every channel below the control-centre block is generated from the
     // table. It used to be nine hand-written blocks of eight lines each; the only
     // differences were the title, whether the channel carries a text-colour row and
@@ -294,6 +315,7 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
         [enabled setProperty:[target stringByAppendingString:@"BackgroundEnabled"] forKey:@"key"];
         [enabled setProperty:@NO forKey:@"default"];
         [_specifiers addObject:enabled];
+        if (![[self enabled:enabled] boolValue]) continue;
         [_specifiers addObject:[self materialRowForTarget:target]];
         if ([row[@"audio"] boolValue]) [self appendAudioForTarget:target title:@"播放"];
         NSString *colourID = row[@"textColor"];
@@ -367,7 +389,6 @@ static NSString *LMVTargetForPrefKey(NSString *key) {
     // setter and getter exactly as before; this pass adds the cell class, the
     // subtitle and the control kind the new row layout needs.
     [self applyPanelAppearance];
-    return _specifiers;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     PSSpecifier *row = [self specifierAtIndexPath:indexPath];
@@ -746,6 +767,12 @@ static NSString *LMVTextColorSummary(UIColor *color) {
     CFPreferencesSetAppValue((__bridge CFStringRef)[specifier propertyForKey:@"key"], (__bridge CFPropertyListRef)@([value boolValue]), kLMVPrefsID);
     LMVNotifyFor(LMVTargetForPrefKey([specifier propertyForKey:@"key"]));
     NSString *key = [specifier propertyForKey:@"key"];
+    // 5.32: the channel switch also decides which rows exist, so the list has to
+    // be rebuilt - a row cannot be shown or hidden without it.
+    if ([key hasSuffix:@"BackgroundEnabled"]) {
+        [self lmvp_rebuildSpecifiers];
+        return;
+    }
     NSString *sliderKey = [key isEqualToString:@"VideoOpacityEnabled"] ? @"VideoOpacity" : [specifier propertyForKey:@"audioVolumeKey"];
     if (sliderKey) {
         for (PSSpecifier *slider in _specifiers) {

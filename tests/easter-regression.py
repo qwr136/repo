@@ -144,7 +144,7 @@ assert 'LMVEasterTargets' not in image and 'VideoOpacity' not in image
 assert 'EasterEggSize' in image and 'LMVEasterSize()' in overlay and 'LMVEasterBoundedSize' in (root / 'LMVEasterGeometry.h').read_text()
 assert 'VideoOpacityEnabled' in panel and 'opacityChanged:' in panel
 assert 'pushViewController:picker' in panel and 'picker.pushed = YES' in panel
-assert 'LMVMaterialDisplayName(relative' in panel
+assert 'LMVEasterStyleMaterialCell(cell' in panel
 assert '@[@"在通知中心显示小彩蛋", @"在控制中心显示小彩蛋", @"在桌面显示小彩蛋"]' in image
 assert 'static NSArray<NSNumber *> *LMVEasterImageDisplayDefaults(void) { return @[@YES, @YES, @YES]; }' in image
 assert 'return [value isKindOfClass:NSNumber.class] ? [value boolValue] : fallback;' in image

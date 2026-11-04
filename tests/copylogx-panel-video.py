@@ -134,7 +134,7 @@ assert 'static NSInteger LMVEasterCopyLogXSection(void) { return LMVEasterCCBord
 assert 'if (section == LMVEasterCopyLogXSection()) return 4;' in panel
 assert 'if (section == LMVEasterCopyLogXSection()) return @"CopyLogX背景";' in panel
 assert 'toggle.on = [LMVEasterRead(@"CopyLogXBackgroundEnabled") boolValue];' in panel
-assert 'id selected = LMVEasterRead(@"CopyLogXVideo");' in panel
+assert 'LMVEasterStyleMaterialCell(cell' in panel
 assert 'else if (toggle.tag == LMVEasterCopyLogXSection()) key = @"CopyLogXBackgroundEnabled";' in panel
 assert 'key = @"CopyLogXVideo";' in panel
 assert 'if (section == LMVEasterCopyLogXSection() && (row == 2 || row == 3)) return @"CopyLogX";' in panel

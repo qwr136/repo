@@ -89,7 +89,7 @@ assert 'if (index.row != 1) return;\n        key = @"ATVideo";' in selection
 assert 'index.section >= LMVEasterTargets().count || index.row != 1) return;' in selection
 
 append = body(prefs, '- (void)appendAudioForTarget:')
-specifiers_source = body(prefs, '- (NSArray *)specifiers')
+specifiers_source = body(prefs, '- (void)lmvp_buildSpecifiers')
 # 4.2.0: the generated sections call two row builders that live outside -specifiers,
 # and this fixture compiles that method on its own. Build the same rows inline so the
 # native build sees a real specifier instead of an undeclared selector.

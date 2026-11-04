@@ -430,8 +430,8 @@ assert 'if (section == LMVEasterSquidPanelSection()) return row == 3;' in panel
 assert 'static NSArray *LMVEasterSquidKeys(void) {' not in panel
 assert 'LMVEasterSquidTitles' not in panel
 assert 'toggle.on = [LMVEasterRead(@"SquidPanelBackgroundEnabled") boolValue];' in panel
-assert 'cell.textLabel.text = @"切换视频";' in panel
-assert 'id selected = LMVEasterRead(@"SquidPanelVideo");' in panel
+assert 'LMVEasterStyleMaterialCell(cell' in panel
+assert 'if (index.section == LMVEasterSquidPanelSection()) {' in panel
 # 1.63: all four SquidGesturePro panels share ONE material - the user picks a single
 # "切换视频" and every panel plays it, so the swap/reset/per-shape rows are gone.
 # 1.53: the manual claim is gone - the four panels are worked out by the runtime alone.

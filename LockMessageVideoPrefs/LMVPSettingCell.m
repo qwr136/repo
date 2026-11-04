@@ -288,6 +288,12 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     if (self.panelControl == LMVPPanelControlColor) textWidth = 82.0;
 
     BOOL hasSubtitle = !self.panelSubtitle.hidden;
+    // 5.32: controls sit on the title line, not on the row's vertical centre. In a
+    // 66pt two-line row the centre is the gap between title and subtitle, which is
+    // what made the stepper look dropped by half a line.
+    CGFloat controlCenterY = hasSubtitle
+        ? LMVPPanelTitleTop + LMVPPanelTitleHeight / 2.0
+        : height / 2.0;
     if (hasSubtitle) {
         self.panelTitle.frame = CGRectMake(side, LMVPPanelTitleTop, textWidth, LMVPPanelTitleHeight);
         self.panelSubtitle.frame = CGRectMake(side, LMVPPanelSubtitleTop, textWidth, LMVPPanelSubtitleHeight);
@@ -300,17 +306,17 @@ static void LMVPPanelWriteValue(PSSpecifier *specifier, id value) {
     switch (self.panelControl) {
         case LMVPPanelControlSwitch:
             self.panelSwitch.frame = CGRectMake(width - side - LMVPPanelSwitchWidth,
-                                                (height - 31.0) / 2.0,
+                                                round(controlCenterY - 31.0 / 2.0),
                                                 LMVPPanelSwitchWidth, 31.0);
             break;
         case LMVPPanelControlLink:
             self.panelChevron.frame = CGRectMake(width - side - LMVPPanelChevronWidth,
-                                                 (height - 22.0) / 2.0,
+                                                 round(controlCenterY - 22.0 / 2.0),
                                                  LMVPPanelChevronWidth, 22.0);
             break;
         case LMVPPanelControlStepper:
             self.panelStepper.frame = CGRectMake(width - side - LMVPStepperWidth,
-                                                 (height - LMVPStepperHeight) / 2.0,
+                                                 round(controlCenterY - LMVPStepperHeight / 2.0),
                                                  LMVPStepperWidth, LMVPStepperHeight);
             break;
         default:
