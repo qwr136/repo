@@ -1,7 +1,7 @@
 name: build-linux
 
-# 5.34: 临时通道。macOS runner 排队一直不分配（job 直接 cancelled、无日志），
-# 这条 Linux 流水线用同一套 Theos 与 SDK 出同样的 arm64/arm64e deb。
+# 5.34: 临时通道。macOS runner 一直排队不分配（job 直接 cancelled、无日志），
+# 这条 Linux 流水线用同一套 Theos makefile 与 SDK 出同样的 arm64/arm64e deb。
 on:
   workflow_dispatch:
 
@@ -21,7 +21,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends make clang dpkg fakeroot xz-utils libplist-utils
+          sudo apt-get install -y --no-install-recommends make clang dpkg fakeroot xz-utils libtinfo6 curl git
           sudo apt-get install -y --no-install-recommends ldid || true
 
       - name: Source regression tests
@@ -42,10 +42,10 @@ jobs:
           set -euo pipefail
           git clone --depth=1 https://github.com/roothide/theos "$HOME/theos"
           git -C "$HOME/theos" submodule update --init --recursive --depth=1
-          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks /tmp/sdks
-          git -C /tmp/sdks sparse-checkout set iPhoneOS16.5.sdk
-          mkdir -p "$HOME/theos/sdks"
-          cp -R /tmp/sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
+          curl -sL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz \
+            | tar -xJf - -C "$HOME/theos/toolchain/"
+          test -x "$HOME/theos/toolchain/linux/iphone/bin/clang"
+          "$HOME/theos/bin/install-sdk" 16.5
           test -d "$HOME/theos/sdks/iPhoneOS16.5.sdk"
           test -f "$HOME/theos/vendor/mod/roothide/package/deb.mk"
 
