@@ -399,8 +399,11 @@ static UITableViewCell *LMVEasterPanelReusableCell(UITableView *tableView) {
     cell.imageView.image=nil;
     cell.selectionStyle=UITableViewCellSelectionStyleDefault;
     cell.userInteractionEnabled=YES;
-    // Copy: removeFromSuperview mutates the array being enumerated.
-    for(UIView *view in [cell.contentView.subviews copy])[view removeFromSuperview];
+    // 5.33: this loop used to wipe every subview of contentView, which on a
+    // subtitle cell includes textLabel and detailTextLabel. Once removed they are
+    // never re-added, so every reused row lost its title - the volume rows showed
+    // a bare stepper with no "声音音量" line at all. Only the import icon needed
+    // clearing, and that is handled above by imageView.image=nil.
     return cell;
 }
 
@@ -463,8 +466,11 @@ static BOOL LMVEasterSectionExpanded(NSInteger section) {
                 CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
             stepper.tag = tag;
             stepper.minimumValue = 0; stepper.maximumValue = 100; stepper.stepValue = 1;
-            stepper.value = volume * 100.0;
-            stepper.enabled = LMVEasterAudioEnabled(audioTarget);
+            stepper.value = round(volume * 100.0);
+            // 5.33: the row only reads as a volume row when sound is on, but it is
+            // always tappable. Tying this to SoundEnabled left a grey, dead stepper
+            // whenever the switch sync lagged one run loop behind.
+            stepper.enabled = YES;
             stepper.accessibilityLabel = @"声音音量";
             stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];
             cell.textLabel.text = [NSString stringWithFormat:@"声音音量 (%@)", stepper.accessibilityValue];
@@ -680,15 +686,9 @@ LMVEasterStyleMaterialCell(cell, self.names.count);
     NSString *target = LMVEasterAudioTargetForTag(toggle.tag);
     if (!target) return;
     LMVEasterSetTarget([target stringByAppendingString:@"SoundEnabled"], @(toggle.on), target);
-    // 5.1.8: reloadData rebuilt all eighteen sections - every switch, every slider, every
-    // label - to flip one state. The only row that depends on this flag is the paired
-    // volume slider, so touch just that slider in the visible cells.
-    NSInteger tag = toggle.tag;
-    for (UITableViewCell *cell in self.tableView.visibleCells) {
-        UIView *accessory = cell.accessoryView;
-        if ([accessory isKindOfClass:LMVStepperControl.class] && accessory.tag == tag)
-            ((LMVStepperControl *)accessory).enabled = toggle.on;
-    }
+    // 5.33: the volume row's stepper is always enabled now (see -tableView:
+    // cellForRowAtIndexPath:), so flipping this switch no longer has to walk the
+    // visible cells hunting for a greyed-out control to revive.
 }
 - (void)volumeChanged:(LMVStepperControl *)stepper {
     NSString *target = LMVEasterAudioTargetForTag(stepper.tag);
@@ -707,7 +707,7 @@ LMVEasterStyleMaterialCell(cell, self.names.count);
     for (UIView *view = stepper.superview; view; view = view.superview) {
         if ([view isKindOfClass:UITableViewCell.class]) {
             ((UITableViewCell *)view).textLabel.text =
-                [NSString stringWithFormat:@"音量 (%@)", stepper.accessibilityValue];
+                [NSString stringWithFormat:@"声音音量 (%@)", stepper.accessibilityValue];
             break;
         }
     }

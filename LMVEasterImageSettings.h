@@ -182,7 +182,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             stepper.tag = index.row;
             if (index.row == 1) {
                 CGFloat corner = LMVEasterPanelCornerValue(LMVEasterRead(@"EasterPanelCorner"));
-                cell.textLabel.text = [NSString stringWithFormat:@"窗口圆角 (%.0f pt)", corner];
+                cell.textLabel.text = [NSString stringWithFormat:@"圆角 (%.0f pt)", corner];
                 cell.detailTextLabel.text = @"调整悬浮窗四角弧度";
                 stepper.minimumValue = LMVEasterPanelCornerMin; stepper.maximumValue = LMVEasterPanelCornerMax;
                 stepper.stepValue = 1.0;
@@ -193,7 +193,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
                 BOOL width = index.row == 3;
                 NSString *key = width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale";
                 CGFloat scale = LMVEasterPanelScaleValue(LMVEasterRead(key));
-                cell.textLabel.text = [NSString stringWithFormat:@"%@ (%.0f%%)", width ? @"悬浮窗宽度" : @"悬浮窗高度", scale * 100.0];
+                cell.textLabel.text = [NSString stringWithFormat:@"%@ (%.0f%%)", width ? @"宽度" : @"高度", scale * 100.0];
                 cell.detailTextLabel.text = @"按屏幕对应边长计算";
                 stepper.minimumValue = LMVEasterPanelScaleMin; stepper.maximumValue = LMVEasterPanelScaleMax;
                 stepper.stepValue = 0.01;
@@ -213,8 +213,8 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
             toggle.accessibilityLabel = cell.textLabel.text;
             [toggle addTarget:self action:@selector(rotationChanged:) forControlEvents:UIControlEventValueChanged]; cell.accessoryView = toggle;
         } else {
-            cell.textLabel.text = [NSString stringWithFormat:@"旋转速度 (%.0f 度/秒)", LMVEasterImageRotationSpeed()];
-            cell.detailTextLabel.text = @"调整旋转速度";
+            cell.textLabel.text = [NSString stringWithFormat:@"旋转 (%.0f 度/秒)", LMVEasterImageRotationSpeed()];
+            cell.detailTextLabel.text = @"调整每秒旋转角度";
             LMVStepperControl *stepper = [[LMVStepperControl alloc] initWithFrame:
                 CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
             stepper.minimumValue = 5; stepper.maximumValue = 720; stepper.stepValue = 5;
@@ -285,7 +285,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(720.0, round(raw))) : 45.0;
     LMVEasterSet(@"EasterEggRotationSpeed", @(speed));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImageRotationSection()]];
-    cell.textLabel.text = [NSString stringWithFormat:@"旋转速度 (%.0f 度/秒)", speed];
+    cell.textLabel.text = [NSString stringWithFormat:@"旋转 (%.0f 度/秒)", speed];
 }
 - (void)sizeChanged:(LMVStepperControl *)stepper {
     CGFloat size = MAX(12, MIN(128, round(stepper.value))); LMVEasterSet(@"EasterEggSize", @(size));
@@ -307,7 +307,7 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     CGFloat corner = LMVEasterPanelCornerValue(@(stepper.value));
     LMVEasterSet(@"EasterPanelCorner", @(corner));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImagePanelSection()]];
-    cell.textLabel.text = [NSString stringWithFormat:@"窗口圆角 (%.0f pt)", corner];
+    cell.textLabel.text = [NSString stringWithFormat:@"圆角 (%.0f pt)", corner];
 }
 - (void)panelScaleChanged:(LMVStepperControl *)stepper {
     BOOL width = stepper.tag == 3;

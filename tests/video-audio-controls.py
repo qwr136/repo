@@ -54,7 +54,7 @@ assert '[value isKindOfClass:NSNumber.class] ? [value boolValue] : NO' in helper
 cells = body(panel, '- (UITableViewCell *)tableView:')
 assert cells.index('LMVEasterAudioTarget(index.section, index.row)') < cells.index('LMVEasterHomeMenuSection()')
 for exact in ('[LMVEasterAudioTargets() indexOfObject:audioTarget]', '@selector(soundChanged:)', '@selector(volumeChanged:)',
-              'stepper.enabled = LMVEasterAudioEnabled(audioTarget);', 'stepper.maximumValue = 100;',
+              'stepper.enabled = YES;', 'stepper.maximumValue = 100;',
               'stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", volume * 100.0];'):
     assert exact in cells, exact
 sound = body(panel, '- (void)soundChanged:')
