@@ -1,0 +1,62 @@
+name: build-linux
+
+# 5.34: 临时通道。macOS runner 排队一直不分配（job 直接 cancelled、无日志），
+# 这条 Linux 流水线用同一套 Theos 与 SDK 出同样的 arm64/arm64e deb。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make clang dpkg fakeroot xz-utils libplist-utils
+          sudo apt-get install -y --no-install-recommends ldid || true
+
+      - name: Source regression tests
+        run: |
+          failures=0
+          check() { "$@" || failures=$((failures + 1)); }
+          check python3 tests/video-audio-controls.py
+          check python3 tests/prefs-notifications.py
+          check python3 tests/ui-section-order.py
+          check python3 tests/hot-path-budget.py
+          check python3 tests/easter-regression.py
+          check python3 tests/gallery-panel.py
+          check python3 tests/panel-roles.py
+          test "$failures" -eq 0
+
+      - name: Toolchain
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/roothide/theos "$HOME/theos"
+          git -C "$HOME/theos" submodule update --init --recursive --depth=1
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks /tmp/sdks
+          git -C /tmp/sdks sparse-checkout set iPhoneOS16.5.sdk
+          mkdir -p "$HOME/theos/sdks"
+          cp -R /tmp/sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
+          test -d "$HOME/theos/sdks/iPhoneOS16.5.sdk"
+          test -f "$HOME/theos/vendor/mod/roothide/package/deb.mk"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          make THEOS="$HOME/theos" THEOS_MAKE_PATH="$HOME/theos/makefiles" FINALPACKAGE=1
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: packages/*.deb
+          if-no-files-found: error
