@@ -333,6 +333,10 @@ int main(void) { @autoreleasepool {
   assert(LMVEasterAudioVolume(value)==expected);
  }
  LMVPRootListController *settings=[LMVPRootListController new];
+ // 5.32: a disabled channel collapses to its switch row, so enable every
+ // channel first - this test checks the full list, not the collapsed one.
+ for (NSString *t in targets) store[[t stringByAppendingString:@"BackgroundEnabled"]]=@YES;
+ store[@"ControlCenterBackgroundEnabled"]=@YES;
  NSArray *rows=[settings specifiers];
  assert(rows.count==85);
  NSInteger switches=0,sliders=0;
