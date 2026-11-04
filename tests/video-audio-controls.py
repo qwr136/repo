@@ -279,6 +279,8 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 - (NSArray *)specifiers;
 - (void)lmvp_buildSpecifiers;
 - (void)lmvp_rebuildSpecifiers;
+- (PSSpecifier *)materialRowForTarget:(NSString *)t;
+- (PSSpecifier *)textColorRowWithID:(NSString *)i;
 @end
 @implementation LMVPRootListController
 - (void)reloadSpecifier:(id)s animated:(BOOL)a {self.reloads++;}
@@ -287,6 +289,12 @@ enum { PSGroupCell=0, PSButtonCell=13, PSSwitchCell=6, PSSliderCell=5 };
 // 5.32: the channel switch rebuilds the list; this fixture tests the audio
 // mapping, not the collapse, so the rebuild is a no-op here.
 - (void)lmvp_rebuildSpecifiers {}
+- (NSArray *)specifiers {
+    if (!_specifiers) { _specifiers = [NSMutableArray new]; [self lmvp_buildSpecifiers]; }
+    return _specifiers;
+}
+- (PSSpecifier *)materialRowForTarget:(NSString *)t { (void)t; return nil; }
+- (PSSpecifier *)textColorRowWithID:(NSString *)i { (void)i; return nil; }
 @BUTTONS@
 @PREFS_METHODS@
 @end
@@ -412,8 +420,7 @@ int main(void) { @autoreleasepool {
     _cut = max(i for i, line in enumerate(_lines[:24]) if line.startswith(('#import', '#include', '@class')))
     fixture = '\n'.join(_lines[:_cut + 1] + ['', channels] + _lines[_cut + 1:])
     fixture = fixture.replace('@PANEL_METHODS@', '\n'.join((sound, volume_change, selection_for_fixture)))
-    fixture = fixture.replace('@PREFS_METHODS@', '\n'.join((append, specifiers,
-        body(prefs, '- (void)lmvp_buildSpecifiers'), body(prefs, '- (id)enabled:'), set_enabled, getter, setter)))
+    fixture = fixture.replace('@PREFS_METHODS@', '\n'.join((append, specifiers, body(prefs, '- (id)enabled:'), set_enabled, getter, setter)))
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp).joinpath('LMVPanelCommon.h').write_text(Path(__file__).resolve().parents[1].joinpath('LMVPanelCommon.h').read_text())
         src, binary = Path(tmp)/'audio.m', Path(tmp)/'audio'
