@@ -45,7 +45,10 @@ jobs:
           curl -sL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz \
             | tar -xJf - -C "$HOME/theos/toolchain/"
           test -x "$HOME/theos/toolchain/linux/iphone/bin/clang"
-          "$HOME/theos/bin/install-sdk" 16.5
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks /tmp/sdks
+          git -C /tmp/sdks sparse-checkout set iPhoneOS16.5.sdk
+          mkdir -p "$HOME/theos/sdks"
+          cp -R /tmp/sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
           test -d "$HOME/theos/sdks/iPhoneOS16.5.sdk"
           test -f "$HOME/theos/vendor/mod/roothide/package/deb.mk"
 
