@@ -56,10 +56,13 @@ jobs:
         run: |
           set -euo pipefail
           make THEOS="$HOME/theos" THEOS_MAKE_PATH="$HOME/theos/makefiles" FINALPACKAGE=1
+          find . -name "*.deb" -print
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: packages/*.deb
+          path: |
+            packages/*.deb
+            .theos/packages/*.deb
           if-no-files-found: error
