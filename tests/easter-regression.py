@@ -131,9 +131,15 @@ assert '通知中心、控制中心和桌面默认显示；三项互相独立。
 assert '@[@"EasterEggShowOnNotificationCenter", @"EasterEggShowOnControlCenter", @"EasterEggShowOnDesktop"]' in image
 assert '在锁屏显示小彩蛋' not in image
 assert 'CFNotificationCenterAddObserver' in image and 'CFNotificationCenterRemoveEveryObserver' in image
-assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!page.settingsTracking' in image
+assert 'CFPreferencesAppSynchronize(LMVEasterPrefs)' in image and '!strong.settingsTracking' in image
+# 5.35: the page ignores the echo of its own write so a held stepper keeps its cell.
+assert 'strong.lastLocalWrite' in image and 'self.lastLocalWrite = NSDate.date.timeIntervalSince1970' in image
 assert 'index.section != LMVEasterImageSection() || index.row != 1' in image
 assert 'stepper.minimumValue = 12; stepper.maximumValue = 128' in image
+# 5.35: the floating panel's opacity stepper must follow its switch, both when the
+# row is built and when the switch is flipped.
+assert 'stepper.enabled = opacityOn ? [opacityOn boolValue] : YES' in panel
+assert '[key isEqualToString:@"VideoOpacityEnabled"]' in panel
 # 0.0.117: the live preview is drawn at the real bubble size and both of its
 # size constraints are updated by the slider.
 assert 'previewWidth' in image and 'previewHeight' in image

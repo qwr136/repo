@@ -31,6 +31,9 @@ static CGFloat LMVEasterImageRotationSpeed(void) {
 }
 @interface LMVEasterImageSettings : UITableViewController <PHPickerViewControllerDelegate>
 @property(nonatomic) BOOL busy, settingsTracking, previewVisible, previewCellVisible, previewLoading;
+// 5.35: timestamp of the last write this page made itself; see the notification
+// handler for why the echo of it must not rebuild the table.
+@property(nonatomic) NSTimeInterval lastLocalWrite;
 @property(atomic) NSUInteger importGeneration;
 @property(nonatomic) NSUInteger previewGeneration, previewFrame;
 @property(nonatomic, copy) NSString *previewSelection;
@@ -49,8 +52,16 @@ static CGFloat LMVEasterImageRotationSpeed(void) {
 static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     __weak LMVEasterImageSettings *page = (__bridge LMVEasterImageSettings *)observer;
     dispatch_async(dispatch_get_main_queue(), ^{
+        LMVEasterImageSettings *strong = page;
+        if (!strong) return;
         CFPreferencesAppSynchronize(LMVEasterPrefs);
-        if (page.isViewLoaded && !page.settingsTracking) { [page refreshPreview]; [page.tableView reloadData]; }
+        // 5.35: every row here writes through LMVEasterSet, whose global notification
+        // comes straight back into this handler. reloadData then tore the stepper out
+        // from under the finger after the first step, so a held button never repeated:
+        // the timer belonged to a control that had already left the view tree. Ignore
+        // the echo of our own write while it is still hot - SpringBoard still gets it.
+        if (NSDate.date.timeIntervalSince1970 - strong.lastLocalWrite < 0.5) return;
+        if (strong.isViewLoaded && !strong.settingsTracking) { [strong refreshPreview]; [strong.tableView reloadData]; }
     });
 }
 @implementation LMVEasterImageSettings
@@ -275,19 +286,27 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 }
 - (void)displayChanged:(UISwitch *)toggle {
     if (toggle.tag < 0 || toggle.tag >= LMVEasterImageDisplayKeys().count) return;
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(LMVEasterImageDisplayKeys()[toggle.tag], @(toggle.on));
 }
 - (void)rotationChanged:(UISwitch *)toggle {
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(@"EasterEggRotationEnabled", @(toggle.on)); [self.tableView reloadData];
 }
 - (void)rotationSpeedChanged:(LMVStepperControl *)stepper {
     double raw = stepper.value;
     CGFloat speed = isfinite(raw) ? MAX(5.0, MIN(720.0, round(raw))) : 45.0;
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(@"EasterEggRotationSpeed", @(speed));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImageRotationSection()]];
     cell.textLabel.text = [NSString stringWithFormat:@"旋转 (%.0f 度/秒)", speed];
 }
 - (void)sizeChanged:(LMVStepperControl *)stepper {
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     CGFloat size = MAX(12, MIN(128, round(stepper.value))); LMVEasterSet(@"EasterEggSize", @(size));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:2 inSection:LMVEasterImageSection()]];
     cell.textLabel.text = [NSString stringWithFormat:@"显示大小 (%.0f pt)", size];
@@ -298,13 +317,19 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
 // 0.0.122: floating-panel appearance. Values are clamped by the shared rules, and
 // every change notifies SpringBoard, which re-lays the open panel immediately.
 - (void)panelCornerToggled:(UISwitch *)toggle {
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(@"EasterPanelCornerEnabled", @(toggle.on)); [self.tableView reloadData];
 }
 - (void)panelSizeToggled:(UISwitch *)toggle {
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(@"EasterPanelSizeEnabled", @(toggle.on)); [self.tableView reloadData];
 }
 - (void)panelCornerChanged:(LMVStepperControl *)stepper {
     CGFloat corner = LMVEasterPanelCornerValue(@(stepper.value));
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(@"EasterPanelCorner", @(corner));
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:LMVEasterImagePanelSection()]];
     cell.textLabel.text = [NSString stringWithFormat:@"圆角 (%.0f pt)", corner];
@@ -318,6 +343,8 @@ static void LMVEasterImageSettingsChanged(CFNotificationCenterRef center, void *
     // 1.84: a drag must not resize the floating panel mid-gesture. A stepper has
     // no in-flight gesture - one press is one committed value - so it writes
     // straight away and the open window re-lays itself once per tap.
+    // 5.35: mark the write so its own notification echo is ignored above.
+    self.lastLocalWrite = NSDate.date.timeIntervalSince1970;
     LMVEasterSet(width ? @"EasterPanelWidthScale" : @"EasterPanelHeightScale", @(scale));
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)index {

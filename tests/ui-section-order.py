@@ -178,7 +178,10 @@ class UISectionOrder(unittest.TestCase):
         # 声音音量 / 点击选择要使用的视频) and material rows go through one helper.
         # Text and layout only - no key, tag or route moved, which the routing hash
         # below still proves.
-        self.assertEqual(digest(old_cells), 'd5b8467f6bedfd359a31da8833c397fe848e853e1936cceaebd3379e7b33de3a')
+        # 5.35: the floating panel's opacity stepper now reads VideoOpacityEnabled
+        # and is greyed out while that switch is off. One added -enabled line; no
+        # key, tag, cell class or route moved.
+        self.assertEqual(digest(old_cells), '61f833312eb1f681171ac5533a381fe96af6b4ee18bd045d5d87b5069bd223df')
         # Same for the routing: the AT branch is dropped before hashing.
         selection_for_digest = selection.replace('''    } else if (index.section == LMVEasterATSection()) {
         if (index.row != 1) return;

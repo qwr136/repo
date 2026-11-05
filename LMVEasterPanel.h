@@ -638,6 +638,10 @@ LMVEasterStyleMaterialCell(cell, self.names.count);
                 CGRectMake(0, 0, LMVPStepperWidth, LMVPStepperHeight)];
             stepper.minimumValue = 0; stepper.maximumValue = 100; stepper.stepValue = 1;
             stepper.value = opacity * 100.0;
+            // 5.35: the switch above governs this row. Without this it stayed tappable
+            // while "启用视频透明度" was off and wrote a value nothing was using.
+            id opacityOn = LMVEasterRead(@"VideoOpacityEnabled");
+            stepper.enabled = opacityOn ? [opacityOn boolValue] : YES;
             stepper.accessibilityLabel = @"视频透明度";
             stepper.accessibilityValue = [NSString stringWithFormat:@"%.0f%%", opacity * 100.0];
             cell.textLabel.text = [NSString stringWithFormat:@"视频透明度 (%@)", stepper.accessibilityValue];
@@ -676,6 +680,13 @@ LMVEasterStyleMaterialCell(cell, self.names.count);
     else if (toggle.tag < LMVEasterTargets().count) key = [LMVEasterTargets()[toggle.tag] stringByAppendingString:@"BackgroundEnabled"];
     else return;
     LMVEasterSet(key, @(toggle.on));
+    // 5.35: this switch owns the stepper right under it, so the row has to be
+    // rebuilt for the control to pick up the new -enabled state.
+    if ([key isEqualToString:@"VideoOpacityEnabled"]) {
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:toggle.tag]
+                      withRowAnimation:UITableViewRowAnimationFade];
+        return;
+    }
     // 5.32: expand or collapse the rest of the group under the switch.
     if ([key hasSuffix:@"BackgroundEnabled"]) {
         [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:toggle.tag]
