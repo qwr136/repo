@@ -417,6 +417,9 @@ int main(void) { @autoreleasepool {
                          if not line.startswith('#import') and not line.startswith('#pragma'))
     actual_helpers = helpers + '\n' + body(prefs, 'static NSArray<NSString *> *LMVSectionTargets(') + '\n' + body(prefs, 'static NSArray<NSString *> *LMVNames(')
     actual_helpers += '\n' + body(prefs, 'static void LMVNotifyFor(') + '\n' + body(prefs, 'static NSString *LMVTargetForPrefKey(')
+    # 5.34: turning a switch off now posts a state-free silence notification from
+    # -setEnabled:, so the fixture must carry that helper as well.
+    actual_helpers += '\n' + body(prefs, 'static void LMVPostSilence(')
     # The table must precede every fixture function that reads it, but after the
     # system imports (otherwise NSArray is not defined yet).
     fixture = fixture.replace('@HELPERS@', actual_helpers).replace('@BUTTONS@', button_methods)
